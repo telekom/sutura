@@ -290,8 +290,10 @@ back through `Endpoints::discover`, so there is exactly one door and no second s
 
 **It MERGES.** Every entry it writes is marked `Provisioner::Docker` and every other entry in
 the document is left byte for byte as it was, keys this writer does not understand included -
-`github.com/telekom/sutura#317`. `project` and `root` are the exception, because they are facts
-about the worktree rather than about a provisioner and both writers run in one tree.
+`github.com/telekom/sutura#317`. `project` is the one exception, because it is a fact about the
+worktree rather than about a provisioner and both writers run in one tree - and it is the ONLY
+document-level key either writer sets, which is the shape `#317` argued for. A `root` key was
+written here and read nowhere, so it went with the same reasoning.
 
 ### `fn forget`
 
@@ -317,6 +319,13 @@ on the other side.
 A document this module cannot read is **refused rather than removed**: it publishes nothing a
 harness can use either way, and destroying state that cannot be attributed is the failure this
 function was changed to stop.
+
+**The limit that widened with it, stated with the claim.** The `remove_file` this replaced
+healed an unreadable document by deleting it. Attribution needs the document parsed first, so
+ANY `Malformed` variant - not merely one about an entry - now refuses both `just dev-up` and
+`just dev-down` before either touches the tier, and nothing repairs the file automatically. That
+is the trade taken deliberately: state that cannot be attributed is not destroyed, and the price
+is a manual delete, which is why `DiscoveryError`'s message names it.
 
 ## Module `issuer`
 

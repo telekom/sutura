@@ -308,9 +308,15 @@ impl std::fmt::Display for DiscoveryError {
                 path.display()
             ),
             Self::Unreadable { ref path, .. } => write!(f, "could not read {}", path.display()),
-            Self::Malformed { ref path, what } => {
-                write!(f, "{} is not a discovery file ({what:?})", path.display())
-            }
+            // The remedy is part of the message because nothing heals this any more - see
+            // [`forget`]'s limit. `remove_file` used to, and both `just dev-up` and `just dev-down`
+            // now refuse ahead of touching the file, so a reader with no remedy is stuck.
+            Self::Malformed { ref path, what } => write!(
+                f,
+                "{} is not a discovery file ({what:?}); no task repairs it - delete it, then \
+                 `just dev-up` and each nix tier's own `start` republish what they provisioned",
+                path.display()
+            ),
             Self::UnknownService { ref service, ref known } => {
                 write!(f, "`{service}` was not provisioned; this worktree has {}", known.join(", "))
             }
@@ -352,16 +358,14 @@ pub fn path_for(scope: &Scope) -> PathBuf {
 ///
 /// **It MERGES.** Every entry it writes is marked [`Provisioner::Docker`] and every other entry in
 /// the document is left byte for byte as it was, keys this writer does not understand included -
-/// `github.com/telekom/sutura#317`. `project` and `root` are the exception, because they are facts
-/// about the worktree rather than about a provisioner and both writers run in one tree.
+/// `github.com/telekom/sutura#317`. `project` is the one exception, because it is a fact about the
+/// worktree rather than about a provisioner and both writers run in one tree - and it is the ONLY
+/// document-level key either writer sets, which is the shape `#317` argued for. A `root` key was
+/// written here and read nowhere, so it went with the same reasoning.
 pub fn publish(scope: &Scope, reported: &[(&str, String)]) -> Result<PathBuf, DiscoveryError> {
     let path = path_for(scope);
     let mut document = read_document(&path)?;
-    let mut services = document
-        .get("services")
-        .and_then(serde_json::Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    let mut services = take_services(&mut document);
 
     for &(service, ref line) in reported {
         let endpoint = mint(service, line)?;
@@ -375,14 +379,10 @@ pub fn publish(scope: &Scope, reported: &[(&str, String)]) -> Result<PathBuf, Di
         );
     }
 
-    // `project` and `root` are facts about the WORKTREE rather than about a provisioner, so this
-    // one is entitled to set them; every other key the document carries is left exactly as it was,
-    // because a key this writer does not understand belongs to whoever wrote it.
+    // `project` is a fact about the WORKTREE rather than about a provisioner, so this one is
+    // entitled to set it; every other key the document carries is left exactly as it was, because
+    // a key this writer does not understand belongs to whoever wrote it.
     document.insert(String::from("project"), serde_json::Value::String(scope.project()));
-    document.insert(
-        String::from("root"),
-        serde_json::Value::String(scope.root().to_string_lossy().into_owned()),
-    );
     document.insert(String::from("services"), serde_json::Value::Object(services));
 
     write_document(&path, &document)?;
@@ -407,6 +407,13 @@ pub fn publish(scope: &Scope, reported: &[(&str, String)]) -> Result<PathBuf, Di
 /// A document this module cannot read is **refused rather than removed**: it publishes nothing a
 /// harness can use either way, and destroying state that cannot be attributed is the failure this
 /// function was changed to stop.
+///
+/// **The limit that widened with it, stated with the claim.** The `remove_file` this replaced
+/// healed an unreadable document by deleting it. Attribution needs the document parsed first, so
+/// ANY [`Malformed`] variant - not merely one about an entry - now refuses both `just dev-up` and
+/// `just dev-down` before either touches the tier, and nothing repairs the file automatically. That
+/// is the trade taken deliberately: state that cannot be attributed is not destroyed, and the price
+/// is a manual delete, which is why [`DiscoveryError`]'s message names it.
 pub fn forget(scope: &Scope) -> Result<(), DiscoveryError> {
     let path = path_for(scope);
     if !path.exists() {
@@ -428,14 +435,24 @@ pub fn forget(scope: &Scope) -> Result<(), DiscoveryError> {
     }
 
     let mut document = read_document(&path)?;
-    let mut services = document
-        .get("services")
-        .and_then(serde_json::Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    let mut services = take_services(&mut document);
     services.retain(|name, _entry| surviving.iter().any(|kept| kept == name));
     document.insert(String::from("services"), serde_json::Value::Object(services));
     write_document(&path, &document)
+}
+
+/// Lift the `services` object OUT of the document, ready to be merged into and put back.
+///
+/// `remove` rather than `get(..).cloned()`, which is a clone to escape the borrow checker and the
+/// one `AGENTS.md` names: both callers own the map, mutate it and insert it again, so nothing
+/// needed a second copy of it. An entry that is not an object is the same case as no entry at all -
+/// [`parse`] has already refused every document a reader could reach, so this arm is only for the
+/// empty document [`read_document`] returns when there is no file.
+fn take_services(document: &mut Document) -> Document {
+    match document.remove("services") {
+        Some(serde_json::Value::Object(services)) => services,
+        _ignored => Document::new(),
+    }
 }
 
 /// The document as it stands, or an empty object where there is no file yet.
@@ -468,6 +485,18 @@ fn read_document(path: &Path) -> Result<Document, DiscoveryError> {
 /// A temporary file in the same directory and a rename, for the reason `nix/tier-endpoints.nix`
 /// gives for its own `mv`: a harness can be reading while a tier is starting, and half a JSON
 /// document is a malformed-file error attributed to whatever ran next.
+///
+/// **The stage path carries the writer**, so the two writers of one file cannot stage over each
+/// other: this one writes `endpoints.json.docker.new`, `nix/tier-endpoints.nix` writes
+/// `endpoints.json.new`. Sharing it - which is what a plain `.new` did - is one process renaming
+/// the other's half-written bytes onto the real file, or renaming a path the other has already
+/// renamed away and getting a not-found for it.
+///
+/// **The limit, stated with the claim: a suffix is not a lock.** Two concurrent runs of THIS writer
+/// still share one stage path, and the final rename is last-writer-wins across writers either way,
+/// so a `just dev-up` racing a nix tier's `start` can still lose an entry - only now it loses it to
+/// a merge that read the file a moment too early rather than to a torn write. `nix/with-tier.sh`
+/// is documented as not a lock and this does not make it one.
 fn write_document(path: &Path, document: &Document) -> Result<(), DiscoveryError> {
     let unwritable = |cause: std::io::Error| DiscoveryError::Unwritable {
         path: path.to_path_buf(),
@@ -480,7 +509,9 @@ fn write_document(path: &Path, document: &Document) -> Result<(), DiscoveryError
         return Err(unwritable(std::io::Error::other("the discovery document did not serialize")));
     };
     text.push('\n');
-    let staged = path.with_extension("json.new");
+    // `{OURS}` and not the literal `docker`: the stage path is owned by the provisioner this
+    // crate publishes as, so a rename of that constant renames the file it stages through.
+    let staged = path.with_extension(format!("json.{OURS}.new"));
     std::fs::write(&staged, text).map_err(unwritable)?;
     std::fs::rename(&staged, path).map_err(unwritable)
 }
@@ -801,6 +832,40 @@ mod tests {
         assert_eq!(ours.port(), 60660);
         // The worktree's own facts ARE this writer's to set: both provisioners run in one tree.
         assert_eq!(found.project(), scope.project());
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn the_other_writers_stage_path_is_not_this_ones() {
+        // The temp path arrived WITH the merge and collided with the other writer's: both spelled
+        // `endpoints.json.new`, so a `just dev-up` racing a nix tier's `start` had one process
+        // rename the other's half-written bytes onto the real file - or rename a path already
+        // renamed away and get a not-found for it.
+        //
+        // Asserted as *the neighbour's stage file is still there afterwards* rather than on a
+        // constant, because a constant this test copies would be the same literal twice. The
+        // mutation that reddens it is the one line it is about: put `json.new` back as the staged
+        // extension and the stray file is overwritten and then renamed away.
+        //
+        // A suffix is not a lock and this cell does not claim one - it holds that the two writers
+        // do not stage through one path, which is the half a suffix can hold.
+        let dir = temp_worktree("stage");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+        a_nix_tier_has_published(&scope, "postgres");
+        let theirs = super::path_for(&scope).with_extension("json.new");
+        std::fs::write(&theirs, "{ half a document").expect("the fixture is writable");
+
+        publish(&scope, &[("clickhouse", String::from("0.0.0.0:60665"))]).expect("writes");
+
+        assert_eq!(
+            std::fs::read_to_string(&theirs).ok().as_deref(),
+            Some("{ half a document"),
+            "this writer staged through the other writer's temp path"
+        );
+        assert!(
+            Endpoints::discover(&scope).is_ok(),
+            "and the other writer's stage file is not a document a reader can reach"
+        );
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 

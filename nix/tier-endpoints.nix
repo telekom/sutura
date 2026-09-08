@@ -40,7 +40,6 @@
       usage() {
         echo "usage: $0 publish <worktree> <service> <host> <port>" >&2
         echo "       $0 published <worktree> <service> <host> <port>" >&2
-        echo "       $0 claimed <worktree> <service>" >&2
         echo "       $0 withdraw <worktree> <service>" >&2
         exit 2
       }
@@ -80,25 +79,6 @@
           "$file" >/dev/null 2>&1 || return 1
       }
 
-      # Is ANY address published for this service? The question `nix/with-tier.sh` has, and the
-      # reason it is a subcommand rather than an inference from a tier's `status`: that wrapper's
-      # skip-or-start decision needs the claim THE SUITE reads, and taking a composite verdict off
-      # a co-versioned helper is `github.com/telekom/sutura#335` - a `status` from between two
-      # revisions answered 0 for a postmaster with no entry, and the wrapper started nothing.
-      #
-      # Fail-closed toward *no*, exactly as `published` is: a missing file, a missing entry and a
-      # document that does not parse are one answer. And a caller reaching an OLDER build of this
-      # script gets the usage message and exit 2, which is the same answer - so the degradation is
-      # "start a server", never "block the run".
-      claimed() {
-        root="$1"; service="$2"
-        file="$root/.sutura-dev/endpoints.json"
-        [ -f "$file" ] || return 1
-        jq --exit-status --arg service "$service" \
-          '.services[$service] // empty | true' \
-          "$file" >/dev/null 2>&1 || return 1
-      }
-
       withdraw() {
         root="$1"; service="$2"
         file="$root/.sutura-dev/endpoints.json"
@@ -116,7 +96,6 @@
       case "''${1:-}" in
         publish) [ "$#" -eq 5 ] || usage; publish "$2" "$3" "$4" "$5" ;;
         published) [ "$#" -eq 5 ] || usage; published "$2" "$3" "$4" "$5" ;;
-        claimed) [ "$#" -eq 3 ] || usage; claimed "$2" "$3" ;;
         withdraw) [ "$#" -eq 3 ] || usage; withdraw "$2" "$3" ;;
         *) usage ;;
       esac
