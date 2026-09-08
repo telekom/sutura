@@ -377,8 +377,8 @@ ship-check:
     devenv shell ship-check
 
 # Exactly what `nix build .#checks.x86_64-linux.crap` runs, reached the cheap way. Through
-# `nix/run-gate.sh` so it works on a host with neither the tools nor the dev shell: the tools
-# themselves, then `nix run .#crap` with the same pin CI uses, then a notice.
+# `nix/run-gate.sh`: configured local stable tools, then the pinned Nix route. Missing stable
+# configuration requires Nix; existing optional-tool abstentions remain after configuration.
 #
 # `source nix/stable-env.sh` because coverage instrumentation is LLVM-specific and the dev
 # shell's bare cargo is a cranelift nightly, where `-C instrument-coverage` does not exist. This

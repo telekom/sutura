@@ -108,6 +108,19 @@ impl Contradicted {
 
 pub(super) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
+        name: "formatter commit hook uses the shell's nightly",
+        wordings: &["On the shell's nightly: the `fmt`, `check-changed` and doctest commit hooks"],
+        evidence: &[Evidence {
+            path: ".pre-commit-config.yaml",
+            holds: "entry: bash -c 'source nix/stable-env.sh; exec cargo run -q -p xtask -- fmt --check'",
+        }],
+        instead: "The formatter hook sources `nix/stable-env.sh` before dispatch. \
+                  Local Rust gates require the configured stable toolchain; this trusts the \
+                  configured environment, not arbitrary wrappers or compiler overrides",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
         name: "additional named credential writes are held only by review",
         wordings: &["for the CI key and by review for the two principal keys placed beside it"],
         evidence: &[Evidence {
