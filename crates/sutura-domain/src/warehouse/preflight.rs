@@ -137,6 +137,24 @@ impl UnaccountedTables {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// How many of these tables a gap of this size can actually explain.
+    ///
+    /// **Never more than there are, and that clamp is the whole method.** A shortfall is a count of
+    /// tables the data system did not account for ANYWHERE in the dataset, and this set is the part
+    /// of it the bundle happens to name - so the two are independent numbers and the first can be
+    /// the larger. Review reproduced the sentence that comes of pairing them raw: *at most 9 of the
+    /// 2 table(s)*, on the very shape this check exists for, because an identified count of zero
+    /// makes the shortfall the dataset's whole table count.
+    ///
+    /// **It lives here rather than in each composition root** for the reason `models_by_table` does:
+    /// two roots each remembering a `min` is the rule held by recall that this repository does not
+    /// accept. A root reads this and renders it.
+    #[inline]
+    #[must_use]
+    pub fn explained_by(&self, shortfall: NonZeroU64) -> usize {
+        usize::try_from(shortfall.get()).unwrap_or(usize::MAX).min(self.0.len())
+    }
 }
 
 impl fmt::Display for UnaccountedTables {
@@ -222,11 +240,18 @@ pub enum TablesPresent {
         /// The tables this answer reached no conclusion about.
         ///
         /// **It is not a count of what is missing, and the shortfall beside it is the bound.** At
-        /// most `shortfall` of these can be sitting in the gap, so a set LARGER than the shortfall
-        /// says the rest really are absent - without saying which, because the data system named
-        /// none of them. A root that rendered the two numbers as one thing would print *three tables
-        /// unaccounted for* beside a gap of one, which is a review finding on the first version of
-        /// this variant; both roots say *at most N of these M* for that reason.
+        /// most [`UnaccountedTables::explained_by`] of these can be sitting in the gap, so a set
+        /// LARGER than the shortfall says the rest really are absent - without saying which, because
+        /// the data system named none of them. A root that rendered the two numbers as one thing
+        /// would print *three tables unaccounted for* beside a gap of one, which is a review finding
+        /// on the first version of this variant; both roots say *at most N of these M* for that
+        /// reason.
+        ///
+        /// **And the bound runs BOTH ways, which the second review round found:** a shortfall counts
+        /// tables the data system did not account for anywhere in the dataset, and this set is only
+        /// the part of it the bundle names, so the shortfall can be the LARGER number - *at most 9
+        /// of the 2*. `explained_by` is the clamp, and it is a method rather than a `min` each root
+        /// remembers.
         tables: UnaccountedTables,
         /// How many tables the data system said it holds that its own answer did not account for.
         ///
@@ -366,6 +391,28 @@ mod tests {
             "and it is not the absent answer either"
         );
         assert!(unaccounted.was_asked(), "the data system was asked and it did answer");
+    }
+
+    #[test]
+    fn a_gap_can_never_explain_more_tables_than_the_answer_named() {
+        // **The bound runs both ways, and the second direction is a review finding.** A shortfall
+        // counts tables the data system did not account for anywhere in the DATASET; this set is
+        // only the part of it the bundle names. So the gap can be the larger number - and it is
+        // exactly the larger number on the shape this whole check exists for, because an identified
+        // count of zero makes the shortfall the dataset's entire table count. Paired raw, both roots
+        // printed *at most 9 of the 2 table(s)*.
+        let two: BTreeSet<QualifiedTable> = [table("dim_customer"), table("fct_orders")].into_iter().collect();
+        let named = UnaccountedTables::parse(two).expect("a non-empty set parses");
+        assert_eq!(
+            named.explained_by(NonZeroU64::new(9).expect("nine is not zero")),
+            2,
+            "a gap of nine over two tables explains two of them, not nine"
+        );
+        assert_eq!(
+            named.explained_by(NonZeroU64::new(1).expect("one is not zero")),
+            1,
+            "and a gap smaller than the set is still the bound - the clamp is one-sided"
+        );
     }
 
     #[test]

@@ -7230,6 +7230,23 @@ answer DID name is one the answer accounted for whatever its total said.
 ##### Methods
 
 ```rust
+pub fn explained_by(&self, shortfall: NonZeroU64) -> usize
+```
+
+How many of these tables a gap of this size can actually explain.
+
+**Never more than there are, and that clamp is the whole method.** A shortfall is a count of
+tables the data system did not account for ANYWHERE in the dataset, and this set is the part
+of it the bundle happens to name - so the two are independent numbers and the first can be
+the larger. Review reproduced the sentence that comes of pairing them raw: *at most 9 of the
+2 table(s)*, on the very shape this check exists for, because an identified count of zero
+makes the shortfall the dataset's whole table count.
+
+**It lives here rather than in each composition root** for the reason `models_by_table` does:
+two roots each remembering a `min` is the rule held by recall that this repository does not
+accept. A root reads this and renders it.
+
+```rust
 pub fn is_empty(&self) -> bool
 ```
 

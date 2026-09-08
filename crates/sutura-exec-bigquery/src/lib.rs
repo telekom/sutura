@@ -743,8 +743,10 @@ where
     /// [`ListingTotal::Unreadable`] is *itself a shape change* by that type's own words and still
     /// answers *absent* - `telekom/sutura#443`, out of reach here rather than overlooked, since
     /// [`TablesPresent::Unaccounted`] carries a shortfall and a total nothing could read has no
-    /// number. `Unreported` beside no ids is an empty dataset, and `Accounted` beside no NAMED ids
-    /// is a dataset every id of which `usable_table_id` drops. And a gap explains a table's absence
+    /// number. `Unreported` beside no ids is where every boot stood before the field was decoded -
+    /// that variant's own words are that an empty listing and an empty dataset are ONE value, so
+    /// nothing in the document tells them apart - and `Accounted` beside no NAMED ids is a dataset
+    /// every id of which `usable_table_id` drops. And a gap explains a table's absence
     /// without establishing it: this adapter cannot tell a document whose shape changed from a table
     /// created or dropped while the listing was being read, and does not pretend to. Within one
     /// dataset the gap only BOUNDS the answer - a shortfall of one over three unnamed tables means

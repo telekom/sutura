@@ -652,9 +652,12 @@ bullets down:
   that re-spells the count as well leaves `Unreadable`, which by this crate's own words is *itself a
   shape change*, and it still answers *absent* - that is `telekom/sutura#443`, and it is out of reach
   here rather than overlooked: `Unaccounted` carries a `NonZeroU64` shortfall and `Unreadable` has no
-  number to put in it, so covering it changes the answer's shape. `Unreported` beside no ids is an
-  empty dataset and is deliberately not in that issue; a dataset every id of which `usable_table_id`
-  drops is `Accounted` beside no ids and is an ordinary dataset. A gap is not a diagnosis, so a
+  number to put in it, so covering it changes the answer's shape. `Unreported` beside no ids is
+  deliberately not in that issue, and the reason is the variant's own: *an empty listing and an empty
+  dataset are one value* there, so nothing in the document tells them apart and a refusal would be
+  taken on evidence that does not distinguish them - it is where every boot stood before the field
+  was decoded. A dataset every id of which `usable_table_id` drops is `Accounted` beside no ids and
+  is an ordinary dataset. A gap is not a diagnosis, so a
   document whose shape changed and a table created or dropped mid-listing are one answer. A definite
   absence outranks a gap ACROSS datasets, so where a bundle has both the gap waits for the next boot;
   within one dataset the two numbers are carried side by side instead. Both refuse, so nothing serves

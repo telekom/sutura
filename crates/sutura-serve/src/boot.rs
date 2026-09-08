@@ -200,18 +200,23 @@ where
             // is about; the WARN half is the worse direction still, because the one shape the
             // cross-check exists to catch would end in a deployment that serves.
             //
-            // **Both numbers, and the word between them is load-bearing.** The gap BOUNDS how many
-            // of these tables it can explain - a shortfall of one beside three unnamed tables means
-            // two of them really are missing - so a sentence carrying the set and the gap as one
-            // quantity contradicts itself. Review reproduced exactly that.
+            // **Three numbers, and the third is a clamp rather than a repeat of the first.** The gap
+            // BOUNDS how many of these tables it can explain - a shortfall of one beside three
+            // unnamed tables means two of them really are missing - so a sentence carrying the set
+            // and the gap as one quantity contradicts itself. Review reproduced that, and then
+            // reproduced the other direction: a shortfall counts tables missing from the whole
+            // dataset while this set is only the part the bundle names, so printing the gap where
+            // the bound belongs says *at most 9 of the 2*. `explained_by` is the clamp, in the
+            // domain, because two roots each remembering a `min` is a rule held by recall.
             Verdict::Unaccounted { tables, shortfall } => {
                 return Err(format!(
                     "{source} did not account for {shortfall} of the table(s) it says it holds, so at most \
-                     {shortfall} of the {count} table(s) the catalog names here may be sitting in that gap \
+                     {explained} of the {count} table(s) the catalog names here may be sitting in that gap \
                      rather than missing: {tables}. Refusing to serve, and NOT reporting them absent - the \
                      catalog may be right and the listing was not whole. Start again; if it persists, this \
                      deployment is not reading the data system's listing the way the data system is \
                      writing it",
+                    explained = tables.explained_by(shortfall),
                     count = tables.len()
                 ));
             }
@@ -473,6 +478,35 @@ mod tests {
             assert!(
                 !error.contains("named by model(s)"),
                 "and no model is at fault, so none is named: {error}"
+            );
+        }
+
+        #[test]
+        fn a_gap_bigger_than_the_bundle_does_not_claim_to_explain_more_tables_than_there_are() {
+            // **The other direction of the bound, reproduced by review at this root.** A shortfall
+            // counts tables the data system did not account for across the whole dataset, and the
+            // set here is only the part the bundle names - so the gap can be the larger number, and
+            // on the shape this check exists for it always is: an identified count of zero makes the
+            // shortfall the dataset's entire table count. Printed raw, the refusal read *at most 9
+            // of the 2 table(s)*.
+            let engines = opened(|asked| {
+                Ok(TablesPresent::Unaccounted {
+                    tables: UnaccountedTables::parse(asked.clone()).expect("the bundle names two tables"),
+                    shortfall: NonZeroU64::new(9).expect("nine is not zero"),
+                })
+            });
+            let error = refuse_absent_tables(&bundle(), &engines).expect_err("the deployment is still not verified");
+            assert!(
+                error.contains("did not account for 9 of the table(s)"),
+                "the gap the data system left is still stated as it is: {error}"
+            );
+            assert!(
+                error.contains("at most 2 of the 2 table(s)"),
+                "but what it can explain is bounded by how many tables there are: {error}"
+            );
+            assert!(
+                !error.contains("at most 9"),
+                "a gap cannot explain more tables than the answer named: {error}"
             );
         }
 

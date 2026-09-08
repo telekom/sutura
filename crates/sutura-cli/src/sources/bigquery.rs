@@ -325,17 +325,19 @@ where
             // **A REFUSAL, and not the `Absent` sentence above**, for `sutura-serve`'s reason: the
             // data system said it holds more tables than it went on to name, so these are tables it
             // did not answer about rather than tables it said it does not have. Naming a `table:` to
-            // fix here is the defect `telekom/sutura#275` is about. Both numbers for
-            // `sutura-serve`'s reason: the gap BOUNDS how many of these tables it can explain, so a
-            // sentence carrying the two as one quantity contradicts itself.
+            // fix here is the defect `telekom/sutura#275` is about. Three numbers for
+            // `sutura-serve`'s reason: the gap BOUNDS how many of these tables it can explain, and
+            // the bound runs both ways - a shortfall counts the whole dataset's unaccounted tables
+            // and this set is only the part the bundle names, so the clamp is `explained_by`'s.
             Verdict::Unaccounted { tables, shortfall } => {
                 return Err(format!(
                     "{source} did not account for {shortfall} of the table(s) it says it holds, so \
-                     at most {shortfall} of the {count} table(s) the catalog names here may be \
+                     at most {explained} of the {count} table(s) the catalog names here may be \
                      sitting in that gap rather than missing: {tables}. Refusing to serve, and NOT \
                      reporting them absent - the catalog may be right and the listing was not \
                      whole. Start again; if it persists, this process is not reading the data \
                      system's listing the way the data system is writing it",
+                    explained = tables.explained_by(shortfall),
                     count = tables.len()
                 ));
             }
@@ -672,6 +674,32 @@ mod tests {
             assert!(
                 !error.contains("named by model(s)"),
                 "and no model is at fault, so none is named: {error}"
+            );
+        }
+
+        #[test]
+        fn a_gap_bigger_than_the_bundle_does_not_claim_to_explain_more_tables_than_there_are() {
+            // The other direction of the bound, at this root: a shortfall counts the whole dataset's
+            // unaccounted tables and this set is only the part the bundle names, so the gap can be
+            // the larger number - and on the shape this check exists for it always is.
+            let engines = opened(|asked| {
+                Ok(TablesPresent::Unaccounted {
+                    tables: UnaccountedTables::parse(asked.clone()).expect("the bundle names two tables"),
+                    shortfall: NonZeroU64::new(9).expect("nine is not zero"),
+                })
+            });
+            let error = refuse_absent_tables(&bundle(), &engines).expect_err("the process is still not verified");
+            assert!(
+                error.contains("did not account for 9 of the table(s)"),
+                "the gap the dataset left is still stated as it is: {error}"
+            );
+            assert!(
+                error.contains("at most 2 of the 2 table(s)"),
+                "but what it can explain is bounded by how many tables there are: {error}"
+            );
+            assert!(
+                !error.contains("at most 9"),
+                "a gap cannot explain more tables than the listing named: {error}"
             );
         }
 
