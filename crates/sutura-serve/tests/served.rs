@@ -784,6 +784,14 @@ mod tests {
         let SettingsError::NotFitToServe { ref refusals } = refused else {
             panic!("this fixture is meant to be a posture refusal and is {refused:?}");
         };
+        // **This line restates `crates/sutura-config/src/settings/tests.rs`'s own assertion, and it is
+        // here anyway.** Its job in this file is not coverage of the refusal - that test has it - but
+        // to stop `refusal_of` and the binary moving TOGETHER: a `refusals()` that answered a
+        // different refusal for this deployment would change the expected sentence and the printed
+        // one alike, and the case would stay green over a process refused for the wrong reason.
+        // Measured on the neighbouring case: with `refusals()` pushing `InProcessTlsWithoutMaterial`
+        // for the non-loopback bind and its equivalent line deleted, `just serve-e2e` is `40 passed`
+        // at exit 0.
         assert_eq!(*refusals, vec![NotFitToServe::DeploymentIdentityUndeclared { count: 1 }]);
         let told = stopped_before_binding(Environment::Development, "undeclared-mode", &settings);
         said_every_line_of(&told, &refused.to_string());
@@ -812,16 +820,18 @@ mod tests {
         );
         let told = stopped_before_binding(Environment::Development, "misspelled-key", &settings);
         said_every_line_of(&told, &refused.to_string());
-        // `caused by:` is `main::flatten`'s own wording, in this crate rather than across a boundary,
-        // so this pins the walk that puts the cause in front of the operator at all.
+        // **One line has to carry both, and that is a correction rather than a tightening for its own
+        // sake.** Written as two independent `any`, `contains("prot")` was satisfied by the key
+        // appearing ANYWHERE the process wrote - and `flatten` is exactly the code that decides
+        // whether the cause reaches standard error at all, so a chain dropped while the key survived
+        // elsewhere would have passed both. Anchoring the key to the line carrying `caused by:` makes
+        // it one claim: the cause was walked, and the walked cause names the key.
+        //
+        // `caused by:` is `main::flatten`'s own wording, in this crate rather than across a
+        // boundary, so this pins the walk in the file that performs it.
         assert!(
-            told.iter().any(|line| line.contains("caused by:")),
-            "the refusal reached standard error with its cause chain flattened away:\n{}",
-            told.join("\n")
-        );
-        assert!(
-            told.iter().any(|line| line.contains("prot")),
-            "the deployment refused a key it would not name:\n{}",
+            told.iter().any(|line| line.contains("caused by:") && line.contains("prot")),
+            "the operator was not shown a cause naming the key they misspelled:\n{}",
             told.join("\n")
         );
     }

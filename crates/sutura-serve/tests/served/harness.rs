@@ -485,13 +485,19 @@ pub(crate) fn derived_beside(config_dir: &Path) -> PathBuf {
 /// Asserts the EXIT CODE here rather than in the caller, so a settings file this suite got wrong -
 /// one the binary happily serves - fails as *it started* instead of as a missing line in the log.
 ///
-/// **Exactly `1`, and not merely non-zero.** `main` returns `ExitCode::FAILURE` for every refusal
-/// it makes, and the other ways this process can stop are not refusals: a panic before the hook is
-/// installed is `101`, and the shipped profiles compile `panic = "abort"`, which leaves no exit code
-/// at all. So `!success()` accepts the process dying of the thing a startup refusal exists to
-/// prevent, and a deployment that ABORTED while reading its configuration is not a deployment that
-/// declined to serve. `code()` is `None` on a signal, which is why the comparison is against
-/// `Some(1)` rather than a subtraction.
+/// **Exactly `1`, and not merely non-zero, and the reason is MEASURED rather than reasoned.** `main`
+/// returns `ExitCode::FAILURE` for every refusal it makes; the failure this separates it from is a
+/// process that stopped without deciding to. With step 3 changed to `panic!` on an unservable
+/// configuration instead of returning `Err`, the child exits `101`: `just serve-e2e` is
+/// `40 passed` at exit 0 under the `!status.success()` this replaced, and `36 passed, 4 failed`
+/// against `Some(1)`. A deployment that PANICKED while reading its configuration is not a deployment
+/// that declined to serve, and only the exact code separates the two.
+///
+/// **What this note used to say, corrected rather than deleted:** that `panic = "abort"` leaves no
+/// exit code at all. That names the shipped and `ci` profiles - the child this harness spawns is
+/// built at `test`, which inherits `dev` and unwinds, so the abort case is real for a release
+/// artefact and is not what is exercised here. `code()` is still compared as `Some(1)` rather than
+/// by subtraction, because a signal gives `None`.
 ///
 /// `environment` reaches the child through [`command`]: it decides which refusals apply at all, so
 /// it is a parameter of the case rather than a constant of the harness.
