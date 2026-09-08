@@ -386,8 +386,10 @@ mod faults {
 
     /// An adapter that declares it does not execute a leg, and executes one, is a fault.
     ///
-    /// The declared-absence direction `docs/adr/0012` says is worth having: nothing upstream builds a
-    /// leg today, so the adapter's own guard is exercised by this and by nothing else.
+    /// The declared-absence direction `docs/adr/0012` says is worth having. It used to rest on
+    /// *nothing upstream builds a leg today*; a leg is built and executed on the shipped answer path
+    /// now, so what this is worth is narrower and still real - it is the only thing that exercises
+    /// the guard of an adapter with no leg venue of its own.
     #[test]
     fn an_adapter_that_answers_a_leg_it_declares_it_cannot_is_a_fault() {
         let fake = Fake::<false> {
