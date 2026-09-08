@@ -48,13 +48,20 @@
 # reached by a `just` task and by the release path as well, so *ordinary CI* is not that file's
 # venue and the refusal has no meaning there. The REFERENCE scan above does read those scripts.
 #
-# PULL REQUESTS: every target, `ci` profile, no image. A branch proves every arch still COMPILES
-# AND LINKS; the tag-triggered release workflow alone builds and proves what ships.
+# PULL REQUESTS: the two aarch64 targets, `ci` profile, no image. A branch proves that the
+# architecture the native `ci` job NEVER compiles still COMPILES AND LINKS under both its libcs;
+# the tag-triggered release workflow alone builds and proves what ships.
 #
-# Why the archs are checked on the branch at all, rather than deferred with the release build:
-# the allocator is C, compiled once per target, and cross breakage lives there rather than in
-# the Rust. A glibc-only run would not see it. So the link coverage stays on the pull request
-# and the release profile remains a release concern.
+# MAIN: all four targets. Why the archs are checked at all, and why the PR set is a pair: the
+# allocator is C, compiled once per target, and cross breakage lives there rather than in the
+# Rust. A glibc-only run would not see it. The `ci` job natively builds and links the host
+# triple `x86_64-unknown-linux-gnu`, so that cross leg is pure duplication of native coverage on
+# a pull request; the pair that is genuinely new compile+link surface is `aarch64` under both its
+# libcs. Dropping `x86_64-unknown-linux-musl` from the pull request costs its static C-allocator
+# cross-link check on the branch - `main`'s all-4 push run catches it before any tag, which is
+# the event-scoping this file now implements in the matrix below. Whichever set runs, the
+# `feature-probes` and `embedded-dependency-list` steps ride the same matrix, so a dropped triple
+# loses its `--features bigquery` link check on pull requests and keeps it on `main`.
 #
 # A MATRIX rather than four `nix build` lines in `ci`, and the reason is wall clock, not
 # cost: four runners is more total compute than one runner doing the same four builds in
@@ -102,19 +109,25 @@ jobs:
     permissions:
       contents: read
     strategy:
-      # One red job names the target that broke; cancelling the other three would only tell you
-      # that something did. Same reasoning as release.yml, and here the work discarded would
-      # also be work the cache had already paid for.
+      # One red job names the target that broke; cancelling the others would only tell you that
+      # something did. Same reasoning as release.yml, and here the work discarded would also be
+      # work the cache had already paid for.
       fail-fast: false
       matrix:
-        # The four shipped triples. Deliberately the same list as release.yml's `build`, so the
-        # branch checks exactly the set that later becomes an artifact - if a target is added
-        # there and not here, it ships without ever having been built on a pull request.
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
+        # THE SHIPPED SET, SCORED BY EVENT. On a pull request only the aarch64 pair runs - the
+        # architecture the native `ci` job never compiles, under both its libcs - so a branch
+        # proves the genuinely new cross surface without re-paying for the host triple the
+        # native job has already linked. A push to `main` runs all four: that is the all-4 link
+        # gate (it keeps `x86_64-unknown-linux-musl`'s static-allocator check and
+        # `x86_64-unknown-linux-gnu` live before any tag) and the run that primes the binary
+        # cache every pull request and every PR leg restores from. The full-set half stays
+        # deliberately the same list as release.yml's `build`.
+        #
+        # In a CALLED workflow the `github` context reflects the CALLER's event, not
+        # `workflow_call`; `ci.yml`'s `cross` job runs this on `pull_request` and on a push to
+        # `main` (never on `merge_group`), so `github.event_name == 'pull_request'` selects the
+        # two-aarch64 set and every other call gets the full four.
+        target: ${{ github.event_name == 'pull_request' && fromJSON('["aarch64-unknown-linux-gnu","aarch64-unknown-linux-musl"]') || fromJSON('["x86_64-unknown-linux-gnu","aarch64-unknown-linux-gnu","x86_64-unknown-linux-musl","aarch64-unknown-linux-musl"]') }}
     steps:
       # No `fetch-depth: 0` here: nothing in this job diffs against a base. `ci` owns that.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -129,10 +142,30 @@ jobs:
         with:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
           # substituter stays absent, so a pull request cannot point CI at a store it controls.
+          # The read-only binary-cache backstop is added HERE rather than in flake.nix, so every
+          # byte of it is visible in this diff. Both lines are secret-driven with an empty
+          # fallback: until the owner provisions the cache the values are empty and each line
+          # interpolates to nothing, so no store a pull request does not control is ever trusted.
           extra_nix_config: |
             fallback = true
+            ${{ secrets.NIX_CACHE_SUBSTITUTER != '' && format('substituters = {0}', secrets.NIX_CACHE_SUBSTITUTER) || '' }}
+            ${{ secrets.NIX_CACHE_PUBLIC_KEY != '' && format('trusted-public-keys = {0}', secrets.NIX_CACHE_PUBLIC_KEY) || '' }}
 
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      # MAIN'S ALL-4 RUN POPULATES the read-only binary cache that `extra_nix_config` above makes
+      # every pull request and every other leg substitute from. Gated on the push event AND the
+      # cache name: a pull request can never reach this step (and must not push). The token is
+      # carried by the action input, not the condition - GitHub does not expose `secrets` to an
+      # `if` - and an empty token means "configure, push nothing", so a repository whose owner has
+      # not provisioned Cachix leaves everything wired-but-inert and safe. The `NIX_CACHE_NAME`
+      # variable and the `NIX_CACHE_AUTH_TOKEN` secret are the owner's to create.
+      - name: Populate the binary cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.NIX_CACHE_NAME != ''
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ${{ vars.NIX_CACHE_NAME }}
+          authToken: ${{ secrets.NIX_CACHE_AUTH_TOKEN }}
 
       # Through `env` rather than interpolated into the script: a matrix literal is not
       # attacker-controlled, but the rule that no `${{ }}` reaches a shell body is worth more
