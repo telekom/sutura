@@ -32,15 +32,15 @@
 #     Every image this repository reaches itself goes through `SUTURA_IMAGE_REGISTRY`; one named
 #     inside a third-party action cannot.
 #
-# THE PUBLICATION HAS A WITNESS NOW, because it did not have one and needed it: this workflow
-# reported `completed success` three times while `api.scorecard.dev` held no record of this project.
-# The action attempts the publish, the API refuses it, and `signing.ProcessSignature` turns that
-# refusal into a `::warning::` and returns nil - so a green run said nothing about whether anything
-# landed. Two mechanisms now cover the two halves. `cargo xtask check-workflows` reads this file
-# against every rule the API applies to a producing workflow, offline and inside the required `ci`
-# job - the reason `score` runs on `ubuntu-latest` and the reason the witness is its own job. The
-# `published` job asks the API whether it actually holds a score. Neither can substitute for the
-# other: the first is a precondition read from a file, the second is the outcome.
+# THE SHAPE IS HELD OFFLINE, because it once was not and three runs paid for it: this workflow
+# reported `completed success` while `api.scorecard.dev` refused every score it sent. The action
+# attempts the publish, the API refuses the WORKFLOW, and `signing.ProcessSignature` turns that
+# refusal into a `::warning::` and returns nil - so a green run said nothing. `cargo xtask
+# check-workflows` reads this file against every rule the API applies to a producing workflow,
+# offline and inside the required `ci` job - which is why `score` runs on `ubuntu-latest`. The
+# publication itself has worked since that fix: `api.scorecard.dev` holds this project's score and
+# the badge in `README.md` resolves from it. **What this gate holds is the precondition, not the
+# outcome** - only a push to `main` sends anything, so a pull request cannot measure the send.
 #
 # NOT REQUIRED, and the limit belongs next to the claim: the only status context the `main` ruleset
 # requires is `ci` - see `devco/required-contexts` for the dated read. This workflow reports no
@@ -74,11 +74,6 @@ concurrency:
 
 jobs:
   score:
-    # `name:` SET DELIBERATELY, and it is the `published` job's dependency: that job finds this one
-    # by `select(.name == "score")` over the run's jobs, and the API reports a job's `name` when it
-    # has one and its KEY when it does not. Written down, a later cosmetic rename cannot break the
-    # witness quietly - it breaks the selector visibly instead.
-    name: score
     # `ubuntu-latest` AND NOT `rust-mcp`, and it is the only job here that is not self-hosted.
     # This is the fix for a publication that reported success three times and landed nothing.
     # `api.scorecard.dev` verifies the PRODUCING WORKFLOW before it accepts a score, and one of
@@ -142,91 +137,3 @@ jobs:
           path: scorecard.json
           if-no-files-found: warn
           retention-days: 90
-
-  # THE PUBLICATION'S WITNESS, and the property is *the publication was not refused*, never *the
-  # publisher ran*. That difference was a live defect rather than a hypothesis. Three runs of this
-  # workflow reported `completed success` while api.scorecard.dev held no record of the project -
-  # and the reason was in the scoring step's OWN OUTPUT the whole time, thrown away:
-  #
-  #   error sending scorecard results to webapp: http response 400, status: 400 Bad Request,
-  #   error: {"code":400,"message":"workflow verification failed: ... scorecard job has invalid
-  #   runner label: 'rust-mcp' ..."}
-  #   ::warning::Unable to POST scorecard results to webapp: ...
-  #
-  # `signing.ProcessSignature` retries, logs that `::warning::` and returns nil, so the step exits
-  # 0. **The evidence was never missing; nothing read it.** So this job reads it: it fetches the
-  # `score` job's log for THIS run and fails if the publication was refused.
-  #
-  # WHY THAT SIGNAL RATHER THAN POLLING THE API, which was the first shape of this check. The API
-  # indexes with a lag of its own, so *no record yet* cannot be told from *refused* - it would
-  # redden on freshness. The refusal is exact, it is in this run, and it names its own reason.
-  #
-  # WHY A SEPARATE JOB, and it is not a style choice: api.scorecard.dev refuses the results of a
-  # scoring job containing ANY step that is not a call to one of five approved actions, so a `run:`
-  # step added to `score` would have broken the very publication it was meant to witness. That rule
-  # is held offline by `cargo xtask check-workflows`, with this job as its own test case.
-  #
-  # WHAT IT DOES NOT HOLD, and both are real. It trusts the action to LOG its own refusal - a
-  # future image that fails silently would pass this. And where the log carries no refusal and the
-  # repository is not public, it reports UNVERIFIED rather than success: the publication may not
-  # have been attempted at all, and an overstated control is itself the defect here.
-  published:
-    # `ubuntu-latest` for `score`'s reason, one step weaker: this job builds nothing either, and
-    # the witness should not depend on capacity the scan itself no longer needs.
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    # `needs: score` because the subject is THIS run's log. `always()` so a `score` that FAILED
-    # still gets its log read - but the claim stops there: a `score` that dies BEFORE the publish
-    # step logs no refusal, so this job passes and says so. Nothing is hidden, because the run is
-    # already red from `score`; what this job adds is the case `score` reports GREEN over a
-    # refusal, which is #451.
-    needs: score
-    if: always()
-    # NO `id-token: write`, and that is a hard requirement rather than least privilege for its own
-    # sake: api.scorecard.dev refuses the whole workflow if any job other than the scoring one can
-    # mint that token. `check-workflows` holds it. `actions: read` is what reads the job log.
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: The publication was not refused
-        env:
-          SLUG: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eu
-          job=$(gh api "repos/${SLUG}/actions/runs/${RUN_ID}/jobs" \
-            --jq '.jobs[] | select(.name == "score") | .id' | head -1)
-          if [ -z "${job}" ]; then
-            echo "::error ::This run has no scoring job, so nothing was published and nothing" \
-              "here can witness it."
-            exit 1
-          fi
-          gh api "repos/${SLUG}/actions/jobs/${job}/logs" > score.log || {
-            echo "::error ::The scoring job log could not be read, so whether the publication" \
-              "was refused is UNREAD. That is a broken witness, not a pass."
-            exit 1
-          }
-
-          if grep -qF 'Unable to POST scorecard results to webapp' score.log; then
-            echo "The API's answer, from the scoring step's own log:"
-            grep -oE 'http response [0-9]+, status: [^,]*, error: .*' score.log | tail -1 || true
-            echo "::error ::REFUSED. api.scorecard.dev rejected this run's score and the action" \
-              "downgraded that to a warning, so the scoring step exited 0 and published nothing." \
-              "See xtask/src/workflows/publication.rs for every workflow-shape rule the API" \
-              "applies before it accepts a score - the reason quoted above names which one."
-            exit 1
-          fi
-
-          if grep -qF 'Private repository: true' score.log; then
-            echo "::warning ::No refusal in the log, and the scoring job saw a PRIVATE" \
-              "repository. api.scorecard.dev serves a public dataset, so the publication is" \
-              "UNVERIFIED here rather than confirmed."
-            exit 0
-          fi
-          echo "The publication was not refused."
