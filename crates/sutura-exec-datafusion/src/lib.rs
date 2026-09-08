@@ -857,6 +857,83 @@ pub(crate) fn test_leg() -> Presented {
     }
 }
 
+/// The plan every engine-execution question drives, and its helpers - one definition shared by
+/// `width_tests.rs` and `pool/ceiling_tests.rs`, where a second copy drifted into a byte-identical
+/// clone and tripped the copy/paste gate. Inline (not a `mod`) so the causality gate holds these
+/// as test-only items rather than a test module that names no test.
+#[cfg(test)]
+use sutura_domain::calendar::{Date, TimeRange};
+#[cfg(test)]
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
+#[cfg(test)]
+use sutura_domain::plan::{
+    PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, ResultLabel,
+    StatementTables,
+};
+#[cfg(test)]
+use sutura_domain::warehouse::ParamValue;
+
+#[cfg(test)]
+pub(crate) fn day(iso: &str) -> Date {
+    Date::parse(iso).expect("a test date is a date")
+}
+
+#[cfg(test)]
+pub(crate) fn source() -> SourceName {
+    SourceName::parse("local").expect("a test source is a source")
+}
+
+#[cfg(test)]
+pub(crate) fn orders() -> TableName {
+    TableName::parse("orders").expect("a test table is a table")
+}
+
+#[cfg(test)]
+pub(crate) fn on(name: &str) -> PlanColumn {
+    PlanColumn::new(orders(), ColumnName::parse(name).expect("a test column is a column"))
+}
+
+/// Revenue by region for one month - a grouped aggregate, which is exactly the operator that
+/// matters when the memory ceiling is the thing under test, because it is the one that reserves.
+#[cfg(test)]
+pub(crate) fn question() -> QueryPlan {
+    QueryPlan::new(
+        source(),
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        StatementTables::only(orders()),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, on("order_date")),
+        vec![PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
+            on("region"),
+        )],
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: on("amount_cents"),
+            },
+        },
+        ResultLabel::measure(&MetricName::parse("revenue").expect("a test metric is a metric")),
+        vec![
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::AtOrAfter {
+                    column: on("order_date"),
+                    param: 0,
+                },
+            ),
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::Before {
+                    column: on("order_date"),
+                    param: 1,
+                },
+            ),
+        ],
+        vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-07-01"))],
+        TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
+    )
+}
+
 /// The adapter is safe to drop where its nested runtime alone is not, pinned inline rather than in
 /// a separate file: registering it from this file keeps the registration beside the `Drop` it
 /// tests, so reverting the one cannot orphan the other.

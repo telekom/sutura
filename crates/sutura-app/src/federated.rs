@@ -282,28 +282,24 @@ mod tests {
     /// tests feed it, so this test is about the ORCHESTRATOR (mint once, run both, record both) and
     /// leans on the combiner suite for the arithmetic.
     fn federated_plan() -> sutura_domain::plan::FederatedPlan {
-        use sutura_domain::catalog::TIME_BUCKET_LABEL;
         use sutura_domain::measure::{AggregatedColumn, Measure, Term};
         use sutura_domain::model::Aggregate;
-        use sutura_domain::model::{ColumnName, TableName};
-        use sutura_domain::plan::{AnswerKey, InternalLabel, LegPlan, PlanBucket, PlanColumn, PlanKey, StatementTables};
+        use sutura_domain::model::{ColumnName, DimensionName, TableName};
+        use sutura_domain::plan::{
+            AnswerKey, InternalLabel, LegPlan, PlanBucket, PlanColumn, PlanKey, ResultLabel, StatementTables,
+        };
 
         let fact_source = SourceName::parse("facts").expect("a test source");
         let lookup_source = SourceName::parse("geo").expect("a test source");
         let table = TableName::parse("fct_subscription_monthly").expect("a test table");
         let column = |n: &str| ColumnName::parse(n).expect("a test column");
         let tablecol = |n: &str| PlanColumn::new(table.clone(), column(n));
-        let key = |n: &str| PlanKey::new(String::from(n), tablecol(n));
+        let dimension = |n: &str| DimensionName::parse(n).expect("a test dimension");
+        let key = |n: &str| PlanKey::new(ResultLabel::dimension(&dimension(n)), tablecol(n));
         // The link column, under the reserved label both legs project it as. The splitter names it
         // from `InternalLabel` and this fake does too, so the shape stays the shape it emits.
-        let link = || PlanKey::new(InternalLabel::Link.label(), tablecol("customer_key"));
-        let bucket = |c: &str| {
-            PlanBucket::new(
-                String::from(TIME_BUCKET_LABEL),
-                Grain::Month,
-                PlanColumn::new(table.clone(), column(c)),
-            )
-        };
+        let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link), tablecol("customer_key"));
+        let bucket = |c: &str| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table.clone(), column(c)));
 
         let fact = LegPlan::Fact {
             source: fact_source,
@@ -326,15 +322,15 @@ mod tests {
         let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))));
         sutura_domain::plan::FederatedPlan::new(
             metric(),
-            String::from("revenue"),
+            ResultLabel::measure(&metric()),
             bucket("month"),
             fact,
             lookup,
             true,
             sutura_domain::federation::Federation::of(&sum),
             vec![
-                AnswerKey::fact(String::from("product_family")),
-                AnswerKey::lookup(String::from("region")),
+                AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
+                AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
             ],
         )
         .expect("a valid two-leg plan")

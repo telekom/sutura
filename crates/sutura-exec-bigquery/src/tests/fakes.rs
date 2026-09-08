@@ -22,7 +22,8 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, StatementTables,
+    PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel,
+    StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{ParamValue, Value};
@@ -332,7 +333,7 @@ pub(super) fn plan() -> QueryPlan {
         source(),
         MetricName::parse("mrr").expect("a test metric is a metric"),
         StatementTables::only(table.clone()),
-        PlanBucket::new(String::from("period"), Grain::Month, column("month")),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
         Vec::new(),
         PlanMeasure::Simple {
             term: PlanTerm::Aggregate {
@@ -340,7 +341,7 @@ pub(super) fn plan() -> QueryPlan {
                 column: column("mrr_cents"),
             },
         },
-        String::from("mrr"),
+        ResultLabel::measure(&MetricName::parse("mrr").expect("a test metric is a metric")),
         vec![
             PlanFilter::new(
                 PredicateOrigin::Definition,

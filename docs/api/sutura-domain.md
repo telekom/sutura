@@ -4494,6 +4494,40 @@ pub struct PlanBucket
 
 The truncated time column, and the label it is projected under.
 
+**The label is a `ResultLabel` and not a `String`, which is the third carrier
+`telekom/sutura#337` names.** Every producer in this workspace passes `ResultLabel::bucket`,
+which takes no argument because there is nothing to choose:
+`TIME_BUCKET_LABEL` is the one spelling.
+
+**The limit, next to the claim:** the type says the text came from something already parsed, not
+WHICH of the four constructors produced it - so a bucket labelled with a dimension's own name is
+still representable here, and what refuses that particular collision is
+`Definitions::assemble`, which will not accept a dimension named
+`period` in the first place.
+
+A computed bucket label is a compile error, which is the pair `ResultLabel` carries for a key
+applied to the carrier it did not reach:
+
+```compile_fail
+use sutura_domain::model::{ColumnName, Grain, TableName};
+use sutura_domain::plan::{PlanBucket, PlanColumn};
+
+fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanBucket {
+    PlanBucket::new(format!("0_leaf_{leaf}"), Grain::Month, PlanColumn::new(table, column))
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::model::{ColumnName, Grain, TableName};
+use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
+
+fn _parsed(table: TableName, column: ColumnName) -> PlanBucket {
+    PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table, column))
+}
+```
+
 #### Methods
 
 ```rust
@@ -4508,8 +4542,10 @@ pub const fn grain(&self) -> Grain
 pub fn label(&self) -> &str
 ```
 
+The text the bucket is projected under.
+
 ```rust
-pub const fn new(label: String, grain: Grain, column: PlanColumn) -> Self
+pub const fn new(label: ResultLabel, grain: Grain, column: PlanColumn) -> Self
 ```
 
 #### Implements
@@ -4524,6 +4560,11 @@ pub struct PlanKey
 
 One group-by key.
 
+**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
+to be labelled with whatever text its producer computed, and what kept that out of the internal
+namespace a federated leg also projects into was a derivation held by review. The type is the
+mechanism now: `ResultLabel` carries the compile-fail pair that says so.
+
 #### Methods
 
 ```rust
@@ -4534,8 +4575,14 @@ pub const fn column(&self) -> &PlanColumn
 pub fn label(&self) -> &str
 ```
 
+The text this key is projected under.
+
+Text rather than the `ResultLabel`, because every reader of a label renders it: the
+generator quotes it as an alias and the combiner looks a column up by it. What the type
+holds is the way IN.
+
 ```rust
-pub const fn new(label: String, column: PlanColumn) -> Self
+pub const fn new(label: ResultLabel, column: PlanColumn) -> Self
 ```
 
 #### Implements
@@ -4731,7 +4778,7 @@ pub const fn metric(&self) -> &MetricName
 ```
 
 ```rust
-pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
+pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: ResultLabel, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
 ```
 
 One statement's worth of decisions.
@@ -4949,6 +4996,8 @@ one place: the caller owns the order, which is what the placeholder-position con
 
 ### `use None`
 
+### `use None`
+
 ### `constant MAX_ROWS`
 
 The most rows any plan may return.
@@ -5081,7 +5130,7 @@ pub const fn metric(&self) -> &MetricName
 The metric this answer is measured in.
 
 ```rust
-pub fn new(metric: MetricName, measure_label: String, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
 ```
 
 Constructs a federated plan from its two legs and the answer's key order.
@@ -5135,7 +5184,7 @@ One group-by key of the answer: which leg owns it, and the label it carries in t
 ##### Methods
 
 ```rust
-pub const fn fact(label: String) -> Self
+pub const fn fact(label: ResultLabel) -> Self
 ```
 
 A key read from the fact leg's result, under `label`.
@@ -5144,10 +5193,10 @@ A key read from the fact leg's result, under `label`.
 pub fn label(&self) -> &str
 ```
 
-The label this key carries in its leg's result.
+The text this key carries in its leg's result.
 
 ```rust
-pub const fn lookup(label: String) -> Self
+pub const fn lookup(label: ResultLabel) -> Self
 ```
 
 A key read from the lookup leg's result, under `label`.
@@ -5307,16 +5356,18 @@ with another public label at load, and cannot collide with an internal one at al
 nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
 is the property the test asserts, and the thing to re-establish if this spelling ever changes.
 
-**And the two halves are held by different KINDS of thing, which is the asymmetry to know about.**
-This half is a type. The public half is not: `PlanKey` and
-`LegTerm` carry their labels as `String`, so what keeps a public label out
-of this namespace is that `sutura_semantic::plan::federated_plan` derives every one of them from a
-`DimensionName`, a `MetricName` or `TIME_BUCKET_LABEL` - a derivation held by review, and by no
-test: the test above asks the four name parsers to refuse these spellings, which is a property of
-`parse_identifier`, not of any plan. A computed public label landing on `0_leaf_{n}` would be
-refused by `distinct_columns` as `DuplicateLabels`, so the failure direction is a refusal rather
-than a wrong number - which is why the `String`s are still here. `telekom/sutura#337` is the
-typed-label remedy that would make the comparison impossible rather than unnecessary.
+**Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
+`InternalLabel`; the public half is `ResultLabel`, whose only
+constructors take a `DimensionName`, a `MetricName`, `InternalLabel` or nothing at all - so a
+computed string is not a label a plan can carry, and the derivation
+`sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
+instead. What that changes about the paragraph above: the two namespaces are still disjoint
+*because* of the leading digit, and what the types add is that no producer can put a value in
+both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
+something already parsed, never WHICH of the four constructors produced it - so a value built by
+`ResultLabel::internal` is accepted anywhere a label is
+taken, the bucket's position included. Nothing here reads the provenance back, because nothing
+needs to: the disjointness is the leading digit.
 
 **Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
 is 63 characters because that is the tightest among the data systems targeted, and it is a
@@ -5361,6 +5412,180 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+### Module `label`
+
+What a result column may be labelled, and the four things a label can be derived from.
+
+#### `struct ResultLabel`
+
+```rust
+pub struct ResultLabel
+```
+
+The label one column of a result carries, which can only be built out of something already
+parsed.
+
+**The half of the labelling scheme that used to be held by review.** A federated leg's result
+carries two kinds of label in one namespace. The internal kind is
+`InternalLabel`, a type: every rendering starts with a digit, and
+`crate::model`'s identifier parser refuses a leading digit as a FIRST character, so no
+`DimensionName`, `MetricName`, `ColumnName` or `TableName` can spell one. The public kind was
+a `String` on `PlanKey` and `LegTerm`, and what
+kept a public label out of the internal namespace was that `sutura_semantic::plan` happened to
+derive every one of them from a dimension name, a metric name or
+`TIME_BUCKET_LABEL` - a derivation held by review, and by no
+test. `telekom/sutura#337` is the report.
+
+This type is the other half. There is no constructor taking text, so the four functions below are
+the whole of what a label can come from, and a computed string is not one of them. That turns
+*nothing compares the two halves* into *nothing can put a value in both*, which is the stronger
+version of the same argument and the one the leading digit was chosen to support.
+
+**Why a newtype over the rendering rather than the four-variant enum the report sketched.** An
+enum would have to hand out its text, and `Internal(InternalLabel::Leaf(n))` has no `&'static
+str` rendering to hand out - the position is formatted - so `label()` would return a
+`Cow` and the five alias call sites in `sutura_sql::generate` would change
+with it. Measured, not assumed: `aliased(inner: Expr, label: &str)` is called five times there,
+once per projected column shape. So the rendering is stored and the four constructors are the
+gate. **The limit, next to the claim:** which of the four a label came from is not recoverable
+from the value, because nothing reads it back - what the type buys is that the TEXT can only come
+from one of them.
+
+A computed string is not a label, and that is a compile error rather than a review finding:
+
+```compile_fail
+use sutura_domain::model::{ColumnName, TableName};
+use sutura_domain::plan::{PlanColumn, PlanKey};
+
+// The failure `telekom/sutura#325`'s F2 reproduced: a public key labelled with a computed
+// string that lands in the internal namespace.
+fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanKey {
+    PlanKey::new(format!("0_leaf_{leaf}"), PlanColumn::new(table, column))
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::model::{ColumnName, DimensionName, TableName};
+use sutura_domain::plan::{PlanColumn, PlanKey, ResultLabel};
+
+fn _parsed(table: TableName, column: ColumnName, dimension: &DimensionName) -> PlanKey {
+    PlanKey::new(ResultLabel::dimension(dimension), PlanColumn::new(table, column))
+}
+```
+
+**The two blocks above hold a CARRIER's signature, and that is not the same as this type being
+closed.** They say `PlanKey::new` will not take a `String`; they say nothing about whether a
+`String` can become a `ResultLabel` first, and
+`PlanKey::new(ResultLabel::from(format!("0_leaf_{n}")), column)` is `telekom/sutura#325`'s F2 one
+conversion further out. Measured rather than reasoned: adding `impl From<String> for ResultLabel`
+and touching no carrier left `just test` at exit 0 with 2658 tests passing and BOTH carrier pairs
+green. So the closure is stated over the type, on the bound every carrier is really reached
+through:
+
+```compile_fail
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+// Text does not become a label, by any route.
+fn _computed(leaf: usize) -> ResultLabel {
+    _labelled(format!("0_leaf_{leaf}"))
+}
+```
+
+And the twin over the same bound, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+fn _parsed() -> ResultLabel {
+    _labelled(ResultLabel::bucket())
+}
+```
+
+**And it does not deserialize, which no gate in this tree holds.**
+`cargo xtask check-serde-parse` is the gate for a derived `Deserialize` writing past a parse, and
+what makes a type its subject is a FALLIBLE constructor - a `-> Result<Self, _>`. The four above
+cannot fail, because nothing is left to reject once the argument is a certified name, so this
+type is outside the gate for being parsed too well. Measured: `#[derive(serde::Deserialize)]`
+here reports `check-serde-parse: ok - 649 struct(s) in 388 file(s), serde routed through parse`
+and `hygiene: ok - 34 gate(s)`. `telekom/sutura#446` carries the general case, which is the
+gate's design question rather than this type's; the pair below is what holds this one:
+
+```compile_fail
+fn _needs<T: serde::de::DeserializeOwned>() {}
+
+// A label read off the wire would be a label nothing parsed.
+fn _off_the_wire() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+And the twin over the same shape, with the serde bound this type does satisfy:
+
+```
+fn _needs<T: serde::Serialize>() {}
+
+fn _into_a_snapshot() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+**It serializes as the bare string it renders**, so the plan goldens are unchanged by this type
+existing: a plan's serialized form is what a snapshot pins, and a wrapper visible in it would be
+a diff about a Rust type rather than about what we decided to execute.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The text this label carries in a result.
+
+```rust
+pub fn bucket() -> Self
+```
+
+The label the truncated time column carries, which is one constant for every plan.
+
+No argument, because there is nothing to choose:
+`TIME_BUCKET_LABEL` is the one spelling, and
+`Definitions::assemble` refuses a dimension that shadows it.
+
+```rust
+pub fn dimension(name: &DimensionName) -> Self
+```
+
+The label a group-by key carries: the dimension's own certified name.
+
+```rust
+pub fn internal(label: InternalLabel) -> Self
+```
+
+A label in the namespace no question can name.
+
+The one way into that half, and it takes the type rather than its text - so the reserved
+spelling still lives in exactly one place.
+
+```rust
+pub fn measure(metric: &MetricName) -> Self
+```
+
+The label the answer's measure carries: the metric's own certified name.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
 
 ### Module `leg`
 
@@ -5427,7 +5652,7 @@ The division a leg cannot express does not compile:
 
 ```compile_fail
 use sutura_domain::measure::ZeroDenominator;
-use sutura_domain::plan::{LegTerm, PlanMeasure, PlanTerm};
+use sutura_domain::plan::{InternalLabel, LegTerm, PlanMeasure, PlanTerm, ResultLabel};
 
 // `LegTerm::new` takes a term, and a ratio is not one.
 fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDenominator) -> LegTerm {
@@ -5437,7 +5662,7 @@ fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDe
             denominator,
             zero_denominator,
         },
-        String::from("ratio"),
+        ResultLabel::internal(InternalLabel::Leaf(0)),
     )
 }
 ```
@@ -5446,12 +5671,12 @@ And the twin, so a rename cannot make that block pass vacuously: the two halves 
 terms, and the division happens above every leg.
 
 ```
-use sutura_domain::plan::{LegTerm, PlanTerm};
+use sutura_domain::plan::{InternalLabel, LegTerm, PlanTerm, ResultLabel};
 
 fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
     vec![
-        LegTerm::new(numerator, String::from("numerator")),
-        LegTerm::new(denominator, String::from("denominator")),
+        LegTerm::new(numerator, ResultLabel::internal(InternalLabel::Leaf(0))),
+        LegTerm::new(denominator, ResultLabel::internal(InternalLabel::Leaf(1))),
     ]
 }
 ```
@@ -5462,8 +5687,10 @@ fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
 pub fn label(&self) -> &str
 ```
 
+The text this term is projected under.
+
 ```rust
-pub const fn new(term: PlanTerm, label: String) -> Self
+pub const fn new(term: PlanTerm, label: ResultLabel) -> Self
 ```
 
 ```rust

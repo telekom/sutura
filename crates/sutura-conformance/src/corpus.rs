@@ -51,10 +51,10 @@ use std::sync::OnceLock;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
     LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
-    QueryPlan, StatementTables,
+    QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{ParamValue, Real, RowSet, Value};
@@ -305,7 +305,10 @@ pub fn leg_case() -> LegCase {
                     aggregate: Aggregate::Sum,
                     column: column("amount_cents"),
                 },
-                String::from("amount_total"),
+                // The metric's own name and not a leaf position, because this leg's expected rows
+                // ARE the whole-answer case's - the labels have to agree for the comparison to be
+                // about the numbers.
+                ResultLabel::measure(&metric("amount_total")),
             )],
             filters: range_filters(),
             params: range_params(),
@@ -329,7 +332,7 @@ fn total_by_region_and_day() -> Case {
                 column: column("amount_cents"),
             },
         },
-        String::from("amount_total"),
+        ResultLabel::measure(&metric("amount_total")),
         range_filters(),
         range_params(),
         range(),
@@ -369,7 +372,7 @@ fn mean_by_day() -> Case {
                 column: column("amount_cents"),
             },
         },
-        String::from("amount_mean"),
+        ResultLabel::measure(&metric("amount_mean")),
         range_filters(),
         range_params(),
         range(),
@@ -416,12 +419,15 @@ fn real(value: f64) -> Value {
 
 /// The time bucket every case groups by: one day.
 fn bucket() -> PlanBucket {
-    PlanBucket::new(String::from("period"), Grain::Day, column("day"))
+    PlanBucket::new(ResultLabel::bucket(), Grain::Day, column("day"))
 }
 
 /// The one dimension key in the corpus.
 fn region_key() -> PlanKey {
-    PlanKey::new(String::from("region"), column("region"))
+    PlanKey::new(
+        ResultLabel::dimension(&DimensionName::parse("region").expect("a corpus dimension is a dimension")),
+        column("region"),
+    )
 }
 
 /// The window every case reads: two days of the three in the corpus.
