@@ -402,7 +402,12 @@ mod tests {
             let hook = declared.iter().find(|hook| hook.id == id).expect("the gate hook is declared");
             entries.push((String::from(id), hook.entry.clone()));
         }
-        for task in ["fmt", "lint"] {
+        // The recipes a person types, and the reason `check-changed` is here: the list held `fmt`
+        // and `lint` while that recipe was the ONE Rust task with no `source` line, so the
+        // enumeration described the requirement rather than holding it. `test` is deliberately
+        // absent - its body brings up the Postgres tier, which this fixture must not do - so the
+        // helper's presence there is held by review, not by this loop.
+        for task in ["fmt", "lint", "check-changed"] {
             let body = crate::tasks::recipe_body(&root, task).expect("the gate recipe").join("\n");
             entries.push((format!("just {task}"), body));
         }

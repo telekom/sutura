@@ -130,7 +130,13 @@ The `ci` profile inherits `dev`, so anything building `--profile ci` locally - t
 included - hits the same cranelift problem and needs `nix/stable-env.sh` first.
 
 **Local Rust gates require configured stable tools.** The formatter, changed-package, doctest and
-clippy hook entries source `nix/stable-env.sh`, as do the corresponding `just` tasks. The helper
+clippy hook entries source `nix/stable-env.sh`, as do the corresponding `just` tasks. That second
+half was FALSE when it was first written - `just check-changed` was the one Rust recipe with no
+`source` line, so the recipe a person types ran the cranelift nightly while its own commit hook ran
+stable. What holds it now is execution rather than the sentence: the gate-entry regression in
+`xtask/src/hooks.rs` runs the `fmt`, `lint` and `check-changed` recipe bodies against a fake
+toolchain. `just test` sources the helper too and is deliberately outside that enumeration, because
+executing its body would provision a database - there the line is held by review. The helper
 terminates the caller when `SUTURA_STABLE_BIN` is absent, empty or lacks a required executable;
 returning an error alone would not stop the hooks' semicolon-separated commands. Enter the dev
 shell to obtain the pinned configuration. This trusts that environment: it is not attestation of
