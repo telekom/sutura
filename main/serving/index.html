@@ -4270,9 +4270,11 @@ transcript nobody runs goes stale silently, and a suite cannot.</p>
   <code>wire</code> feature holds one - <code>ureq</code> over rustls, with a compiled-in root set and <code>https_only</code> - so
   outbound TLS to a data source exists and works. What does not exist is any way for a deployment to
   <em>configure</em> it: no trust-store setting, no client certificate, no pinning, and no configuration
-  group at all. Two reasons, and the second is why it is not simply an omission. There is nothing to
-  attach one to yet: no composition root links that crate, <code>sutura-serve</code> refuses <code>kind: bigquery</code>
-  by name, and the two adapters a shipped binary can open read local files. And for that endpoint
+  group at all. Two reasons, and the second is why it is not simply an omission. There is little to
+  attach one to: the crate is linked and <code>kind: bigquery</code> dispatches behind a default-off feature,
+  so what a default build can open still reads local files. <strong>Both clauses that used to stand here -
+  <em>no composition root links that crate</em> and <em><code>sutura-serve</code> refuses <code>kind: bigquery</code> by name</em> - are
+  spent</strong>, which <code>docs/adr/0017</code>'s second amendment recorded. And for that endpoint
   the <em>absence</em> of configuration is the safer default - a compiled-in root set means the same binary
   trusts the same authorities on every machine, and a settable host is a settable place to send a
   bearer token, which <code>docs/adr/0018</code> records as a deliberate trade against local testability. A

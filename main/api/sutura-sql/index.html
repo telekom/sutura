@@ -2483,11 +2483,17 @@ returns a result - so an identifier is folded when it is RESOLVED, even though t
 keeps two projected aliases differing only in case as two distinct output columns. Declaring
 the coarser of the two behaviours covers both.</p>
 <p><strong><code>Postgres</code> and <code>ClickHouse</code> are <code>Sensitive</code>, from their documented behaviour and NOT measured
-here</strong> - neither has a server in this repository to ask, which is why the paragraph above about
-the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
-compares exactly, and this renderer force-quotes every identifier; <code>ClickHouse</code> identifiers are
-case-sensitive. Nothing in this workspace executes either, which <code>AGENTS.md</code> already says of
-every <code>ClickHouse</code> golden.</p>
+here</strong>, which is why the paragraph above about the direction of a wrong declaration matters.
+A Postgres quoted identifier preserves case and compares exactly, and this renderer
+force-quotes every identifier; <code>ClickHouse</code> identifiers are case-sensitive.</p>
+<p><strong>Two sentences that used to stand here are spent, and they went false in different
+directions.</strong> <em>Neither has a server in this repository to ask</em> is now false for <code>Postgres</code>:
+<code>nix/postgres-tier.nix</code> provisions one and every venue that runs the suite provisions the
+tier, so <code>crates/sutura-exec-postgres/tests/conformance.rs</code>' cells RUN. What stays true is
+that this DECLARATION is still taken from documentation rather than from that server - the
+venue exists and nothing yet asks it about identifier folding. And <em>nothing in this workspace
+executes either, which <code>AGENTS.md</code> already says</em> was false twice over: <code>Postgres</code> executes,
+and <code>AGENTS.md</code> has said nothing about <code>ClickHouse</code> since <code>#228</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identifier_quote</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">IdentifierQuote</span>
 </span></code></pre></div>
 <p>Which character this data system wraps an identifier in.</p>
@@ -2531,7 +2537,9 @@ depending on a connection detail no catalog can see. A schema qualifier is the r
 and is what a <code>schema.table</code> model gets.</p>
 <p><strong><code>ClickHouse</code> is <code>Dataset</code> for its <code>database.table</code>.</strong> It has databases and no catalog above
 them. Its arm is a rendering claim and not an execution one: nothing in this workspace
-executes <code>ClickHouse</code>, which <code>AGENTS.md</code> already says of every <code>ClickHouse</code> golden.</p>
+executes <code>ClickHouse</code>, and <code>.agents/skills/sutura/invariants</code> is where that is recorded.
+<strong>This used to cite <code>AGENTS.md</code>, which has said nothing about <code>ClickHouse</code> since <code>#228</code></strong> -
+a citation to a deleted section reads as corroboration and supplies none.</p>
 <p><strong><code>DuckDB</code> is <code>TableOnly</code>, and that arm is the one worth reading twice</strong> - <code>DuckDB</code> <em>does</em> have
 schemas and attached catalogs, so this is narrower than what the engine can parse. It is
 declared for what a <code>DuckDB</code> deployment HERE can resolve: <code>sutura-exec-duckdb</code> registers one
@@ -2609,8 +2617,21 @@ and one of them - <code>WEEK(&lt;WEEKDAY&gt;)</code> - is not expressible as a s
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="constant-all"><code>constant ALL</code><a class="headerlink" href="#constant-all" title="Permanent link">&para;</a></h3>
 <p>Every dialect, for iterating a golden suite over all of them.</p>
-<p>A <code>const</code> rather than a derive, so a new variant that is not added here fails the exhaustiveness
-test below rather than being silently untested.</p>
+<p>A <code>const</code> rather than a derive, and <strong>the compiler is what holds a new variant rather than the
+test below.</strong> A fifth variant does not compile until seven production exhaustive matches over
+<code>Dialect</code> answer for it: <code>as_str</code>, <code>placeholder_style</code>, <code>identifier_quote</code>, <code>date_trunc_shape</code>,
+<code>qualification</code> and <code>identifier_case</code> in this file, and <code>dialect_type</code> in
+<code>mod@crate::generate</code>. So a data system cannot arrive without somebody deciding how it renders.</p>
+<p><strong>What is held by review and by nothing else is the edge from the enum to this list</strong>, and this
+paragraph used to promise the opposite. <code>every_dialect_is_in_all</code> restates the four names by
+hand, so a fifth variant added to the enum and OMITTED here leaves it green while the golden
+suite iterates four of five and reads as covered; a variant added to both turns it red on the
+length assertion until the literal is bumped. <code>crates/sutura-app/tests/golden/dialects.rs</code> does
+not close the edge either - it compares this list against that suite's own registry, never the
+enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
+<code>match</code> over <code>Dialect</code> is what BUILDS the list to compare against; a restated array anywhere in
+that chain reintroduces the same hole one level down, which is why the obvious rewrite of the
+test body is not the fix. <code>github.com/telekom/sutura#410</code> carries the measurement.</p>
 <h2 id="module-expression">Module <code>expression</code><a class="headerlink" href="#module-expression" title="Permanent link">&para;</a></h2>
 <p>Compile: an authored SQL fragment becomes one checked expression per target dialect.</p>
 <p><code>sutura_domain::expression</code> holds the fragment as text and knows nothing about SQL, because the

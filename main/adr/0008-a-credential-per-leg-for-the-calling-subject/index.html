@@ -5068,13 +5068,27 @@ credential that ages out mid-statement is refused by the data system rather than
 <li><strong>A per-leg credential on a second leg.</strong> <code>LegCredentials</code> holds N legs and nothing constructs a
    second one: there is no splitter and no combiner, and both <code>Warehouse</code> implementors answer a leg
    with a typed error.</li>
-<li><strong>Provenance is still read off <code>Warehouse::posture</code></strong> rather than off <code>Presented::executed_as</code>, which
+</ol>
+<blockquote>
+<p><strong>Amended, 2026-09-08.</strong> Items 2 and 3 are spent, and the sentences above are kept as written
+because they are the premise those items argue from. <em>"Part 4's per-leg check needs a splitter,
+which does not exist"</em> and <em>"there is no splitter and no combiner"</em> were true when this record
+was written and stopped being true with the change that landed both, and <em>"nothing constructs a
+second one"</em> stopped being true when the engine declared <code>Warehouse::EXECUTES_LEGS</code>.
+<code>sutura_app::answer_federated</code> now mints ONE credential set over both sources and hands each
+leg its own <code>Presented</code>, and a published build executes both legs - so <code>LegCredentials</code> covers
+two legs on the shipped answer path rather than one in a test.</p>
+<p><strong>What that leaves undone is leg 2, and it is not what these items said.</strong> The per-leg check is
+over a credential minted for the CALLING SUBJECT, and no shipped adapter yet has anywhere for a
+per-subject credential to arrive. So item 3's conclusion has moved from <em>nothing constructs a
+second leg</em> to <em>nothing yet runs one AS the caller</em>, which is a different claim with a
+different mechanism, and the reason to amend rather than rewrite is that a reader who plans
+from the old sentence plans for the wrong gap.
+4. <strong>Provenance is still read off <code>Warehouse::posture</code></strong> rather than off <code>Presented::executed_as</code>, which
    the table at the foot of this record wants. The reason not to move it is that the posture on the
    adapter is what the composition root built, while the credential comes from a broker that read the
    settings tree. Moving it is a one-line change and a change to an invariant row, so it belongs with
-   the adapter that makes the two able to disagree.</li>
-</ol>
-<blockquote>
+   the adapter that makes the two able to disagree.</p>
 <p><strong>Amended.</strong> "The two agree today by construction - each adapter refuses material that disagrees
 with its own posture" was <strong>not true when it was written</strong>, and a review is what found it: each
 adapter matched the variant it was handed against <code>Warehouse::IMPERSONATION</code>, which is a property

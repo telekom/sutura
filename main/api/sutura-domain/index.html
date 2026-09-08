@@ -2418,9 +2418,11 @@ types it speaks in:</p>
   absence.</li>
 <li><code>plan</code> is what we decided to execute, and the artifact the execution port speaks in.</li>
 <li><code>federation</code> is how a measure survives being computed in pieces: which aggregates descend
-  into a leg, which one descends decomposed, and which needs its rows pulled up. Nothing executes
-  it yet - there is no splitter and no combiner - so it is a classification with no production
-  caller, and its own header says so.</li>
+  into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
+  and the combiner (<code>plan::FederatedPlan::combine</code>) both call it, and since
+  <code>sutura-exec-datafusion</code> declares <code>Warehouse::EXECUTES_LEGS</code> a published build answers a
+  two-source question end to end - so this is a classification on the answer path rather than
+  one with no production caller, which is what this line used to say.</li>
 <li><code>catalog</code> is what a catalog says, and where its cross-references are checked.</li>
 <li><code>knowledge</code> is what a catalog says ABOUT what it defines - the glossary, the caveats, the
   terms deliberately left undefined, the worked questions - checked against a <code>catalog</code> and read
@@ -3582,11 +3584,18 @@ derived column that belongs upstream, which is what <code>docs/adr/0001</code> s
 <h2 id="module-federation">Module <code>federation</code><a class="headerlink" href="#module-federation" title="Permanent link">&para;</a></h2>
 <p>How a measure federates: what descends into a leg, and the one computation that happens above
 them.</p>
-<p><strong>This module is a classification and a rule, and nothing executes it.</strong> There is no leg plan
-type, no splitter and no combiner in this workspace yet, so nothing here has a production
-caller: the same shape <code>.agents/skills/sutura/query-surface</code>'s built-and-not-wired inventory describes for the
-authored-SQL hatch. It is stated here rather than left for a reader to discover, because a
-classification that looks wired is worse than one that says it is not.</p>
+<p><strong>This module is a classification and a rule, and the splitter above it reads them.</strong>
+<code>crate::plan::LegPlan</code> is the leg plan type; the splitter is <code>sutura_semantic::plan</code>, which
+calls <code>Federation::of</code> on the measure it resolves; and the combiner above the legs is
+<code>crate::plan::FederatedPlan::combine</code>, called from <code>sutura_app::federated</code>. So this has a
+production caller, and the sentence that used to stand here said it had none - the correction is
+recorded rather than quietly applied, because <em>a classification with no production caller</em> is
+what a reader would otherwise still plan against.</p>
+<p>And it is on the answer path of a published build, not merely in library code:
+<code>sutura-exec-datafusion</code> declares <code>Warehouse::EXECUTES_LEGS</code>, so <code>sutura</code> and <code>sutura-serve</code>
+execute a leg. What the defaulted-<code>false</code> constant still holds is the OTHER direction - an
+adapter with no leg venue refuses rather than half-answering.
+<code>.agents/skills/sutura/query-surface</code> carries that state.</p>
 <p><strong>The problem it answers.</strong> Grouping a fact leg by a remote join key is a strictly finer grouping
 than the answer, so a combine above the legs has to aggregate again - and whether that is correct
 depends entirely on the aggregate. <code>AVG</code> of <code>AVG</code>s is not the average, and two exact distinct
@@ -5911,10 +5920,14 @@ aliased into this namespace, with <code>GROUP BY</code> and <code>ORDER BY .. NU
 Both are accepted and both come back with the field names the statement asked for. So the
 documented restriction is on a <strong>declared column</strong> and not on a quoted alias.</p>
 <p><strong>The limit, next to the claim:</strong> <code>Postgres</code> and <code>ClickHouse</code> are asserted at the parser only.
-Neither has an execution venue for a LEG - the whole federated path is gated by a
-defaulted-<code>false</code> <code>EXECUTES_LEGS</code> that only the dev-only <code>DuckDB</code> vehicle sets - so what stands
-for them is a quoted-identifier argument rather than a run. Read the row above for what each one
-is worth.</p>
+Neither has an execution venue for a LEG - each leaves <code>EXECUTES_LEGS</code> at its default <code>false</code> -
+so what stands for them is a quoted-identifier argument rather than a run. Read the row above
+for what each one is worth.</p>
+<p><strong>The reason that sentence changed rather than the claim:</strong> it used to say <em>the whole federated
+path is gated by a defaulted-<code>false</code> <code>EXECUTES_LEGS</code> that only the dev-only <code>DuckDB</code> vehicle
+sets</em>, which stopped being true when the engine declared the constant and a published build
+began answering two sources. The limit for these two dialects is unaffected - it never rested on
+the path being gated, only on neither having a venue.</p>
 <p><strong>Every value is valid, so there is nothing to check.</strong> A <code>usize</code> position out of a plan's leaf
 range is a wiring defect the combiner reports as a missing column, not a label this type could
 have refused - which is why the variants carry their data in the open and no constructor is

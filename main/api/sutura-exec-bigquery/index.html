@@ -2357,8 +2357,10 @@ it costs; the two reasons it was absent are answered rather than repealed:</p>
    <code>BigQueryWarehouse::load_fixture</code>, runs the corpus questions, and compares its rows with the
    engine's for the same plan. That is where the join, the ratio and <code>ISOWEEK</code> are reached.</li>
 </ol>
-<p>So this crate is still built and not wired - see <code>.agents/skills/sutura/query-surface</code> - and nothing here may be cited
-as an invariant. <code>sutura-serve</code> links no <code>BigQuery</code> adapter and refuses <code>kind: bigquery</code> by name,
+<p>So nothing here may be cited as an invariant. <code>sutura-serve</code> DOES link this adapter and dispatch
+<code>kind: bigquery</code> behind its default-off <code>bigquery</code> feature - <code>docs/adr/0017</code>'s second amendment
+records the day the last <em>not wired</em> was spent, and the two sentences that used to stand here
+said the opposite. What is still true is that a default build links none of it,
 and the <code>data_systems:</code> axis of the golden matrix still gains no entry - <strong>and the reason for that
 last one has changed rather than gone away.</strong> It was <em>a cell that has never executed reads as
 coverage</em>; the corpus leg executes, so what keeps the entry out now is that a cell in that registry
@@ -2856,9 +2858,10 @@ built. So: <em>one statement accepted</em>, not <em>the corpus accepted</em>.</p
 <p>What the suite beside this module proves is separate and unchanged: that <em>this code builds the
 request it says it builds and reads the answer it says it reads</em>, over documents that are not the
 service's.</p>
-<p>So: still built and not wired - <code>.agents/skills/sutura/query-surface</code> - two lines further along. <code>sutura-serve</code> links no
-<code>BigQuery</code> adapter and refuses <code>kind: bigquery</code> by name, and the <code>data_systems:</code> axis of the
-golden matrix still gains no entry - one live statement is not a registered data system.</p>
+<p>So: one live statement is not a registered data system, and the <code>data_systems:</code> axis of the
+golden matrix still gains no entry. <code>sutura-serve</code> DOES link this adapter and dispatch
+<code>kind: bigquery</code> behind its default-off <code>bigquery</code> feature; the sentence that used to stand here
+said it linked none, which <code>docs/adr/0017</code>'s second amendment had already spent.</p>
 <h1 id="what-this-module-decides-and-every-one-of-them-is-pinned-by-a-type-or-by-a-test">What this module decides, and every one of them is pinned by a TYPE or by a test<a class="headerlink" href="#what-this-module-decides-and-every-one-of-them-is-pinned-by-a-type-or-by-a-test" title="Permanent link">&para;</a></h1>
 <ul>
 <li><strong>A job is bounded in TIME and in MONEY, and neither bound is a constant here.</strong> <code>JobBounds</code>

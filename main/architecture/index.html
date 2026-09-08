@@ -3170,11 +3170,17 @@ none of them covers.</p>
     Q --&gt; SL --&gt; PL --&gt; FD --&gt; DI --&gt; EX --&gt; A
     SL -.-&gt;|bytes| ST
     ST -.-&gt; DI</code></pre>
-<p>Four of those nodes are design targets rather than descriptions of this repository. Federation is
-not built; execution <em>as the calling principal</em> is not built, because nothing carries a principal;
-the spliced statement is not built, because a metric has no statement field; and the Arrow envelope
-is not built, because the port returns a row type. What runs today is the question, the semantic
-layer, the plan, the dialect, and execution against a local file as whoever started the process.</p>
+<p>Three of those nodes are design targets rather than descriptions of this repository. Federation is
+<strong>built, and a published build answers a two-source question end to end</strong> - the splitter, two
+executions and the combiner, with the engine declaring <code>Warehouse::EXECUTES_LEGS</code> and a differential
+over both. That constant still defaults to <code>false</code>, which is what refuses an adapter with no leg
+venue rather than half-answering. Execution
+<em>as the calling principal</em> is not built, and no longer because nothing carries a principal: a
+verified subject reaches the request path, and what is missing is an adapter with anywhere for a
+per-subject credential to arrive. The spliced statement is not built, because a metric has no
+statement field; and the Arrow envelope is not built, because the port returns a row type. What runs
+today is the question, the semantic layer, the plan, the dialect, and execution against a local file
+as whoever started the process.</p>
 <p><strong>The semantic layer decides what a question means.</strong> <a href="https://github.com/Canner/WrenAI">Wren</a> is
 the reference for that shape: a modelling language, an engine that plans against it, and MCP as the
 way an agent asks. Wren derives a metric's SQL from a model of the tables; we take the statement as
@@ -3380,9 +3386,15 @@ read as the process through.</p>
 versioned <code>v1</code> tree, a liveness probe, a generated interface description, rate limiting, a bearer
 gate and optional in-process TLS. What it does <strong>not</strong> carry is a per-caller identity - the token
 authenticates the deployment - so none of the identity claims above are made true by its arrival.</p>
-<p>Still absent: the MCP transport, Arrow results with provenance in the schema metadata, federation, a
-per-caller budget beyond the row cap and the ten-year span, a second catalog adapter, and the audit
-sink. The spliced-statement path is designed, documented above, and unimplemented.</p>
+<p>Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
+the row cap and the ten-year span. The spliced-statement path is designed, documented above, and
+unimplemented. <strong>This bullet used to list the MCP transport, federation, a second catalog adapter
+and the audit sink</strong>, all four of which arrived - <code>sutura-mcp</code>, the splitter and combiner,
+<code>sutura-catalog-datahub</code> and <code>sutura_runtime::audit</code> - while the same page said so twenty lines
+above its own diagram. <strong>A fifth, <em>execution of a federated leg by a shipped adapter</em>, was written
+into this bullet on this branch and spent before it merged</strong>: the engine declares
+<code>Warehouse::EXECUTES_LEGS</code> now. The list is the shape this page goes stale in, which is why the
+history is kept beside it.</p>
 <p>And one thing that was absent here and is now half present, because the two ports are what the layout
 is <em>for</em>: <strong>runtime selection of a data system.</strong> <code>sutura-serve</code> reads a <code>sources:</code> tree, opens one
 adapter per source the catalog names, and hands each the posture its entry declared - so a <code>SourceName</code>
