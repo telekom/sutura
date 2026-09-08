@@ -62,7 +62,7 @@ pub(super) const NOT_BUILT: &str = "not built";
 /// The word a venue's `Where it runs` cell uses when it runs nowhere.
 pub(super) const NOWHERE: &str = "nowhere";
 
-/// Every place a venue may say it runs, longest first for [`VERDICTS`]' reason.
+/// Every place a venue may say it runs. No entry prefixes another, so their order is immaterial.
 ///
 /// **A CLOSED vocabulary, one review after [`VERDICTS`] became one, and for the same cell's sake.**
 /// [`Venue::runs_nowhere`] matched the SUBSTRING `nowhere` in free prose, and that predicate is the

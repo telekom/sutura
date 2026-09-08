@@ -130,6 +130,7 @@
 //! | `>> "$GITHUB_OUTPUT"`, `\| tee`, `base64`, `jq` over the key file | [`shape::redirects_to_file`] judges the target's SHAPE, not whether it is published, and [`shape::PRINTS`] is a vocabulary. A `cat` of the credential file IS now caught, by [`shape::emits_file`]; a `base64` of it is not |
 //! | The key one hop from its name | `K="$SUTURA_BQ_KEY"` and then `echo "$K"` needs data flow, and nothing here has any. Both the name check and [`shape::emits_file`] read one line |
 //! | A copy of a key whose write does not spell the secret | [`properties::credential_placement`] calls a redirect into `$RUNNER_TEMP` a second copy when the LINE names a secret, so a `cp` of the key file or a `base64 -d` of it places a copy this does not know about. Reading every write instead would fail a job that puts a log there, which is the direction that gets a gate deleted |
+//! | A `cd`-relative write or another shell-built path | The path reader recognises plain/braced `$RUNNER_TEMP` prefixes with the word or directory double-quoted; it does not evaluate shell expressions or track the working directory |
 //! | A removal in a step whose `if:` never fires | The job's shell is one flat line list, so an `rm` is read wherever it is written. `docs/adr/0017` records this half as review's, and it still is |
 //! | A guard whose `exit` is in the NEXT step | The job's shell is one flat line list, so [`properties::GUARD_WINDOW`] can cross a step boundary. Strictly stronger than the whole-job search it replaced, not airtight |
 //! | Whether the name a guard mentions is the name it TESTS | `guarded` is a bag of environment-shaped words off any guard line, so a name merely appearing near one counts as tested |
@@ -288,6 +289,93 @@ mod tests {
             "rm -f \"$RUNNER_TEMP/bq-principal-a.json\" \"$RUNNER_TEMP/bq-key.json\"",
         );
         assert_eq!(problems(&removed), Vec::<String>::new());
+    }
+
+    #[test]
+    fn equivalent_runner_temp_spellings_still_require_cleanup_for_each_copy() {
+        for path in [
+            "\"${RUNNER_TEMP}/bq-principal-a.json\"",
+            "\"$RUNNER_TEMP\"/bq-principal-a.json",
+            "${RUNNER_TEMP}/bq-principal-a.json",
+        ] {
+            let written = beside_the_write(&format!("printenv SUTURA_BQ_KEY > {path}"));
+            let found = problems(&written);
+            assert_eq!(found.len(), 1, "{path}: {found:?}");
+            assert!(
+                found[0].contains("writes `$RUNNER_TEMP/bq-principal-a.json` and no `rm`"),
+                "{found:?}"
+            );
+            let removed = written.replace(
+                "rm -f \"$RUNNER_TEMP/bq-key.json\"",
+                &format!("rm -f \"$RUNNER_TEMP/bq-key.json\" {path}"),
+            );
+            assert_eq!(problems(&removed), Vec::<String>::new(), "{path}");
+        }
+    }
+
+    #[test]
+    fn the_primary_write_accepts_equivalent_expansions_but_not_a_literal_variable() {
+        for path in [
+            "\"${RUNNER_TEMP}/bq-key.json\"",
+            "\"$RUNNER_TEMP\"/bq-key.json",
+            "${RUNNER_TEMP}/bq-key.json",
+        ] {
+            let written = instead_of_the_write(&format!("printenv SUTURA_BQ_KEY > {path}"));
+            assert_eq!(problems(&written), Vec::<String>::new(), "{path}");
+        }
+        let literal = instead_of_the_write("printenv SUTURA_BQ_KEY > '$RUNNER_TEMP/bq-key.json'");
+        assert!(
+            problems(&literal)
+                .iter()
+                .any(|p| p.contains("never has the credential written"))
+        );
+        let literal_cleanup = CI.replace("rm -f \"$RUNNER_TEMP/bq-key.json\"", "rm -f '$RUNNER_TEMP/bq-key.json'");
+        assert!(
+            problems(&literal_cleanup)
+                .iter()
+                .any(|p| p.contains("writes `$RUNNER_TEMP/bq-key.json` and no `rm`"))
+        );
+
+        let unnamed = instead_of_the_write("printf '{}' > \"$RUNNER_TEMP/bq-key.json\"")
+            .replace("rm -f \"$RUNNER_TEMP/bq-key.json\"", "true");
+        assert!(
+            problems(&unnamed)
+                .iter()
+                .any(|p| p.contains("writes `$RUNNER_TEMP/bq-key.json` and no `rm`"))
+        );
+    }
+
+    #[test]
+    fn a_cleanup_comment_or_later_echo_does_not_remove_a_second_copy() {
+        let written = beside_the_write("printenv SUTURA_BQ_KEY > \"$RUNNER_TEMP/bq-principal-a.json\"");
+        for suffix in [
+            " # TODO: \"$RUNNER_TEMP/bq-principal-a.json\"",
+            " || echo \"$RUNNER_TEMP/bq-principal-a.json\"",
+        ] {
+            let mentioned = written.replace(
+                "rm -f \"$RUNNER_TEMP/bq-key.json\"",
+                &format!("rm -f \"$RUNNER_TEMP/bq-key.json\"{suffix}"),
+            );
+            let found = problems(&mentioned);
+            assert!(
+                found
+                    .iter()
+                    .any(|p| p.contains("writes `$RUNNER_TEMP/bq-principal-a.json` and no `rm`")),
+                "{found:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compound_cleanup_commands_still_remove_their_arguments() {
+        for cleanup in [
+            "if true; then rm -f \"$RUNNER_TEMP/bq-key.json\"; fi",
+            "true && rm -f \"$RUNNER_TEMP/bq-key.json\"",
+            "rm -f \"$RUNNER_TEMP/unrelated.json\" && rm -f \"$RUNNER_TEMP/bq-key.json\"",
+        ] {
+            let removed = CI.replace("rm -f \"$RUNNER_TEMP/bq-key.json\"", cleanup);
+            assert_eq!(problems(&removed), Vec::<String>::new(), "{cleanup}");
+        }
     }
 
     #[test]

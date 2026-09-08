@@ -154,13 +154,13 @@ pub(super) fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
 /// two-principal amendment records that half as held by review; the comment that said so beside the
 /// job went when that file came back under the 1000-line cap.
 ///
-/// So the WRITES are read. Every redirect into `$RUNNER_TEMP` from a command that names a secret is
-/// a second copy of that secret, and each one has to be deleted by name.
+/// So the WRITES are read. Each recognised redirect into `$RUNNER_TEMP` from a command that names
+/// a secret is a second copy of that secret, and each one has to be deleted by name.
 ///
 /// **What it does not reach**, beside the parent's own limits table: a copy made by a command that
 /// does not spell the secret's name - a `cp` of the key file, a `base64 -d` of it - and a removal
-/// in a step whose `if:` never fires. Both are the same shape as the entries already there, and
-/// neither is reachable without the data flow nothing here has.
+/// in a step whose `if:` never fires. A `cd`-relative write and other shell-built paths are not
+/// interpreted either. These need data flow or execution reasoning, which nothing here has.
 pub(super) fn credential_placement(
     commands: &[&str],
     config: &BTreeMap<&str, Source>,
@@ -198,11 +198,14 @@ pub(super) fn credential_placement(
             )];
         }
         (Some(_), Some(file)) => {
-            // Per line, because the form cannot span one - which is what the joined copy of every
-            // body was for. The WHOLE path below `$RUNNER_TEMP` and not its basename: one answer,
-            // or the message is describing two.
+            // Compare the same normalised destinations used for additional copies; the message
+            // prints one canonical spelling rather than requiring that spelling in the job.
             let form = format!("> \"$RUNNER_TEMP/{file}\"");
-            if !commands.iter().any(|line| line.contains(&form)) {
+            if !commands
+                .iter()
+                .flat_map(|line| writes_under_runner_temp(line))
+                .any(|named| named == file)
+            {
                 problems.push(format!(
                     "{WORKFLOW}: the `{JOB}` job never has the credential written as `{form}` - the \
                      path the leg reads and the path the job writes are one path or they are two \

@@ -11,6 +11,8 @@
 
 use std::collections::BTreeMap;
 
+use super::super::sources::command_spans;
+
 /// The fork rule, on the head repository.
 ///
 /// **Not `github.event_name`**, and the difference is the whole property: a pull request from a
@@ -29,59 +31,9 @@ const FORK_EVENTS: &[&str] = &["pull_request", "pull_request_target"];
 /// prints the key instead of storing it, and a check that knew only `echo` read that as clean.
 pub(super) const PRINTS: &[&str] = &["echo", "printf", "printenv", "cat "];
 
-/// The two block readers, from the module that owns them.
-///
-/// `crate::workflows::step` reads a STEP's own lines for `check-default-feature-tests`, which it
-/// cannot do without first narrowing the file to one job - so the indentation contract these two
-/// carry was about to exist twice, and a second copy is how one of them stops matching the file
-/// after a reindent. Re-exported rather than moved and rewired, so this gate's call sites and the
-/// `job` doc links in [`super`] still name one thing.
-pub(super) use crate::workflows::step::{job, keyed_block};
-
-/// One key of a step, whether it is written on the `-` line or below it.
-///
-/// **A step's first key may sit on the list marker**, and reading only the leading-key form was a
-/// hole rather than a nicety: `- run: printenv <the key>` left that step's whole body out of
-/// [`shell`], so the print check, the interpolation check and [`traces`] all went blind for it
-/// while the gate still printed `ok`. `- continue-on-error: true` is the same shape one property
-/// over. No workflow in this tree writes a step that way today, which is what makes it one line
-/// from being green and wrong.
-pub(super) fn step_key(line: &str) -> &str {
-    let trimmed = line.trim_start();
-    trimmed.strip_prefix('-').map_or(trimmed, str::trim_start)
-}
-
-/// The shell of every `run:` block in `block`.
-///
-/// A body ends at the first line indented no deeper than its own `run:` key, which is what keeps a
-/// comment written between two steps out of it. A shell comment INSIDE a body stays in, because an
-/// expression in one would still be an expression in the file.
-///
-/// **The depth is the KEY's column, not the list marker's.** For a nameless step the two differ by
-/// two, and recording the marker's held the body open across the step's own siblings: an `env:`
-/// written after a `- run: |` was collected as shell, so its `${{ }}` values were reported as
-/// interpolated into a body that does not contain them.
-pub(super) fn shell<'a>(block: &[&'a str]) -> Vec<&'a str> {
-    let mut out = Vec::new();
-    let mut inside: Option<usize> = None;
-    for line in block {
-        let indent = line.len().saturating_sub(line.trim_start().len());
-        if let Some(depth) = inside {
-            if !line.trim().is_empty() && indent <= depth {
-                inside = None;
-            } else {
-                out.push(*line);
-                continue;
-            }
-        }
-        let key = step_key(line);
-        if key.starts_with("run:") {
-            inside = Some(line.len().saturating_sub(key.len()));
-            out.push(key);
-        }
-    }
-    out
-}
+/// The shared job and step readers. Acceptance and invocation detection must agree on which
+/// lines are shell; keeping the raw reader in one place also preserves GitHub expressions.
+pub(super) use crate::workflows::step::{job, keyed_block, shell, step_key};
 
 /// Where a value the job reads comes from.
 ///
@@ -377,14 +329,17 @@ pub(super) fn under_runner_temp(path: &str) -> Option<&str> {
     rest.strip_prefix('/')
 }
 
-/// The same directory as a shell WORD, which is how the job's own commands spell it.
-const RUNNER_TEMP: &str = "$RUNNER_TEMP/";
-
-/// The path below `$RUNNER_TEMP` one shell word names, bounded at the quote or space that ends it.
+/// The path below a plain or braced `$RUNNER_TEMP` expansion, with the whole word or just the
+/// directory optionally double-quoted. A single-quoted variable is literal, not this directory.
 fn named_under_runner_temp(word: &str) -> Option<&str> {
-    let file = word
-        .trim_start_matches(['"', '\''])
-        .strip_prefix(RUNNER_TEMP)?
+    let word = word.strip_prefix('"').unwrap_or(word);
+    let path = word
+        .strip_prefix("$RUNNER_TEMP")
+        .or_else(|| word.strip_prefix("${RUNNER_TEMP}"))?;
+    let file = path
+        .strip_prefix('"')
+        .unwrap_or(path)
+        .strip_prefix('/')?
         .split(['"', '\'', ' '])
         .next()?;
     (!file.is_empty()).then_some(file)
@@ -412,13 +367,14 @@ pub(super) fn writes_under_runner_temp(line: &str) -> impl Iterator<Item = &str>
 /// [`traces`] reads it that way, and `-f` is not required of it: `-f` decides what happens when the
 /// file is absent, never whether the file is gone afterwards. Read past a `run:` key for [`traces`]'
 /// reason: a one-line body puts the whole command on that key, which is how this job spells cleanup.
+/// [`command_spans`] bounds the arguments: a trailing comment or a later `echo` removes nothing,
+/// while an `rm` behind `then` or `&&` still names its own arguments. Execution is not evaluated.
 pub(super) fn removes(line: &str, file: &str) -> bool {
-    let body = step_key(line);
-    let Some(arguments) = command(body.strip_prefix("run:").unwrap_or(body)).strip_prefix("rm ") else {
-        return false;
-    };
-    arguments
-        .split_whitespace()
+    command_spans(line)
+        .into_iter()
+        .map(command)
+        .filter_map(|invocation| invocation.strip_prefix("rm "))
+        .flat_map(str::split_whitespace)
         .filter_map(named_under_runner_temp)
         .any(|named| named == file)
 }

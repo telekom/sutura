@@ -130,7 +130,7 @@ type Step = Option<(usize, bool, Quoting)>;
 /// not: a heredoc body is read as commands, so a line of quoted markdown that BEGINS with `just `
 /// resolves; and an apostrophe in unquoted prose opens a `Single` span that swallows the rest of
 /// the line, which drops invocations rather than inventing them.
-fn command_spans(line: &str) -> Vec<&str> {
+pub(super) fn command_spans(line: &str) -> Vec<&str> {
     let mut spans = Vec::new();
     let (mut start, mut at, mut state) = (0usize, 0usize, Quoting::Bare);
     // The quoting each open `$(` or backtick was written in, so its close returns to it.
@@ -149,6 +149,9 @@ fn command_spans(line: &str) -> Vec<&str> {
                 opened.push((state, false));
                 Some((2, true, Quoting::Bare))
             }
+            // This expansion is one path atom, not a brace group. Do not skip arbitrary `${...}`:
+            // a parameter expansion can itself contain a real command substitution.
+            (Quoting::Bare, '$') if rest.starts_with("${RUNNER_TEMP}") => Some(("${RUNNER_TEMP}".len(), false, Quoting::Bare)),
             (Quoting::Double, '`') => {
                 opened.push((state, true));
                 Some((one, true, Quoting::Bare))
@@ -265,6 +268,9 @@ pub(super) fn starts_a_command(segment: &str) -> Option<&str> {
 /// arguments** - see [`starts_a_command`] - and **neither is a word inside somebody's QUOTES**,
 /// which is [`command_spans`] and the finding one review later: the comment rule was a whole-line
 /// `starts_with('#')` while five other prose shapes went on resolving.
+/// Workflow and action sources contribute only their raw `run:` bodies, through
+/// [`crate::workflows::step::shell`]; shared scripts contribute their whole text. The indentation
+/// reader's YAML limits and this module's heredoc limits remain, so this is not an execution proof.
 ///
 /// `None` only when the scan itself is broken, which its caller turns into a failure rather than an
 /// empty set: a set that found nothing would make every `unrun` cell pass, and *a scan that passes
@@ -273,7 +279,13 @@ pub(super) fn invoked(root: &Path) -> Option<BTreeSet<String>> {
     let read = crate::workflows::sources::ci_sources(root)?;
     let mut out = BTreeSet::new();
     for source in &read {
-        for line in source.text.lines() {
+        let lines: Vec<&str> = source.text.lines().collect();
+        let bodies = if source.label.starts_with("nix/") {
+            lines
+        } else {
+            crate::workflows::step::shell(&lines)
+        };
+        for line in bodies {
             for span in command_spans(line) {
                 if let Some(name) = starts_a_command(span) {
                     out.insert(name.to_owned());
@@ -301,6 +313,41 @@ pub(super) fn cited_invocations(reached: &str) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::{command_spans, starts_a_command};
+
+    #[test]
+    fn invoked_reads_yaml_run_bodies_and_shell_scripts_but_not_yaml_prose() {
+        let root = std::env::temp_dir().join(format!("sutura-venue-invocation-{}", std::process::id()));
+        for directory in [".github/workflows", ".github/actions/fixture", "nix"] {
+            std::fs::create_dir_all(root.join(directory)).expect("fixture directory");
+        }
+        std::fs::write(
+            root.join(".github/workflows/fixture.yml"),
+            concat!(
+                "jobs:\n  ci:\n    steps:\n",
+                "      - name: Optional; just workflow-prose\n",
+                "        run: just workflow-run\n",
+                "      - run: |\n          just nameless-run\n",
+            ),
+        )
+        .expect("workflow fixture");
+        std::fs::write(
+            root.join(".github/actions/fixture/action.yml"),
+            concat!(
+                "name: Optional; just action-prose\n",
+                "runs:\n  using: composite\n  steps:\n",
+                "    - run: just action-run\n      shell: bash\n",
+            ),
+        )
+        .expect("action fixture");
+        std::fs::write(root.join("nix/fixture.sh"), "#!/bin/sh\njust script-run\n").expect("script fixture");
+        let found = super::invoked(&root);
+        std::fs::remove_dir_all(&root).expect("remove fixture");
+        let expected = ["workflow-run", "nameless-run", "action-run", "script-run"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(found, Some(expected));
+    }
 
     /// The task name every shape below tries to resolve, spelled once.
     const TASK: &str = "bigquery-two-principals";

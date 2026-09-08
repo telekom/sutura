@@ -49,6 +49,45 @@ pub(crate) fn keyed_block<'a>(text: &'a str, indent: &str, name: &str) -> Option
     )
 }
 
+/// One key of a step, whether it is written on the `-` line or below it.
+///
+/// Reading only the leading-key form hid `- run:` from the acceptance checks, and
+/// `- continue-on-error: true` from the failure-downgrade check.
+pub(crate) fn step_key(line: &str) -> &str {
+    let trimmed = line.trim_start();
+    trimmed.strip_prefix('-').map_or(trimmed, str::trim_start)
+}
+
+/// The raw shell of every `run:` block, including its key and any shell comments.
+///
+/// A body ends at a nonempty line no deeper than the KEY's column, not the list marker's.
+/// Otherwise an `env:` sibling after `- run: |` becomes shell. Expressions are left unchanged:
+/// acceptance must reject even one written inside a shell comment.
+///
+/// This is an indentation reader, not a YAML parser. A `run:`-shaped line inside a prose block
+/// scalar can still be collected; quoting, anchors and folded scalars are not evaluated.
+pub(crate) fn shell<'a>(block: &[&'a str]) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut inside: Option<usize> = None;
+    for line in block {
+        let indent = line.len().saturating_sub(line.trim_start().len());
+        if let Some(depth) = inside {
+            if !line.trim().is_empty() && indent <= depth {
+                inside = None;
+            } else {
+                out.push(*line);
+                continue;
+            }
+        }
+        let key = step_key(line);
+        if key.starts_with("run:") {
+            inside = Some(line.len().saturating_sub(key.len()));
+            out.push(key);
+        }
+    }
+    out
+}
+
 /// The step of `job` that reaches the flake app `app`, as its own lines.
 ///
 /// `None` where no such job exists, where nothing in it reaches the app, or where the reference is

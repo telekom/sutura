@@ -108,6 +108,20 @@ impl Contradicted {
 
 pub(super) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
+        name: "additional named credential writes are held only by review",
+        wordings: &["for the CI key and by review for the two principal keys placed beside it"],
+        evidence: &[Evidence {
+            path: "xtask/src/venues/acceptance/properties.rs",
+            holds: "let mut placed: BTreeSet<&str> = commands",
+        }],
+        instead: "`just hygiene` checks recognised redirects from secret-naming commands and \
+                  requires each destination in a cleanup command's argument list; \
+                  `xtask/src/venues/acceptance/properties.rs` holds that scan. Indirect copies, \
+                  working-directory changes and whether cleanup executes remain review's",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
         // Issue 312, and the reason it is an entry rather than a rewrite alone: the wording was a
         // page's YAML `description`, which mkdocs-material renders into `<meta name="description">`
         // - so a reader who never opens the record is told a DataHub deployment carries no metric

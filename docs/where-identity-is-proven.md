@@ -40,6 +40,11 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     verdict permanent. And *CI invokes it* reads a **command** rather than a substring, because a
     task named inside an `echo` was resolving as an invocation.
 
+    **`Where it runs` is a closed vocabulary too:** `in process`, `a GitHub environment`, or
+    `nowhere`, with explanatory text after the token. A synonym such as `not anywhere yet` is
+    refused rather than silently changing which verdicts the row permits. This closes a spelling
+    bypass, not the truth of the row: an accepted token falsely claiming a run site still passes.
+
     **What none of it reaches, said next to it.** What is read is an *invocation* in a workflow, a
     local composite action or the shared `nix/` shell - never a green run. A wired job that always
     skips reads the same as one that passes, and a hand-run is invisible to both. So *`unrun` has
@@ -49,8 +54,17 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     **And the one that is REVIEW's alone, named rather than left to be discovered.** Nothing checks
     that the task a `Reached by` cell names is the task that runs *this* venue. Measured: pointing
     the two-keys row at `` `nix run .#actionlint` `` - a real, CI-invoked, entirely unrelated lint -
-    passes at exit 0. What the gate holds is that a venue's state is consistent with what CI runs;
-    that a row describes the thing it names is read by a person.
+    AND changing its matrix cell and section from `unrun` to `wired` passes at exit 0. Repointing
+    alone is refused by the `unrun` ratchet. What the gate holds is that a venue's state is
+    consistent with a named invocation; that the invocation belongs to this venue, and that an
+    accepted run-site token is true, remain review's. An invented run site plus an unrelated
+    invocation can still publish a false leg-2 `yes`; this change does not close that gap.
+
+    **Invocation reading has syntax limits too.** Workflow and action sources contribute their
+    `run:` bodies, not ordinary YAML names or descriptions; shared shell scripts are read whole.
+    The indentation reader is not a YAML parser: a `run:`-shaped line inside a prose block scalar
+    can still be collected. Heredoc content beginning with a task can invent an invocation; an
+    apostrophe in unquoted prose can instead hide one. Neither is evidence of shell execution.
 
 ## The venues
 
@@ -374,5 +388,7 @@ A venue that cannot state its limit is how *verified* drifts. So:
 
 - A new venue arrives as a row in the table above **with its exclusions written**, in the same change.
 - A test moving from one venue to another moves its row, rather than gaining a second one.
+- `Where it runs` must use the closed vocabulary; the gate holds its meaning, not whether the
+  claimed run site is true or its named task belongs to that venue.
 - `just validate` runs every venue that needs no network. The other three do not, and each says so where
   it is invoked.
