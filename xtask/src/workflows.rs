@@ -66,6 +66,12 @@ mod reach;
 // do* is this gate's question, and it already walks every place CI invokes something from.
 mod scorecard;
 
+// AN ACCEPTED SCORE IS A CLAIM ABOUT ITS STAND-IN, and `docs/adr/0025` accepts Scorecard's SAST
+// zero on the strength of two mechanisms inside the required context. Its own file for
+// `scorecard`'s reasons plus one: that module stands at 912 lines against the same cap, so the
+// rule could not join it. See `sast`'s header for each refusal and what it does not hold.
+mod sast;
+
 /// Which output namespace a reference points into.
 ///
 /// `Runnable` and not `App`: `nix run .#name` resolves an app OR a package with a matching main
@@ -199,6 +205,26 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("A badge is a public claim, and an overstated control is itself the defect here.");
         eprintln!("docs/adr/0024 is the decision; devco/scorecard-publication is what publishing");
         eprintln!("sends and why it is on.");
+        return Verdict::Fail;
+    }
+
+    // AN ACCEPTED ZERO IS A CLAIM TOO, and it is the same class of defect one row over: a badge
+    // asserts a control to somebody who cannot read the tree, and so does a published score whose
+    // low row this repository has argued is held by other means. `docs/adr/0025` makes that
+    // argument about clippy and zizmor; this reads whether they are still there.
+    let stand_ins = sast::problems(&root, &flake, &references);
+    if !stand_ins.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} SAST stand-in rule(s) broken\n",
+            stand_ins.len()
+        );
+        for problem in &stand_ins {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("docs/adr/0025 accepts Scorecard's SAST zero because clippy under -D warnings and");
+        eprintln!("zizmor run inside the one required context. A record that outlives its stand-in is");
+        eprintln!("an overstated control, which AGENTS.md calls the defect itself.");
         return Verdict::Fail;
     }
 
