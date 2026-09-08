@@ -769,6 +769,8 @@
       
         
       
+        
+      
     
     
     
@@ -1483,6 +1485,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a Scorecard zero says about this repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1965,6 +1995,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-fixture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module fixture
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2511,6 +2552,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#module-fixture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module fixture
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2596,12 +2648,113 @@ The caller-supplied schema name is validated to a word before it reaches <code>C
 <p>Exposes a fixture CSV as a table: infers column types, recreates the table, then pushes the
 rows through <code>COPY ... FROM STDIN</code>. Re-inferring from the committed CSV each run cannot
 drift from it, and recreating makes a run idempotent.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">local_config</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">local_config</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">credential</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">fixture</span><span class="p">::</span><span class="n">FixtureCredential</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span>
 </span></code></pre></div>
-<p>A connection config for the fixture tier, honouring the <code>SUTURA_DEV_*</code> overrides the
-compose file reads, so a host that objects to a weak default can change one value.</p>
+<p>A connection config for the fixture tier, over a credential that has already been parsed.</p>
+<p><strong>It TAKES the credential and reads no environment of its own</strong>, which is the whole change:
+<code>host</code> and <code>port</code> are parameters, so this function cannot know it is talking to an ephemeral
+local server, and the shape it replaced offered <code>sutura</code>/<code>sutura</code>/<code>sutura</code> to whatever host
+it was handed whenever nothing was set. There is no unconfigured state to substitute for now
+- <code>fixture::FixtureCredential</code> cannot hold one - so this stays infallible.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Warehouse</code></p>
+<h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
+<p>The fixture tier's credential - a value that cannot exist unconfigured.</p>
+<p><strong>Behind the default-off <code>fixtures</code> feature</strong>, because both callers are tests
+(<code>crates/sutura-exec-postgres/tests/conformance.rs</code> and
+<code>crates/sutura-app/tests/adapters/mod.rs</code>) and <code>nix/shipped.nix</code> builds cargo's DEFAULT set: so
+no artefact a release publishes contains this module or the connection config over it, which
+deletes the <em>reachable from a consumer</em> half rather than hardening it. <code>--all-features</code> compiles,
+lints and tests it on every run.
+The fixture tier's credential: <strong>configured, or refused by name.</strong></p>
+<h1 id="what-this-replaces-and-why-the-old-shape-was-wrong-in-a-way-its-strength-cannot-fix">What this replaces, and why the old shape was wrong in a way its strength cannot fix<a class="headerlink" href="#what-this-replaces-and-why-the-old-shape-was-wrong-in-a-way-its-strength-cannot-fix" title="Permanent link">&para;</a></h1>
+<p><code>local_config</code> used to read <code>SUTURA_DEV_USER</code> / <code>SUTURA_DEV_PASSWORD</code> / <code>SUTURA_DEV_DB</code> through
+an <code>unwrap_or_else(|_| "sutura")</code> fallback, in a <code>pub fn</code> that was neither <code>#[cfg(test)]</code> nor
+feature-gated. The reasoning beside the compose file - <em>these are fixtures, nothing outside the
+host can reach them, every port is published ephemerally</em> - is sound, and it is sound <strong>about a
+container.</strong> It does not reach a function whose <code>host</code> and <code>port</code> are PARAMETERS: this code
+cannot know it is talking to an ephemeral local server, so the property <em>"that credential only
+ever reaches one"</em> was held by the function's name and by the discipline of its callers.
+<code>AGENTS.md</code>: invariants are held by a type, a lint, a hook or a gate, never by recall.</p>
+<p>And the doc comment inverted the default - <em>"so a host that objects to a weak default can change
+one value"</em> makes hardening <strong>opt-in</strong>. That inversion is the defect, more than the strength of
+the password: a weak default a caller must object to is the opposite of secure by design.</p>
+<h1 id="the-shape-now">The shape now<a class="headerlink" href="#the-shape-now" title="Permanent link">&para;</a></h1>
+<p><code>crate::fixture::FixtureCredential</code> is the only way to hold one, its three values are private, and
+<code>FixtureCredential::parse</code> is the only way in. So <em>unconfigured</em> is not a value
+<code>PostgresWarehouse::local_config</code> can be handed - it is unrepresentable rather than rejected -
+and there is no branch left for a fallback to live in.</p>
+<h1 id="where-the-values-come-from-because-nothing-set-them-before">Where the values come from, because nothing set them before<a class="headerlink" href="#where-the-values-come-from-because-nothing-set-them-before" title="Permanent link">&para;</a></h1>
+<p><strong>The provisioner publishes them, and it is not the compose file.</strong> There is no Postgres
+service in <code>compose.services.yaml</code> at all - this tier is nixpkgs' <code>postgresql_18</code>, started by
+<code>nix/postgres-tier.nix</code>, which now generates a password per worktree and prints the three
+exports from <code>sutura-postgres-tier credentials</code>. <code>nix/with-tier.sh</code> evaluates them exactly where
+it already exports <code>SUTURA_DEV_REQUIRE_TIER</code>, so <em>the server is there</em> and <em>the client knows how
+to log in</em> cannot come apart, and <code>checks.postgres-tier</code> drives that subcommand's two answers.</p>
+<p>The variables are <code>SUTURA_POSTGRES_TIER_*</code> rather than the old <code>SUTURA_DEV_*</code>: the names were
+shared with the compose fixture credential while nothing in that file provisions a Postgres, and
+a shared name is what made a coupling look real. The compose anchors keep their own defaults and
+their own argument.</p>
+<h1 id="two-limits-stated-with-the-claim">Two limits, stated with the claim<a class="headerlink" href="#two-limits-stated-with-the-claim" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>A unix socket under this tier authenticates by <code>trust</code>.</strong> <code>nix/postgres-tier.nix</code> runs
+  <code>initdb</code> with no <code>--auth</code>, so the password is not what admits a client to <em>that</em> server. What
+  the refusal buys is that no OTHER host is offered a guessable one, which is the half the old
+  <code>pub fn</code> could not hold.</li>
+<li><strong>The role name and the database name are still <code>sutura</code>.</strong> They are names the provisioner
+  CHOOSES and publishes, not values a client guesses when nothing is set - which is the
+  distinction this module is about. Only the password is generated.</li>
+</ul>
+<h3 id="enum-fixturevariable"><code>enum FixtureVariable</code><a class="headerlink" href="#enum-fixturevariable" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FixtureVariable</span>
+</span></code></pre></div>
+<p>One of the three values the Postgres fixture tier publishes into the environment.</p>
+<p>An enum rather than a <code>&amp;'static str</code>, because a refusal has to carry WHICH value was missing as
+data: a caller that read the variable's name out of the message would be matching on prose.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>User</code> - The login role the tier created.</li>
+<li><code>Password</code> - That role's password, generated per worktree by <code>nix/postgres-tier.nix</code>.</li>
+<li><code>Database</code> - The database the tier created and owns.</li>
+</ul>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The environment variable's name, spelled once.</p>
+<p>One definition, because a refusal that tells somebody to set a name the reader spells
+differently is a fix that does not work and looks like it should.</p>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>PartialEq</code></p>
+<h3 id="enum-unconfiguredfixture"><code>enum UnconfiguredFixture</code><a class="headerlink" href="#enum-unconfiguredfixture" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
+</span></code></pre></div>
+<p>Why there is no fixture credential to connect with.</p>
+<p><strong>Two variants, and no third that carries a substitute.</strong> The failure is that this process was
+not told the credential, and the only honest answers to it are <em>say which variable</em> and <em>stop</em> -
+so there is nowhere in this type for a default to be returned from.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Unset</code> - The variable is not in the environment at all.</li>
+<li><code>Blank</code> - The variable is set to nothing, which a shell script exporting <code>""</code> is the ordinary way to reach. Read as a credential it is a login attempt as the empty user, so it is refused here rather than at the server.</li>
+</ul>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-fixturecredential"><code>struct FixtureCredential</code><a class="headerlink" href="#struct-fixturecredential" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
+</span></code></pre></div>
+<p>The fixture tier's credential.</p>
+<p>Exists only if all three values were present, so nothing downstream asks again. No <code>Display</code>,
+no <code>PartialEq</code>, no public field and no public accessor: the password is a
+<code>sutura_domain::identity::Secret</code>, which has neither <code>Display</code> nor <code>==</code>, and the two names
+leave this crate only as arguments to <code>PostgresWarehouse::local_config</code>.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>This process's credential, as the tier exported it.</p>
+<p>The production entry point, and a one-line adapter over <code>FixtureCredential::parse</code> on
+purpose - see that function for why the seam is there.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code></p>
 
 
 
