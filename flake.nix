@@ -467,7 +467,12 @@
             # and stops it, so the two places cannot drift. `SUTURA_DEV_REQUIRE_TIER` makes a tier
             # that quietly failed to provision a RED run rather than a loud skip.
             nativeCheckInputs = [ postgresTier.tier ];
-            preCheck = "${postgresTier.tier}/bin/sutura-postgres-tier start";
+            # `start`, then the credential it published: the adapter refuses rather than
+            # defaulting one (`github.com/telekom/sutura#455`), so this sandbox has to carry the
+            # three `SUTURA_POSTGRES_TIER_*` exports into `checkPhase` the way `nix/with-tier.sh`
+            # carries them into `just test`. `runHook preCheck` evaluates this in the phase's own
+            # shell, so an `export` here reaches the tests.
+            preCheck = "${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\"";
             postCheck = "${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
