@@ -85,10 +85,16 @@ repos:
       # They were on pre-push, which inverts that: the claim is already in history by the time
       # anything checks it, and a failure then needs a second commit to undo the first.
       #
-      # Through nix/run-gate.sh, which falls back to nix and then to a notice. Called
-      # `cargo nextest` directly before, and on a host without it every commit would be
-      # blocked with "no such command" - a hook that cannot run must not be a wall. CI runs
-      # this unconditionally, so the fallback delays a finding rather than losing it.
+      # Through nix/run-gate.sh: configured local stable tools, else the same pinned nix route
+      # CI uses. It called `cargo nextest` directly before, and on a host without it every commit
+      # was blocked with "no such command".
+      #
+      # The tiering is no longer unconditional, and this comment said it was for as long as it
+      # took a reviewer to read it against the script. A host with NEITHER a configured toolchain
+      # nor nix is refused by nix/stable-env.sh - deliberately, because a silent skip of the suite
+      # is worse than a stopped commit - so this hook IS a wall there. What is left of the notice
+      # covers one host: a configured toolchain missing cargo-nextest with no nix beside it. CI
+      # runs the suite on every push, so that case delays a finding rather than losing it.
       - id: rust-tests
         name: cargo nextest (all features)
         entry: bash nix/run-gate.sh tests
@@ -115,10 +121,11 @@ repos:
       # scope was measured and is in docs/crap.md; `--workspace` is over six minutes and never
       # reached a test.
       #
-      # Through `nix/run-gate.sh`, which falls back to `nix run .#crap` and then to a notice. The
-      # gate itself FAILS when a tool is missing - a score is the whole point and a run that
-      # produced none has judged nothing - so the tiering belongs here, in the bypassable layer,
-      # and not in the gate.
+      # Through `nix/run-gate.sh`, which falls back to `nix run .#crap`, and to a notice only for
+      # a configured toolchain that lacks the coverage tools on a host with no nix. With neither
+      # route the helper refuses, so this hook is a wall there too. The gate itself FAILS when a
+      # tool is missing - a score is the whole point and a run that produced none has judged
+      # nothing - so the tiering belongs here, in the bypassable layer, and not in the gate.
       - id: rust-crap
         name: CRAP score (complexity weighted by coverage)
         entry: bash nix/run-gate.sh crap

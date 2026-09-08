@@ -9,7 +9,12 @@
 //! notice printed, exit status 0. prek reads that as `Passed`, [`super::Coverage::Ran`] read that as
 //! *inspected the diff*, and `just ship-check` printed `pre-push - 4 of 4 declared hook(s) ran`
 //! while three of the four announced their own skip - on a configuration
-//! `.pre-commit-config.yaml` argues for at length, *"a hook that cannot run must not be a wall"*.
+//! `.pre-commit-config.yaml` argues for at length for a MISSING TOOL, *"a hook that cannot run
+//! must not be a wall"*. It no longer argues it for a missing toolchain: `nix/run-gate.sh` refuses
+//! a host with neither configured stable tools nor nix, so the eight are eight only where the
+//! abstention is a tool's. This paragraph is prose in `.rs` and `check-guidance`'s scope stops at
+//! the file extension, so it is held by review - the registered half is in
+//! `xtask/src/guidance/claims/contradicted.rs`.
 //!
 //! # Why this does not read the notice, which is the remedy the report asked for
 //!

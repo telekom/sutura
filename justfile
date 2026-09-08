@@ -229,7 +229,15 @@ declared-source:
 # a diff nobody had read. See the doc comment on `run_check_changed`.
 
 # cargo check, narrowed to the packages that changed. No paths reads the working tree.
+#
+# It sources the helper because it did NOT while the `rust-check-changed` hook entry did: the hook
+# ran on stable, and the recipe a person types ran the cranelift nightly in the nightly target
+# directory - what that helper exists to refuse. hooks.rs executes this body, so the line is held.
 check-changed *paths:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo run -q -p xtask -- check-changed {{ paths }}
 
 # THE gate. Run this before saying a change is done; nothing else counts as verified.
