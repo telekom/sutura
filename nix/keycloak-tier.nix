@@ -367,7 +367,11 @@ rec {
       # so a tier that started and published nothing is a tier no test can reach.
       endpoints=.sutura-dev/endpoints.json
       test -f "$endpoints"
-      test "$(jq -r '.provisioner' "$endpoints")" = nix
+      # THE MARKER IS ON THE ENTRY - `github.com/telekom/sutura#317`. This asserted a
+      # document-level `.provisioner`, which is the last writer's opinion about every other
+      # writer's service and answers wrong for one of them the moment `xtask dev-up` merges
+      # its own entries beside these. `dev/src/discovery.rs` reads it per service now.
+      test "$(jq -r '.services.keycloak.provisioner' "$endpoints")" = nix
       port="$(jq -r '.services.keycloak.port' "$endpoints")"
       test "$port" -gt 0
       test "$(jq -r '.services.keycloak.host' "$endpoints")" = 127.0.0.1
@@ -387,6 +391,9 @@ rec {
       sutura-tier-endpoint publish "$tree" postgres "$tree/.sutura-dev/pg" 5432
       test "$(jq -r '.services | length' "$endpoints")" = 2
       test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$port"
+      # And each entry still says who published it, which is what makes `stop` able to
+      # withdraw its own and leave the neighbour's.
+      test "$(jq -r '.services.postgres.provisioner' "$endpoints")" = nix
 
       # `stop` withdraws BOTH of ITS OWN claims and NEITHER of the neighbour's. A stale
       # endpoint is read as availability, which is how a fail-closed cell panics on a dead
