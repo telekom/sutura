@@ -38,17 +38,14 @@ the literal still resolves; a darwin one is `/nix/var/nix/builds/nix-<pid>-<rand
 resolves nowhere and a THIRD-PARTY crate fails to compile in a check that changed nothing -
 `just validate` red at `checks.nextest` before running a test, on `main`. `flake.nix`'s
 `inheritedArtifacts` pairs every `cargoArtifacts` with `nix/purge-baked-out-dirs.sh`, which
-regenerates exactly the output naming a directory it no longer sits in: one crate of 138 measured,
-so the reuse the checks exist on survives. **What it does not reach:** a generated file naming some
-OTHER absolute directory, a path written into a compiled artifact rather than into the bytes of the
-output directory, and - narrower than that paragraph used to admit - a path in `$unitDir/output`,
-cargo's record of the `cargo::` directives the script PRINTED, which is a sibling of `out/` and not
-inside it, so the search never reads it. All three fail the same loud way. Widening to `output` was
-refused rather than costed: a build script that publishes its own output directory as a link path
-names it there as a matter of course, so purging on that record reaches every such crate, and how
-many of the 138 that is has not been counted. The limit is ASSERTED rather than merely stated - the
-sweep's own test builds four synthetic unit directories, one per branch of its decision, and checks
-`try_exists` on the unit AND its fingerprint; the `output`-only unit is the one it proves SURVIVES.
+regenerates output naming a directory it no longer sits in. **What it does not reach:** a generated
+file naming some OTHER absolute directory, or a path written into a compiled artifact rather than
+the output directory's bytes. The sibling `$unitDir/output` is also outside the search, but stale
+directive bytes alone are not a broken compiler input: pinned Cargo rewrites the previous literal
+`OUT_DIR` in parsed directive values. The script header records the source, independent probe and
+its limits, plus a closure scan whose detection time is NOT rebuild cost. None establishes general
+relocation safety. The existing four-unit actual-script fixture checks the unit AND its fingerprint
+and proves the `output`-only unit SURVIVES; it holds the detector's scope, not Cargo's rewrite.
 
 **And that pairing was a SHAPE rather than a mechanism for as long as nobody asked.** One attrset
 makes it hard to separate by accident and holds nothing against `//`, which updates one level deep:
