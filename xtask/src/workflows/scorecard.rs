@@ -71,7 +71,7 @@ use std::path::Path;
 use super::sources;
 
 /// The workflow that runs and publishes the scan.
-const WORKFLOW: &str = ".github/workflows/scorecard.yml";
+pub(super) const WORKFLOW: &str = ".github/workflows/scorecard.yml";
 
 /// The dated decision behind the publication.
 const RECORD: &str = "devco/scorecard-publication";
@@ -173,7 +173,6 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
             "the Scorecard badge in {README} does not name `{slug}` - a badge copied from another project renders somebody else's score under this name"
         ));
     }
-
     // A DECISION SOMEBODY WROTE DOWN. Emptiness and absence are the same finding: a disclosure
     // whose only justification is a line of YAML.
     if publishes {
@@ -424,7 +423,7 @@ fn slug(package: &str) -> Option<String> {
 /// and so does anything this reader cannot classify - an expression, a typo, a YAML scalar nobody
 /// expected. The alternative direction would let one unrecognised spelling publish a score with no
 /// badge and no record, which is exactly the bypass this replaced.
-fn publishes(workflow: &str) -> bool {
+pub(super) fn publishes(workflow: &str) -> bool {
     uncommented(workflow).any(|line| {
         let Some(rest) = line.trim().strip_prefix(PUBLISH) else {
             return false;
@@ -443,7 +442,7 @@ fn publishes(workflow: &str) -> bool {
 ///
 /// Whole lines only, deliberately. Stripping from the first `#` would also cut the `# v7.0.1`
 /// that names the version behind every pinned action SHA, and the needle here is a key.
-fn uncommented(text: &str) -> impl Iterator<Item = &str> {
+pub(super) fn uncommented(text: &str) -> impl Iterator<Item = &str> {
     text.lines().filter(|line| !line.trim_start().starts_with('#'))
 }
 
