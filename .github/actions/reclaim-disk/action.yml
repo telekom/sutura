@@ -30,7 +30,7 @@ outputs:
 #
 # THIS CANNOT AFFECT NIX CACHING, and that is worth stating because it looks like it might.
 # Everything removed is a preinstalled SDK under /usr or /opt. Callers run this BEFORE
-# installing Nix, so `/nix/store` does not exist yet; and the cache `magic-nix-cache` restores
+# installing Nix, so `/nix/store` does not exist yet; and the cache `nix-store-cache` restores
 # from is a remote service reached over the network, not a path on this disk.
 #
 # `/opt/hostedtoolcache` is deliberately left alone: actions resolve tools through it, and

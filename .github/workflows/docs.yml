@@ -133,7 +133,7 @@ jobs:
             fallback = true
 
       # No shared cache here, and that is deliberate rather than an omission. `ci.yml` carries
-      # /nix/store between runs with magic-nix-cache; this workflow publishes, and once it has a
+      # /nix/store between runs with the Actions cache; this workflow publishes, and once it has a
       # `v*` trigger zizmor flags that step as cache poisoning - the Actions cache is writable
       # from a pull request, and a published page must not be built from a store path a pull
       # request could have put there. Same call `release.yml` makes, for the same reason.
