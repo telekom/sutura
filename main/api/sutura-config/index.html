@@ -2356,7 +2356,7 @@ which file is layered and which defaults apply, so it has to be known first.</p>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>// process with `sutura_config::environment_from_process`.
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>let settings = Settings::load(&amp;Sources::defaults(Environment::Development))?;
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>assert!(settings.server().bind().is_loopback());
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a># Ok::&lt;(), sutura_config::SettingsError&gt;(())
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a># Ok::&lt;(), sutura_config::SettingsLoadError&gt;(())
 </span></code></pre></div>
 <h1 id="precedence">Precedence<a class="headerlink" href="#precedence" title="Permanent link">&para;</a></h1>
 <p>Later beats earlier:</p>
@@ -2423,7 +2423,7 @@ sees neither, so both are startup refusals in the composition root. <code>source
 declarations are.</p>
 <p><strong>A value out of range is a different refusal, through a different type, and one of them reads the
 machine.</strong> <code>NotFitToServe</code> is about a <em>combination</em> of settings that are each individually legal;
-a single value the type will not accept is a <code>SettingsError</code> out of <code>Settings::load</code>, so it
+a single value the type will not accept is a <code>SettingsError</code> inside <code>SettingsLoadError</code>, so it
 refuses to start too and is not in that list. The one worth naming here is
 <code>runtime.working_set_max_bytes</code>: it is checked against the memory this process can actually reach -
 a cgroup limit, or the machine - and refuses above it, because shipped profiles compile
@@ -2521,6 +2521,7 @@ happened rather than implying the check was run.</p>
 <h2 id="use-none_87"><code>use None</code><a class="headerlink" href="#use-none_87" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_88"><code>use None</code><a class="headerlink" href="#use-none_88" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_89"><code>use None</code><a class="headerlink" href="#use-none_89" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_90"><code>use None</code><a class="headerlink" href="#use-none_90" title="Permanent link">&para;</a></h2>
 <h2 id="module-api">Module <code>api</code><a class="headerlink" href="#module-api" title="Permanent link">&para;</a></h2>
 <p>Whether the generated documentation is served, and why the default differs by environment.</p>
 <p>The <code>OpenAPI</code> document and the browser UI over it are generated from the handlers, so they are
@@ -3022,7 +3023,6 @@ when the indicator is absent.</p>
 <p>Which class of token, out of the <code>typ</code> header, checked after the signature verified.</p>
 <h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h3 id="use-none_90"><code>use None</code><a class="headerlink" href="#use-none_90" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_91"><code>use None</code><a class="headerlink" href="#use-none_91" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_92"><code>use None</code><a class="headerlink" href="#use-none_92" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_93"><code>use None</code><a class="headerlink" href="#use-none_93" title="Permanent link">&para;</a></h3>
@@ -3033,6 +3033,7 @@ when the indicator is absent.</p>
 <h3 id="use-none_98"><code>use None</code><a class="headerlink" href="#use-none_98" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_99"><code>use None</code><a class="headerlink" href="#use-none_99" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_100"><code>use None</code><a class="headerlink" href="#use-none_100" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_101"><code>use None</code><a class="headerlink" href="#use-none_101" title="Permanent link">&para;</a></h3>
 <h2 id="module-limits">Module <code>limits</code><a class="headerlink" href="#module-limits" title="Permanent link">&para;</a></h2>
 <p>How many requests a caller gets, and the two tiers that answer differently.</p>
 <p><strong>Rate limiting is not authentication.</strong> It bounds how fast something can be done, not who
