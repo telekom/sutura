@@ -77,6 +77,12 @@ mod publication;
 // rule could not join it. See `sast`'s header for each refusal and what it does not hold.
 mod sast;
 
+// CAN A `pull_request` PATH WRITE THE ACTIONS CACHE? Its own file for `sast`'s reason - this one
+// is against the unexemptable 1000-line cap - and the seam is the question: every other rule here
+// asks whether a reference RESOLVES, this one asks what a step is ALLOWED to do. See its header for
+// the name list it is limited to and why a job-level condition is deliberately not accepted.
+mod cache_scope;
+
 // READING A NAMED BLOCK OUT OF `flake.nix`, in its own file because this one reached the
 // 1000-line cap the moment two changes registered a rule module in the same window. The seam is
 // the question, not the line count: that module answers *which attributes does this block
@@ -249,6 +255,28 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
+    // WHO MAY WRITE THE ACTIONS CACHE. Third rule in a row about what a workflow is ALLOWED to do
+    // rather than whether it resolves, and the newest: an entry a pull request writes is readable
+    // by exactly one pull request, so ordinary CI restores on every event and saves only from a
+    // push to `main`. Nothing held that before - `check-workflows` read flake references and
+    // `zizmor` reads security shapes, and neither can tell a cache action that saves from one that
+    // does not.
+    let writes = cache_scope::problems(ordinary.closure());
+    if !writes.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} Actions-cache write rule(s) broken\n",
+            writes.len()
+        );
+        for problem in &writes {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A run restores caches from its own ref or the default branch, so an entry a pull");
+        eprintln!("request writes is readable by exactly one pull request and is then pruned. Restore");
+        eprintln!("everywhere, save only from a push to main - see .github/actions/nix-store-cache.");
+        return Verdict::Fail;
+    }
+
     let missing: Vec<&Reference> = references
         .iter()
         .filter(|r| {
@@ -266,7 +294,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache written only from a push to main, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             walked.len(),
             walked.join(", ")

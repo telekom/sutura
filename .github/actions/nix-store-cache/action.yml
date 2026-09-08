@@ -1,0 +1,131 @@
+# THE ACTIONS CACHE, READ EVERYWHERE AND WRITTEN ONLY FROM A PUSH TO `main`.
+#
+# **This buys hygiene and legibility, not speed, and the measurement says so.** On a pull request
+# with unchanged lockfiles the cache already restored 742 store paths against 37 built on the first
+# run of a branch and 654 against 39 on the second - so the dependency closure was being reused
+# before this action existed. What it was ALSO doing was writing: a run restores caches from its own
+# ref or the default branch only, so every entry a pull request wrote was readable by exactly one
+# pull request and then deleted by `cache-prune.yml` when it closed. 6,393 active entries, ~97% of
+# them under `refs/pull/<n>/merge`, measured 2026-09-08.
+#
+# WHAT THAT CHURN COST, measured on the `ci` job's own step timings rather than inferred: the
+# retired `magic-nix-cache-action`'s post step - the upload - took 107 s, 225 s, 254 s and 315 s on
+# four of nine `pull_request` runs (27.6% of one 1140 s job, 52.3% of a 430 s docs-only one) and 1 s
+# on the other five AND on all four `main` pushes measured. So the upload fired on the first run of
+# a pull-request ref and nowhere else, and gating it removes a cost only pull requests paid.
+#
+# DO NOT READ THAT AS A LATENCY WIN. The same branch at identical dependency state took 1351 s and
+# 825 s - a 64% run-to-run spread - so no total-duration claim below that is measurable. The
+# per-step number above measures the step, not the job.
+#
+# WHY NOT `magic-nix-cache-action`: it has no restore-only mode. Read from its `action.yml` at the
+# commit this repository used to pin, `use-gha-cache` takes `enabled`/`disabled`/`no-preference` and
+# turns the GitHub Actions cache off for READS and WRITES together - there is no third value. So the
+# asymmetry this file exists for is unreachable with it, which is what forced the swap rather than a
+# preference between the two. `cargo xtask check-workflows` refuses it in ordinary CI by name.
+#
+# WHY NOT a local file-based binary cache (`nix copy --to file://<dir>` plus a `substituters` line):
+# it needs the cache directory AND the store, and it decompresses and re-imports every NAR after the
+# archive is already on disk - the same bytes paid for twice. The dependency closure alone measures
+# 3.27 GB over 459 paths. Disk is not the reason these runners report 1657 G available. The double
+# import is.
+#
+# THE ENTRY SIZE IS THE ONE THING THIS CANNOT KNOW BEFORE A `main` PUSH, and the limit belongs here
+# rather than beside a claim: GitHub refuses a single cache entry over 10 GB, and the store this
+# saves has never been weighed. `gc-max-store-size` is deliberately NOT set - `nix store gc` would
+# collect the dependency closure, because a `nix build` step overwrites `./result` and the check
+# outputs are therefore not GC roots, so bounding the entry that way would throw away exactly what
+# is worth saving. If a save is refused, the summary line below says so on every `main` push, and
+# the hosted binary cache wired in `ci.yml` (inert while unprovisioned) is the fallback.
+name: nix-store-cache
+description: Restore /nix/store from the Actions cache on every event; write it only from a push to main.
+
+inputs:
+  scope:
+    # ONE ENTRY PER JOB SHAPE. The cross legs build a different closure per target and the
+    # acceptance job builds a different crate, so a shared key would have them overwrite each
+    # other's entry. A pull request restores the entry its own scope wrote on `main`.
+    description: What this job's store is, so two jobs do not share one entry - `ci`, `bq`, a target triple.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # KEYED ON THE LOCKFILES AND NOTHING ELSE, so `main` writes one entry per dependency
+    # generation instead of one per push. A source-only change on `main` leaves the key alone and
+    # the save is skipped - which is right, because the dependency closure the entry holds has not
+    # moved either, and the workspace's own crates are recompiled every run regardless. Keying on
+    # the commit would refresh the entry on every push and accumulate one multi-gigabyte entry per
+    # push against an allocation `cache-prune.yml` deliberately does not touch for `main`.
+    #
+    # `restore-prefixes-first-match` is the fallback for the push that DOES move a lockfile: it
+    # restores the newest entry for this scope, so that build starts from the previous generation
+    # rather than from nothing.
+    - id: store
+      uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+      with:
+        primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}
+        restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-
+        # THE ASYMMETRY, AND THE ONE LINE THIS FILE EXISTS FOR. `cargo xtask check-workflows` pins
+        # this expression token for token and fails on any other shape, so a `pull_request` path
+        # that can save is red rather than merely discouraged. Purging is NOT enabled here:
+        # `cache-prune.yml` owns deletion, and two deleters would race for the same ids.
+        save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+    # THE WITNESS, AND ITS SHAPE IS THE POINT: IT REPORTS AND NEVER FAILS.
+    #
+    # An unprovisioned or ineffective cache used to be `skipped`, green and invisible - the hosted
+    # populate step in `ci.yml` has been `completed/skipped` on every `main` push since it merged
+    # and nothing anywhere said so. A step that goes RED on that is inverted logic: publication
+    # working is the success condition, and #476 deleted exactly such a step. So this prints, and a
+    # legitimately cold cache prints a miss rather than failing a run.
+    #
+    # `nix path-info --all | wc -l` is what the cache CARRIED - the paths available before a single
+    # derivation is built. It is not a hit RATE on its own; the `ci` job pairs it with a count taken
+    # after the gates run, and that ratio is the reported number. Nothing else in the run can say
+    # it: the split between restored and built otherwise lives only in a build log, which is how
+    # issue #487's ~94% had to be obtained.
+    - name: What the Actions cache carried
+      shell: bash
+      env:
+        SCOPE: ${{ inputs.scope }}
+        HIT: ${{ steps.store.outputs.hit }}
+        HIT_PRIMARY: ${{ steps.store.outputs.hit-primary-key }}
+        PRIMARY: ${{ steps.store.outputs.primary-key }}
+        RESTORED: ${{ steps.store.outputs.restored-key }}
+        WRITES: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        HOSTED: ${{ vars.NIX_CACHE_NAME != '' }}
+      run: |
+        set -eu
+        carried="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
+        # A file rather than a step output: the `ci` job's closing step reads it to report a ratio,
+        # and a composite action cannot register a post step to do that itself.
+        printf '%s\n' "$carried" > "$RUNNER_TEMP/nix-store-cache-carried"
+        if [ "$HIT_PRIMARY" = "true" ]; then
+          restore="hit on this dependency generation"
+        elif [ "$HIT" = "true" ]; then
+          restore="restored an older generation ($RESTORED)"
+        else
+          restore="MISS - nothing to restore, this run compiles from scratch"
+        fi
+        if [ "$WRITES" = "true" ]; then
+          write="this run WRITES the entry (push to main)"
+        else
+          write="restore-only, nothing written"
+        fi
+        if [ "$HOSTED" = "true" ]; then
+          hosted="provisioned"
+        else
+          hosted="UNPROVISIONED - ci.yml's populate step is skipped, so no store outside this repository is written or trusted"
+        fi
+        {
+          printf '### nix store cache (%s)\n\n' "$SCOPE"
+          printf '| | |\n| --- | --- |\n'
+          printf '| restore | %s |\n' "$restore"
+          printf '| write | %s |\n' "$write"
+          printf '| key | `%s` |\n' "$PRIMARY"
+          printf '| paths carried | %s |\n' "$carried"
+          printf '| hosted binary cache | %s |\n' "$hosted"
+        } >> "$GITHUB_STEP_SUMMARY"
+        printf 'nix-store-cache(%s): %s; %s; %s paths carried; hosted cache %s\n' \
+          "$SCOPE" "$restore" "$write" "$carried" "$hosted"

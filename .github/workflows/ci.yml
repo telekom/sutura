@@ -191,7 +191,7 @@ jobs:
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
     # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
-    # `magic-nix-cache` has anything to restore - spends most of an hour compiling before a
+    # the store cache has anything to restore - spends most of an hour compiling before a
     # single test runs, and 60 killed exactly that run mid-`Tests`. Warm runs are far quicker;
     # the cap has to survive the cold one that fills the cache for the rest.
     timeout-minutes: 120
@@ -249,8 +249,10 @@ jobs:
             ${{ secrets.NIX_CACHE_SUBSTITUTER != '' && format('substituters = {0}', secrets.NIX_CACHE_SUBSTITUTER) || '' }}
             ${{ secrets.NIX_CACHE_PUBLIC_KEY != '' && format('trusted-public-keys = {0}', secrets.NIX_CACHE_PUBLIC_KEY) || '' }}
 
-      # Carries /nix/store between runs. Without it every run recompiles from scratch.
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      # Restored on every event, written only from a push to `main` - see the action for why.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
 
       # MAIN POPULATES THE BINARY CACHE every pull request substitutes from: it signs the native
       # closure into a GLOBAL, non-ref-scoped cache so a PR's cold leg restores instead of compile
@@ -711,6 +713,9 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix run .#default-feature-tests
 
+      - uses: ./.github/actions/nix-store-cache-report
+        if: always()
+
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
   #
@@ -870,7 +875,10 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      # Its own scope: this job builds one crate, not the gate closure.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: bq
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #
