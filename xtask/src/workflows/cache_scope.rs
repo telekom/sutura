@@ -142,10 +142,8 @@ fn narrower_than_main_push(gate: &str) -> bool {
     let Some(rest) = gate.strip_prefix(MAIN_PUSH) else {
         return false;
     };
-    match rest.strip_prefix(" && ") {
-        None => rest.is_empty(),
-        Some(extra) => !extra.is_empty() && !extra.contains("||"),
-    }
+    rest.strip_prefix(" && ")
+        .map_or(rest.is_empty(), |extra| !extra.is_empty() && !extra.contains("||"))
 }
 
 /// One step of a workflow or composite action, and the line a failure should name.
