@@ -978,6 +978,7 @@ economise.
    | Gate | What it reads |
    | --- | --- |
    | `check-boundaries` | the domain crate's manifest and the Rust under `crates/` |
+   | `check-jscpd` | the Rust under `crates/` and `xtask/`, plus `devco/dup-ignore`, for copied blocks (#474) |
    | `check-pins` | `flake.nix` and `pixi.toml` |
    | `check-warm-start` | `xtask/src/causality.rs`, `nix/purge-baked-out-dirs.sh`, every `.nix` file |
    | `unused-deps` | every member manifest and that member's own Rust |
@@ -991,10 +992,11 @@ economise.
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
    | `check-worktree-state` | the Rust under `crates/`, `xtask/` and `dev/`, and the shell under `nix/*.sh` - for every acquisition of a machine-shared filesystem root, and whether anything keys the path it builds |
    | `check-conformance-bindings` | the Rust and the manifests under `crates/` - the golden matrix's `data_systems` registry against the crates holding a conformance binding |
-   | `check-refusal-coverage` | the Rust and the snapshots under `crates/`, and `devco/refusals-unprovoked-allow` |
+   | `check-refusal-coverage` | the Rust and snapshots under `crates/`, `devco/refusals-unprovoked-allow`, and `devco/startup-refusals-unprovoked-allow` |
    | `check-feature-remedies` | the string literals under `crates/*/src/` and each crate's own `Cargo.toml` |
    | `check-expect-thresholds` | every tracked `*.rs` |
    | `check-examples` | the directories under `examples/`, and the Rust that reaches for one |
+   | `check-fuzz` | the fuzz crate's manifest, targets, seeds and the fuzz workflow - none of it under `docs/` |
    | `check-skills` | `.agents/skills/**` and the router - prose, and none of it under `docs/` |
    | `check-scope` | the `justfile`, which no other gate reads |
    | `check-inconclusive` | the `justfile`, `devenv.nix`, `flake.nix`, `nix/*.nix` and everything `crate::workflows::sources` walks - for what each venue does with exit 3 |

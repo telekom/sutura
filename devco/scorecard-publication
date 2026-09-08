@@ -41,3 +41,32 @@
 # behaviour, and the authority is that third party at the version the action pins. What is
 # mechanised is only that it exists, is not empty, and agrees with the badge - see
 # `xtask/src/workflows/scorecard.rs` for each rule and the limit beside it.
+#
+# AMENDED 2026-09-08, and one part of the amendment is a disclosure this record got wrong.
+#
+# THE PUBLICATION WAS NOT CONDITIONAL ON VISIBILITY. Measured from run 34174327175's log: the
+# action prints `Private repository: true` and `Publication enabled: false` and publishes anyway,
+# because `main.go` branches on the raw `INPUT_PUBLISH_RESULTS` variable rather than on the
+# visibility-adjusted value `options.go` computes (a field with no `env:` tag, so that printed line
+# always reads `false` - it is not a control). So while this repository was PRIVATE, three runs:
+#
+#   * signed the score into the PUBLIC sigstore transparency log - an immutable record, whose
+#     certificate names this repository and the workflow ref. `tlog entry created with index:
+#     2754066664` is one of the three. That cannot be withdrawn;
+#   * POSTed the score, every check's reason, the repository name and the commit to
+#     `api.scorecard.dev`, which REFUSED all three with HTTP 400.
+#
+# The sentence above - "today the publication has little to disclose" - was therefore wrong about
+# when the disclosure began. The score itself did not reach the OpenSSF dataset, but the signing
+# did reach a public log.
+#
+# THE REFUSAL, and it was never about being private. `api.scorecard.dev` verifies the producing
+# workflow first (`verifyScorecardWorkflow` in `ossf/scorecard-webapp`, read at
+# `9c2f66d5f6ff56ca4a4ac2fba6ec8dcc5379d31c`), and `runs-on: rust-mcp` is not on its allowlist of
+# runner labels. The action retried, logged `::warning::Unable to POST scorecard results to webapp`
+# and returned nil, so the step exited 0. The badge could never have resolved, public or private.
+#
+# WHAT NOW HOLDS IT: `score` runs on `ubuntu-latest`; `cargo xtask check-workflows` reads this
+# workflow against every rule that verification applies, offline and inside the required `ci` job
+# (`xtask/src/workflows/publication.rs`); and the `published` job asks the API whether it holds a
+# score, failing when it does not. Publication is still ON, for the reason dated 2026-09-07 above.

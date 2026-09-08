@@ -1,0 +1,22 @@
+# Allowlist for the jscpd copy/paste gate (`cargo xtask check-jscpd`, issue #474).
+#
+# One audited clone per non-comment line. The format is
+#
+#   <relative-path>:<start-line> == <relative-path>:<start-line> : <reason>
+#
+# where the two fragments are the clone's files and 1-based start lines (as jscpd reports
+# them, relative to the repo root), and the reason after the ` : ` is the ONLY thing a
+# reviewer reads to decide whether the exemption is still earned. Matching is on both
+# fragments' `path:start`, in either order, so transposing the two files grants the same
+# clone.
+#
+# An intentional clone belongs here with a reason; loosening the gate's thresholds is not an
+# allowlist. The tree below starts EMPTY - there are no excused clones - so an entry appearing
+# here is a visible, reviewed decision rather than a way to silence a red build.
+#
+# An entry naming a file that is not in the tree FAILS the gate rather than sitting inert - like
+# `devco/max-lines-ignore`, which refuses an exemption that exempts nothing - and first-party
+# source under `crates/` or `xtask/` cannot be exempted here at all. Delete a stale entry with
+# its reason when the clone it excused leaves the tree.
+
+# No entries. A deliberate clone is added here with its reason.

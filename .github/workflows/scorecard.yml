@@ -32,6 +32,16 @@
 #     Every image this repository reaches itself goes through `SUTURA_IMAGE_REGISTRY`; one named
 #     inside a third-party action cannot.
 #
+# THE SHAPE IS HELD OFFLINE, because it once was not and three runs paid for it: this workflow
+# reported `completed success` while `api.scorecard.dev` refused every score it sent. The action
+# attempts the publish, the API refuses the WORKFLOW, and `signing.ProcessSignature` turns that
+# refusal into a `::warning::` and returns nil - so a green run said nothing. `cargo xtask
+# check-workflows` reads this file against every rule the API applies to a producing workflow,
+# offline and inside the required `ci` job - which is why `score` runs on `ubuntu-latest`. The
+# publication itself has worked since that fix: `api.scorecard.dev` holds this project's score and
+# the badge in `README.md` resolves from it. **What this gate holds is the precondition, not the
+# outcome** - only a push to `main` sends anything, so a pull request cannot measure the send.
+#
 # NOT REQUIRED, and the limit belongs next to the claim: the only status context the `main` ruleset
 # requires is `ci` - see `devco/required-contexts` for the dated read. This workflow reports no
 # context on a pull request, because it deliberately does not run on one: the checks read what is
@@ -64,7 +74,20 @@ concurrency:
 
 jobs:
   score:
-    runs-on: rust-mcp
+    # `ubuntu-latest` AND NOT `rust-mcp`, and it is the only job here that is not self-hosted.
+    # This is the fix for a publication that reported success three times and landed nothing.
+    # `api.scorecard.dev` verifies the PRODUCING WORKFLOW before it accepts a score, and one of
+    # its rules is an allowlist of runner labels. Measured from run 34174327175 on 2026-09-08:
+    #
+    #   http response 400 ... "workflow verification failed: scorecard job has invalid runner
+    #   label: 'rust-mcp', see .../scorecard-action#workflow-restrictions for details."
+    #
+    # The action retries, then logs `::warning::` and returns nil - so the step exits 0 and the
+    # badge never resolves. `cargo xtask check-workflows` now holds every one of those rules
+    # against this file; `xtask/src/workflows/publication.rs` is the reading and the allowlist.
+    # Nothing of ours runs in this job - no nix, no cargo, just a third-party container - so the
+    # self-hosted label bought nothing here.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     # EVERY PERMISSION, NAMED, because a permission block is a security surface in itself. A
     # job-level block REPLACES the workflow-level one rather than adding to it.

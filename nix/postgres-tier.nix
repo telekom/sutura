@@ -436,6 +436,31 @@ rec {
       expect_state 0 "the wrapper republished the entry and left the server alone"
       expect_entry true "the wrapper republished the entry the suite reads"
 
+      # --- the YESYES ARM: an entry at a DIFFERENT socket is still state 3, and the wrapper
+      # must republish it, never skip it ---
+      # The withdraw arm above leaves NO entry; this one leaves a WRONG one, so state 3 comes from
+      # an address mismatch while something still publishes. The old `0 | 3) alive=yes` form read
+      # "a postmaster is alive" as *already up* without checking the address, so this arm was
+      # skipped and the stale address survived; routing 3 to republish repairs it. RED on that
+      # form, GREEN on the fix.
+      sutura-tier-endpoint publish "$tree" postgres "$pg.other" "$port"
+      expect_entry true "a stale entry naming another socket is still published"
+      expect_state 3 "a postmaster whose entry names another address is unclaimed, not up"
+      ( . ${./with-tier.sh}
+        sutura_tier_up
+        printf '%s' "$SUTURA_DEV_REQUIRE_TIER" > "$NIX_BUILD_TOP/required-mismatch"
+      )
+      if [ "$(cat "$NIX_BUILD_TOP/required-mismatch")" != 1 ]; then
+        echo "the wrapper did not export SUTURA_DEV_REQUIRE_TIER over a mismatched-address tier" >&2
+        exit 1
+      fi
+      if [ "$(jq -r '.services.postgres.host' "$endpoints")" != "$pg" ]; then
+        echo "the wrapper did not republish the entry onto the live socket dir" >&2
+        exit 1
+      fi
+      expect_state 0 "the wrapper republished the entry onto the address the server is on"
+      expect_entry true "the stale-address entry was repaired"
+
       # A tier that is up AND published is left alone too - the same rule, its ordinary arm.
       ( . ${./with-tier.sh}; sutura_tier_up )
       expect_state 0 "an already-published tier survives the wrapper"

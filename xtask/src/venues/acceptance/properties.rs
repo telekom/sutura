@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::shape::{
     FORK_RULE, Source, configures_tracing, downgrades_failure, emits_file, env_name_shaped, exits_non_zero, keyed_block, prints,
-    states_fork_rule, step_key, traces, waits_for,
+    removes, states_fork_rule, step_key, traces, waits_for, writes_under_runner_temp,
 };
 use super::{JOB, WORKFLOW};
 
@@ -143,37 +143,93 @@ pub(super) fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
     problems
 }
 
-/// Where the credential is written, and that the leg reads that same file.
-pub(super) fn credential_placement(commands: &[&str], credential: Option<&str>, file: Option<&str>) -> Vec<String> {
-    match (credential, file) {
-        (None, _) => vec![format!(
-            "{WORKFLOW}: the `{JOB}` job points no `GOOGLE_APPLICATION_CREDENTIALS` at anything - \
-             the leg would then read whatever credential the runner happens to have"
-        )],
-        (Some(path), None) => vec![format!(
-            "{WORKFLOW}: the `{JOB}` job's credential path is `{path}`, which is not under \
-             `${{{{ runner.temp }}}}/` - a key inside the checkout is one `git add .` from a public \
-             leak, the secret sweep does not honour `.gitignore`, and a DIRECTORY named \
-             `runner.temp` in the tree satisfies any test that reads this value as a haystack"
-        )],
-        (Some(_), Some(file)) => [
-            ("written", format!("> \"$RUNNER_TEMP/{file}\"")),
-            ("removed", format!("rm -f \"$RUNNER_TEMP/{file}\"")),
-        ]
-        .into_iter()
-        // Per line, because neither form can span one - which is what the joined copy of every
-        // body was for. The WHOLE path below `$RUNNER_TEMP` and not its basename: one answer, or
-        // the message below is describing two.
-        .filter(|(_, form)| !commands.iter().any(|line| line.contains(form)))
-        .map(|(what, form)| {
-            format!(
-                "{WORKFLOW}: the `{JOB}` job never has the credential {what} as `{form}` - the \
-                 path the leg reads and the path the job writes and deletes are one path or they \
-                 are two answers"
-            )
+/// Where each copy of a secret is written, and that every one of them is removed.
+///
+/// **Per FILE, and it used to be per LEG** - which is telekom/sutura#389. The two forms were built
+/// from the one path `GOOGLE_APPLICATION_CREDENTIALS` names, so *placed and removed* and *this file
+/// is a second copy of the secret* were held for the credential the leg is pointed at and for
+/// nothing else. Measured on `d5bd307`, `ci.yml` restored after: add the two principals' writes
+/// under `$RUNNER_TEMP` with their emptiness guards and leave both out of the cleanup, and
+/// `check-venues` exits 0 - byte-identical to the run where all three are removed. `docs/adr/0017`'s
+/// two-principal amendment records that half as held by review; the comment that said so beside the
+/// job went when that file came back under the 1000-line cap.
+///
+/// So the WRITES are read. Each recognised redirect into `$RUNNER_TEMP` from a command that names
+/// a secret is a second copy of that secret, and each one has to be deleted by name.
+///
+/// **What it does not reach**, beside the parent's own limits table: a copy made by a command that
+/// does not spell the secret's name - a `cp` of the key file, a `base64 -d` of it - and a removal
+/// in a step whose `if:` never fires. A `cd`-relative write and other shell-built paths are not
+/// interpreted either. These need data flow or execution reasoning, which nothing here has.
+pub(super) fn credential_placement(
+    commands: &[&str],
+    config: &BTreeMap<&str, Source>,
+    credential: Option<&str>,
+    file: Option<&str>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    // Every file a line holding a secret's name redirects into. The secret's NAME rather than any
+    // write, because the property is *a second copy of the secret*: a job legitimately writing a
+    // log under `$RUNNER_TEMP` would otherwise have to delete it, and a gate that fails a correct
+    // job is one somebody deletes.
+    let mut placed: BTreeSet<&str> = commands
+        .iter()
+        .filter(|line| {
+            config
+                .iter()
+                .any(|(name, source)| *source == Source::Secret && line.contains(name))
         })
-        .collect(),
+        .flat_map(|line| writes_under_runner_temp(line))
+        .collect();
+
+    match (credential, file) {
+        (None, _) => {
+            return vec![format!(
+                "{WORKFLOW}: the `{JOB}` job points no `GOOGLE_APPLICATION_CREDENTIALS` at anything \
+                 - the leg would then read whatever credential the runner happens to have"
+            )];
+        }
+        (Some(path), None) => {
+            return vec![format!(
+                "{WORKFLOW}: the `{JOB}` job's credential path is `{path}`, which is not under \
+                 `${{{{ runner.temp }}}}/` - a key inside the checkout is one `git add .` from a \
+                 public leak, the secret sweep does not honour `.gitignore`, and a DIRECTORY named \
+                 `runner.temp` in the tree satisfies any test that reads this value as a haystack"
+            )];
+        }
+        (Some(_), Some(file)) => {
+            // Compare the same normalised destinations used for additional copies; the message
+            // prints one canonical spelling rather than requiring that spelling in the job.
+            let form = format!("> \"$RUNNER_TEMP/{file}\"");
+            if !commands
+                .iter()
+                .flat_map(|line| writes_under_runner_temp(line))
+                .any(|named| named == file)
+            {
+                problems.push(format!(
+                    "{WORKFLOW}: the `{JOB}` job never has the credential written as `{form}` - the \
+                     path the leg reads and the path the job writes are one path or they are two \
+                     answers"
+                ));
+            }
+            // The leg's own path is placed whether or not the write above spells a secret, because
+            // the leg READS it - a credential this job never wrote is still a credential this job
+            // must not leave behind.
+            placed.insert(file);
+        }
     }
+
+    for file in placed {
+        if !commands.iter().any(|line| removes(line, file)) {
+            problems.push(format!(
+                "{WORKFLOW}: the `{JOB}` job writes `$RUNNER_TEMP/{file}` and no `rm` in it names \
+                 that path - the file is a second copy of a secret, `$RUNNER_TEMP` is not \
+                 guaranteed to be discarded with the job on a self-hosted runner, and every job on \
+                 that machine can read what is left there"
+            ));
+        }
+    }
+    problems
 }
 
 /// Every value the leg is pointed at, tested for emptiness by a guard that exits.

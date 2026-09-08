@@ -108,6 +108,9 @@ pub mod transport;
 #[cfg(feature = "wire")]
 pub mod wire;
 
+mod identity_read;
+pub use identity_read::SessionUser;
+
 // The fixture loader, behind the default-off `fixtures` feature. `Cargo.toml` carries the argument
 // for why it is a feature and not simply a `#[cfg(test)]` helper: an INTEGRATION test target is a
 // separate crate, so it cannot reach a `#[cfg(test)]` item here, and a method that issues
@@ -290,6 +293,18 @@ where
     /// reported total is refused here, at the seam, rather than certified.
     #[error("the endpoint delivered {delivered} rows and reported {total} total")]
     Incomplete { delivered: usize, total: usize },
+    /// The identity read came back as something other than one row of one text cell.
+    ///
+    /// Its own variant rather than [`Self::RowWidth`] or [`Self::Shape`], because what a caller does
+    /// about it is different: those two are a result set this adapter could not map, and this is
+    /// *the endpoint did not tell us who ran the job* - which for the one caller that asks
+    /// ([`BigQueryWarehouse::session_user`]) is the whole answer rather than a cell of it.
+    ///
+    /// **It carries the SHAPE and never the value**, deliberately. The one thing this answer can
+    /// contain is an account identifier, and the venue that reads it writes to a public log - so a
+    /// refusal that quoted what came back would be the disclosure the read exists to check for.
+    #[error("the identity read answered {rows} row(s) of {columns} column(s), which is not one identity")]
+    NoIdentityInTheAnswer { rows: usize, columns: usize },
     /// The result set could not be built.
     #[error("the rows did not form a result set")]
     Shape {
@@ -492,6 +507,36 @@ where
         self.transport
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })
+    }
+
+    /// Who this data system says the leg presenting `presented` is executing AS.
+    ///
+    /// **The observable for the claim this adapter's `IMPERSONATION` constant makes.** A
+    /// [`Presented::SubjectToken`] rides as this job's own bearer, so what the endpoint resolves
+    /// that bearer to IS the identity the source executed under - and asking the source rather than
+    /// asserting it is the difference between evidence and a comment. `docs/adr/0008` names
+    /// `SESSION_USER()` as the primitive; `SESSION_USER` is the only statement this can issue.
+    ///
+    /// It goes through [`Self::deliverable`] like every other credential-taking method, so a leg
+    /// whose credential disagrees with the source's posture is refused here too rather than being
+    /// answered by a read that looks harmless.
+    /// The [`SessionUser`] answer redacts under `Debug`; explicit access and `Display` still
+    /// reveal it. Neither this read nor its return type establishes how the bearer was obtained.
+    ///
+    /// **Not part of the [`Warehouse`] port, and that is a decision rather than an omission.** No
+    /// other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
+    /// process under one identity, so a defaulted method would answer *the process* and read as
+    /// though it had asked. An inherent method is reachable by the one venue that needs it and by
+    /// nothing that federates.
+    ///
+    /// # Errors
+    ///
+    /// [`BigQueryError::Endpoint`] where the endpoint did not answer,
+    /// [`BigQueryError::Incomplete`] where the page and the reported total disagree, and
+    /// [`BigQueryError::NoIdentityInTheAnswer`] where the answer is not one row of one text cell.
+    /// Nothing here quotes what came back: see that variant.
+    pub fn session_user(&self, presented: &Presented) -> Mapped<SessionUser, T::Error> {
+        identity_read::session_user(self, presented)
     }
 
     /// One cell, as the domain names it.
@@ -741,11 +786,9 @@ where
     /// for it - a dataset answering with no readable id beside a non-zero total refused the boot
     /// saying every table it names is missing. `telekom/sutura#275`.
     ///
-    /// **What that does NOT cover, next to the claim.** Only [`ListingTotal::Short`] is read.
-    /// [`ListingTotal::Unreadable`] is *itself a shape change* by that type's own words and still
-    /// answers *absent* - `telekom/sutura#443`, out of reach here rather than overlooked, since
-    /// [`TablesPresent::Unaccounted`] carries a shortfall and a total nothing could read has no
-    /// number. `Unreported` beside no ids is where every boot stood before the field was decoded -
+    /// An unreadable total beside zero readable IDs answers [`TablesPresent::UnreadableInventory`]
+    /// without inventing a count. Readable IDs rejected by name filtering still count as identified.
+    /// `Unreported` beside no ids is where every boot stood before the field was decoded -
     /// that variant's own words are that an empty listing and an empty dataset are ONE value, so
     /// nothing in the document tells them apart - and `Accounted` beside no NAMED ids is a dataset
     /// every id of which `usable_table_id` drops. And a gap explains a table's absence
@@ -770,6 +813,7 @@ where
         }
         let mut grouped: ByDataset<'_> = BTreeMap::new();
         let mut absent: BTreeSet<QualifiedTable> = BTreeSet::new();
+        let mut unreadable: BTreeSet<QualifiedTable> = BTreeSet::new();
         // **The gap: a set and a count in ONE binding, written together or not at all.** Two locals
         // is how a shortfall of one comes to describe three tables, and it is also how a count
         // computed by arithmetic gets to disagree with the set beside it - review found both shapes.
@@ -809,22 +853,23 @@ where
                         gap = Some(Gap::widened(gap, unnamed, short.unaccounted()));
                     }
                 }
-                // Every other reading is *nothing to compare*, and it leaves the pre-flight exactly
-                // where it was: a dataset whose listing reported no total, or one this crate could
-                // not read, still answers *this table is not here*. Stated as an exhaustive match
-                // rather than a wildcard so a fifth reading has to be decided here.
-                ListingTotal::Accounted { .. } | ListingTotal::Unreported | ListingTotal::Unreadable => {
+                ListingTotal::Unreadable { identified: 0 } => unreadable.extend(unnamed),
+                // Readable IDs survive this decision even when name filtering drops all of them.
+                ListingTotal::Accounted { .. } | ListingTotal::Unreported | ListingTotal::Unreadable { .. } => {
                     absent.extend(unnamed);
                 }
             }
         }
-        // **A definite absence wins, and both outcomes stop a boot** - so nothing serves that would
-        // not have. It is the more actionable sentence of the two: a table a listing that accounted
-        // for itself did not name is one an operator fixes in the catalog or in the dataset, while a
-        // gap is a thing to look at. The unaccounted-for set is reported on the next boot, which is
-        // the same *first problem wins* both roots already apply across data systems.
+        // Among successful listings, report a definite absence first: it gives an operator a table
+        // to fix. Unreadable inventories and counted gaps also stop startup and wait for the next
+        // boot. A transport error above still short-circuits the walk; this orders answers only.
         if !absent.is_empty() {
             return Ok(TablesPresent::of(absent));
+        }
+        // Among answered inventories, diagnose an unreadable one before a counted gap. Keep its
+        // tables separate: the unreadable total says nothing about another dataset's shortfall.
+        if let Ok(tables) = UnaccountedTables::parse(unreadable) {
+            return Ok(TablesPresent::UnreadableInventory(tables));
         }
         // **There is no route from here to `AllBut`, and that is the point.** The version review
         // broke fell back to `TablesPresent::of(unaccounted_for)` when a count arrived as zero -
@@ -858,7 +903,8 @@ where
     fn preflight_was_refused(&self, error: &Self::Error) -> bool {
         match *error {
             BigQueryError::Endpoint { ref cause } => self.transport.listing_was_refused(cause),
-            BigQueryError::Render { .. }
+            BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
@@ -909,7 +955,13 @@ where
         match *error {
             BigQueryError::Endpoint { ref cause } => self.transport.result_did_not_fit(cause),
             BigQueryError::Incomplete { delivered, total } => delivered < total,
-            BigQueryError::Render { .. }
+            // `NoIdentityInTheAnswer` joins the `false` group rather than getting an arm of its
+            // own: the identity read projects ONE cell, so there is no narrower page to ask for and
+            // a retry returns the same shape. `clippy::match_same_arms` is denied here and is right
+            // to be - an arm whose body is identical to the group's is a distinction a reader is
+            // invited to look for and will not find.
+            BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }

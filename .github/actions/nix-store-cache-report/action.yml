@@ -1,0 +1,48 @@
+# HOW MUCH THE ACTIONS CACHE CARRIED, REPORTED AND NEVER FAILED.
+#
+# `.github/actions/nix-store-cache` recorded how many store paths were present before a single
+# derivation was built. This counts again, after the gates, and prints the ratio.
+#
+# WHY IT IS WORTH A FILE. That ratio is otherwise obtainable only by counting `copying path`
+# against `building` lines in a build log - which is how issue #487's ~94% had to be measured - so
+# an ineffective cache and an effective one looked identical from the run page. The hosted populate
+# step in `ci.yml` has been `completed/skipped` on every `main` push since it merged and nothing
+# anywhere said so; that is the class of defect this addresses.
+#
+# **ITS SHAPE IS THE POINT: IT REPORTS, IT DOES NOT JUDGE.** A cold cache is legitimate - the first
+# run after a lockfile change carries little by design - so a step that reddens on it is inverted
+# logic. #476 removed exactly such a step and the principle was restated then: publication working
+# is the success condition. There is no failure path here at all, which is also why
+# `continue-on-error` is absent: declaring a downgrade for a step that cannot fail is the shape the
+# failure-downgrade check is right to notice.
+#
+# WHAT THE NUMBER IS NOT. A path count is not a time share - one derivation can cost minutes while
+# hundreds cost seconds - and run-to-run duration on this repository varies 64% (1351 s against
+# 825 s at identical dependency state), so it says what the cache CARRIED and not what it saved.
+# A SEPARATE ACTION RATHER THAN A STEP IN `ci.yml`, and not for tidiness: that file now stands ONE
+# line under the 1000-line cap `cargo xtask max-lines` holds, which is a cap `.github/**` could be
+# exempted from and has not been. Anything added to the `ci` job from here needs a line taken out
+# of it first, or needs to arrive as an action like this one.
+name: nix-store-cache-report
+description: Print what the Actions cache carried into this run. Reports; never fails.
+
+runs:
+  using: composite
+  steps:
+    - name: How much the cache carried
+      shell: bash
+      run: |
+        set -eu
+        before="$(cat "$RUNNER_TEMP/nix-store-cache-carried" 2>/dev/null || echo 0)"
+        after="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
+        built=$((after > before ? after - before : 0))
+        if [ "$after" -gt 0 ]; then share=$((before * 100 / after)); else share=0; fi
+        {
+          printf '### cache effectiveness\n\n'
+          printf '%s of %s store paths came from the cache (%s%%); %s were built here.\n' \
+            "$before" "$after" "$share" "$built"
+          printf '\nA path count is not a time share, and run-to-run duration here varies 64%%\n'
+          printf '(1351 s against 825 s at identical dependency state) - so read this as what the\n'
+          printf 'cache carried, not as what it saved.\n'
+        } >> "$GITHUB_STEP_SUMMARY"
+        printf 'cache carried %s of %s paths (%s%%), built %s\n' "$before" "$after" "$share" "$built"

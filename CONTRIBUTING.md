@@ -16,6 +16,13 @@ names, commit messages. Read the first section of
 [AGENTS.md](https://github.com/telekom/sutura/blob/main/AGENTS.md) before you write anything down.
 It is also the root of trust for how this codebase is built, and it routes to the rest.
 
+## Feedback and reporting
+
+Questions, feature ideas and bug reports go to the
+[issue tracker](https://github.com/telekom/sutura/issues). Please do not open a public issue for a
+suspected vulnerability - report it privately through
+[SECURITY.md](https://github.com/telekom/sutura/blob/main/SECURITY.md) instead.
+
 ## Development
 
 Nix with flakes, plus `devenv` and `direnv`. Everything a gate uses comes from there at the pinned

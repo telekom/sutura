@@ -1,10 +1,10 @@
 //! What a data system answered when it was asked whether the bundle's tables are there.
 //!
-//! **A module of its own rather than three types in `warehouse.rs`**, and the seam is a real one:
+//! **A module of its own rather than part of `warehouse.rs`**, and the seam is a real one:
 //! nothing here is about a plan, a credential or a row. It is the vocabulary for one question a
 //! composition root asks once, at boot, before a listener is bound - *does this data system hold the
-//! tables the bundle names* - and the reason it needs a vocabulary at all is that there are three
-//! honest answers and only two of them are about the tables.
+//! tables the bundle names*. Not asking, an absence, and an inventory that could not establish
+//! an answer must remain distinct from verified presence.
 //!
 //! # The asymmetry this exists to close
 //!
@@ -99,7 +99,7 @@ impl UnaccountedTables {
     /// Parses a set of tables a data system's own answer did not reach.
     ///
     /// **The canonical constructor.** An adapter computes the difference between what it asked about
-    /// and what an answer it already knows is short actually named, and hands the result over.
+    /// and what an incomplete or unreadable inventory actually named, and hands the result over.
     ///
     /// # Errors
     ///
@@ -197,6 +197,7 @@ impl fmt::Display for UnaccountedTables {
 /// out.** The data system WAS asked and it DID answer; what it did not do is account for its own
 /// inventory, which is a property of the answer rather than a failure to get one. So there is no
 /// foreign cause to carry: the payload is a set of table paths and one count this adapter computed.
+/// [`Self::UnreadableInventory`] carries the same set without inventing a count when none was readable.
 /// And an `Err` would have been the wrong channel twice over - `Warehouse::preflight_was_refused`
 /// puts everything that is not an authorization failure in the WARNING half, so the shape a
 /// cross-check exists to catch would have reached a root as *serving anyway*. `docs/adr/0018` and
@@ -217,6 +218,12 @@ pub enum TablesPresent {
     All,
     /// The data system was asked and does not hold these.
     AllBut(AbsentTables),
+    /// The inventory reported a total the adapter could not read and no readable table IDs.
+    ///
+    /// These tables are neither established present nor absent. Unlike [`Self::Unaccounted`],
+    /// there is no shortfall to count or bound. This is an answered inventory, not an error fetching
+    /// one, and a boot must refuse without blaming the catalog's table declarations.
+    UnreadableInventory(UnaccountedTables),
     /// The data system was asked, answered, and its answer did not account for every table it said
     /// it holds - so whether it holds these is not established either way.
     ///
@@ -283,7 +290,7 @@ impl TablesPresent {
     ///
     /// **An exhaustive match and not `!matches!(NotAsked)`, which is a review finding rather than
     /// style.** The negated form is a DEFAULTED arm: [`Self::absent`] and `sutura_app::preflight::ask`
-    /// both refuse a fifth variant at compile time, and this one would have compiled silently and
+    /// both refuse an additional variant at compile time, and this one would have compiled silently and
     /// answered *it looked* about a variant nobody had classified. The compiler holds here what the
     /// two matches beside it already held.
     #[inline]
@@ -291,7 +298,7 @@ impl TablesPresent {
     pub const fn was_asked(&self) -> bool {
         match *self {
             Self::NotAsked => false,
-            Self::All | Self::AllBut(_) | Self::Unaccounted { .. } => true,
+            Self::All | Self::AllBut(_) | Self::Unaccounted { .. } | Self::UnreadableInventory(_) => true,
         }
     }
 
@@ -307,7 +314,7 @@ impl TablesPresent {
     #[must_use]
     pub const fn absent(&self) -> Option<&AbsentTables> {
         match *self {
-            Self::NotAsked | Self::All | Self::Unaccounted { .. } => None,
+            Self::NotAsked | Self::All | Self::Unaccounted { .. } | Self::UnreadableInventory(_) => None,
             Self::AllBut(ref tables) => Some(tables),
         }
     }
@@ -391,6 +398,18 @@ mod tests {
             "and it is not the absent answer either"
         );
         assert!(unaccounted.was_asked(), "the data system was asked and it did answer");
+    }
+
+    #[test]
+    fn an_unreadable_inventory_is_an_answer_without_an_absence_or_count() {
+        let named = BTreeSet::from([table("dim_customer")]);
+        let answered = TablesPresent::UnreadableInventory(UnaccountedTables::parse(named.clone()).expect("nonempty"));
+        assert!(answered.was_asked());
+        assert!(answered.absent().is_none());
+        let TablesPresent::UnreadableInventory(tables) = answered else {
+            panic!("the count-free answer must retain its shape");
+        };
+        assert_eq!(tables.named(), &named);
     }
 
     #[test]

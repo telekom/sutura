@@ -48,10 +48,10 @@ const JUSTFILE: &str = "justfile";
 /// The recipe names in this repo's justfile, or `None` when it could not be read.
 ///
 /// Exposed for the citation checkers that are not this gate. `check-guidance` reads the remedy text
-/// in `xtask/src/guidance/claims.rs` and, since `github.com/telekom/sutura#243`, every `just <task>`
-/// a program PRINTS - both rot exactly the way a citation in a page does. This is the only parser in
-/// the workspace that knows what a recipe header looks like, and a second copy of it is the
-/// transcription this module's header objects to.
+/// in `xtask/src/guidance/claims/contradicted.rs` and, since `github.com/telekom/sutura#243`, every
+/// `just <task>` a program PRINTS - both rot exactly the way a citation in a page does. This is the
+/// only parser in the workspace that knows what a recipe header looks like, and a second copy of it
+/// is the transcription this module's header objects to.
 pub(crate) fn recipe_names(root: &std::path::Path) -> Option<BTreeSet<String>> {
     let text = std::fs::read_to_string(root.join(JUSTFILE)).ok()?;
     Some(recipes(&text).into_iter().map(|recipe| recipe.name).collect())

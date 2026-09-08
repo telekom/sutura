@@ -139,10 +139,9 @@ fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_is_refused() {
     assert_eq!(refused.at(), &local);
     let rendered = refused.to_string();
     assert!(rendered.contains("local"), "{rendered}");
-    assert!(
-        rendered.contains("There is \n     no fallback") || rendered.contains("no fallback"),
-        "{rendered}"
-    );
+    // `no fallback` is a substring of the fuller spelling, so the two arms were one fact stated
+    // twice; keep the shorter, robust one.
+    assert!(rendered.contains("no fallback"), "{rendered}");
 
     // The three combinations that are fine, so this test is not satisfied by refusing everything.
     // `expect` rather than `assert!(.., is_ok())`, which `assertions_on_result_states` bans for a

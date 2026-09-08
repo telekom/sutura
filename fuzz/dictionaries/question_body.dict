@@ -1,0 +1,18 @@
+# Tokens for the JSON question body, so libFuzzer learns the shape instead of the syntax.
+metric="\x22metric\x22"
+grain="\x22grain\x22"
+range="\x22range\x22"
+start="\x22start\x22"
+end="\x22end\x22"
+dimensions="\x22dimensions\x22"
+filters="\x22filters\x22"
+dimension="\x22dimension\x22"
+value="\x22value\x22"
+month="\x22month\x22"
+day="\x22day\x22"
+year="\x22year\x22"
+quarter="\x22quarter\x22"
+week="\x22week\x22"
+date="\x22\\d{4}-\\d{2}-\\d{2}\x22"
+open={"\x22
+close=\x22"}

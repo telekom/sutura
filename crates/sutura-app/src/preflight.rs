@@ -16,7 +16,7 @@
 //! rests on was held by review, which `AGENTS.md` does not accept as held.
 //!
 //! `sutura_domain::warehouse::Warehouse::preflight` is the port, and its own documentation carries
-//! why the answer has three shapes and why *could not verify* is an `Err` rather than a fourth.
+//! why an answered inventory and *could not verify* are different outcomes.
 //!
 //! **The limit, stated with the claim:** what a pre-flight establishes is that a table EXISTS. Not
 //! that the columns a model names are on it, and not that a question's identity may read it - a
@@ -36,15 +36,15 @@ use crate::warehouses::Warehouses;
 
 /// What one data system answered about the tables one bundle names in it.
 ///
-/// **Six outcomes and not three, because a root treats two of the failures differently and one of
-/// the answers is not about the catalog at all.** The port answers four things and fails in one way,
+/// A root treats two failures differently, and an incomplete or unreadable inventory is not a
+/// finding about the catalog. The port answers five things and fails in one way,
 /// and that one failure splits on `Warehouse::preflight_was_refused`: a data system that REFUSED to
 /// be listed will refuse identically on every launch and the fix is one grant, while one that could
 /// not be reached is a condition that passes. A root that collapsed them would either stop a
 /// deployment that would have worked or hide the check being off in the deployment least likely to
 /// read a startup log.
 ///
-/// **[`Self::Unaccounted`] is the fourth answer and it is a REFUSAL, not the third failure.** The
+/// **[`Self::Unaccounted`] is a REFUSAL, not a failure to get an answer.** The
 /// data system answered; its answer did not account for its own inventory. Reading that as
 /// [`Self::Absent`] is what `telekom/sutura#275` is - a shortfall rounded down to zero and charged
 /// to the catalog - and reading it as [`Self::Unverified`] would be worse still: that is the warning
@@ -70,6 +70,9 @@ pub enum Verdict<E> {
     },
     /// Asked, and these tables are not there. A refusal, and the models to name in it.
     Absent(AbsentBehind),
+    /// An unreadable inventory established neither presence nor absence for these tables.
+    /// A refusal without a count or model names: no catalog declaration was shown wrong.
+    UnreadableInventory(UnaccountedTables),
     /// Asked, answered, and the answer did not account for every table the data system said it
     /// holds - so these tables are neither established present nor established absent.
     ///
@@ -234,6 +237,7 @@ where
             // Carried straight through rather than joined against the bundle, because the models are
             // the wrong half of this answer - the variant's own documentation says why.
             Ok(TablesPresent::Unaccounted { tables, shortfall }) => Verdict::Unaccounted { tables, shortfall },
+            Ok(TablesPresent::UnreadableInventory(tables)) => Verdict::UnreadableInventory(tables),
             // The split the port documents: an authorization failure will fail identically on every
             // launch and one grant fixes it, everything else is a condition that passes. Which one it
             // was is the ADAPTER's to say, because `W::Error` is its own type and nothing here reads it.
@@ -487,6 +491,20 @@ mod tests {
             "{:?}",
             answered[0].verdict()
         );
+    }
+
+    #[test]
+    fn an_unreadable_inventory_reaches_the_root_without_model_names_or_a_count() {
+        let engines = opened(|asked| {
+            Ok(TablesPresent::UnreadableInventory(
+                UnaccountedTables::parse(asked.clone()).expect("nonempty"),
+            ))
+        });
+        let answers = ask(&bundle(), &engines);
+        let Verdict::UnreadableInventory(tables) = answers[0].verdict() else {
+            panic!("the count-free refusal must survive mapping: {:?}", answers[0].verdict());
+        };
+        assert_eq!(tables.to_string(), "dim_customer, fct_orders");
     }
 
     #[test]

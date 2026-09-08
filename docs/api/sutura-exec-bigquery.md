@@ -127,6 +127,7 @@ an owned `#[source]`.
 - `NotADate` - A cell declared as a date did not parse as one.
 - `RowWidth` - A row had more or fewer cells than the schema had columns.
 - `Incomplete` - The endpoint delivered a page whose row count is not what it reported as total.
+- `NoIdentityInTheAnswer` - The identity read came back as something other than one row of one text cell.
 - `Shape` - The result set could not be built.
 
 ### Implements
@@ -203,9 +204,42 @@ for. The billing project is the caller's to supply because there is nothing to i
 it is a path segment of the request that submits a job, and a federated identity has no project
 of its own.
 
+```rust
+pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQueryError<<T as >::Error>>
+```
+
+Who this data system says the leg presenting `presented` is executing AS.
+
+**The observable for the claim this adapter's `IMPERSONATION` constant makes.** A
+`Presented::SubjectToken` rides as this job's own bearer, so what the endpoint resolves
+that bearer to IS the identity the source executed under - and asking the source rather than
+asserting it is the difference between evidence and a comment. `docs/adr/0008` names
+`SESSION_USER()` as the primitive; `SESSION_USER` is the only statement this can issue.
+
+It goes through `Self::deliverable` like every other credential-taking method, so a leg
+whose credential disagrees with the source's posture is refused here too rather than being
+answered by a read that looks harmless.
+The `SessionUser` answer redacts under `Debug`; explicit access and `Display` still
+reveal it. Neither this read nor its return type establishes how the bearer was obtained.
+
+**Not part of the `Warehouse` port, and that is a decision rather than an omission.** No
+other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
+process under one identity, so a defaulted method would answer *the process* and read as
+though it had asked. An inherent method is reachable by the one venue that needs it and by
+nothing that federates.
+
+# Errors
+
+`BigQueryError::Endpoint` where the endpoint did not answer,
+`BigQueryError::Incomplete` where the page and the reported total disagree, and
+`BigQueryError::NoIdentityInTheAnswer` where the answer is not one row of one text cell.
+Nothing here quotes what came back: see that variant.
+
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `use None`
 
 ## `use None`
 
@@ -492,12 +526,10 @@ reason.** The set alone cannot tell an EMPTY dataset from a document whose shape
 changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
 absent*. `ListingTotal` is what the two can be told apart by.
 
-**And exactly that far, which is the limit next to the claim.** It reaches a shape change the
-same document still reports a readable count beside: a service that re-spelled `totalItems` as
-well leaves `ListingTotal::Unreported` or `ListingTotal::Unreadable`, and those say *nothing
-to compare* rather than *empty dataset*. Nor does it reach a dataset every one of whose ids this
-crate drops - that is `ListingTotal::Accounted` beside no ids, deliberately, because it is an
-ordinary dataset no model in the bundle could have named anyway.
+A readable total can expose a shortfall. An unreadable total beside zero readable IDs exposes
+an inventory this adapter could not read, without supplying a count. `ListingTotal::Unreported`
+still cannot distinguish an empty dataset from a changed document. Readable IDs dropped by name
+filtering remain identified, so an ordinary dataset of unsupported names is not that finding.
 
 **Why it travels on the answer rather than being decided here, now that it IS decided on:** the
 decision needs the tables the BUNDLE names, and this port has never seen them - it answers about
@@ -552,8 +584,8 @@ What a listing's own reported total said, against the entries of the same docume
 id it could read.
 
 **Four variants rather than an `Option<u64>`, because each says something different about what a
-caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
-have merged with the answer. A reader has to name the case, for the reason
+caller may conclude** - a missing total and an unreadable one cannot carry the same decision.
+A reader has to name the case, for the reason
 `sutura_domain::source::AnchorIdentity` names `NoneDeclared` rather than answering `None`.
 
 **The comparison is against the entries that carried a table id this crate could READ - neither
@@ -568,8 +600,8 @@ the shape signal; an id `usable_table_id` rejected is the legitimate drop, and i
 
 The same cross-check one document over is `crate::BigQueryError::Incomplete`, which compares
 `delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
-here so a reader who greps one finds the other: that one refuses because a short result set is a
-wrong number, and this one cannot, because a short listing is a boot warning.
+here so a reader who greps one finds the other. This type carries the inventory evidence;
+preflight decides whether it leaves a requested table unaccounted for and refuses through a value.
 
 #### Variants
 
@@ -958,10 +990,9 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
   the reported
   `reason` is folded into whichever of those fires, because it is the best diagnostic
   available at that point. See `complete`, and the limit stated there.
-- **Every foreign string that reaches an error is bounded and filtered.** The endpoint's
-  `reason` is kept and its free-text `message` is not, because a reason is a fixed vocabulary an
-  operator can act on and a message is unbounded text from another service heading for a log.
-  `credential::bounded` is the one function that does it, shared with the credential module.
+- **Refusal text is bounded and filtered, not discarded.** `credential::bounded` handles the
+  `reason`; `EndpointMessage` retains the free-text `message` and redacts it under `Debug`
+  only. `Display` and cause-chain logging can still render the message.
 
 # What is deliberately absent
 
@@ -1033,6 +1064,65 @@ The one constructor, and every non-default setting below is a decision:
 #### Implements
 
 `Clone`, `Debug`
+
+### `struct EndpointMessage`
+
+```rust
+pub struct EndpointMessage
+```
+
+The endpoint's own message on a refusal: free text, and the one field here that can name an
+account.
+
+**A type rather than a `String`, because the rule it carries is about RENDERING and a rule about
+rendering cannot be held at call sites.** `Display` is the message; `Debug` is redacted. That is
+the whole mechanism, and it is here because the alternative was asking fourteen acceptance legs
+to remember which formatter they used.
+
+**Measured, which is why this exists.** A leg ending `.expect("the endpoint answered")` formats
+its error with `Debug`, and `Debug` walks the struct: on a real refusal that printed
+`Access Denied: ... permission: <an account>` into a public workflow log. Ten of the fourteen
+legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the job's
+`::add-mask::` step covers the project, the dataset and the table - **not an account**.
+`Display` keeps the message because a `400` with only a reason code is undiagnosable, which is
+what `docs/adr/0018` prices.
+
+**What this does NOT do, and the earlier wording here claimed otherwise.** It said a caller
+"has to ask for the sentence by name". It does not: `WireError::Refused`'s own `Display`
+interpolates `detail`, so anything that walks a cause chain and `to_string()`s each link renders
+it. `sutura_app::surface::cause_chain` does exactly that, and its output reaches
+`tracing::error!` in the HTTP and agent transports - reachable from a `sutura-serve --features
+bigquery` deployment. That path is **pre-existing and deliberate**: this workspace flattens a
+cause chain at the sink, and a deployment's own log is not the public workflow log this
+redaction targets. So the scope of the control is exactly one thing - **`Debug`**, which is what
+a panicking test leg prints into a world-readable CI log - and it is not a general answer to
+where the endpoint's message may travel.
+
+It is already bounded and stripped on the way in - see `Self::bounded`.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The message itself, for a caller that has decided it may render it.
+
+Named rather than reached through `Deref`, which `cargo xtask check-newtype-leaks` refuses:
+a wrapper you can forget you are holding is not a wrapper.
+
+```rust
+pub fn bounded(message: Option<String>) -> Self
+```
+
+The endpoint's message, capped and stripped of anything that could forge a log line.
+
+Infallible: an absent message is an empty one, which is honest - the status is what is
+guaranteed.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
 
 ### `enum WireError`
 

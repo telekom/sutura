@@ -133,7 +133,7 @@ jobs:
             fallback = true
 
       # No shared cache here, and that is deliberate rather than an omission. `ci.yml` carries
-      # /nix/store between runs with magic-nix-cache; this workflow publishes, and once it has a
+      # /nix/store between runs with the Actions cache; this workflow publishes, and once it has a
       # `v*` trigger zizmor flags that step as cache poisoning - the Actions cache is writable
       # from a pull request, and a published page must not be built from a store path a pull
       # request could have put there. Same call `release.yml` makes, for the same reason.
@@ -240,11 +240,13 @@ jobs:
       # could not run is not evidence, so it buys the gates back rather than the skip.
       #
       # WHAT THIS NO LONGER CHECKS ON A PULL REQUEST, stated rather than implied, because the
-      # replacement is NARROWER than what it replaced. `hygiene` is thirteen gates. Seven of them
-      # - `check-boundaries`, `check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`,
-      # `check-workflows`, `check-crap` - read Rust, manifests, lock files or workflow YAML, none
-      # of which a markdown-only diff can change, so skipping those loses nothing. The six that
-      # DO read prose are the residual, and only part of one is replaced above:
+      # replacement is NARROWER than what it replaced. The sweep is larger than the gates this
+      # argument names - the ones a markdown-only diff can or cannot reach. Eight of
+      # them - `check-boundaries`, `check-jscpd`, `check-pins`, `check-warm-start`, `unused-deps`,
+      # `check-arrow`, `check-workflows`, `check-crap` - read Rust, manifests, lock files or
+      # workflow YAML, none of which a markdown-only diff can change, so skipping those loses
+      # nothing. The six that DO read prose are the residual, and only part of one is replaced
+      # above:
       #
       #   * `check-guidance` - the citation half is replaced. Its stale phrases, its
       #     version-against-pin comparison, its contradicted claims and its counts are not.

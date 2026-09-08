@@ -1,48 +1,20 @@
-//! Every `RefusalReason` variant is provoked by a test, or listed with a date and a reason.
+//! Name coverage for query and startup refusals, with separate dated exception lists.
 //!
-//! `AGENTS.md` states the rule as *"a variant no test can provoke is what that enum refuses to
-//! carry"*, and nothing kept it true. The two transports hold exhaustive matches over the enum, so
-//! a variant added to the domain fails to compile until somebody assigns it a status and a
-//! sentence - and **that is a compile-time mechanism for RENDERING a variant, not for provoking
-//! one.** A variant can be added, rendered, shipped and triggered by nothing.
+//! A test-code occurrence of `<Enum>::<Variant>` under `crates/`, or a whole variant word in a
+//! committed snapshot, supplies evidence. A file naming EVERY variant of an enum is a census
+//! and supplies no evidence for that enum; it may still supply evidence for the other enum.
+//! This prevents exhaustive mapper tests and snapshots of all refusal guides from counting.
 //!
-//! # What counts as provoked, and why a census does not
+//! **A name is not a provocation or proof of execution in any venue.** A test mentioning a
+//! variant without triggering it counts. Snapshot words are unqualified, so the same word can
+//! supply evidence for both enums. Word boundaries recognize ASCII alphanumerics and underscores,
+//! not the full Rust identifier grammar; a Unicode prefix can still count as a boundary.
+//! The test-region walk inherits the causality gate's limits:
+//! only the exact `#[cfg(test)]` attribute counts, and `#[path = ".."] mod` is not followed.
 //!
-//! Two kinds of evidence, both syntactic:
-//!
-//! * a **test-code** occurrence of `RefusalReason::<Variant>` under `crates/`, found by the same
-//!   region machinery the causality gate uses - so a `#[cfg(test)]` module in a `src` file counts
-//!   and the production match arm beside it does not;
-//! * a **committed snapshot** naming the variant. That is the refusal corpus: a question was asked,
-//!   the refusal came back, and `insta` recorded it - which is stronger evidence than a Rust
-//!   identifier, because the value was produced rather than written.
-//!
-//! **A file that names EVERY variant is a census, and a census is evidence about none of them.** It
-//! is the completeness of the enum being asserted, which the exhaustive matches already force. FIVE
-//! files in this tree are censuses - the gate names them in its own verdict rather than counting them -
-//! and the rule is not hypothetical for any: `sutura_app::prompt`'s test builds one instance of every
-//! variant to check that every refusal has guidance; the two transports' refusal tests hand every
-//! variant to their mappers; and - the two that make the rule necessary rather than tidy - **the
-//! rendered prompt, snapshotted twice under `crates/sutura-cli/tests/snapshots/`, lists all eighteen
-//! refusal guides by name.** Without the census rule those two snapshots alone would make every
-//! variant look provoked, and this gate would be decoration.
-//!
-//! # Scope, and the limits
-//!
-//! `crates/**` only. Nothing outside can construct a `RefusalReason` - `xtask` does not depend on
-//! the domain - so a name elsewhere is text. This module's own fixtures use fabricated variant
-//! names for the same reason stated the other way round.
-//!
-//! * **A NAME is not a provocation.** A test that mentions a variant in an `assert_ne!` counts here.
-//!   Deciding otherwise means knowing what a test asserts, which no text scan can; what this gate
-//!   buys is that a variant nothing anywhere mentions cannot arrive silently.
-//! * **The region walk is the causality gate's**, so its limits are inherited: only the exact
-//!   attribute `#[cfg(test)]` counts, and a `#[path = ".."] mod` is not followed. Both directions are
-//!   conservative here - an unrecognised test region reads as production code, so evidence is
-//!   missed rather than invented.
-//! * **The allow file is the escape hatch and it is a ratchet, not a silencer.** A stale entry - one
-//!   naming a variant that IS provoked now, or a name the enum no longer has - fails the gate, which
-//!   is `deny.toml`'s `unused-allowed-license = "deny"` pointed at this list.
+//! Each enum has its own allow file. Missing files mean no exceptions; unknown names, entries
+//! with evidence now, or entries lacking a date and reason fail. Dates are checked for shape,
+//! not calendar validity or expiration. This module's fixtures live outside the `crates/` scope.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -54,11 +26,30 @@ use crate::{Verdict, repo};
 /// check nothing.
 const DECLARED_IN: &str = "crates/sutura-domain/src/query.rs";
 
-/// The declaration line the walk starts at.
-const DECLARATION: &str = "pub enum RefusalReason {";
-
-/// Where a variant nothing provokes is argued for.
+/// Where a query variant with no name evidence is argued for.
 const ALLOW_FILE: &str = "devco/refusals-unprovoked-allow";
+
+/// One enum's declaration and exception namespace.
+struct Subject {
+    /// The exact enum identifier used in declarations and test-code evidence.
+    name: &'static str,
+    /// A missing declaration fails rather than silently narrowing the scope.
+    declared_in: &'static str,
+    /// Exceptions belong only to this enum, even when variant names overlap.
+    allow_file: &'static str,
+}
+
+const QUERY: Subject = Subject {
+    name: "RefusalReason",
+    declared_in: DECLARED_IN,
+    allow_file: ALLOW_FILE,
+};
+
+const STARTUP: Subject = Subject {
+    name: "NotFitToServe",
+    declared_in: "crates/sutura-config/src/settings/posture.rs",
+    allow_file: "devco/startup-refusals-unprovoked-allow",
+};
 
 /// One deliberate exception, as the allow file spells it.
 struct Excused {
@@ -90,51 +81,63 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
-    let declared = match declared_variants(&root) {
+    let mut verdict = Verdict::Pass;
+    for subject in [&QUERY, &STARTUP] {
+        if check(subject, &root, &files) != Verdict::Pass {
+            verdict = Verdict::Fail;
+        }
+    }
+    verdict
+}
+
+/// Keep both evidence sets and both exception lists independent, using the same file listing.
+fn check(subject: &Subject, root: &Path, files: &[String]) -> Verdict {
+    let declared = match declared_variants(subject, root) {
         Ok(names) => names,
         Err(message) => {
             eprintln!("xtask check-refusal-coverage: {message}");
             return Verdict::Fail;
         }
     };
-    let excused = match excuses(&root) {
+    let excused = match excuses(subject, root) {
         Ok(entries) => entries,
         Err(message) => {
             eprintln!("xtask check-refusal-coverage: {message}");
             return Verdict::Fail;
         }
     };
-    let evidence = provocations(&root, &files, &declared);
-    report(&declared, &excused, &evidence)
+    let evidence = name_evidence(subject, root, files, &declared);
+    report(subject, &declared, &excused, &evidence)
 }
 
 /// Decide, and say why.
-fn report(declared: &[String], excused: &[Excused], evidence: &Evidence) -> Verdict {
+fn report(subject: &Subject, declared: &[String], excused: &[Excused], evidence: &Evidence) -> Verdict {
+    let Subject { name, allow_file, .. } = subject;
     let mut problems: Vec<String> = Vec::new();
     let excused_names: BTreeSet<&str> = excused.iter().map(|e| e.variant.as_str()).collect();
 
     for variant in declared {
-        let provoked = evidence.by_variant.contains_key(variant);
-        if !provoked && !excused_names.contains(variant.as_str()) {
+        let named = evidence.by_variant.contains_key(variant);
+        if !named && !excused_names.contains(variant.as_str()) {
             problems.push(format!(
-                "{variant}: no test names it and no snapshot records it, and {ALLOW_FILE} does not excuse it"
+                "{variant}: no test names it and no snapshot records it, and {allow_file} does not excuse it"
             ));
         }
     }
     // The other direction, which is what makes the list a ratchet: an excuse for a variant that is
-    // provoked now reads as coverage nobody has, and one naming a variant the enum has lost reads
+    // named now reads as coverage nobody has, and one naming a variant the enum has lost reads
     // as a rule still being applied.
     for entry in excused {
         if !declared.contains(&entry.variant) {
             problems.push(format!(
-                "{ALLOW_FILE}:{}: `{}` is not a RefusalReason variant - it was renamed or removed",
+                "{allow_file}:{}: `{}` is not a {name} variant - it was renamed or removed",
                 entry.line, entry.variant
             ));
             continue;
         }
         if let Some(files) = evidence.by_variant.get(&entry.variant) {
             problems.push(format!(
-                "{ALLOW_FILE}:{}: `{}` IS provoked now ({}) - delete the entry",
+                "{allow_file}:{}: `{}` IS named now ({}) - delete the entry",
                 entry.line,
                 entry.variant,
                 files.iter().take(2).cloned().collect::<Vec<String>>().join(", ")
@@ -142,16 +145,16 @@ fn report(declared: &[String], excused: &[Excused], evidence: &Evidence) -> Verd
         }
         if entry.dated.is_empty() || entry.why.is_empty() {
             problems.push(format!(
-                "{ALLOW_FILE}:{}: `{}` needs a date and a reason on the same line",
+                "{allow_file}:{}: `{}` needs a date and a reason on the same line",
                 entry.line, entry.variant
             ));
         }
     }
 
     if problems.is_empty() {
-        let provoked = declared.len().saturating_sub(excused.len());
+        let named = declared.len().saturating_sub(excused.len());
         println!(
-            "xtask check-refusal-coverage: ok - {provoked}/{} variant(s) provoked, {} excused, \
+            "xtask check-refusal-coverage: {name}: ok - {named}/{} variant(s) named, {} excused, \
              {} file(s) read",
             declared.len(),
             excused.len(),
@@ -165,45 +168,44 @@ fn report(declared: &[String], excused: &[Excused], evidence: &Evidence) -> Verd
         return Verdict::Pass;
     }
 
-    eprintln!("xtask check-refusal-coverage: FAILED");
+    eprintln!("xtask check-refusal-coverage: {name}: FAILED");
     for problem in &problems {
         eprintln!("  {problem}");
     }
     eprintln!();
-    explain();
+    explain(subject);
     Verdict::Fail
 }
 
 /// Printed on failure, because a rule whose reason is unstated gets reverted.
-fn explain() {
-    eprintln!("A refusal is the tool surface's answer to a question this deployment declines, so a");
-    eprintln!("variant nothing provokes is a sentence a caller may never have been shown. The two");
-    eprintln!("transports' exhaustive matches force a variant to be RENDERED, not triggered.");
-    eprintln!();
-    eprintln!("What counts: a `RefusalReason::<Variant>` in test code under crates/, or a committed");
-    eprintln!("snapshot naming it. A file naming EVERY variant is a census and counts for none of");
-    eprintln!("them - the rendered prompt lists all of them, and so does each transport's mapper");
-    eprintln!("test.");
-    eprintln!();
-    eprintln!("If a variant genuinely cannot be provoked yet, say so in");
-    eprintln!("  devco/refusals-unprovoked-allow");
-    eprintln!("with the date and what would end the exception. An entry is a decision somebody");
-    eprintln!("wrote down; a variant nobody can explain belongs out of the enum.");
+fn explain(subject: &Subject) {
+    eprintln!(
+        "What counts: `{}::<Variant>` in test code under crates/, or a snapshot word.",
+        subject.name
+    );
+    eprintln!("A file naming EVERY variant is a census and counts for none of that enum's variants.");
+    eprintln!("A name is not proof of provocation or execution in any venue; snapshot words are unqualified.");
+    eprintln!(
+        "A deliberate missing-name exception needs a date and reason in {}.",
+        subject.allow_file
+    );
 }
 
-/// The variant names `RefusalReason` declares.
-fn declared_variants(root: &Path) -> Result<Vec<String>, String> {
-    let path = root.join(DECLARED_IN);
-    let text = std::fs::read_to_string(&path).map_err(|cause| format!("{DECLARED_IN} could not be read: {cause}"))?;
+/// The variant names this subject declares.
+fn declared_variants(subject: &Subject, root: &Path) -> Result<Vec<String>, String> {
+    let Subject { name, declared_in, .. } = subject;
+    let declaration = format!("pub enum {name} {{");
+    let path = root.join(declared_in);
+    let text = std::fs::read_to_string(&path).map_err(|cause| format!("{declared_in} could not be read: {cause}"))?;
     let at = text
-        .find(DECLARATION)
-        .ok_or_else(|| format!("{DECLARED_IN} no longer declares `{DECLARATION}` - this gate would check nothing"))?;
-    let body = enum_body(&text, at.saturating_add(DECLARATION.len()))
-        .ok_or_else(|| format!("{DECLARED_IN}: the RefusalReason body has unbalanced braces"))?;
+        .find(&declaration)
+        .ok_or_else(|| format!("{declared_in} no longer declares `{declaration}` - this gate would check nothing"))?;
+    let body = enum_body(&text, at.saturating_add(declaration.len()))
+        .ok_or_else(|| format!("{declared_in}: the {name} body has unbalanced braces"))?;
     let names = variant_names(body);
     if names.is_empty() {
         return Err(format!(
-            "{DECLARED_IN}: RefusalReason declares no variants - this gate would check nothing"
+            "{declared_in}: {name} declares no variants - this gate would check nothing"
         ));
     }
     Ok(names)
@@ -267,14 +269,14 @@ fn variant_at(trimmed: &str) -> Option<&str> {
 }
 
 /// Which files name which variants, censuses removed.
-fn provocations(root: &Path, files: &[String], declared: &[String]) -> Evidence {
+fn name_evidence(subject: &Subject, root: &Path, files: &[String], declared: &[String]) -> Evidence {
     let read = |rel: &str| -> Option<String> { std::fs::read_to_string(root.join(rel)).ok() };
     let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut censuses: BTreeSet<String> = BTreeSet::new();
     let mut scanned = 0_usize;
 
     for rel in files {
-        let Some(named) = named_in(root, rel, declared, &read) else {
+        let Some(named) = named_in(subject, root, rel, declared, &read) else {
             continue;
         };
         scanned = scanned.saturating_add(1);
@@ -294,7 +296,13 @@ fn provocations(root: &Path, files: &[String], declared: &[String]) -> Evidence 
 }
 
 /// The variants this file names, or `None` when the file is out of scope.
-fn named_in(root: &Path, rel: &str, declared: &[String], read: &regions::PostImage<'_>) -> Option<BTreeSet<String>> {
+fn named_in(
+    subject: &Subject,
+    root: &Path,
+    rel: &str,
+    declared: &[String],
+    read: &regions::PostImage<'_>,
+) -> Option<BTreeSet<String>> {
     if !rel.starts_with("crates/") {
         return None;
     }
@@ -313,7 +321,7 @@ fn named_in(root: &Path, rel: &str, declared: &[String], read: &regions::PostIma
             continue;
         }
         for variant in declared {
-            if line.contains(&format!("RefusalReason::{variant}")) && names_exactly(line, variant) {
+            if names_exactly(subject, line, variant) {
                 named.insert(variant.clone());
             }
         }
@@ -330,22 +338,9 @@ fn has_extension(rel: &str, wanted: &str) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case(wanted))
 }
 
-/// Does `line` name `variant` as a whole word after the `RefusalReason::` path?
-///
-/// The suffix check matters because the enum has no two variants where one is a prefix of the
-/// other today and nothing keeps that true - `ResultTooLarge` and a future `ResultTooLargeForX`
-/// would otherwise be one name.
-fn names_exactly(line: &str, variant: &str) -> bool {
-    let needle = format!("RefusalReason::{variant}");
-    let mut rest = line;
-    while let Some(at) = rest.find(&needle) {
-        let after = rest.get(at.saturating_add(needle.len())..).unwrap_or_default();
-        if !after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') {
-            return true;
-        }
-        rest = after;
-    }
-    false
+/// ASCII word boundaries exclude longer ASCII names but allow `crate::Enum::Variant`.
+fn names_exactly(subject: &Subject, line: &str, variant: &str) -> bool {
+    whole_word(line, &format!("{}::{variant}", subject.name))
 }
 
 /// Variants named anywhere in `text`, as whole words.
@@ -359,7 +354,7 @@ fn mentioned(text: &str, declared: &[String]) -> BTreeSet<String> {
     named
 }
 
-/// Is `word` in `text` with no identifier character either side?
+/// Is `word` in `text` with no ASCII alphanumeric or underscore on either side?
 fn whole_word(text: &str, word: &str) -> bool {
     let mut rest = text;
     while let Some(at) = rest.find(word) {
@@ -378,13 +373,14 @@ fn whole_word(text: &str, word: &str) -> bool {
 }
 
 /// The allow file's entries.
-fn excuses(root: &Path) -> Result<Vec<Excused>, String> {
-    let path = root.join(ALLOW_FILE);
+fn excuses(subject: &Subject, root: &Path) -> Result<Vec<Excused>, String> {
+    let allow_file = subject.allow_file;
+    let path = root.join(allow_file);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         // An absent file means no exceptions, which is the state this gate hopes to reach.
         Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(cause) => return Err(format!("{ALLOW_FILE} could not be read: {cause}")),
+        Err(cause) => return Err(format!("{allow_file} could not be read: {cause}")),
     };
     let mut entries = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -424,10 +420,218 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        Evidence, Excused, enum_body, looks_like_a_date, mentioned, names_exactly, parse_excuse, report, variant_names,
+        Evidence, Excused, QUERY, enum_body, looks_like_a_date, mentioned, names_exactly, parse_excuse, report, variant_names,
         whole_word,
     };
     use crate::Verdict;
+
+    const STARTUP: &str = "crates/sutura-config/src/settings/posture.rs";
+    const QUERY_A: &str = "crates/example/tests/query_a.rs";
+    const QUERY_B: &str = "crates/example/tests/query_b.rs";
+    const STARTUP_A: &str = "crates/example/tests/startup_a.rs";
+    const STARTUP_B: &str = "crates/example/tests/startup_b.rs";
+    const STARTUP_ALLOW: &str = "devco/startup-refusals-unprovoked-allow";
+
+    /// Replace a fixture file's contents, or remove it.
+    type Change<'a> = (&'a str, Option<&'a str>);
+    /// A named fixture edit and its expected gate verdict.
+    type Case<'a> = (&'a str, &'a [Change<'a>], Verdict);
+
+    /// Drive the real entry point over two independently covered enums, not report's helpers.
+    fn gate_with(changes: &[Change<'_>]) -> Verdict {
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this fixture changes cwd: run under just test for one process per test"
+        );
+        let tree = crate::falsifier::falsifier_tree();
+        let seed = [
+            (super::DECLARED_IN, "pub enum RefusalReason {\n Alpha,\n Beta,\n}\n"),
+            (STARTUP, "pub enum NotFitToServe {\n Alpha,\n Beta,\n}\n"),
+            (QUERY_A, "fn query_a() { RefusalReason::Alpha; }\n"),
+            (QUERY_B, "fn query_b() { RefusalReason::Beta; }\n"),
+            (STARTUP_A, "fn startup_a() { NotFitToServe::Alpha; }\n"),
+            (STARTUP_B, "fn startup_b() { NotFitToServe::Beta; }\n"),
+        ];
+        for (path, text) in seed
+            .iter()
+            .map(|(path, text)| (*path, Some(*text)))
+            .chain(changes.iter().copied())
+        {
+            let path = tree.join(path);
+            if let Some(text) = text {
+                std::fs::create_dir_all(path.parent().expect("a fixture parent")).expect("fixture directories");
+                std::fs::write(path, text).expect("fixture content");
+            } else {
+                std::fs::remove_file(path).expect("remove a seeded file");
+            }
+        }
+        let original = std::env::current_dir().expect("a current directory");
+        std::env::set_current_dir(&tree).expect("enter the fixture");
+        let verdict = super::run(&[]);
+        std::env::set_current_dir(original).expect("restore before asserting the verdict");
+        std::fs::remove_dir_all(tree).expect("remove the owned fixture");
+        verdict
+    }
+
+    #[test]
+    fn startup_coverage_requires_an_exact_test_name_or_snapshot_word() {
+        let cases: &[Case<'_>] = &[
+            ("covered", &[], Verdict::Pass),
+            ("missing", &[(STARTUP_A, None)], Verdict::Fail),
+            (
+                "other enum",
+                &[(STARTUP_A, Some("fn f() { RefusalReason::Alpha; }"))],
+                Verdict::Fail,
+            ),
+            (
+                "enum prefix",
+                &[(STARTUP_A, Some("fn f() { OtherNotFitToServe::Alpha; }"))],
+                Verdict::Fail,
+            ),
+            (
+                "variant suffix",
+                &[(STARTUP_A, Some("fn f() { NotFitToServe::AlphaLong; }"))],
+                Verdict::Fail,
+            ),
+            (
+                "qualified",
+                &[(STARTUP_A, Some("fn f() { crate::NotFitToServe::Alpha; }"))],
+                Verdict::Pass,
+            ),
+            (
+                "production",
+                &[
+                    (STARTUP_A, None),
+                    ("crates/example/src/lib.rs", Some("fn f() { NotFitToServe::Alpha; }")),
+                ],
+                Verdict::Fail,
+            ),
+            (
+                "snapshot",
+                &[(STARTUP_A, None), ("crates/example/tests/a.snap", Some("Alpha:\n"))],
+                Verdict::Pass,
+            ),
+            (
+                "snapshot suffix",
+                &[(STARTUP_A, None), ("crates/example/tests/a.snap", Some("AlphaLong:\n"))],
+                Verdict::Fail,
+            ),
+        ];
+        let wrong: Vec<_> = cases
+            .iter()
+            .filter_map(|(name, changes, expected)| {
+                let actual = gate_with(changes);
+                (actual != *expected).then_some((*name, actual, *expected))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "incorrect name-coverage verdicts: {wrong:?}");
+    }
+
+    #[test]
+    fn refusal_censuses_are_decided_independently_for_each_enum() {
+        let mixed = "fn f() { RefusalReason::Alpha; RefusalReason::Beta; NotFitToServe::Alpha; }";
+        let converse = "fn f() { NotFitToServe::Alpha; NotFitToServe::Beta; RefusalReason::Alpha; }";
+        let cases: &[Case<'_>] = &[
+            (
+                "query census still supplies startup evidence",
+                &[(STARTUP_A, Some(mixed))],
+                Verdict::Pass,
+            ),
+            (
+                "startup census still supplies query evidence",
+                &[(QUERY_A, Some(converse))],
+                Verdict::Pass,
+            ),
+            (
+                "startup census alone",
+                &[(STARTUP_A, Some(converse)), (STARTUP_B, None)],
+                Verdict::Fail,
+            ),
+            (
+                "query census alone",
+                &[(QUERY_A, Some(mixed)), (QUERY_B, None)],
+                Verdict::Fail,
+            ),
+        ];
+        let wrong: Vec<_> = cases
+            .iter()
+            .filter_map(|(name, changes, expected)| {
+                let actual = gate_with(changes);
+                (actual != *expected).then_some((*name, actual, *expected))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "incorrect census verdicts: {wrong:?}");
+    }
+
+    #[test]
+    fn startup_exceptions_are_validated_and_do_not_cross_enum_boundaries() {
+        let valid = "Alpha 2026-09-08 needs a fixture\n";
+        let cases: &[Case<'_>] = &[
+            ("valid", &[(STARTUP_A, None), (STARTUP_ALLOW, Some(valid))], Verdict::Pass),
+            (
+                "date missing",
+                &[(STARTUP_A, None), (STARTUP_ALLOW, Some("Alpha yesterday needs a fixture\n"))],
+                Verdict::Fail,
+            ),
+            (
+                "reason missing",
+                &[(STARTUP_A, None), (STARTUP_ALLOW, Some("Alpha 2026-09-08\n"))],
+                Verdict::Fail,
+            ),
+            ("stale", &[(STARTUP_ALLOW, Some(valid))], Verdict::Fail),
+            (
+                "unknown",
+                &[(STARTUP_ALLOW, Some("Gamma 2026-09-08 renamed\n"))],
+                Verdict::Fail,
+            ),
+            (
+                "same name separately excused",
+                &[
+                    (QUERY_A, None),
+                    (STARTUP_A, None),
+                    (super::ALLOW_FILE, Some(valid)),
+                    (STARTUP_ALLOW, Some(valid)),
+                ],
+                Verdict::Pass,
+            ),
+            (
+                "query excuse is not a startup excuse",
+                &[(QUERY_A, None), (STARTUP_A, None), (super::ALLOW_FILE, Some(valid))],
+                Verdict::Fail,
+            ),
+            (
+                "startup excuse is not a query excuse",
+                &[(QUERY_A, None), (STARTUP_A, None), (STARTUP_ALLOW, Some(valid))],
+                Verdict::Fail,
+            ),
+        ];
+        let wrong: Vec<_> = cases
+            .iter()
+            .filter_map(|(name, changes, expected)| {
+                let actual = gate_with(changes);
+                (actual != *expected).then_some((*name, actual, *expected))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "incorrect exception verdicts: {wrong:?}");
+    }
+
+    #[test]
+    fn the_startup_declaration_cannot_silently_disappear_or_become_empty() {
+        assert_eq!(gate_with(&[]), Verdict::Pass);
+        let wrong: Vec<_> = [
+            None,
+            Some("pub enum Renamed {\n Alpha,\n}\n"),
+            Some("pub enum NotFitToServe {}\n"),
+            Some("pub enum NotFitToServe {\n Alpha,\n"),
+        ]
+        .into_iter()
+        .filter_map(|text| {
+            let actual = gate_with(&[(STARTUP, text)]);
+            (actual != Verdict::Fail).then_some((text, actual))
+        })
+        .collect();
+        assert!(wrong.is_empty(), "unreadable startup declarations passed: {wrong:?}");
+    }
 
     /// Fabricated variant names throughout, so this module's own fixtures cannot be read as
     /// evidence by the gate that scans them.
@@ -470,13 +674,13 @@ mod tests {
             ],
             &[],
         );
-        assert_eq!(report(&declared(), &[], &all), Verdict::Pass);
+        assert_eq!(report(&QUERY, &declared(), &[], &all), Verdict::Pass);
     }
 
     #[test]
     fn a_variant_nothing_provokes_fails() {
         let partial = evidence(&[("Alpha", &["crates/a/src/tests.rs"])], &[]);
-        assert_eq!(report(&declared(), &[], &partial), Verdict::Fail);
+        assert_eq!(report(&QUERY, &declared(), &[], &partial), Verdict::Fail);
     }
 
     #[test]
@@ -486,7 +690,7 @@ mod tests {
             excused("Beta", "2026-09-02", "needs a third source"),
             excused("Gamma", "2026-09-02", "needs two remote dimensions"),
         ];
-        assert_eq!(report(&declared(), &excuses, &partial), Verdict::Pass);
+        assert_eq!(report(&QUERY, &declared(), &excuses, &partial), Verdict::Pass);
     }
 
     #[test]
@@ -502,7 +706,7 @@ mod tests {
             &[],
         );
         let excuses = vec![excused("Beta", "2026-09-02", "stale now")];
-        assert_eq!(report(&declared(), &excuses, &all), Verdict::Fail);
+        assert_eq!(report(&QUERY, &declared(), &excuses, &all), Verdict::Fail);
     }
 
     #[test]
@@ -516,7 +720,7 @@ mod tests {
             &[],
         );
         let excuses = vec![excused("Delta", "2026-09-02", "renamed away")];
-        assert_eq!(report(&declared(), &excuses, &all), Verdict::Fail);
+        assert_eq!(report(&QUERY, &declared(), &excuses, &all), Verdict::Fail);
     }
 
     #[test]
@@ -526,7 +730,7 @@ mod tests {
             excused("Beta", "", "a reason but no date"),
             excused("Gamma", "2026-09-02", ""),
         ];
-        assert_eq!(report(&declared(), &undated, &partial), Verdict::Fail);
+        assert_eq!(report(&QUERY, &declared(), &undated, &partial), Verdict::Fail);
     }
 
     #[test]
@@ -534,7 +738,7 @@ mod tests {
         // The rendered prompt lists every refusal guide by name, so without this rule one
         // snapshot would make the whole enum look provoked.
         let only_a_census = evidence(&[], &["crates/cli/tests/snapshots/example_prompt.snap"]);
-        assert_eq!(report(&declared(), &[], &only_a_census), Verdict::Fail);
+        assert_eq!(report(&QUERY, &declared(), &[], &only_a_census), Verdict::Fail);
     }
 
     #[test]
@@ -567,9 +771,9 @@ mod tests {
 
     #[test]
     fn a_longer_variant_name_is_not_a_shorter_one() {
-        assert!(names_exactly("RefusalReason::Alpha {", "Alpha"));
-        assert!(!names_exactly("RefusalReason::AlphaBeta {", "Alpha"));
-        assert!(names_exactly("m(RefusalReason::AlphaBeta)", "AlphaBeta"));
+        assert!(names_exactly(&QUERY, "RefusalReason::Alpha {", "Alpha"));
+        assert!(!names_exactly(&QUERY, "RefusalReason::AlphaBeta {", "Alpha"));
+        assert!(names_exactly(&QUERY, "m(RefusalReason::AlphaBeta)", "AlphaBeta"));
     }
 
     #[test]

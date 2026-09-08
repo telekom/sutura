@@ -32,11 +32,13 @@ mod examples;
 mod falsifier;
 mod feature_remedies;
 mod fmt;
+mod fuzz;
 mod gate_classification;
 mod guidance;
 mod hook_coverage;
 mod hooks;
 mod inconclusive;
+mod jscpd;
 mod line_endings;
 mod markdown;
 mod max_lines;
@@ -46,6 +48,7 @@ mod pins;
 mod refusals;
 mod registry;
 mod repo;
+mod rust_source;
 mod serde_parse;
 mod shared_client;
 mod shipped;
@@ -72,6 +75,16 @@ const TASKS: &[Task] = &[
         description: "the domain crate depends on no framework",
         kind: Kind::Hygiene(Reads::Code),
         run: boundaries::run,
+    },
+    Task {
+        // The jscpd copy/paste gate (issue #474). `Reads::Code`, so a `docs/*.md`-only diff
+        // stays excluded from the docs.yml skip. See the module header for why it FAILS CLOSED
+        // when `jscpd` is absent - locally and in the nix sandbox - and for the allowlist
+        // contract.
+        name: "check-jscpd",
+        description: "no copied block in crates/ or xtask/ without a reason in devco/dup-ignore",
+        kind: Kind::Hygiene(Reads::Code),
+        run: jscpd::run,
     },
     Task {
         name: "max-lines",
@@ -178,15 +191,15 @@ const TASKS: &[Task] = &[
     Task {
         // Beside `check-serde-parse` because it is the third rule from the same page held by the
         // same kind of check - and this one is about the ERROR principle rather than the newtype
-        // one. `AGENTS.md`: a variant no test can provoke is what that enum refuses to carry.
+        // one. Name coverage is narrower than proving a test actually provokes the refusal.
         name: "check-refusal-coverage",
-        description: "every RefusalReason variant is provoked, or excused in devco/refusals-unprovoked-allow",
+        description: "every RefusalReason and NotFitToServe variant is named, or separately excused with a date and reason",
         kind: Kind::Hygiene(Reads::Code),
         run: refusals::run,
     },
     Task {
         // Beside `check-refusal-coverage` because it is the other half of the same subject: that
-        // one asks whether a refusal can be provoked, this one whether the REMEDY it prints can be
+        // one asks whether a refusal is named, this one whether the REMEDY it prints can be
         // acted on. `github.com/telekom/sutura#246` made a gate's own remedy resolve; this is the
         // same rule where the claim is about the manifest rather than about the justfile.
         name: "check-feature-remedies",
@@ -522,6 +535,12 @@ const TASKS: &[Task] = &[
         description: "cargo fmt, scoped to our packages (--check to verify)",
         kind: Kind::Standalone,
         run: fmt::run,
+    },
+    Task {
+        name: "check-fuzz",
+        description: "every fuzz target is declared, seeded, and run by the workflow",
+        kind: Kind::Hygiene(Reads::Code),
+        run: fuzz::run,
     },
     Task {
         name: "hygiene",

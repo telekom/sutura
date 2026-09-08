@@ -155,15 +155,18 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   deadline and asks the by-urn one exactly once. **The version of that cell before this was red for
   exactly this reason** and had been reported as measured: it wrote, paged once, and only passed on a
   re-run whose index was already warm.
-- **DataHub tier parallelism holds for the CONTAINERS and not for DISCOVERY** - project name from a
-  path digest, ephemeral published ports, named volumes, all gated - but
-  `.sutura-dev/endpoints.json` has two writers and **one of them still rewrites it wholesale**.
-  `xtask dev-up` serialises the whole document from the docker services it read, so a live nix
-  postmaster is absent from the file it leaves - measured 2026-09-03. The reverse direction is gone
-  (`nix/tier-endpoints.nix` merges per service), and the consequence for the SUITE is gone for the
-  Postgres tier alone: `just test` reads that state as *unclaimed* and republishes the entry, which
-  `checks.postgres-tier` holds. What nothing gates is the wholesale write itself, so any other nix
-  tier's entry - `just keycloak-tier`'s - is still dropped by a `dev-up` and stays dropped.
+- **DataHub tier parallelism holds for the CONTAINERS, and DISCOVERY caught up.**
+  `.sutura-dev/endpoints.json` has two writers, and both used to take a whole-document view of a
+  file they only partly own: `xtask dev-up` serialised the document from the docker services it
+  read, so a live nix postmaster was absent from the file it left (measured 2026-09-03), and
+  `dev-down` removed the file. Both write per ENTRY now (`github.com/telekom/sutura#317`), the last
+  entry out takes the file with it, and `Provisioner` hangs off `Endpoint` rather than off
+  `Endpoints` - one document-level field could only ever be the last writer's opinion about somebody
+  else's service. Held by `dev/src/discovery.rs`'s own cells over a foreign entry this crate did not
+  mint, and by `xtask::compose`'s `a_failing_provision_leaves_no_claim_of_its_own...`, which drives
+  `with_endpoints_forgotten`. **The limit:** nothing compares the Rust writer with
+  `nix/tier-endpoints.nix`'s `jq` - the two agree on a shape by review, and a THIRD writer would
+  be held by neither.
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**
   Everything above the wire is decided and tested against a fake; the wire exists behind a
   default-off feature; a real dataset has accepted the whole corpus and reproduced its anchors, green

@@ -617,6 +617,7 @@ mod tests {
         "shell scripts.........................................(no files to check)Skipped\n",
         "detect hardcoded secrets (CI is authoritative)...........................Dry Run\n",
         "GitHub Actions static analysis........................(no files to check)Skipped\n",
+        "copy/paste detection (jscpd).............................................Dry Run\n",
     );
 
     /// prek 0.4.14's REAL commit-stage output, `--color never`, over a diff of one README on a
@@ -638,8 +639,9 @@ mod tests {
         "doctests..................................................................Passed\n",
         "CRAP score (complexity weighted by coverage)..........(no files to check)Skipped\n",
         "shell scripts.........................................(no files to check)Skipped\n",
-        "detect hardcoded secrets (CI is authoritative)............................Passed\n",
+        "detect hardcoded secrets (CI is authoritative).............................Passed\n",
         "GitHub Actions static analysis........................(no files to check)Skipped\n",
+        "copy/paste detection (jscpd)..............................................Passed\n",
     );
 
     #[test]
@@ -651,10 +653,10 @@ mod tests {
         let declared = declared();
         let none = super::BTreeSet::new();
         let dry = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(COMMIT_LOG), &none);
-        // FOUR rows measured nothing, and none of them is counted as having run.
+        // FIVE rows measured nothing, and none of them is counted as having run.
         assert_eq!(
             dry.iter().filter(|hook| hook.coverage == Coverage::DryRun).count(),
-            4,
+            5,
             "{dry:?}"
         );
         assert_eq!(dry.iter().filter(|hook| hook.coverage.inspected()).count(), 0, "{dry:?}");
@@ -663,11 +665,11 @@ mod tests {
             .iter()
             .filter_map(|hook| super::why_it_measured_nothing(super::hooks::COMMIT, hook))
             .collect();
-        assert_eq!(refusals.len(), 4, "{refusals:?}");
+        assert_eq!(refusals.len(), 5, "{refusals:?}");
         assert!(refusals.iter().all(|line| line.contains("Dry Run")), "{refusals:?}");
-        // And the real capture of the SAME diff, on which those four did run: no refusal at all.
+        // And the real capture of the SAME diff, on which those five did run: no refusal at all.
         let real = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(REAL_COMMIT_LOG), &none);
-        assert_eq!(real.iter().filter(|hook| hook.coverage.inspected()).count(), 4, "{real:?}");
+        assert_eq!(real.iter().filter(|hook| hook.coverage.inspected()).count(), 5, "{real:?}");
         assert!(
             real.iter()
                 .all(|hook| super::why_it_measured_nothing(super::hooks::COMMIT, hook).is_none()),
@@ -777,14 +779,14 @@ mod tests {
         // README so it did not. The counts are a property of the DIFF - which is exactly why a
         // reader cannot infer them and the verdict has to print them.
         let rows = super::rows(REAL_COMMIT_LOG);
-        assert_eq!(rows.len(), 10, "{rows:?}");
-        assert_eq!(rows.iter().filter(|row| row.coverage.inspected()).count(), 4);
+        assert_eq!(rows.len(), 11, "{rows:?}");
+        assert_eq!(rows.iter().filter(|row| row.coverage.inspected()).count(), 5);
         assert_eq!(rows.iter().filter(|row| row.coverage == Coverage::NoMatchingFiles).count(), 6);
         // Over the DRY-RUN capture of the same diff the four are `DryRun` instead, which is the
         // distinction the row parser has to carry for the verdict to be able to make it.
         let dry = super::rows(COMMIT_LOG);
         assert_eq!(dry.iter().filter(|row| row.coverage.inspected()).count(), 0);
-        assert_eq!(dry.iter().filter(|row| row.coverage == Coverage::DryRun).count(), 4);
+        assert_eq!(dry.iter().filter(|row| row.coverage == Coverage::DryRun).count(), 5);
     }
 
     #[test]
@@ -830,7 +832,7 @@ mod tests {
             "",
         );
         let rows = super::rows(&silenced);
-        assert_eq!(rows.len(), 9);
+        assert_eq!(rows.len(), 10);
         let per_hook = super::coverage_of(&declared, super::hooks::COMMIT, &rows, &none);
         let hygiene = per_hook.iter().find(|hook| hook.id == "hygiene").expect("the hygiene hook");
         assert_eq!(hygiene.coverage, Coverage::Unreported);

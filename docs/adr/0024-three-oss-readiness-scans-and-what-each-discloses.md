@@ -237,16 +237,132 @@ exists to be uploaded, and a format nobody consumes is a step that looks like a 
   deliberately does not run on one - the checks read what is on the default branch, so scoring a
   pull-request head would score a tree that is not the project. The only required context is `ci`.
   **A falling score blocks nothing**, and nothing here holds that anyone looks at it.
-* **It has never run.** The action is a container action and every job in this repository runs on
-  the self-hosted `rust-mcp` label; whether that runner can execute a docker container action is
-  **unverified** - it cannot be established from a developer machine. The first run on `main` is
-  what will say.
+* **It has run, and the answer was worse than "it cannot".** The container action executes fine on
+  the self-hosted label - and the publication was refused by the API for that same label. See the
+  amendment below; this bullet's original prediction ("the first run on `main` is what will say")
+  was correct about the venue and wrong about which half would fail.
 * **Several checks cannot answer here.** `Branch-Protection` needs an admin token for most of its
   detail and the workflow's token is not one; `Webhooks` needs admin outright. Their scores are a
   statement about the token, not about the repository.
 * **A low score is not a finding.** Several signals Scorecard measures - a badge, OSS-Fuzz
-  registration, a public security policy - are about being a public project, and this one is not
-  yet.
+  registration, a public security policy - are about being a public project. The repository became
+  public on 2026-09-08, so these begin to answer about the project rather than about its visibility.
 * **The gate does not check the third party.** `devco/scorecard-publication` is a dated reading of
   the action's documentation. What `api.scorecard.dev` does with what it receives is outside
   anything in this tree.
+
+## Amendment, 2026-09-08: a green publish step that published nothing
+
+**What this record predicted would happen when the repository went public did not.** `scorecard.yml`
+ran three times reporting `completed success`, and `api.scorecard.dev` held no record of this project
+at all. The three things measured from run `34174327175`'s log settle every question the record left
+open, and one of them is not about visibility.
+
+**1. The action does not decline to publish for a private repository - it publishes anyway and the
+API refuses.** `options.go`'s `setPublishResults` computes `PublishResults = input && !private`, and
+that value is only ever PRINTED: the log shows `Private repository: true` and `Publication enabled:
+false` on adjacent lines, and the publish happened regardless, because `main.go` branches on the raw
+`INPUT_PUBLISH_RESULTS` environment variable instead. So while this repository was private its score
+was signed into the **public sigstore transparency log** (`tlog entry created with index:
+2754066664`, three times) and POSTed to `api.scorecard.dev`. That is a disclosure this record did not
+anticipate and it happened before the flip, not after. The field carries no `env:` tag at all, so
+`Publication enabled:` is a line that always reads `false` - it is not a control and it never was.
+
+**2. The refusal is fail-open inside the action.** `signing.ProcessSignature` retries on a backoff
+schedule and then logs `::warning::Unable to POST scorecard results to webapp` and `return nil`, so
+`main.go`'s `log.Fatalf` never fires and the step exits 0. Read at the pinned SHA
+`2d1146689b8cda280b9bc96326124645441f03bc`. **The publication had no witness, and a green run said
+nothing about whether anything landed.**
+
+**3. The refusal was never about being private.** Verbatim:
+
+```text
+http response 400 ... {"code":400,"message":"workflow verification failed: workflow verification
+failed: scorecard job has invalid runner label: 'rust-mcp', see
+https://github.com/ossf/scorecard-action#workflow-restrictions for details."}
+```
+
+`api.scorecard.dev` verifies the producing workflow before accepting a score - the code is
+`verifyScorecardWorkflow` in `ossf/scorecard-webapp`, read at
+`9c2f66d5f6ff56ca4a4ac2fba6ec8dcc5379d31c`, the revision the action's own README cites - and one of
+its rules is an allowlist of runner labels: `ubuntu-latest`, `ubuntu-22.04`, `ubuntu-20.04`,
+`ubuntu-18.04`, and nothing else. **So the badge could never have resolved, public or private**, and
+this record's *"both become real when the repository is made public"* was wrong about the Scorecard
+half. Making it public was necessary and not sufficient.
+
+### What changes, and why each is a mechanism rather than a sentence
+
+* **`score` and `published` run on `ubuntu-latest`, and it is THE FIX rather than a preference.**
+  `api.scorecard.dev` performs *workflow verification* before accepting a score, and one of its
+  rules is an allowlist of runner labels - an anti-tampering measure, documented at
+  `ossf/scorecard-action#workflow-restrictions`. **Measured with the repository PUBLIC**, run
+  `34198064772`, `completed success`, `Private repository: false`, `publish_results: true`:
+
+  ```text
+  error sending scorecard results to webapp: http response 400, status: 400 Bad Request,
+  error: {"code":400,"message":"workflow verification failed: workflow verification failed:
+  scorecard job has invalid runner label: 'rust-mcp',
+  see https://github.com/ossf/scorecard-action#workflow-restrictions for details."}
+  ::warning::Unable to POST scorecard results to webapp: http response 400 ...
+  ```
+
+  Retried three times, then a warning, and **the step exited 0**. So no amount of visibility or
+  permission fixes this: the label is the blocker, and the exception is a requirement of the tool.
+
+  **A deliberate exception, not drift.** Every other `runs-on:` in `.github/` stays `rust-mcp`: the
+  custom runner exists to build the Rust, and these two jobs build nothing - `score` is checkout, a
+  third-party container action and upload-artifact; `published` is one `gh api` read and one
+  `curl`. **A metadata scanner needs none of the build environment**, which is the whole
+  justification.
+
+  **Nothing here asserted the label before this change**, verified rather than assumed: `git grep
+  rust-mcp` over `xtask/`, `devco/`, `.agents/`, `nix/` and `justfile` returned nothing outside the
+  files this change itself adds. So no rule had to be weakened - and the new rule in
+  `publication.rs` now asserts the *opposite* direction, which is the point.
+
+  **The one precondition no file here can read:** whether GitHub-hosted runners are enabled for
+  this organisation. If they are not, the scoring job fails to start - loudly, which is the right
+  failure mode and better than the silent one it replaces.
+* **`cargo xtask check-workflows` now holds `scorecard.yml` against every rule that verification
+  applies**, offline, inside the required `ci` job: the runner allowlist, the approved step list,
+  every step being a `uses:`, no container or services, no job-level or workflow-level `env:` or
+  `defaults:`, no workflow-level write permission, and no other job holding `id-token: write`.
+  `xtask/src/workflows/publication.rs` is the reading, with the dated revision beside each
+  constant. **This is the rule whose absence let #422 ship a publication that could not land.** Its
+  limit: it is a copy of a third party's source, so a label OpenSSF adds later reads as a failure
+  here until the constant is updated - the safe direction, and the reason the constant names its
+  revision.
+* **The step list is the rule that shaped the fix.** Verification refuses the scoring job's results
+  if it contains any step that is not a call to one of five approved actions, so the obvious
+  witness - a `run:` step after the publish - would have broken the publication it was checking.
+  The witness is therefore a separate job, and that job is the gate's own test case.
+* **A `published` job reads the scoring step's own log and fails if the publication was refused.**
+  The evidence was never missing - the 400 and the `::warning::` were in that step's output every
+  time, and nothing read them. So the witness binds to that, not to a poll of the API: the API
+  indexes with a lag, so *no record yet* cannot be told from *refused*, and a check on it would
+  redden on freshness. The refusal is exact, it is in the same run, and it names its own reason,
+  which the job quotes into its error. **What it does not hold:** it trusts the action to log its
+  own refusal, so a future image that failed silently would pass. And with no refusal logged on a
+  repository that is not public it reports *unverified* rather than success - the publication may
+  not have been attempted. It asks the API nothing at all.
+
+### What is still not established, stated rather than assumed
+
+**Whether `api.scorecard.dev` would ALSO refuse a private repository's score is unproven here**, and
+the reason is worth keeping: the runner label was refused first, in every run, so nothing has ever
+got far enough to find out. That is why the `published` job reports *unverified* rather than
+*failed* when no refusal is logged on a repository that is not public.
+
+**The scan itself works and the score is obtainable.** `34198064772` scored **6.1** with the
+repository public - so the scan was never the problem, only the publication of its result.
+**What the score's low rows mean is `docs/adr/0025`'s decision, not this one's**: that record reads
+the first run's zeros and says which are findings, and it cites this file for the decision to run
+and publish at all. Nothing here restates it.
+
+### And the REUSE half, which no code could have fixed
+
+The REUSE badge read `unregistered` for the reason this record gives, and the missing step was
+manual: registration at `api.reuse.software/register`, a form taking a name, an email and the
+project URL, which the service then clones to evaluate. **Done on 2026-09-08** - the badge now reads
+`compliant` and `api.reuse.software/info/github.com/telekom/sutura` answers HTTP 200. So that badge
+is live and unchanged by this amendment; only the Scorecard half needed a mechanism.

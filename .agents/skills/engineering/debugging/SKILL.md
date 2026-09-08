@@ -58,19 +58,30 @@ before concluding a hang is not a wait:
 
 One more thing a green run does NOT mean: a timed-out `up` deliberately does NOT tear down - it
 names `just dev-down` instead, for the reasons `xtask/src/compose.rs`'s `abandoned` records, so a
-failed provision can leave containers running. What is fail-closed is the discovery file: it is
-removed BEFORE the tier is touched, so a failed `dev-up` or `dev-down` leaves no endpoint a harness
-can connect to. **A tier that is up with no discovery file is that**, and `just dev-up` again is the
-fix.
+failed provision can leave containers running. What is fail-closed is **this task's own entries**:
+they are withdrawn from the discovery file before the tier is touched, so a failed `dev-up` or
+`dev-down` leaves no *docker* endpoint a harness can connect to. **The limit, which is narrower than
+that sentence used to be:** since `github.com/telekom/sutura#317` the granularity is one
+provisioner's entries rather than the file, so a nix-native tier's entry deliberately survives and
+keeps the file alive with it. The file existing therefore says nothing about the docker tier - ask
+`just dev-endpoint clickhouse` about a service, not `ls` about the file - and **a docker tier that is
+up with its entry withdrawn is the state above**, whose fix is `just dev-up` again.
 
-**The nix Postgres tier in that state HEALS ITSELF now, and only that one.** `just dev-up` still
-serialises the whole document from the docker services it read, so a nix tier's entry goes with it
-and the postmaster survives unnamed - which used to be a `just test` whose postgres cells failed
-closed, because the wrapper asked `sutura-postgres-tier status` (the process) while the cells asked
-the file (`github.com/telekom/sutura#298`). That answer is derived from the file now: the state
-reads as *unclaimed*, `just test` republishes the entry and leaves the server running, and
-`checks.postgres-tier` holds all three arms. A `just dev-endpoint postgres` between the `dev-up` and
-the next `just test` still answers nothing.
+**The nix Postgres tier in that state HEALS ITSELF now, and only that one.** A postmaster with no
+entry is still reachable - a `start` that dies between the bind and its publish, a hand-removed
+file, a `stop` that failed - and it used to be reachable the easy way as well, because a `dev-up`
+rewrote the whole document from the docker services it read and took a nix tier's entry with it.
+That was a `just test` whose postgres cells failed closed, since the wrapper asked
+`sutura-postgres-tier status` (the process) while the cells asked the file
+(`github.com/telekom/sutura#298`). **Both halves are gone.** `publish` merges per entry
+(`github.com/telekom/sutura#317`, held by `dev/src/discovery.rs`'s
+`a_second_provisioners_entry_survives_a_publish`), so a `dev-up` leaves a nix entry where it was and
+a `just dev-endpoint postgres` between a `dev-up` and the next `just test` answers that
+postmaster's socket. And the wrapper's answer is derived from the file, so a genuinely unclaimed
+server reads as *unclaimed*, `just test` republishes the entry and leaves the server running.
+`checks.postgres-tier` drives the wrapper's three `status` arms (already-up, unclaimed-republish,
+stopped) and, inside the unclaimed arm, an entry that is absent and one that points at a different
+socket - a mismatched address cannot masquerade as already-up.
 
 **No other nix tier is healed, and for keycloak `start` is NOT the remedy** - it returns 0 having
 published nothing. Its guard is `status`, which is the process there and deliberately so (see that

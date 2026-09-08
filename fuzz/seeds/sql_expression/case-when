@@ -1,0 +1,1 @@
+SUM(CASE WHEN status = 'active' THEN mrr_eur END)

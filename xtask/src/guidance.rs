@@ -181,10 +181,11 @@ const FORBIDDEN: &[Forbidden] = &[
         except: &[],
     },
     Forbidden {
-        // Here rather than in the `CLAIMS` table for two reasons. `xtask/src/guidance/claims.rs`
-        // is at 985 of an unexemptable 1000 lines, and - the one that decides it - a
-        // `Contradicted` entry retires itself when its evidence goes, which is right for a claim
-        // resting on a CODE fact. This one rests on `docs/adr/0016` decision 7, a DECISION, and
+        // Here rather than in the `CLAIMS` table, and only ONE of the two reasons this used to
+        // give survives. The line-count one does not: the table has since moved to
+        // `xtask/src/guidance/claims/contradicted.rs` and has room. The one that decides it is
+        // that a `Contradicted` entry retires itself when its evidence goes, which is right for a
+        // claim resting on a CODE fact. This one rests on `docs/adr/0016` decision 7, a DECISION, and
         // reversing a decision is the case where the entry gets deleted rather than retired.
         needle: "property named `sutura`",
         instead: "one string-valued structured property under a name of the DEPLOYMENT's choosing; \
@@ -592,7 +593,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     eprintln!("Guidance that no longer matches the repo is read as current. Fix the text, or");
     eprintln!(
         "if the rule itself is wrong, change it in xtask/src/guidance.rs - or in\n\
-         xtask/src/guidance/claims.rs for a claim or a count, or\n\
+         xtask/src/guidance/claims/contradicted.rs for a claim,\n\
+         xtask/src/guidance/claims/counts.rs for a count, or\n\
          xtask/src/guidance/pages.rs for a page's own shape - with a reason."
     );
     Verdict::Fail
