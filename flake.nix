@@ -215,6 +215,7 @@
         # the 1000-line limit `cargo xtask max-lines` enforces; that module's header carries the
         # rest, including why the seam is here rather than at the checks.
         apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs nightlyToolchain duckdb; };
+        fuzzRunner = import ./nix/fuzz.nix { inherit pkgs nightlyToolchain; };
 
 
         craneLibFor = sys:
@@ -852,19 +853,11 @@
           '');
         };
 
-        # Tools CI runs, from the LOCKED nixpkgs.
-        #
-        # These were `nix run nixpkgs#<tool>`, which resolves through the flake registry to
-        # whatever nixpkgs-unstable points at when the job runs - an unreviewed, mutable input
-        # executing in jobs that hold a write token. It also contradicted this file's whole
-        # premise. As apps they come from `flake.lock` like everything else.
-        # The workflow and shell linters, from the LOCKED nixpkgs. CI reached these through
-        # `nix run .#pixi -- run zizmor`, which took the VERSION from pixi.lock - so nix pinned
-        # the compiler and pixi pinned the linters, and nothing checked that the two agreed.
-        # One authority, and no second pin to keep in step: these three are deliberately
-        # NOT in pixi.toml. Their version decides what they REPORT, so naming them twice
-        # would mean two pins plus a synchroniser to keep them honest - which is what was
-        # tried first. `cargo xtask check-pins` enforces the split instead.
+        # Tools CI runs, from the LOCKED nixpkgs, and the three linters below made the rule: CI
+        # reached them as `nix run nixpkgs#<tool>` and as `nix run .#pixi -- run zizmor`, so an
+        # unreviewed mutable input, or a second pin nothing synchronised, decided what jobs holding
+        # a write token reported. One authority per tool whose version decides its verdict - none
+        # is in pixi.toml, and `cargo xtask check-pins` fails a tool named in both.
         apps.zizmor = {
           type = "app";
           program = "${pkgs.zizmor}/bin/zizmor";
@@ -984,6 +977,13 @@
         apps.pixi = {
           type = "app";
           program = "${pkgs.pixi}/bin/pixi";
+        };
+
+        # `just fuzz` and `just fuzz-smoke`. `nix/fuzz.nix` carries why it is an app rather than a
+        # check; `fuzz/` carries what each target covers and what it does not.
+        apps.fuzz = {
+          type = "app";
+          program = "${fuzzRunner}/bin/sutura-fuzz";
         };
 
         # The Pulumi CLI, nix-pinned. CI adds `nix build .#pulumi`'s bin to PATH so the test-infra

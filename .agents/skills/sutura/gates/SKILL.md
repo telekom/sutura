@@ -192,6 +192,29 @@ It is scoped to the domain crate because `--workspace` coverage is over six minu
 CPU-minutes; `docs/crap.md` carries the measured cost of every wider option and what the scope
 therefore does not see.
 
+## Fuzzing: the deterministic build gate vs. the scheduled run
+
+`fuzz/` is a libFuzzer target set over the parsers that read input this deployment does not write.
+The two halves are deliberately different shapes, and reading one for the other is how a green run
+stops meaning anything:
+
+- **`check-fuzz` (a hygiene gate, milliseconds) is what gates every pull request.** It reads the
+  fuzz manifest, the `fuzz_targets/*.rs` set, the tracked `fuzz/seeds/`, the workflow's matrix and
+  the lock, and fails when a target stops being declared, seeded or run. It compiles nothing, so a
+  green `hygiene` says the harness is wired - **not** that it found anything.
+- **Actual fuzzing is scheduled, never a merge gate.** `.github/workflows/fuzz.yml` runs on a cron
+  and `workflow_dispatch`, spends a time budget per target, and its `smoke` leg replays the
+  committed seeds. A run that failed a merge on a fresh random path would be a gate somebody turns
+  off, after which nothing generates input. A crash enters the tree as a **seed** and a regression,
+  never as a corpus entry.
+
+The `smoke` leg is real but narrow: `-runs=0` replays every tracked seed once with no mutation, so
+its verdict is a function of committed files. Both `fuzz.yml` jobs are classified `[advisory]` in
+`devco/required-contexts`, so neither is required. **What is not covered by a green fuzz run:**
+DataFusion/DuckDB parsing (upstream), dialect differential fuzzing, and any parser the harness does
+not name in its own header - and a scheduled run that finds nothing proves only that the committed
+seeds and a finite budget did not find anything, never that a parser is panic-free.
+
 ## Checks that pass while the thing they describe is broken
 
 - **`just validate` renders the site now, and the reason a pixi step is allowed in it is not the

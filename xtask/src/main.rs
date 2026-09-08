@@ -32,6 +32,7 @@ mod examples;
 mod falsifier;
 mod feature_remedies;
 mod fmt;
+mod fuzz;
 mod gate_classification;
 mod guidance;
 mod hook_coverage;
@@ -533,6 +534,12 @@ const TASKS: &[Task] = &[
         description: "cargo fmt, scoped to our packages (--check to verify)",
         kind: Kind::Standalone,
         run: fmt::run,
+    },
+    Task {
+        name: "check-fuzz",
+        description: "every fuzz target is declared, seeded, and run by the workflow",
+        kind: Kind::Hygiene(Reads::Code),
+        run: fuzz::run,
     },
     Task {
         name: "hygiene",
