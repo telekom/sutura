@@ -952,18 +952,17 @@ dev-up-datahub:
 # The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 #
 # A named task rather than a cell in the default suite, and NOT because a network is missing - the
-# `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers,
-# and ONE HALF OF THE CLOBBERING IS NOW GONE: every nix-native tier writes through
-# `nix/tier-endpoints.nix`, which MERGES its own service into the file, so `sutura-postgres-tier
-# start` no longer leaves `postgres` as the only entry. The other half stands - `xtask dev-up` goes
-# through `sutura_dev::discovery::publish`, which serialises the whole document from the docker
-# services it just read, so a `dev-up` after a nix tier still drops the nix entry and the server it
-# named goes on running unnamed. For POSTGRES that no longer blocks a suite run: `nix/with-tier.sh`
-# reads a running-but-unpublished tier as its own state and republishes the entry (#298), which
-# `checks.postgres-tier` holds. For any other nix tier it stands whole, because nothing sources a
-# wrapper for one - and the wholesale write itself is gated by nothing either way. The remaining
-# half is recorded in `crates/sutura-catalog-datahub/tests/provisioned.rs` rather than papered over
-# here.
+# `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers
+# and BOTH HALVES OF THE CLOBBERING ARE NOW GONE (#317): every nix-native tier merges its own
+# service through `nix/tier-endpoints.nix`, and `xtask dev-up` goes through
+# `sutura_dev::discovery::publish`, which merges per ENTRY and leaves every key it did not write -
+# so neither provisioner's `start` erases the other's address, and a `dev-down` withdraws only what
+# it published. What keeps this task out of the default suite is the venue alone: `just test` sets
+# `SUTURA_DEV_REQUIRE_TIER=1`, the DataHub profile costs three JVMs and a migration job, and the
+# nix sandbox has no docker socket at all. The reasoning lives in
+# `crates/sutura-catalog-datahub/tests/provisioned.rs`, whose header carries the same account. The
+# limit on the repair: nothing compares the two writers' shapes, so they agree by review and a
+# THIRD writer would be held by neither.
 #
 # It brings the profile up first, because a task that asked for the fail-closed direction against a
 # tier nobody started would just be a confusing way to spell an error.

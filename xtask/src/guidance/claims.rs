@@ -31,7 +31,10 @@ use std::path::Path;
 // twenty lines - "so this is the file that has to have room". The room it bought was spent, and it
 // ran out on the entry registering a stale hook comment: a reserve measured in one file's spare
 // lines is a reserve that expires. The table is data and reads nothing, so it is the half that can
-// leave without taking a check with it, and what is left here grows by MECHANISM instead.
+// leave without taking a check with it, and what is left here grows by MECHANISM instead. The
+// entry about the discovery document this branch carries joins it there on the same seam, and the
+// merge of the two brought both - a reserve measured in one file's spare lines expires, whichever
+// entry spends it.
 //
 // **Each is a CHILD rather than a sibling of `claims`, and that is deliberate.** `guidance.rs`
 // lists the checks as peers, which argues for a sibling; against that, `flatten` below is the one

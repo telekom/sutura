@@ -80,6 +80,52 @@ reported. A caller that fabricated that text would get an endpoint it made up - 
 lying about docker's output, which is a different and much louder thing than reading a constant,
 and no test can do it by accident.
 
+# Why the WRITER only ever touches its own entries
+
+`github.com/telekom/sutura#317`. This file has two writers - `publish` here, and
+`nix/tier-endpoints.nix` for every nix-native tier - and `publish` used to serialise the whole
+document from the docker services it had just read. So a `dev-up` after `just keycloak-tier`
+dropped the entry that tier had merged, and the server it named went on running unnamed: a
+truthful file about half a tier, which this repository treats as worse than a crash.
+
+So a provisioner reads and writes **only its own entry**. `publish` merges, `forget`
+withdraws what THIS provisioner published and leaves the rest, and the last entry out takes the
+file with it - byte for byte what `nix/tier-endpoints.nix` does on the other side, because the
+file's EXISTENCE is what discovery reads as *something is provisioned here*.
+
+That needs the document to say which provisioner an entry came from, and **that is why
+`Provisioner` hangs off `Endpoint` rather than off `Endpoints`**: one field on the
+document cannot answer the question once two provisioners contribute to it, and a field that
+answers *nix* for a docker entry is exactly the confident wrong answer being removed. The
+decision `#317` asked for, as a type rather than a paragraph.
+
+### `enum Provisioner`
+
+```rust
+pub enum Provisioner
+```
+
+What brought one service up.
+
+**A property of the ENTRY, not of the document.** `.sutura-dev/endpoints.json` has two writers -
+`xtask dev-up` through `publish`, and `nix/tier-endpoints.nix` for every nix-native tier - and
+both merge into one file, so *what provisioned this* has as many answers as the file has
+entries. A single document-level field could only be the last writer's opinion about somebody
+else's service.
+
+It is an enum and not a string because the one caller that matters is `forget`, which asks *is
+this entry mine to withdraw*. A `&str` comparison there is a decision to destroy another
+provisioner's state spelled as a typo away from wrong.
+
+#### Variants
+
+- `Docker` - `xtask dev-up`: a compose project, an ephemeral host port read back off docker.
+- `Nix` - A nix-native tier (`nix/postgres-tier.nix`, `nix/keycloak-tier.nix`), merged by `nix/tier-endpoints.nix`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
+
 ### `struct Endpoint`
 
 ```rust
@@ -122,6 +168,16 @@ pub const fn port(&self) -> u16
 
 The host port docker allocated for this run.
 
+```rust
+pub const fn provisioner(&self) -> Provisioner
+```
+
+What brought THIS service up.
+
+Per entry, because the document has two writers and they merge into one file. A reader that
+wants to know whether it is looking at the docker tier asks the service it is about to
+connect to, which is the only question the file can answer once both have contributed.
+
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
@@ -155,15 +211,6 @@ pub fn project(&self) -> &str
 ```
 
 The compose project these endpoints came from.
-
-```rust
-pub fn provisioner(&self) -> Option<&str>
-```
-
-What provisioned this tier, where the file says.
-
-`docker` for `xtask dev-up`, `nix` for `nix/postgres-tier.nix`. `None` when an older file (or
-a hand-written one) carried no marker - a reader must not assume docker from the absence.
 
 ```rust
 pub fn services(&self) -> impl Iterator<Item>
@@ -212,6 +259,7 @@ that has to match on prose has no contract.
 - `NoServices` - No `services` object.
 - `ServiceEntry` - A service entry without a readable `host` and `port`.
 - `HostNeitherLoopbackNorSocket` - A service host that is neither loopback nor a `/`-prefixed socket directory.
+- `ServiceProvisioner` - An entry no provisioner can be attributed to.
 
 #### Implements
 
@@ -240,16 +288,44 @@ mint in one place: nothing else in this crate turns a number into an `Endpoint`.
 It returns the PATH and not an `Endpoints`, deliberately. Even the writer reads its own work
 back through `Endpoints::discover`, so there is exactly one door and no second shape of it.
 
+**It MERGES.** Every entry it writes is marked `Provisioner::Docker` and every other entry in
+the document is left byte for byte as it was, keys this writer does not understand included -
+`github.com/telekom/sutura#317`. `project` is the one exception, because it is a fact about the
+worktree rather than about a provisioner and both writers run in one tree - and it is the ONLY
+document-level key either writer sets, which is the shape `#317` argued for. A `root` key was
+written here and read nowhere, so it went with the same reasoning.
+
 ### `fn forget`
 
 ```rust
 pub fn forget(scope: &crate::scope::Scope) -> Result<(), DiscoveryError>
 ```
 
-Remove this worktree's discovery file, if there is one.
+Withdraw every entry THIS provisioner published, and remove the file if nothing is left.
 
 Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
 stale file is the one way discovery could hand back a wrong answer instead of an error.
+
+**It used to `remove_file`, and that was the other half of `github.com/telekom/sutura#317`.** A
+nix-native tier merges its entry into this same document, so removing the file withdrew a claim
+over a server that was still running - `just dev-down` did it deliberately, and every failing
+path through `with_endpoints_forgotten` did it by accident. Fail-closed is the right posture
+about *our* entries and is somebody else's data when applied to theirs.
+
+The last entry out still takes the file with it, because the file's EXISTENCE is what discovery
+reads as *something is provisioned here* - the rule `nix/tier-endpoints.nix`'s `withdraw` holds
+on the other side.
+
+A document this module cannot read is **refused rather than removed**: it publishes nothing a
+harness can use either way, and destroying state that cannot be attributed is the failure this
+function was changed to stop.
+
+**The limit that widened with it, stated with the claim.** The `remove_file` this replaced
+healed an unreadable document by deleting it. Attribution needs the document parsed first, so
+ANY `Malformed` variant - not merely one about an entry - now refuses both `just dev-up` and
+`just dev-down` before either touches the tier, and nothing repairs the file automatically. That
+is the trade taken deliberately: state that cannot be attributed is not destroyed, and the price
+is a manual delete, which is why `DiscoveryError`'s message names it.
 
 ## Module `issuer`
 

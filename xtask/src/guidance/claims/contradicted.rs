@@ -514,4 +514,28 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        // An ENTRY and not a rewrite alone, because the page that carried this is the one an agent
+        // debugging a red test is ROUTED to, and it handed them a cause removed in the same commit
+        // that edited the paragraph. Three wordings false in the safe direction; the fourth - the
+        // `removed BEFORE` clause - false in the UNSAFE one, promising a fail-closed file where a
+        // neighbour's entry now deliberately survives.
+        name: "a `dev-up` rewrites the whole discovery document",
+        wordings: &[
+            "still serialises the whole document",
+            "so a nix tier's entry goes with it",
+            "the next `just test` still answers nothing",
+            "removed BEFORE the tier is touched",
+        ],
+        evidence: &[Evidence {
+            path: "dev/src/discovery.rs",
+            holds: "fn a_second_provisioners_entry_survives_a_publish",
+        }],
+        instead: "both writers of the discovery document merge per ENTRY, so a neighbour's entry \
+                  outlives a `just dev-up` and keeps the file alive with it - which narrows the \
+                  fail-closed claim to one provisioner's own entries. `dev/src/discovery.rs` and \
+                  `.agents/skills/sutura/query-surface/SKILL.md` state it correctly",
+        only: &[],
+        except: &[],
+    },
 ];

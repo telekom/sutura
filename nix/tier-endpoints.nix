@@ -44,18 +44,22 @@
         exit 2
       }
 
-      # `project` and `provisioner` match what `nix/postgres-tier.nix` wrote before this file
-      # existed, so `Endpoints::provisioner` still answers `nix` and no reader changes.
+      # THE MARKER IS ON THE ENTRY, not on the document - `github.com/telekom/sutura#317`. This
+      # used to set a document-level `.provisioner = "nix"`, which is the last writer's opinion
+      # about every other writer's service: after an `xtask dev-up` merged its own entries beside
+      # these, one field had to answer for both and answered wrong for one of them. So each entry
+      # carries what provisioned it, `dev/src/discovery.rs` reads it per service, and neither
+      # writer touches a key belonging to the other.
       publish() {
         root="$1"; service="$2"; host="$3"; port="$4"
         state="$root/.sutura-dev"
         file="$state/endpoints.json"
         mkdir -p "$state"
         if [ ! -f "$file" ]; then
-          printf '{"project":"sutura","provisioner":"nix","services":{}}\n' > "$file"
+          printf '{"project":"sutura","services":{}}\n' > "$file"
         fi
         jq --arg service "$service" --arg host "$host" --argjson port "$port" \
-          '.provisioner = "nix" | .services[$service] = { host: $host, port: $port }' \
+          '.services[$service] = { host: $host, port: $port, provisioner: "nix" }' \
           "$file" > "$file.new"
         mv "$file.new" "$file"
       }
