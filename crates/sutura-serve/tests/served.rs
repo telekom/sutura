@@ -684,18 +684,18 @@ mod tests {
     /// the weakness `a_published_key_set_this_deployment_cannot_use_stops_the_process` states about
     /// its own two `contains`. Deriving it alone would be worse: a change to `Settings::refusals`
     /// moves both sides at once and the comparison stays green over a deployment that no longer
-    /// refuses. So each case does both - it asserts the refusal SET by value, which is a claim about
-    /// what this configuration means, and then asserts the binary printed the sentence that set
-    /// renders to, which is a claim about what the process does with it.
+    /// refuses. Each case pins the refusal SET by value to hold the input to that derivation, then
+    /// asserts the binary printed its sentence. The set assertion repeats settings-level coverage;
+    /// the process output is what this suite adds.
     ///
-    /// `with_overlay` is documented as "the same position a deployment's own file occupies", and
-    /// `defaults` keeps an EMPTY variable map - so this reads the same layers as the child, which
-    /// `harness::command` strips of every `SUTURA*` variable for the same reason.
+    /// `with_overlay` occupies the deployment file's precedence, and `defaults` keeps an empty
+    /// variable map, matching the child's removal of every `SUTURA*` variable.
     ///
     /// **Where the two do differ:** the child reads `base.yaml` off a directory and this reads a
-    /// string, so the `config` crate's own origin naming can differ inside a deserialization error.
-    /// That is why the misspelled-key case below compares the outer sentence and the key, and not
-    /// the cause's text.
+    /// string with no directory. Their `ConfigLayers` therefore differ, as can the origin inside
+    /// a deserialization error. The misspelled-key case compares the outer sentence and key only.
+    /// If the refusal gains layer provenance (#445), this helper must read the child's directory
+    /// before the derived comparison can cover it.
     fn refusal_of(environment: Environment, settings: &str) -> SettingsError {
         Settings::load(&Sources::defaults(environment).with_overlay(settings))
             .expect_err("this case's fixture is a deployment the settings type refuses")
