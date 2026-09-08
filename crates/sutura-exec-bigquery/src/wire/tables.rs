@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::transport::{DatasetAddress, HeldTables, ListingTotal};
+use crate::transport::{DatasetAddress, HeldTables, ListingTotal, Shortfall};
 use crate::wire::credential::{AccessTokens, QuotaProject};
 use crate::wire::{BigQueryWire, CallDeadline, HOST, MAX_ANSWER_BYTES, QUOTA_PROJECT_HEADER, WireError, Wired, bounded};
 
@@ -189,11 +189,13 @@ fn reported_total(field: Option<&serde_json::Value>, identified: usize) -> Listi
     // `maxResults` is a hint the service is not bound by, and only `MAX_ANSWER_BYTES` bounds a page.
     // `u64::MAX` is the direction that cannot invent a shape change out of a conversion.
     let identified = u64::try_from(identified).unwrap_or(u64::MAX);
-    match reported {
-        None => ListingTotal::Unreadable,
-        Some(reported) if reported > identified => ListingTotal::Short { reported, identified },
-        Some(reported) => ListingTotal::Accounted { reported },
-    }
+    // **The split is `Shortfall::parse`'s and not a comparison written here**, which is review
+    // closing a door rather than a style preference: the variant's fields were public, so
+    // `reported > identified` held by this `if` was reachable around. `Ok` is the shortfall, `Err`
+    // is the reading that says nothing is missing.
+    reported.map_or(ListingTotal::Unreadable, |reported| {
+        Shortfall::parse(reported, identified).map_or(ListingTotal::Accounted { reported }, ListingTotal::Short)
+    })
 }
 
 /// A listing being read, one page at a time.
@@ -405,7 +407,12 @@ mod tests {
         Accumulating, Listing, MAX_PAGE_TOKEN_BYTES, MAX_PAGES, MAX_TABLE_ID_BYTES, PAGE_SIZE, WireError, page_url,
         usable_table_id, usable_token, was_refused,
     };
-    use crate::transport::{DatasetAddress, DatasetId, HeldTables, ListingTotal, ProjectId};
+    use crate::transport::{DatasetAddress, DatasetId, HeldTables, ListingTotal, ProjectId, Shortfall};
+
+    /// The shortfall a listing that reported more than it named has, for an assertion that reads.
+    fn short(reported: u64, identified: u64) -> ListingTotal {
+        ListingTotal::Short(Shortfall::parse(reported, identified).expect("the test means a shortfall"))
+    }
 
     /// One page of a listing, read the way [`super::list`] reads one - and nothing more.
     ///
@@ -557,10 +564,7 @@ mod tests {
         // three variants rather than a boolean.
         assert_eq!(
             read(&[r#"{"kind":"bigquery#tableList","totalItems":7,"tables":[]}"#]).total(),
-            ListingTotal::Short {
-                reported: 7,
-                identified: 0
-            },
+            short(7, 0),
             "a dataset that answers with no entries while claiming seven tables is a shape change"
         );
         assert_eq!(
@@ -606,13 +610,7 @@ mod tests {
         // THE control, without which the loop above is a function that answers `Unreadable` to
         // everything: a count spelled as a string is read. `Listing::total_items` says why one can
         // arrive that way.
-        assert_eq!(
-            read(&[r#"{"totalItems":"12","tables":[]}"#]).total(),
-            ListingTotal::Short {
-                reported: 12,
-                identified: 0
-            }
-        );
+        assert_eq!(read(&[r#"{"totalItems":"12","tables":[]}"#]).total(), short(12, 0));
     }
 
     #[test]
@@ -683,10 +681,7 @@ mod tests {
             let held = read(&[body]);
             assert_eq!(
                 held.total(),
-                ListingTotal::Short {
-                    reported: 3,
-                    identified: 0
-                },
+                short(3, 0),
                 "{} id(s) read out of three entries: {body}",
                 held.named().len()
             );
@@ -701,10 +696,7 @@ mod tests {
                 {"tableReference":{"tableId":"dim_customer"}}
             ]}"#])
             .total(),
-            ListingTotal::Short {
-                reported: 2,
-                identified: 1
-            }
+            short(2, 1)
         );
     }
 
@@ -728,10 +720,7 @@ mod tests {
         );
         assert_eq!(
             read(&[first, r#"{"totalItems":3,"tables":[]}"#]).total(),
-            ListingTotal::Short {
-                reported: 3,
-                identified: 2
-            },
+            short(3, 2),
             "a page that carried nothing is still a page that carried nothing"
         );
         // And the FIRST page decides, so a later page disagreeing with itself cannot change the

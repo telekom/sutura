@@ -532,11 +532,17 @@ flowchart TB
     ST -.-> DI
 ```
 
-Four of those nodes are design targets rather than descriptions of this repository. Federation is
-not built; execution *as the calling principal* is not built, because nothing carries a principal;
-the spliced statement is not built, because a metric has no statement field; and the Arrow envelope
-is not built, because the port returns a row type. What runs today is the question, the semantic
-layer, the plan, the dialect, and execution against a local file as whoever started the process.
+Three of those nodes are design targets rather than descriptions of this repository. Federation is
+**built, and a published build answers a two-source question end to end** - the splitter, two
+executions and the combiner, with the engine declaring `Warehouse::EXECUTES_LEGS` and a differential
+over both. That constant still defaults to `false`, which is what refuses an adapter with no leg
+venue rather than half-answering. Execution
+*as the calling principal* is not built, and no longer because nothing carries a principal: a
+verified subject reaches the request path, and what is missing is an adapter with anywhere for a
+per-subject credential to arrive. The spliced statement is not built, because a metric has no
+statement field; and the Arrow envelope is not built, because the port returns a row type. What runs
+today is the question, the semantic layer, the plan, the dialect, and execution against a local file
+as whoever started the process.
 
 **The semantic layer decides what a question means.** [Wren](https://github.com/Canner/WrenAI) is
 the reference for that shape: a modelling language, an engine that plans against it, and MCP as the
@@ -727,9 +733,15 @@ versioned `v1` tree, a liveness probe, a generated interface description, rate l
 gate and optional in-process TLS. What it does **not** carry is a per-caller identity - the token
 authenticates the deployment - so none of the identity claims above are made true by its arrival.
 
-Still absent: the MCP transport, Arrow results with provenance in the schema metadata, federation, a
-per-caller budget beyond the row cap and the ten-year span, a second catalog adapter, and the audit
-sink. The spliced-statement path is designed, documented above, and unimplemented.
+Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
+the row cap and the ten-year span. The spliced-statement path is designed, documented above, and
+unimplemented. **This bullet used to list the MCP transport, federation, a second catalog adapter
+and the audit sink**, all four of which arrived - `sutura-mcp`, the splitter and combiner,
+`sutura-catalog-datahub` and `sutura_runtime::audit` - while the same page said so twenty lines
+above its own diagram. **A fifth, *execution of a federated leg by a shipped adapter*, was written
+into this bullet on this branch and spent before it merged**: the engine declares
+`Warehouse::EXECUTES_LEGS` now. The list is the shape this page goes stale in, which is why the
+history is kept beside it.
 
 And one thing that was absent here and is now half present, because the two ports are what the layout
 is *for*: **runtime selection of a data system.** `sutura-serve` reads a `sources:` tree, opens one

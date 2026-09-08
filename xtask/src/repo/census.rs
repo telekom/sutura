@@ -281,7 +281,8 @@ impl Census {
     ///
     /// **What the read being here makes unconstructible.** The closure returns `()`. There is no
     /// arm in which to say *judged*, *out of scope* or *unreachable* about a subject, so the shape
-    /// measured on `565ebaae` - a closure answering `Looked::Judged` for a file it could not open,
+    /// measured on `565ebaae` - a closure answering `repo::Looked::Judged` for a file it could not
+    /// open,
     /// which discharged the anchor, incremented the numerator and left the verdict byte-identical
     /// to a clean tree's at exit 0 - is not expressible. The three instruments no longer share one
     /// caller-written arm:
