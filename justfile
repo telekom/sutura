@@ -858,7 +858,13 @@ doctor:
 keycloak-tier *args:
     nix run .#keycloak-tier -- {{ args }}
 
-# The Postgres tier, by hand: `just postgres-tier start|stop|status`.
+# The Postgres tier, by hand: `just postgres-tier start|stop|status|credentials`.
+#
+# `credentials` prints the three `export` lines the adapter needs and refuses if nothing here is
+# provisioned - `github.com/telekom/sutura#455`: `FixtureCredential::from_env` has no fallback, so
+# the provisioner is what says how to log in. `just test` evaluates them for you through
+# `nix/with-tier.sh`; type it yourself only to point a bare `cargo nextest` at a tier you started
+# here.
 #
 # The same shape as `just keycloak-tier` and it exists for the same reason: a remedy that names the
 # venue for a missing service has to name a task a reader can type, and `nix/postgres-tier.nix` had

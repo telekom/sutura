@@ -60,6 +60,7 @@ mod conformance {
     use sutura_conformance::{Fixture, Missing, corpus};
     use sutura_dev::provisioned::{self, Provisioned};
     use sutura_exec_postgres::PostgresWarehouse;
+    use sutura_exec_postgres::fixture::FixtureCredential;
 
     /// The service the provisioner is asked for.
     ///
@@ -81,7 +82,11 @@ mod conformance {
             // panicked inside `here`. So this arm is only ever the developer-machine one.
             Provisioned::Skipped(absent) => return Fixture::Absent(Missing::tier(SERVICE, &absent)),
         };
-        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port());
+        // The tier publishes the credential beside the endpoint, and this fixture defaults
+        // nothing: an endpoint with no credential is a half-run provisioner, and the refusal names
+        // the variable. See `sutura_exec_postgres::fixture`.
+        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
         let schema = format!("conformance_{}_{}", std::process::id(), schema_counter());
         let warehouse = PostgresWarehouse::connect_in_schema(corpus::source(), corpus::posture(), &config, &schema)
             .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
