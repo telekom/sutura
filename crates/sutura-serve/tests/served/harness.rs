@@ -27,6 +27,10 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+// `Environment` rather than a string, because it is the type that owns the spelling: `as_str` is
+// documented as the canonical name AND the file stem this environment layers, so a case that says
+// which deployment environment it is about cannot say it in a word `sutura_config` would refuse.
+use sutura_config::Environment;
 // `PublishedKeySet` is deliberately absent: the tests own the key set's lifetime, because which
 // document is published - and whether it is rotated to an unusable one - is what a case is about.
 use sutura_dev::issuer::{MockIssuer, Token};
@@ -127,11 +131,41 @@ pub(crate) fn settings_declaring_inbound(example: &Path, issuer: &MockIssuer, ke
 /// fixture path that moves moves once. `credential` is the rest of the `security:` block, indented
 /// for it.
 pub(crate) fn settings_crediting(example: &Path, credential: &str) -> String {
+    deployment(example, LOOPBACK, &format!("{SINGLE_USER}{credential}"))
+}
+
+/// The bind every deployment that is meant to SERVE uses: loopback, and the kernel picks the port.
+///
+/// A constant rather than a literal inside [`settings_over`], because a startup-refusal case changes
+/// exactly this block and the reader has to be able to see that the serving cases do not.
+pub(crate) const LOOPBACK: &str = "  host: \"127.0.0.1\"\n  port: 0\n";
+
+/// The mode declaration every servable deployment in this file makes, as the head of `security:`.
+///
+/// Split out for the same reason as [`LOOPBACK`]: `security.identity` has no default and a
+/// deployment that omits it with a source configured does not start, so the case that omits it is
+/// the case that leaves this string out.
+pub(crate) const SINGLE_USER: &str = "  identity: \"single-user\"\n  \
+     single_user_because: \"an end-to-end test reads its own fixture files as one identity\"\n";
+
+/// The example deployment with the two groups a **startup refusal** turns on written by the caller.
+///
+/// `server` and `security` are the BODIES of their own groups, indented for them; the catalog and the
+/// one source are the example's own. Everything a refusal case wants to change is in those two
+/// groups, which is what makes a refusal attributable to the lines the case changed rather than to a
+/// second fixture that drifted.
+///
+/// **A refusing deployment still gets the catalog and the source, and that is deliberate.** Three of
+/// the four postures `served.rs` refuses are only reachable on a deployment that could otherwise
+/// serve - `security.identity` is checked *because* a source is configured - so a fixture stripped
+/// down to the failing key would be a different deployment from the one an operator has.
+pub(crate) fn deployment(example: &Path, server: &str, security: &str) -> String {
     let data = example.join("data");
     settings_over(
         &example.join("catalog"),
         &data,
-        credential,
+        server,
+        security,
         &files_source(LOCAL_SOURCE, &data),
     )
 }
@@ -157,20 +191,21 @@ pub(crate) fn files_source(name: &str, data: &Path) -> String {
     )
 }
 
-/// Every deployment in this file, above the two things that vary: the credential and the sources.
+/// Every deployment in this file, above the three things that vary: the server group, the security
+/// group and the sources.
 ///
 /// Extracted when the two-source case arrived, because that case needs a DERIVED catalog directory
 /// and a second `sources:` entry - and a second copy of the server, security and telemetry blocks
-/// would have been a settings file that could drift from the one every other test starts.
-pub(crate) fn settings_over(catalog: &Path, data: &Path, credential: &str, sources: &str) -> String {
+/// would have been a settings file that could drift from the one every other test starts. The
+/// startup-refusal cases widened it by two: `server` and `security` are whole group BODIES rather
+/// than a credential line, because a refusal is a combination of settings and three of the four this
+/// file provokes live in one of those two groups.
+pub(crate) fn settings_over(catalog: &Path, data: &Path, server: &str, security: &str, sources: &str) -> String {
     format!(
-        "server:\n  \
-           host: \"127.0.0.1\"\n  \
-           port: 0\n\
-         security:\n  \
-           identity: \"single-user\"\n  \
-           single_user_because: \"an end-to-end test reads its own fixture files as one identity\"\n\
-         {credential}\
+        "server:\n\
+         {server}\
+         security:\n\
+         {security}\
          telemetry:\n  \
            format: \"bunyan\"\n\
          catalogs:\n  \
@@ -208,7 +243,13 @@ pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
     let data = example.join("data");
     let catalog = derived_catalog(case, &example.join("catalog"));
     let sources = format!("{}{}", files_source(LOCAL_SOURCE, &data), files_source(LOOKUP_SOURCE, &data));
-    settings_over(&catalog, &data, &format!("  access_token: \"{TOKEN}\"\n"), &sources)
+    settings_over(
+        &catalog,
+        &data,
+        LOOPBACK,
+        &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
+        &sources,
+    )
 }
 
 /// The example catalog, copied, with the dimension model moved to the second data system.
@@ -282,7 +323,14 @@ pub(crate) fn recurring_revenue_by_region() -> String {
 /// **Not cosmetic.** `sutura_config` layers one environment variable per key on top of the
 /// files, so a developer with `SUTURA__SERVER__PORT` exported would be running a different
 /// deployment from CI and the failure would name a setting nobody wrote in this file.
-pub(crate) fn command(config_dir: &Path) -> Command {
+///
+/// `environment` is a PARAMETER because three of this file's refusals are the same configuration in
+/// two different deployments: `security.access_token` is optional on a development laptop and a
+/// refusal in production, and a case that could not say which one it is about would be asserting a
+/// posture over the wrong deployment. Its spelling comes from [`Environment::as_str`], which is the
+/// same function `sutura_config` parses back - so a case cannot name an environment the binary
+/// would reject.
+pub(crate) fn command(config_dir: &Path, environment: Environment) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_sutura-serve"));
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("SUTURA") {
@@ -290,7 +338,7 @@ pub(crate) fn command(config_dir: &Path) -> Command {
         }
     }
     command
-        .env("SUTURA_ENVIRONMENT", "development")
+        .env("SUTURA_ENVIRONMENT", environment.as_str())
         .env("SUTURA_CONFIG_DIR", config_dir)
         .env_remove("RUST_LOG")
         .stdin(Stdio::null())
@@ -434,10 +482,20 @@ pub(crate) fn derived_beside(config_dir: &Path) -> PathBuf {
 /// establishes a caller identity, and answers `401` to everybody. That difference is invisible to
 /// a harness that only ever waits for a listener.
 ///
-/// Asserts a non-zero exit here rather than in the caller, so a settings file this suite got
-/// wrong - one the binary happily serves - fails as *it started* instead of as a missing line in
-/// the log.
-pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
+/// Asserts the EXIT CODE here rather than in the caller, so a settings file this suite got wrong -
+/// one the binary happily serves - fails as *it started* instead of as a missing line in the log.
+///
+/// **Exactly `1`, and not merely non-zero.** `main` returns `ExitCode::FAILURE` for every refusal
+/// it makes, and the other ways this process can stop are not refusals: a panic before the hook is
+/// installed is `101`, and the shipped profiles compile `panic = "abort"`, which leaves no exit code
+/// at all. So `!success()` accepts the process dying of the thing a startup refusal exists to
+/// prevent, and a deployment that ABORTED while reading its configuration is not a deployment that
+/// declined to serve. `code()` is `None` on a signal, which is why the comparison is against
+/// `Some(1)` rather than a subtraction.
+///
+/// `environment` reaches the child through [`command`]: it decides which refusals apply at all, so
+/// it is a parameter of the case rather than a constant of the harness.
+pub(crate) fn refused_to_start(environment: Environment, case: &str, settings: &str) -> Vec<String> {
     // **Held in a guard from the moment it is spawned, and the failing path is the reason rather
     // than the passing one.** The assertion below fires when the process is STILL RUNNING, which
     // is exactly the defect this function exists to catch - and `std::process::Child` does not
@@ -447,7 +505,7 @@ pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
     // panicking assertion included.
     let config_dir = written(case, settings);
     let mut spawned = Spawned {
-        child: command(&config_dir).spawn().expect("the composed binary starts"),
+        child: command(&config_dir, environment).spawn().expect("the composed binary starts"),
         config_dir,
         reaped: false,
     };
@@ -477,9 +535,10 @@ pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
     // Joined and then drained - see [`drained`]. This used to be a bare `try_recv` sweep under a
     // comment claiming the readers had finished, which is `github.com/telekom/sutura#387`.
     let said = drained(readers, &lines);
-    assert!(
-        !status.success(),
-        "the deployment started on settings it must refuse:\n{}",
+    assert_eq!(
+        status.code(),
+        Some(1),
+        "a deployment given settings it must refuse did not decline to serve:\n{}",
         said.join("\n")
     );
     said
@@ -540,7 +599,9 @@ pub(crate) fn start(case: &str) -> Served {
 #[expect(clippy::zombie_processes, reason = "the returned `Served` waits on it in `Drop`")]
 pub(crate) fn start_configured(case: &str, settings: &str) -> Served {
     let config_dir = written(case, settings);
-    let mut child = command(&config_dir).spawn().expect("the composed binary starts");
+    let mut child = command(&config_dir, Environment::Development)
+        .spawn()
+        .expect("the composed binary starts");
     let stdout = child.stdout.take().expect("standard output was piped");
     let stderr = child.stderr.take().expect("standard error was piped");
     let (sender, lines) = channel();

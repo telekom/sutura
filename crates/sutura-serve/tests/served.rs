@@ -67,14 +67,17 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::time::Duration;
 
+    // The settings TYPE, in the process running the test, and it is here for one job: to render the
+    // sentence a refusing deployment must print. See `refusal_of`.
+    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, Sources};
     use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
 
     // The harness, next door. It holds no assertion - see its own module documentation for why the
     // split moved this direction and not the other.
     use crate::harness::{
-        LOCAL_SOURCE, LOOKUP_SOURCE, RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, drained, example_root, position,
-        question, recurring_revenue_by_region, recurring_revenue_june, refused_to_start, settings_declaring_inbound,
-        settings_spanning_two_sources, start, start_configured, v1,
+        LOCAL_SOURCE, LOOKUP_SOURCE, LOOPBACK, RECORD, RESOURCE, SINGLE_USER, TOKEN, VERSION, accepted_by, an_issuer, deployment,
+        drained, example_root, position, question, recurring_revenue_by_region, recurring_revenue_june, refused_to_start,
+        settings_declaring_inbound, settings_spanning_two_sources, start, start_configured, v1,
     };
 
     // ------------------------------------------------------------------- the harness itself ---
@@ -596,6 +599,7 @@ mod tests {
             .rotate_to(&MockIssuer::key_set_of_symmetric_keys())
             .expect("the unusable set is published");
         let said = refused_to_start(
+            Environment::Development,
             "unusable-keys",
             &settings_declaring_inbound(&example_root(), &issuer, published.path()),
         );
@@ -632,6 +636,193 @@ mod tests {
         assert!(
             !told.contains("\"msg\":\"listening\""),
             "the deployment opened a listener on a key set it cannot use:\n{told}"
+        );
+    }
+
+    // ------------------------------------------------------- the four startup refusals ---
+    //
+    // `github.com/telekom/sutura#302`. Each of the four is already asserted over `Settings::load` in
+    // `crates/sutura-config/src/settings/tests.rs`, and that is a claim about the settings TYPE. What
+    // an operator gets is a PROCESS, and *`load` returned `Err`* and *the binary exited without
+    // binding a port* are two different statements - a service that starts and answers `401` to
+    // everything is a different outcome from one that refuses to exist. Only the first had a test.
+    //
+    // The three assertions each case makes, and why each is separate:
+    //
+    // 1. **Exit `1`**, in `harness::refused_to_start`, and exactly 1 rather than non-zero - see its
+    //    own note on why an abort is not a refusal.
+    // 2. **Nothing bound**, in `stopped_before_binding`.
+    // 3. **The operator's own sentence**, DERIVED from `sutura_config` rather than quoted here - see
+    //    `refusal_of`. Nothing in this repository compared anything to the `not fit to serve`
+    //    wording before, so the header an operator greps for was reachable by no test at all.
+
+    /// Starts the composed binary on a deployment it must refuse, and takes what it said.
+    ///
+    /// **The "never binds" half, and it is the security-relevant one.** `sutura_http::server::serve`
+    /// reads the port back off the socket and logs it, which is the same event the whole harness
+    /// waits for - so its ABSENCE is this suite's own evidence that no listener was opened, on the
+    /// same channel every other case trusts.
+    ///
+    /// **The limit, stated rather than implied:** this reads the process's own log. A root that bound
+    /// a socket and did not report it would be invisible here, and what makes that narrow rather than
+    /// hollow is that the event is emitted by the bind itself and nothing else in this file could
+    /// pass without it.
+    fn stopped_before_binding(environment: Environment, case: &str, settings: &str) -> Vec<String> {
+        let told = refused_to_start(environment, case, settings);
+        assert!(
+            !told.iter().any(|line| line.contains(r#""msg":"listening""#)),
+            "a deployment that must not start opened a listener:\n{}",
+            told.join("\n")
+        );
+        told
+    }
+
+    /// What `sutura_config` refuses this same deployment for, asked in the process running the test.
+    ///
+    /// **The wording is DERIVED and the refusal is NAMED, and the split is the point.** Quoting the
+    /// sentence here would put a copy of another crate's `Display` in this file - which is exactly
+    /// the weakness `a_published_key_set_this_deployment_cannot_use_stops_the_process` states about
+    /// its own two `contains`. Deriving it alone would be worse: a change to `Settings::refusals`
+    /// moves both sides at once and the comparison stays green over a deployment that no longer
+    /// refuses. So each case does both - it asserts the refusal SET by value, which is a claim about
+    /// what this configuration means, and then asserts the binary printed the sentence that set
+    /// renders to, which is a claim about what the process does with it.
+    ///
+    /// `with_overlay` is documented as "the same position a deployment's own file occupies", and
+    /// `defaults` keeps an EMPTY variable map - so this reads the same layers as the child, which
+    /// `harness::command` strips of every `SUTURA*` variable for the same reason.
+    ///
+    /// **Where the two do differ:** the child reads `base.yaml` off a directory and this reads a
+    /// string, so the `config` crate's own origin naming can differ inside a deserialization error.
+    /// That is why the misspelled-key case below compares the outer sentence and the key, and not
+    /// the cause's text.
+    fn refusal_of(environment: Environment, settings: &str) -> SettingsError {
+        Settings::load(&Sources::defaults(environment).with_overlay(settings))
+            .expect_err("this case's fixture is a deployment the settings type refuses")
+    }
+
+    /// Asserts the process wrote every line of `message`.
+    ///
+    /// **Line by line rather than as one string, and the channel is the reason.** `harness::forward`
+    /// feeds standard output and standard error into ONE channel from two threads, so a banner line
+    /// the process wrote before the refusal can be scheduled between two lines of it. Each stream is
+    /// ordered against itself and the two are not ordered against each other, so a `contains` over
+    /// the joined log would be a test that passes on a scheduling accident.
+    ///
+    /// `contains` per line rather than equality, because the first line of a refusal reaches
+    /// standard error behind `main`'s own `sutura-serve: ` prefix.
+    fn said_every_line_of(told: &[String], message: &str) {
+        for expected in message.lines() {
+            assert!(
+                told.iter().any(|line| line.contains(expected)),
+                "the deployment did not tell the operator `{expected}`:\n{}",
+                told.join("\n")
+            );
+        }
+    }
+
+    #[test]
+    fn a_non_loopback_bind_with_no_declared_terminator_stops_the_process() {
+        // The single change that turns a local tool into a network service, refused on the binary.
+        // The deployment is otherwise the one every serving case in this file starts: the same
+        // catalog, the same source, the same deployment token - so the wildcard bind is the only
+        // thing that can account for the refusal.
+        let settings = deployment(
+            &example_root(),
+            "  host: \"0.0.0.0\"\n  port: 0\n",
+            &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
+        );
+        let refused = refusal_of(Environment::Development, &settings);
+        let SettingsError::NotFitToServe { ref refusals } = refused else {
+            panic!("this fixture is meant to be a posture refusal and is {refused:?}");
+        };
+        // The WHOLE set, not a `contains`: a second refusal here would mean the process could be
+        // stopping for something other than the undeclared terminator.
+        assert_eq!(
+            *refusals,
+            vec![NotFitToServe::TlsTerminationUndeclared {
+                bind: String::from("0.0.0.0:0")
+            }]
+        );
+        let told = stopped_before_binding(Environment::Development, "undeclared-bind", &settings);
+        said_every_line_of(&told, &refused.to_string());
+    }
+
+    #[test]
+    fn a_production_deployment_with_no_credential_stops_the_process() {
+        // The only case here that is about the ENVIRONMENT rather than about a key: this same file
+        // starts on a laptop and refuses in production, which is why `harness::command` takes an
+        // `Environment` at all.
+        //
+        // The port is the embedded default rather than `0`, and that is load-bearing: `server.port: 0`
+        // in production is `EphemeralPortInProduction`, so a fixture that kept the harness's
+        // kernel-chosen port would refuse for two reasons and this case could not say which one
+        // stopped the process. Safe because the assertion below is that nothing was ever bound.
+        let settings = deployment(&example_root(), "  host: \"127.0.0.1\"\n", SINGLE_USER);
+        let refused = refusal_of(Environment::Production, &settings);
+        let SettingsError::NotFitToServe { ref refusals } = refused else {
+            panic!("this fixture is meant to be a posture refusal and is {refused:?}");
+        };
+        assert_eq!(
+            *refusals,
+            vec![NotFitToServe::AccessTokenRequired {
+                because: "this is a production deployment with no inbound identity configured"
+            }]
+        );
+        let told = stopped_before_binding(Environment::Production, "production-no-token", &settings);
+        said_every_line_of(&told, &refused.to_string());
+    }
+
+    #[test]
+    fn a_configured_source_with_no_declared_mode_stops_the_process() {
+        // `security.identity` has no default and no derivation, and this is the refusal on the
+        // binary that makes that true of the artefact rather than of the type. The fixture leaves
+        // out exactly `SINGLE_USER` and keeps everything else, including the deployment token - so
+        // the missing mode is the whole difference from a deployment that serves.
+        let settings = deployment(&example_root(), LOOPBACK, &format!("  access_token: \"{TOKEN}\"\n"));
+        let refused = refusal_of(Environment::Development, &settings);
+        let SettingsError::NotFitToServe { ref refusals } = refused else {
+            panic!("this fixture is meant to be a posture refusal and is {refused:?}");
+        };
+        assert_eq!(*refusals, vec![NotFitToServe::DeploymentIdentityUndeclared { count: 1 }]);
+        let told = stopped_before_binding(Environment::Development, "undeclared-mode", &settings);
+        said_every_line_of(&told, &refused.to_string());
+    }
+
+    #[test]
+    fn a_misspelled_key_stops_the_process_and_the_operator_is_told_which_key() {
+        // The fourth refusal, and the only one that is not a posture: `deny_unknown_fields` makes an
+        // unknown key a deserialization error, so this exercises the OTHER arm of the startup path -
+        // an error with a `#[source]` chain under it.
+        //
+        // Which makes it the one case that holds `main::flatten`, and nothing did. The outer sentence
+        // says only "the configuration sources could not be read"; the key an operator has to go and
+        // fix is in the cause, and a root that printed `error.to_string()` alone would leave them
+        // reading a deployment's whole settings tree looking for a typo. The three assertions are
+        // therefore the outer sentence, the chain marker, and the key itself.
+        let settings = deployment(
+            &example_root(),
+            &format!("{LOOPBACK}  prot: 9000\n"),
+            &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
+        );
+        let refused = refusal_of(Environment::Development, &settings);
+        assert!(
+            matches!(refused, SettingsError::Source { .. }),
+            "a misspelled key is meant to be a source error and is {refused:?}"
+        );
+        let told = stopped_before_binding(Environment::Development, "misspelled-key", &settings);
+        said_every_line_of(&told, &refused.to_string());
+        // `caused by:` is `main::flatten`'s own wording, in this crate rather than across a boundary,
+        // so this pins the walk that puts the cause in front of the operator at all.
+        assert!(
+            told.iter().any(|line| line.contains("caused by:")),
+            "the refusal reached standard error with its cause chain flattened away:\n{}",
+            told.join("\n")
+        );
+        assert!(
+            told.iter().any(|line| line.contains("prot")),
+            "the deployment refused a key it would not name:\n{}",
+            told.join("\n")
         );
     }
 }
