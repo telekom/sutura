@@ -104,6 +104,10 @@ runs:
         HOSTED: ${{ inputs.hosted }}
       run: |
         set -eu
+        # HOSTED arrives from the `env:` block above; declaring it with `export` (no value, so
+        # the environment's own value is kept) tells shellcheck it is external, not a misspelling
+        # of the `hosted` result assigned below (SC2153).
+        export HOSTED
         carried="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
         # A file rather than a step output: the `ci` job's closing step reads it to report a ratio,
         # and a composite action cannot register a post step to do that itself.
@@ -130,7 +134,7 @@ runs:
           printf '| | |\n| --- | --- |\n'
           printf '| restore | %s |\n' "$restore"
           printf '| write | %s |\n' "$write"
-          printf '| key | `%s` |\n' "$PRIMARY"
+          printf "| key | \`%s\` |\n" "$PRIMARY"
           printf '| paths carried | %s |\n' "$carried"
           printf '| hosted binary cache | %s |\n' "$hosted"
         } >> "$GITHUB_STEP_SUMMARY"
