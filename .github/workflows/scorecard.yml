@@ -138,62 +138,102 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-  # THE PUBLICATION'S WITNESS. The property is *the publication landed*, never *the publisher ran*
-  # - and the difference was a live defect, not a hypothetical: `score` above exited 0 three times
-  # while api.scorecard.dev held no record of this project, because the action downgrades the API's
-  # refusal to a warning. Nothing noticed, and nothing could have: no step asked the API.
+  # THE PUBLICATION'S WITNESS, and the property is *the publication was not refused*, never *the
+  # publisher ran*. That difference was a live defect rather than a hypothesis. Three runs of this
+  # workflow reported `completed success` while api.scorecard.dev held no record of the project -
+  # and the reason was in the scoring step's OWN OUTPUT the whole time, thrown away:
   #
-  # WHY A SEPARATE JOB, and it is not a style choice. api.scorecard.dev refuses the results of a
+  #   error sending scorecard results to webapp: http response 400, status: 400 Bad Request,
+  #   error: {"code":400,"message":"workflow verification failed: ... scorecard job has invalid
+  #   runner label: 'rust-mcp' ..."}
+  #   ::warning::Unable to POST scorecard results to webapp: ...
+  #
+  # `signing.ProcessSignature` retries, logs that `::warning::` and returns nil, so the step exits
+  # 0. **The evidence was never missing; nothing read it.** So this job reads it: it fetches the
+  # `score` job's log for THIS run and fails if the publication was refused.
+  #
+  # WHY THAT SIGNAL RATHER THAN POLLING THE API, which was the first shape of this check. The API
+  # indexes with a lag of its own, so *no record yet* cannot be told from *refused* - it would
+  # redden on freshness. The refusal is exact, it is in this run, and it names its own reason.
+  #
+  # WHY A SEPARATE JOB, and it is not a style choice: api.scorecard.dev refuses the results of a
   # scoring job containing ANY step that is not a call to one of five approved actions, so a `run:`
   # step added to `score` would have broken the very publication it was meant to witness. That rule
-  # is now held offline by `cargo xtask check-workflows`, with this job as its own test case.
+  # is held offline by `cargo xtask check-workflows`, with this job as its own test case.
   #
-  # WHY NO `needs: score`, which is the part worth reading twice. Publication is ASYNCHRONOUS: the
-  # API does not answer the instant the job exits, so a poll in the same run would be a sleep
-  # dressed up as a check - and a sleep long enough to be honest is a sleep long enough to be
-  # flaky. So this job does not wait for anything. Its subject is what api.scorecard.dev holds
-  # NOW, which is what PREVIOUS runs published. The delay it tolerates is the interval between two
-  # runs of this workflow - real elapsed time nothing here controls - and the cost is stated
-  # plainly: the lag is one run. The first run after a fix reddens, the next one is the verdict.
-  #
-  # WHAT IT DOES NOT HOLD. That THIS run's score landed - only that the project has published
-  # data. A publication that starts failing after one success keeps this green until the API's
-  # record ages out. Tightening it to compare the stored commit was weighed and refused: the API
-  # indexes with a lag of its own, so that check would go red on freshness rather than on failure,
-  # which is the flaky-control shape this file exists to avoid.
+  # WHAT IT DOES NOT HOLD, and both are real. It trusts the action to LOG its own refusal - a
+  # future image that fails silently would pass this. And where the log carries no refusal and the
+  # repository is not public, it reports UNVERIFIED rather than success: the publication may not
+  # have been attempted at all, and an overstated control is itself the defect here. The API answer
+  # is reported for information and is only a verdict in one direction - a score present while the
+  # README still shows the stand-in, which is the badge's restore trigger.
   published:
-    runs-on: rust-mcp
+    # `ubuntu-latest` for `score`'s reason, one step weaker: this job builds nothing either, and
+    # the witness should not depend on capacity the scan itself no longer needs.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
+    # `needs: score` because the subject is THIS run's log, and `always()` so a scoring job that
+    # failed or was cancelled is still reported rather than silently unwitnessed.
+    needs: score
+    if: always()
     # NO `id-token: write`, and that is a hard requirement rather than least privilege for its own
     # sake: api.scorecard.dev refuses the whole workflow if any job other than the scoring one can
-    # mint that token. `check-workflows` holds it.
+    # mint that token. `check-workflows` holds it. `actions: read` is what reads the job log.
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: api.scorecard.dev holds a score, and the README shows it
+      - name: The publication was not refused
         env:
           SLUG: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          job=$(gh api "repos/${SLUG}/actions/runs/${RUN_ID}/jobs" \
+            --jq '.jobs[] | select(.name == "score") | .id' | head -1)
+          if [ -z "${job}" ]; then
+            echo "::error ::This run has no scoring job, so nothing was published and nothing" \
+              "here can witness it."
+            exit 1
+          fi
+          gh api "repos/${SLUG}/actions/jobs/${job}/logs" > score.log || {
+            echo "::error ::The scoring job log could not be read, so whether the publication" \
+              "was refused is UNREAD. That is a broken witness, not a pass."
+            exit 1
+          }
+
+          if grep -qF 'Unable to POST scorecard results to webapp' score.log; then
+            echo "The API's answer, from the scoring step's own log:"
+            grep -oE 'http response [0-9]+, status: [^,]*, error: .*' score.log | tail -1 || true
+            echo "::error ::REFUSED. api.scorecard.dev rejected this run's score and the action" \
+              "downgraded that to a warning, so the scoring step exited 0 and published nothing." \
+              "See xtask/src/workflows/publication.rs for every workflow-shape rule the API" \
+              "applies before it accepts a score - the reason quoted above names which one."
+            exit 1
+          fi
+
           code=$(curl -sS -m 30 -o /dev/null -w '%{http_code}' \
             "https://api.scorecard.dev/projects/github.com/${SLUG}" || echo 000)
-          echo "api.scorecard.dev/projects/github.com/${SLUG} -> HTTP ${code}"
           pending=$(grep -c 'openssf%20scorecard-publication%20pending' README.md || true)
-          if [ "${code}" != "200" ]; then
-            echo "::error ::The publisher ran and the publication did not land: the API has no" \
-              "score for this repository. A green 'score' job does not mean published - the" \
-              "action downgrades the API's refusal to a warning. Read that step's log for the" \
-              "refusal reason, and see xtask/src/workflows/publication.rs for the shape rules."
-            exit 1
-          fi
-          if [ "${pending}" != "0" ]; then
+          echo "no refusal in the scoring log; api.scorecard.dev -> HTTP ${code} (a fresh" \
+            "publication is not indexed instantly); README stand-ins=${pending}"
+
+          if [ "${code}" = "200" ] && [ "${pending}" != "0" ]; then
             echo "::error ::The publication landed and README.md still shows the" \
-              "publication-pending stand-in. Restore the live badge - this is the mechanism that" \
-              "remembers, so the stand-in cannot quietly become permanent."
+              "publication-pending stand-in. Restore the live badge - this job is the mechanism" \
+              "that remembers, so the stand-in cannot quietly become permanent."
             exit 1
           fi
-          echo "The publication landed and README.md shows the live badge."
+
+          if grep -qF 'Private repository: true' score.log; then
+            echo "::warning ::No refusal in the log, and the scoring job saw a PRIVATE" \
+              "repository. api.scorecard.dev serves a public dataset, so the publication is" \
+              "UNVERIFIED here rather than confirmed."
+            exit 0
+          fi
+          echo "The publication was not refused."

@@ -29,9 +29,19 @@
 //!   backoff schedule, then logs `::warning::` and `return nil` - so `main.go`'s `log.Fatalf` never
 //!   fires and the step exits 0. Read at commit `2d1146689b8cda280b9bc96326124645441f03bc`, which
 //!   is the SHA `scorecard.yml` pins.
-//! * **The refusal has nothing to do with visibility.** `runs-on: rust-mcp` is not on the API's
-//!   allowlist, so making the repository public does not fix it. That is why this is a gate rather
-//!   than a note: the badge could never have resolved, and nothing here would have said so.
+//! * **The refusal has nothing to do with visibility, and that is measured rather than argued.**
+//!   Run `34198064772`, with the repository **public**, `Private repository: false` in its own log
+//!   and `publish_results: true`: the same `http response 400 ... invalid runner label:
+//!   'rust-mcp'`, retried three times, then the same `::warning::`, and the step exited 0 again.
+//!   So `runs-on` is THE blocker - the badge could never have resolved, private or public, and
+//!   nothing here would have said so. That is why this is a gate rather than a note, and why
+//!   `ubuntu-latest` on the scoring job is a requirement of the tool rather than a preference.
+//!
+//!   **And `Publication enabled:` is not a control**, which the same three logs settle between
+//!   them: it printed `false` in all three - twice with `Private repository: true` and once with
+//!   `false` - while the publish was attempted every time (a sigstore `tlog entry created with
+//!   index:` line precedes each 400). `options.go`'s field carries no `env:` tag, so that line
+//!   reads `false` unconditionally.
 //!
 //! # What it holds
 //!
@@ -50,7 +60,8 @@
 //! # What it does NOT hold
 //!
 //! * **Not that the publication landed.** This is a precondition read from a file. The `published`
-//!   job in `scorecard.yml` is what asks the API, and only it can answer.
+//!   job in `scorecard.yml` is what reads the scoring step's own log for a refusal, and only a run
+//!   can answer that.
 //! * **Not that the allowlist is current.** It is a dated copy of a third party's source. A runner
 //!   label `OpenSSF` adds later reads as a failure here until this file is updated - which is the
 //!   safe direction, and the reason the constant names its revision.

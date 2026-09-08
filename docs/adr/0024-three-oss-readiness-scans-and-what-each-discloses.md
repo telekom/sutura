@@ -292,9 +292,37 @@ half. Making it public was necessary and not sufficient.
 
 ### What changes, and why each is a mechanism rather than a sentence
 
-* **`score` runs on `ubuntu-latest`.** The only job here that is not self-hosted, and the cost is
-  named: it leaves the `rust-mcp` convention. It buys nothing back, because nothing of ours runs in
-  that job - no nix, no cargo, one third-party container.
+* **`score` and `published` run on `ubuntu-latest`, and it is THE FIX rather than a preference.**
+  `api.scorecard.dev` performs *workflow verification* before accepting a score, and one of its
+  rules is an allowlist of runner labels - an anti-tampering measure, documented at
+  `ossf/scorecard-action#workflow-restrictions`. **Measured with the repository PUBLIC**, run
+  `34198064772`, `completed success`, `Private repository: false`, `publish_results: true`:
+
+  ```text
+  error sending scorecard results to webapp: http response 400, status: 400 Bad Request,
+  error: {"code":400,"message":"workflow verification failed: workflow verification failed:
+  scorecard job has invalid runner label: 'rust-mcp',
+  see https://github.com/ossf/scorecard-action#workflow-restrictions for details."}
+  ::warning::Unable to POST scorecard results to webapp: http response 400 ...
+  ```
+
+  Retried three times, then a warning, and **the step exited 0**. So no amount of visibility or
+  permission fixes this: the label is the blocker, and the exception is a requirement of the tool.
+
+  **A deliberate exception, not drift.** Every other `runs-on:` in `.github/` stays `rust-mcp`: the
+  custom runner exists to build the Rust, and these two jobs build nothing - `score` is checkout, a
+  third-party container action and upload-artifact; `published` is one `gh api` read and one
+  `curl`. **A metadata scanner needs none of the build environment**, which is the whole
+  justification.
+
+  **Nothing here asserted the label before this change**, verified rather than assumed: `git grep
+  rust-mcp` over `xtask/`, `devco/`, `.agents/`, `nix/` and `justfile` returned nothing outside the
+  files this change itself adds. So no rule had to be weakened - and the new rule in
+  `publication.rs` now asserts the *opposite* direction, which is the point.
+
+  **The one precondition no file here can read:** whether GitHub-hosted runners are enabled for
+  this organisation. If they are not, the scoring job fails to start - loudly, which is the right
+  failure mode and better than the silent one it replaces.
 * **`cargo xtask check-workflows` now holds `scorecard.yml` against every rule that verification
   applies**, offline, inside the required `ci` job: the runner allowlist, the approved step list,
   every step being a `uses:`, no container or services, no job-level or workflow-level `env:` or
@@ -308,13 +336,16 @@ half. Making it public was necessary and not sufficient.
   if it contains any step that is not a call to one of five approved actions, so the obvious
   witness - a `run:` step after the publish - would have broken the publication it was checking.
   The witness is therefore a separate job, and that job is the gate's own test case.
-* **A `published` job asks the API whether it holds a score**, and fails when it does not. It
-  deliberately does not `needs: score`: publication is asynchronous, so a poll in the same run
-  would be a sleep dressed up as a check. Its subject is what previous runs published, the delay it
-  tolerates is the interval between two runs of this workflow, and the cost is that the lag is one
-  run. **What it does not hold:** that THIS run's score landed. Comparing the stored commit was
-  weighed and refused - the API indexes with a lag of its own, so that check would redden on
-  freshness rather than on failure.
+* **A `published` job reads the scoring step's own log and fails if the publication was refused.**
+  The evidence was never missing - the 400 and the `::warning::` were in that step's output every
+  time, and nothing read them. So the witness binds to that, not to a poll of the API: the API
+  indexes with a lag, so *no record yet* cannot be told from *refused*, and a check on it would
+  redden on freshness. The refusal is exact, it is in the same run, and it names its own reason,
+  which the job quotes into its error. **What it does not hold:** it trusts the action to log its
+  own refusal, so a future image that failed silently would pass. And with no refusal logged on a
+  repository that is not public it reports *unverified* rather than success - the publication may
+  not have been attempted. The API's answer is reported for information and is a verdict in one
+  direction only: a score present while the README still shows the stand-in.
 * **The README shows a publication-pending stand-in rather than the live badge.** The live badge
   renders `invalid repo path` until the API holds a score - measured on 2026-09-08 with the
   repository already public - and a failed status on the front page is a public claim in the wrong
@@ -325,6 +356,23 @@ half. Making it public was necessary and not sufficient.
   remains a failure. Showing both at once fails too, because a stand-in beside a live badge hides
   nothing. **What remembers to restore it is the `published` job**, which fails once the API holds
   a score while the stand-in is still on the page - so the stand-in cannot quietly become permanent.
+
+  **What it is waiting for is THIS change, not a person.** With the scoring job on a runner label
+  api.scorecard.dev accepts, the next run on `main` publishes and the badge resolves without
+  further intervention - so the stand-in is a wait measured in one run rather than an indefinite
+  hold.
+
+### What is still not established, stated rather than assumed
+
+**Whether `api.scorecard.dev` would ALSO refuse a private repository's score is unproven here**, and
+the reason is worth keeping: the runner label was refused first, in every run, so nothing has ever
+got far enough to find out. That is why the `published` job reports *unverified* rather than
+*failed* when no refusal is logged on a repository that is not public.
+
+**The scan itself works and the score is obtainable.** `34198064772` scored **6.1** with the
+repository public, `34193206416` scored 6.0 while private - so the scan was never the problem, only
+the publication of its result. Which checks score what, and which zeros are defects rather than
+facts about a young public repository, belongs to `github.com/telekom/sutura#459` rather than here.
 
 ### And the REUSE half, which no code could have fixed
 
