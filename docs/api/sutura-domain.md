@@ -5461,6 +5461,70 @@ fn _parsed(table: TableName, column: ColumnName, dimension: &DimensionName) -> P
 }
 ```
 
+**The two blocks above hold a CARRIER's signature, and that is not the same as this type being
+closed.** They say `PlanKey::new` will not take a `String`; they say nothing about whether a
+`String` can become a `ResultLabel` first, and
+`PlanKey::new(ResultLabel::from(format!("0_leaf_{n}")), column)` is `telekom/sutura#325`'s F2 one
+conversion further out. Measured rather than reasoned: adding `impl From<String> for ResultLabel`
+and touching no carrier left `just test` at exit 0 with 2658 tests passing and BOTH carrier pairs
+green. So the closure is stated over the type, on the bound every carrier is really reached
+through:
+
+```compile_fail
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+// Text does not become a label, by any route.
+fn _computed(leaf: usize) -> ResultLabel {
+    _labelled(format!("0_leaf_{leaf}"))
+}
+```
+
+And the twin over the same bound, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+fn _parsed() -> ResultLabel {
+    _labelled(ResultLabel::bucket())
+}
+```
+
+**And it does not deserialize, which no gate in this tree holds.**
+`cargo xtask check-serde-parse` is the gate for a derived `Deserialize` writing past a parse, and
+what makes a type its subject is a FALLIBLE constructor - a `-> Result<Self, _>`. The four above
+cannot fail, because nothing is left to reject once the argument is a certified name, so this
+type is outside the gate for being parsed too well. Measured: `#[derive(serde::Deserialize)]`
+here reports `check-serde-parse: ok - 649 struct(s) in 388 file(s), serde routed through parse`
+and `hygiene: ok - 34 gate(s)`. `telekom/sutura#446` carries the general case, which is the
+gate's design question rather than this type's; the pair below is what holds this one:
+
+```compile_fail
+fn _needs<T: serde::de::DeserializeOwned>() {}
+
+// A label read off the wire would be a label nothing parsed.
+fn _off_the_wire() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+And the twin over the same shape, with the serde bound this type does satisfy:
+
+```
+fn _needs<T: serde::Serialize>() {}
+
+fn _into_a_snapshot() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
 **It serializes as the bare string it renders**, so the plan goldens are unchanged by this type
 existing: a plan's serialized form is what a snapshot pins, and a wrapper visible in it would be
 a diff about a Rust type rather than about what we decided to execute.

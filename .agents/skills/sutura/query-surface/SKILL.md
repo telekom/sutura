@@ -87,11 +87,20 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   and the `MeasureDoesNotFederate` refusal. What keeps this row here is therefore the DEFAULT, not
   the absence of evidence: no shipped adapter sets `EXECUTES_LEGS`, so nothing published answers a
   two-source question, and both legs in that file run under one operating-system identity.
-  **`FederationNotExecutable` means that default and nothing else now.** A two-source plan the
-  splitter built and `FederatedPlan::new` rejected leaves as `CompileFailure::NotAssembled` instead
-  of wearing the same refusal - it is a defect here, not a governance answer. Nothing provokes that
-  arm today; the differential above is what would see such an edit, because it asserts the only
-  compile-side refusal a two-source corpus question may get is `MeasureDoesNotFederate`.
+  **`FederationNotExecutable` means that default and nothing else, and NOTHING HOLDS THAT.** A
+  two-source plan the splitter built and `FederatedPlan::new` rejected leaves as
+  `CompileFailure::NotAssembled` rather than wearing the same refusal - it is a defect here, not a
+  governance answer. This was an `invariants` row and has been deleted rather than demoted, because
+  it has no mechanism: flattening `federated_plan`'s `map_err` back into `FederationNotExecutable`
+  leaves the whole suite green - 2658 tests, exit 0, measured on `telekom/sutura#432`. What a
+  `compile_fail` pair DOES hold is `compile`'s error type, and that is a weaker claim: `compile`
+  could keep returning `CompileFailure` and still answer `Ok(Refused)` for an assembly failure,
+  which is exactly what that mutation does. Nothing provokes the arm either - every
+  `FederatedPlanError` variant is unreachable from the splitter as it stands - so the differential
+  above is the venue an edit making one reachable would redden, and it does: deleting the link key
+  from the lookup leg turns two of its cells red naming the assembly, measured on the same head.
+  **A gate would cost the whole refusal vocabulary being made unrepresentable**, which duplicates
+  most of `RefusalReason`; until someone pays that, this is prose.
 - **The DataHub catalog adapter decides a whole metric, and nothing reads or serves it.**
   `sutura-catalog-datahub` provides `Structure`, `Descriptions` and `Relationships` unconditionally
   and declares the metric kinds as **declared-and-empty may-provide** kinds
