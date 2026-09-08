@@ -104,3 +104,10 @@ surface](serving.md) is not, and its bearer token authenticates the deployment r
 | Read the Rust API | [API reference](api/index.md) |
 
 To work *on* sutura, start at [Contributing](contributing.md) under **Development**.
+
+## Feedback and reporting
+
+For questions, feature ideas and bug reports, open an issue in the
+[issue tracker](https://github.com/telekom/sutura/issues). For a suspected vulnerability, report it
+privately rather than in a public issue - see
+[SECURITY.md](https://github.com/telekom/sutura/blob/main/SECURITY.md).
