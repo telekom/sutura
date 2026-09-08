@@ -210,6 +210,7 @@ nav:
       - Untrusted content, and what marks it: adr/0022-untrusted-content-marking.md
       - How the agent surface learns who is asking: adr/0023-how-the-agent-surface-learns-who-is-asking.md
       - Three OSS-readiness scans, and what each discloses: adr/0024-three-oss-readiness-scans-and-what-each-discloses.md
+      - What a Scorecard zero says about this repository: adr/0025-what-a-scorecard-zero-says-about-this-repository.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

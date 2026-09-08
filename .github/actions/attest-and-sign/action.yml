@@ -182,12 +182,30 @@ runs:
     # reading the directory as it writes into it would sign its own output, and then sign that - a
     # `find` evaluated once is what stops it.
     #
-    # THE `.sha256` SIDECARS ARE NOT SIGNED, and this is the one exclusion. A bundle over
-    # `sutura-x86_64-unknown-linux-gnu.tar.gz` already commits to that file's digest, so a second
-    # signature over a file whose entire content is that digest proves nothing new and costs a
-    # certificate and a transparency-log entry. They still get PROVENANCE, which is one call for
-    # every subject and therefore free. The sidecars stay in the release because a consumer's
-    # script may already read them.
+    # THERE IS NO EXCLUSION. Every file that reaches the release page gets a bundle, `.sha256`
+    # sidecars included, and that is a REVERSAL - `github.com/telekom/sutura#459` is the decision.
+    #
+    # The argument for excluding them was cryptographically correct and ergonomically wrong. It ran:
+    # a bundle over `sutura-x86_64-unknown-linux-gnu.tar.gz` already commits to that file's digest,
+    # so a signature over a file whose entire content IS that digest proves nothing new and costs a
+    # certificate and a transparency-log entry. Every clause of that is true. What it missed is that
+    # a signature's ABSENCE is read by a person, and on a release page holding 30 bundles the 13
+    # files without one are indistinguishable from an oversight.
+    #
+    # Worse, it is a trap with a direction. Someone who checks `foo.tar.gz.sha256` and stops has
+    # verified integrity against a file an attacker who could replace the tarball could replace
+    # too - while believing they checked provenance. The signature they needed was there all along,
+    # one file over, and nothing on the page told them the sidecar was not it.
+    #
+    # So the rule is now the one the `Read the subjects` step below already applies to provenance,
+    # and the two are finally consistent: **every published byte is signed** is a rule a reader can
+    # check, and *every published byte except the ones we judged uninteresting* is not. The cost is
+    # 13 more certificates and transparency-log entries per release, against 30 already minted.
+    #
+    # `! -name '*.sigstore.json'` replaces the sidecar filter rather than joining it, and it buys
+    # idempotence the snapshot below only approximated: a re-run over a directory that already
+    # holds bundles now skips them by name instead of relying on `find` having been evaluated
+    # before the first one was written.
     - name: Sign the release assets
       shell: bash
       env:
@@ -196,7 +214,7 @@ runs:
         set -eu
         # Sorted, so the log reads the same way twice and a diff between two releases' logs is
         # about the assets rather than about directory order.
-        find "$ASSETS" -maxdepth 1 -type f ! -name '*.sha256' | sort > assets.txt
+        find "$ASSETS" -maxdepth 1 -type f ! -name '*.sigstore.json' | sort > assets.txt
         count="$(wc -l < assets.txt)"
         if [ "$count" -lt 1 ]; then
           echo "::error::${ASSETS} holds no files to sign"
