@@ -615,8 +615,26 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         env:
           BASE: ${{ steps.base.outputs.base }}
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
+          if [ "$EVENT" = pull_request ]; then
+            # Ordinary CI keeps its merge checkout; causality measures only the topic's diff.
+            merge_head=$(git rev-parse HEAD)
+            read -r base_tip merged_pr extra <<< "$(git show -s --format=%P HEAD)"
+            if [ -z "$PR_HEAD" ] || [ "$merged_pr" != "$PR_HEAD" ] || [ -n "$extra" ]; then
+              echo "causality requires the checked-out merge's second parent to be the event's PR head" >&2
+              exit 1
+            fi
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "causality refuses to switch a checkout with tracked changes" >&2
+              exit 1
+            fi
+            BASE=$(git merge-base "$base_tip" "$PR_HEAD")
+            trap 'git checkout --detach "$merge_head" || exit 1' EXIT
+            git checkout --detach "$PR_HEAD"
+          fi
           if [ -z "$BASE" ]; then
             echo "no usable base ref; causality not checked"
             exit 0
