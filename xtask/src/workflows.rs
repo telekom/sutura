@@ -66,6 +66,11 @@ mod reach;
 // do* is this gate's question, and it already walks every place CI invokes something from.
 mod scorecard;
 
+// CAN THE PUBLICATION THE BADGE IS SERVED FROM LAND? `scorecard` holds badge <-> publication
+// DECLARED; this holds the workflow against the shape `api.scorecard.dev` will actually accept,
+// because three runs reported success while the API refused every one of them.
+mod publication;
+
 /// Which output namespace a reference points into.
 ///
 /// `Runnable` and not `App`: `nix run .#name` resolves an app OR a package with a matching main
@@ -189,9 +194,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // are rules about what a workflow is ALLOWED to assert rather than about whether it resolves -
     // and a badge is the one thing in this tree that asserts a control to somebody who cannot read
     // the tree. See `scorecard`'s header for each rule and the limit beside it.
-    let badges = scorecard::problems(&root);
+    let mut badges = scorecard::problems(&root);
+    badges.extend(publication::problems(&root));
     if !badges.is_empty() {
-        eprintln!("xtask check-workflows: FAILED - {} badge rule(s) broken\n", badges.len());
+        eprintln!(
+            "xtask check-workflows: FAILED - {} badge/publication rule(s) broken\n",
+            badges.len()
+        );
         for problem in &badges {
             eprintln!("  {problem}");
         }
@@ -219,7 +228,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             walked.len(),
             walked.join(", ")

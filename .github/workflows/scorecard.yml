@@ -32,6 +32,16 @@
 #     Every image this repository reaches itself goes through `SUTURA_IMAGE_REGISTRY`; one named
 #     inside a third-party action cannot.
 #
+# THE PUBLICATION HAS A WITNESS NOW, because it did not have one and needed it: this workflow
+# reported `completed success` three times while `api.scorecard.dev` held no record of this project.
+# The action attempts the publish, the API refuses it, and `signing.ProcessSignature` turns that
+# refusal into a `::warning::` and returns nil - so a green run said nothing about whether anything
+# landed. Two mechanisms now cover the two halves. `cargo xtask check-workflows` reads this file
+# against every rule the API applies to a producing workflow, offline and inside the required `ci`
+# job - the reason `score` runs on `ubuntu-latest` and the reason the witness is its own job. The
+# `published` job asks the API whether it actually holds a score. Neither can substitute for the
+# other: the first is a precondition read from a file, the second is the outcome.
+#
 # NOT REQUIRED, and the limit belongs next to the claim: the only status context the `main` ruleset
 # requires is `ci` - see `devco/required-contexts` for the dated read. This workflow reports no
 # context on a pull request, because it deliberately does not run on one: the checks read what is
@@ -64,7 +74,20 @@ concurrency:
 
 jobs:
   score:
-    runs-on: rust-mcp
+    # `ubuntu-latest` AND NOT `rust-mcp`, and it is the only job here that is not self-hosted.
+    # This is the fix for a publication that reported success three times and landed nothing.
+    # `api.scorecard.dev` verifies the PRODUCING WORKFLOW before it accepts a score, and one of
+    # its rules is an allowlist of runner labels. Measured from run 34174327175 on 2026-09-08:
+    #
+    #   http response 400 ... "workflow verification failed: scorecard job has invalid runner
+    #   label: 'rust-mcp', see .../scorecard-action#workflow-restrictions for details."
+    #
+    # The action retries, then logs `::warning::` and returns nil - so the step exits 0 and the
+    # badge never resolves. `cargo xtask check-workflows` now holds every one of those rules
+    # against this file; `xtask/src/workflows/publication.rs` is the reading and the allowlist.
+    # Nothing of ours runs in this job - no nix, no cargo, just a third-party container - so the
+    # self-hosted label bought nothing here.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     # EVERY PERMISSION, NAMED, because a permission block is a security surface in itself. A
     # job-level block REPLACES the workflow-level one rather than adding to it.
@@ -114,3 +137,63 @@ jobs:
           path: scorecard.json
           if-no-files-found: warn
           retention-days: 90
+
+  # THE PUBLICATION'S WITNESS. The property is *the publication landed*, never *the publisher ran*
+  # - and the difference was a live defect, not a hypothetical: `score` above exited 0 three times
+  # while api.scorecard.dev held no record of this project, because the action downgrades the API's
+  # refusal to a warning. Nothing noticed, and nothing could have: no step asked the API.
+  #
+  # WHY A SEPARATE JOB, and it is not a style choice. api.scorecard.dev refuses the results of a
+  # scoring job containing ANY step that is not a call to one of five approved actions, so a `run:`
+  # step added to `score` would have broken the very publication it was meant to witness. That rule
+  # is now held offline by `cargo xtask check-workflows`, with this job as its own test case.
+  #
+  # WHY NO `needs: score`, which is the part worth reading twice. Publication is ASYNCHRONOUS: the
+  # API does not answer the instant the job exits, so a poll in the same run would be a sleep
+  # dressed up as a check - and a sleep long enough to be honest is a sleep long enough to be
+  # flaky. So this job does not wait for anything. Its subject is what api.scorecard.dev holds
+  # NOW, which is what PREVIOUS runs published. The delay it tolerates is the interval between two
+  # runs of this workflow - real elapsed time nothing here controls - and the cost is stated
+  # plainly: the lag is one run. The first run after a fix reddens, the next one is the verdict.
+  #
+  # WHAT IT DOES NOT HOLD. That THIS run's score landed - only that the project has published
+  # data. A publication that starts failing after one success keeps this green until the API's
+  # record ages out. Tightening it to compare the stored commit was weighed and refused: the API
+  # indexes with a lag of its own, so that check would go red on freshness rather than on failure,
+  # which is the flaky-control shape this file exists to avoid.
+  published:
+    runs-on: rust-mcp
+    timeout-minutes: 5
+    # NO `id-token: write`, and that is a hard requirement rather than least privilege for its own
+    # sake: api.scorecard.dev refuses the whole workflow if any job other than the scoring one can
+    # mint that token. `check-workflows` holds it.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: api.scorecard.dev holds a score, and the README shows it
+        env:
+          SLUG: ${{ github.repository }}
+        run: |
+          set -eu
+          code=$(curl -sS -m 30 -o /dev/null -w '%{http_code}' \
+            "https://api.scorecard.dev/projects/github.com/${SLUG}" || echo 000)
+          echo "api.scorecard.dev/projects/github.com/${SLUG} -> HTTP ${code}"
+          pending=$(grep -c 'openssf%20scorecard-publication%20pending' README.md || true)
+          if [ "${code}" != "200" ]; then
+            echo "::error ::The publisher ran and the publication did not land: the API has no" \
+              "score for this repository. A green 'score' job does not mean published - the" \
+              "action downgrades the API's refusal to a warning. Read that step's log for the" \
+              "refusal reason, and see xtask/src/workflows/publication.rs for the shape rules."
+            exit 1
+          fi
+          if [ "${pending}" != "0" ]; then
+            echo "::error ::The publication landed and README.md still shows the" \
+              "publication-pending stand-in. Restore the live badge - this is the mechanism that" \
+              "remembers, so the stand-in cannot quietly become permanent."
+            exit 1
+          fi
+          echo "The publication landed and README.md shows the live badge."

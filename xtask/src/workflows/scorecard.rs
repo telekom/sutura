@@ -71,7 +71,7 @@ use std::path::Path;
 use super::sources;
 
 /// The workflow that runs and publishes the scan.
-const WORKFLOW: &str = ".github/workflows/scorecard.yml";
+pub(super) const WORKFLOW: &str = ".github/workflows/scorecard.yml";
 
 /// The dated decision behind the publication.
 const RECORD: &str = "devco/scorecard-publication";
@@ -97,6 +97,23 @@ const PUBLISH: &str = "publish_results";
 
 /// The badge image host and path, without the slug.
 const SCORECARD_BADGE: &str = "https://api.scorecard.dev/projects/";
+
+/// The static stand-in the Scorecard badge wears while the publication it reports has not landed.
+///
+/// **Not a cosmetic choice, and it is the third rule's subject rather than an escape from it.** The
+/// live badge renders `invalid repo path` until `api.scorecard.dev` holds a score - measured on
+/// 2026-09-08, with the repository already public - which puts a FAILED status on the front page.
+/// That is a public claim in the wrong direction, so the badge waits.
+///
+/// What the stand-in has to keep is the property the second rule below protects: the DISCLOSURE
+/// stays visible to a reader of `README.md`. It names this repository, links to the same viewer,
+/// and says the score is pending - so `publish_results: true` with a stand-in is still a
+/// disclosure somebody reading the page can see, while `publish_results: true` with NO badge at
+/// all remains a failure. The two are not the same edit and this rule does not treat them alike.
+const PENDING: &str = "openssf%20scorecard-publication%20pending";
+
+/// The viewer link both forms carry, so the slug has one subject whichever is shown.
+const VIEWER: &str = "https://scorecard.dev/viewer/?uri=github.com/";
 
 /// The REUSE badge image host and path, without the slug.
 const REUSE_BADGE: &str = "https://api.reuse.software/badge/";
@@ -154,7 +171,11 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     // without the explanation counting as setting it - the distinction
     // `workflows::collect`'s `a_comment_is_not_a_reference` draws.
     let publishes = publishes(&workflow);
-    let badged = readme.contains(SCORECARD_BADGE);
+    // THE LIVE BADGE OR ITS DECLARED STAND-IN. See [`PENDING`] for why a stand-in satisfies the
+    // disclosure rule and an absent badge still does not.
+    let live = readme.contains(SCORECARD_BADGE);
+    let pending = readme.contains(PENDING);
+    let badged = live || pending;
 
     // BOTH DIRECTIONS, and only one of them is obvious. A badge with publication off is a dead
     // image; publication with no badge is a disclosure no reader of the README can see.
@@ -168,9 +189,21 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
             "{WORKFLOW} sets `{PUBLISH}` to a value that publishes, which sends this repository's score to the public api.scorecard.dev, and {README} shows no badge - the disclosure would be visible only in YAML"
         ));
     }
-    if badged && !readme.contains(&format!("{SCORECARD_BADGE}github.com/{slug}/badge")) {
+    if live && !readme.contains(&format!("{SCORECARD_BADGE}github.com/{slug}/badge")) {
         problems.push(format!(
             "the Scorecard badge in {README} does not name `{slug}` - a badge copied from another project renders somebody else's score under this name"
+        ));
+    }
+    if badged && !readme.contains(&format!("{VIEWER}{slug}")) {
+        problems.push(format!(
+            "the Scorecard badge in {README} does not link to `{VIEWER}{slug}` - the stand-in carries no score of its own, so the link is the only thing that says WHICH project is pending"
+        ));
+    }
+    // BOTH AT ONCE IS THE ONE THAT WOULD HIDE THE OTHER: a stand-in beside a live badge would
+    // satisfy every rule here while the live one goes on rendering `invalid repo path`.
+    if live && pending {
+        problems.push(format!(
+            "{README} shows the live Scorecard badge AND its publication-pending stand-in - the stand-in exists to REPLACE the live badge until api.scorecard.dev holds a score, and beside it it hides nothing"
         ));
     }
 
@@ -424,7 +457,7 @@ fn slug(package: &str) -> Option<String> {
 /// and so does anything this reader cannot classify - an expression, a typo, a YAML scalar nobody
 /// expected. The alternative direction would let one unrecognised spelling publish a score with no
 /// badge and no record, which is exactly the bypass this replaced.
-fn publishes(workflow: &str) -> bool {
+pub(super) fn publishes(workflow: &str) -> bool {
     uncommented(workflow).any(|line| {
         let Some(rest) = line.trim().strip_prefix(PUBLISH) else {
             return false;
@@ -443,7 +476,7 @@ fn publishes(workflow: &str) -> bool {
 ///
 /// Whole lines only, deliberately. Stripping from the first `#` would also cut the `# v7.0.1`
 /// that names the version behind every pinned action SHA, and the needle here is a key.
-fn uncommented(text: &str) -> impl Iterator<Item = &str> {
+pub(super) fn uncommented(text: &str) -> impl Iterator<Item = &str> {
     text.lines().filter(|line| !line.trim_start().starts_with('#'))
 }
 
@@ -498,7 +531,14 @@ mod tests {
 
         let readme_both = concat!(
             "<img src=\"https://api.reuse.software/badge/github.com/telekom/sutura\">\n",
-            "<img src=\"https://api.scorecard.dev/projects/github.com/telekom/sutura/badge\">\n",
+            "<a href=\"https://scorecard.dev/viewer/?uri=github.com/telekom/sutura\">",
+            "<img src=\"https://api.scorecard.dev/projects/github.com/telekom/sutura/badge\"></a>\n",
+        );
+        // The same page with the live badge swapped for its publication-pending stand-in.
+        let readme_pending = concat!(
+            "<img src=\"https://api.reuse.software/badge/github.com/telekom/sutura\">\n",
+            "<a href=\"https://scorecard.dev/viewer/?uri=github.com/telekom/sutura\">",
+            "<img src=\"https://img.shields.io/badge/openssf%20scorecard-publication%20pending-inactive.svg\"></a>\n",
         );
         let publishing = "    with:\n      publish_results: true\n";
 
@@ -541,6 +581,26 @@ mod tests {
         );
         let found = problems(&scratch);
         assert!(found.iter().any(|p| p.contains("visible only in YAML")), "{found:?}");
+
+        // 2a. The STAND-IN is not that edit, and this is the line between them: it keeps the
+        //     disclosure on the page, so it satisfies rule 2 where an absent badge does not.
+        write(&scratch.join(README), readme_pending);
+        assert!(problems(&scratch).is_empty(), "{:?}", problems(&scratch));
+
+        // 2b. Both at once - the stand-in beside the live badge hides nothing and the live one
+        //     goes on rendering a failed status.
+        write(&scratch.join(README), &format!("{readme_pending}{readme_both}"));
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("hides nothing")), "{found:?}");
+
+        // 2c. A stand-in that names no project. It carries no score of its own, so the link is
+        //     the only thing saying which repository is pending.
+        write(
+            &scratch.join(README),
+            &readme_pending.replace("?uri=github.com/telekom/sutura", "?uri=github.com/someone/else"),
+        );
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("WHICH project is pending")), "{found:?}");
 
         // 3. A badge naming another project.
         write(
