@@ -499,11 +499,12 @@ to compare* rather than *empty dataset*. Nor does it reach a dataset every one o
 crate drops - that is `ListingTotal::Accounted` beside no ids, deliberately, because it is an
 ordinary dataset no model in the bundle could have named anyway.
 
-**Why it travels on the answer rather than being decided here, which is not the same as *it
-could not be*:** `JobTransport::listing_was_refused` is proof that this port can hold a
-decision on the layer above's behalf. So the layer is a CHOICE, and the reason it is this one is
-that the choice is not settled - `docs/adr/0018` states why refusing is not obviously the safe
-direction - and a transport that turned the value into a verdict would have taken it.
+**Why it travels on the answer rather than being decided here, now that it IS decided on:** the
+decision needs the tables the BUNDLE names, and this port has never seen them - it answers about
+a dataset. `BigQueryWarehouse::preflight` is where the two meet, and that is the layer that reads
+this field. `JobTransport::listing_was_refused` shows the port CAN hold a decision on the layer
+above's behalf, so the layer is a choice rather than a constraint; the reason it is this one is
+that a verdict minted here would be one taken without half its input.
 
 The set is still what the pre-flight asks with, and `Self::holds` is its only question;
 `Self::named` is for a diagnostic and for a test, not for a count anything concludes from.
@@ -580,6 +581,81 @@ wrong number, and this one cannot, because a short listing is a boot warning.
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct Shortfall`
+
+```rust
+pub struct Shortfall
+```
+
+How far a listing fell short of its own reported total.
+
+**A parsed type and not two `u64` fields on the variant, because the variant's fields were
+PUBLIC and the invariant lived in an `if` one module away.** Review reproduced
+`telekom/sutura#275` through that door on an unmutated tree: `ListingTotal::Short { reported: 1,
+identified: 5 }` is constructible, `HeldTables::of` is a `pub const fn`, and the pre-flight's
+subtraction then saturated to a shortfall of zero and fell back to reporting the bundle's tables
+ABSENT - the exact defect being fixed, reachable through the public API. A type that forecloses a
+zero shortfall is worth nothing while a constructor can route around it, so the door is closed
+rather than documented.
+
+Stored as `identified` plus a `NonZeroU64` gap rather than the two totals, so
+`Self::unaccounted` is a field read: the *count that decides* cannot be derived wrongly, and
+`Self::reported` reconstructs exactly because the sum is the number `Self::parse` was given.
+
+#### Methods
+
+```rust
+pub const fn identified(&self) -> u64
+```
+
+How many entries of the same document carried a table id this crate could read.
+
+```rust
+pub fn parse(reported: u64, identified: u64) -> Result<Self, NotShort>
+```
+
+Parses a reported total against the ids of the same document this crate could read.
+
+# Errors
+
+`NotShort::Accounted` where the total is not ABOVE the identified count - which is
+`ListingTotal::Accounted`'s case and belongs in that variant, not this one.
+
+```rust
+pub const fn reported(&self) -> u64
+```
+
+The total the document reported.
+
+```rust
+pub const fn unaccounted(&self) -> NonZeroU64
+```
+
+How many tables the total claims that no readable id accounted for. Never zero.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum NotShort`
+
+```rust
+pub enum NotShort
+```
+
+Why a pair of counts is not a shortfall.
+
+One variant, an enum for the reason every other error in this crate is one: a second reason has
+somewhere to go.
+
+#### Variants
+
+- `Accounted` - The total is not above the ids the same document accounted for, so nothing is missing.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `enum NamedResource`
 
