@@ -5,6 +5,38 @@ use sutura_domain::identity::Presented;
 use crate::transport::{Cell, JobRequest, JobTransport};
 use crate::{BigQueryError, BigQueryWarehouse, Mapped};
 
+/// An endpoint identity answer whose `Debug` never renders its contents.
+///
+/// [`Self::as_str`] and `Display` expose the unchanged answer. This is a `Debug` boundary,
+/// not a restriction on intentional logging, nor validation or authentication of the identity.
+pub struct SessionUser(String);
+
+impl SessionUser {
+    /// Retains an identity answer unchanged, without validating its spelling or provenance.
+    #[must_use]
+    pub const fn new(answer: String) -> Self {
+        Self(answer)
+    }
+
+    /// Borrows the answer for a caller that has decided it may inspect or render it.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl core::fmt::Display for SessionUser {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl core::fmt::Debug for SessionUser {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SessionUser(<redacted>)")
+    }
+}
+
 /// The one statement this adapter issues that asks the endpoint about the CALLER rather than about
 /// data: who does this data system believe is executing this job?
 ///
@@ -24,7 +56,7 @@ use crate::{BigQueryError, BigQueryWarehouse, Mapped};
 /// composition's, and `docs/where-identity-is-proven.md` is where it is kept.
 const SESSION_USER: &str = "SELECT SESSION_USER() AS session_user";
 
-pub(super) fn session_user<T>(warehouse: &BigQueryWarehouse<T>, presented: &Presented) -> Mapped<String, T::Error>
+pub(super) fn session_user<T>(warehouse: &BigQueryWarehouse<T>, presented: &Presented) -> Mapped<SessionUser, T::Error>
 where
     T: JobTransport,
 {
@@ -65,5 +97,5 @@ where
     let [Cell::Text(who)] = row.as_slice() else {
         return Err(shape());
     };
-    Ok(who.clone())
+    Ok(SessionUser::new(who.clone()))
 }

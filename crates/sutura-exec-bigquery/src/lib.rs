@@ -109,6 +109,7 @@ pub mod transport;
 pub mod wire;
 
 mod identity_read;
+pub use identity_read::SessionUser;
 
 // The fixture loader, behind the default-off `fixtures` feature. `Cargo.toml` carries the argument
 // for why it is a feature and not simply a `#[cfg(test)]` helper: an INTEGRATION test target is a
@@ -519,6 +520,8 @@ where
     /// It goes through [`Self::deliverable`] like every other credential-taking method, so a leg
     /// whose credential disagrees with the source's posture is refused here too rather than being
     /// answered by a read that looks harmless.
+    /// The [`SessionUser`] answer redacts under `Debug`; explicit access and `Display` still
+    /// reveal it. Neither this read nor its return type establishes how the bearer was obtained.
     ///
     /// **Not part of the [`Warehouse`] port, and that is a decision rather than an omission.** No
     /// other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
@@ -532,7 +535,7 @@ where
     /// [`BigQueryError::Incomplete`] where the page and the reported total disagree, and
     /// [`BigQueryError::NoIdentityInTheAnswer`] where the answer is not one row of one text cell.
     /// Nothing here quotes what came back: see that variant.
-    pub fn session_user(&self, presented: &Presented) -> Mapped<String, T::Error> {
+    pub fn session_user(&self, presented: &Presented) -> Mapped<SessionUser, T::Error> {
         identity_read::session_user(self, presented)
     }
 
