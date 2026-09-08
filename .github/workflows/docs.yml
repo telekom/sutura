@@ -240,7 +240,8 @@ jobs:
       # could not run is not evidence, so it buys the gates back rather than the skip.
       #
       # WHAT THIS NO LONGER CHECKS ON A PULL REQUEST, stated rather than implied, because the
-      # replacement is NARROWER than what it replaced. `hygiene` is thirteen gates. Seven of them
+      # replacement is NARROWER than what it replaced. The sweep is larger than the gates this
+      # argument names - the ones a markdown-only diff can or cannot reach. Seven of them
       # - `check-boundaries`, `check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`,
       # `check-workflows`, `check-crap` - read Rust, manifests, lock files or workflow YAML, none
       # of which a markdown-only diff can change, so skipping those loses nothing. The six that
