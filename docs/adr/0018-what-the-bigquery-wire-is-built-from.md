@@ -655,16 +655,27 @@ bullets down:
   a `min` is the rule held by recall this repository does not accept. It hid because every cell but
   the two that RENDER runs a gap larger than its set.
 
-  **What the decision does NOT reach, stated where the claim is.** Only `Short` is read. A service
-  that re-spells the count as well leaves `Unreadable`, which by this crate's own words is *itself a
-  shape change*, and it still answers *absent* - that is `telekom/sutura#443`, and it is out of reach
-  here rather than overlooked: `Unaccounted` carries a `NonZeroU64` shortfall and `Unreadable` has no
-  number to put in it, so covering it changes the answer's shape. `Unreported` beside no ids is
+  **An unreadable count is a separate, count-free refusal (`telekom/sutura#443`).** `Unreadable`
+  retains the whole listing's identified count, before unsupported names are filtered out. Beside
+  zero readable IDs it now produces `UnreadableInventory(UnaccountedTables)`, carried through the
+  application verdict to both roots. There is no invented shortfall and neither root names a model
+  to fix. Readable-but-rejected IDs still count, so an ordinary unsupported name cannot trigger this
+  refusal merely because the named set is empty. The counted `Unaccounted` shape and its nonzero
+  bound remain unchanged.
+
+  Among successful listing answers, a definite absence is reported first, then an unreadable
+  inventory, then a counted gap. This is a diagnostic policy, not an ordering inherent in the
+  evidence: all three refuse startup. Their table sets stay separate, so an unreadable dataset's
+  message does not relabel tables from a counted-gap dataset. The existing transport-error `?`
+  still stops the listing walk; this precedence makes no promise over a failed metadata request.
+
+  **What remains outside the decision.** `Unreported` beside no ids is
   deliberately not in that issue, and the reason is the variant's own: *an empty listing and an empty
   dataset are one value* there, so nothing in the document tells them apart and a refusal would be
   taken on evidence that does not distinguish them - it is where every boot stood before the field
   was decoded. A dataset every id of which `usable_table_id` drops is `Accounted` beside no ids and
-  is an ordinary dataset. A gap is not a diagnosis, so a
+  is an ordinary dataset. An unreadable total with a nonzero identified count also retains its
+  previous presence/absence reading. A gap is not a diagnosis, so a
   document whose shape changed and a table created or dropped mid-listing are one answer. A definite
   absence outranks a gap ACROSS datasets, so where a bundle has both the gap waits for the next boot;
   within one dataset the two numbers are carried side by side instead. Both refuse, so nothing serves

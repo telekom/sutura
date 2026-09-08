@@ -632,6 +632,45 @@ fn one_call_per_dataset_and_not_one_per_model() {
 }
 
 #[test]
+fn successful_listing_diagnostics_keep_their_precedence_and_their_own_tables() {
+    for (unreadable, counted) in [("alpha", "omega"), ("omega", "alpha")] {
+        for definite_absence in [false, true] {
+            let transport = Recording::empty()
+                .holding_with_total(
+                    &format!("acme-analytics/{unreadable}"),
+                    &[],
+                    ListingTotal::Unreadable { identified: 0 },
+                )
+                .holding_with_total(&format!("acme-analytics/{counted}"), &[], short(3, 0))
+                .holding_with_total("acme-analytics/middle", &[], ListingTotal::Accounted { reported: 0 });
+            let unknown_table = format!("{unreadable}.dim_unknown");
+            let counted_table = format!("{counted}.dim_counted");
+            let mut requested = asked(&[&unknown_table, &counted_table]);
+            if definite_absence {
+                requested.insert(QualifiedTable::parse("middle.dim_absent").expect("a table path"));
+            }
+            let answer = open(transport, shared_posture())
+                .preflight(&requested)
+                .expect("all listings answered");
+            if definite_absence {
+                assert_eq!(absent_names(&answer), vec![String::from("middle.dim_absent")]);
+            } else {
+                assert!(answer.was_asked());
+                assert!(answer.absent().is_none());
+                let TablesPresent::UnreadableInventory(tables) = answer else {
+                    panic!("an unreadable inventory precedes a counted gap: {answer:?}");
+                };
+                assert_eq!(
+                    tables.to_string(),
+                    unknown_table,
+                    "the counted dataset's tables must not be relabeled"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn an_unqualified_model_is_looked_for_in_the_dataset_the_source_was_opened_against() {
     // The same decision the request body's `defaultDataset` carries, in the one other place this
     // adapter has to resolve a bare name. Getting it wrong would look for every unqualified model in
