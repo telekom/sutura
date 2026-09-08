@@ -131,6 +131,8 @@ fn indent(line: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
+    mod causality;
+
     /// Two jobs naming the same app, a parked reference above the live one, and the next job
     /// introduced by a comment at a job's own indentation - the three shapes of the real file.
     const WORKFLOW: &str = concat!(
