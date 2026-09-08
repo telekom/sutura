@@ -359,35 +359,65 @@ the work would have been spent on rows that fixed themselves.
 The recommendation above says a CodeQL Rust taint check "can fail on a real risk in this tree",
 and `#464` is the change, previously blocked on the visibility flip. The repository is public now,
 so the SARIF upload can work - and the change ran head-first into a second blocker, this one inside
-the tool. It is recorded here because it changes the recommendation's standing: **the specific
-taint flow `#464` exists to hold is not tracked by CodeQL Rust at the pinned version, so a job
-added today would be green while reporting nothing on exactly the defect it was for. That is the
-"runs and analyses nothing" shape this repository refuses, so the workflow is deliberately not
-added yet.**
+the tool. It is recorded here because it changes the recommendation's standing: **the specific taint
+flow `#464` exists to hold is not reported by the buildless Rust database a CodeQL job here would
+build, so a job added today would be green while reporting nothing on exactly the defect it was for.
+That is the "runs and analyses nothing" shape this repository refuses, so the workflow is
+deliberately not added yet.**
 
-**The measurement.** CodeQL CLI `2.26.4` - the bundle the pinned action resolves to as of this date
-- was run over a buildless Rust database built from a realistic probe of the exact shape this tree
-compiles SQL in: a value supplied by a caller (a handler parameter) is interpolated with `format!`
-into a statement and executed by `rusqlite::Connection::execute` - *interpolated instead of bound*,
-the failure class `SECURITY.md` names. The full default Rust query suite found **no** `rust/sql-injection`
-finding. The `rust/summary/query-sinks` and `rust/summary/taint-sources` diagnostic queries confirm
-both endpoints are modelled in the same database: the remote source *is* recognised, and the
-`SqlInjection` sink *is* recognised. The taint simply never travels between them.
+**The measurement.** CodeQL CLI `2.26.4` with `codeql/rust-all` `0.2.20` and `codeql/rust-queries`
+`0.1.41` - the bundle `codeql-bundle-v2.26.4`, which is what the action resolves to as of this date
+- was run over a **buildless** Rust database (`--build-mode=none`, the mode a job here would use)
+built from a probe of the exact shape this tree compiles SQL in: a caller-supplied value is
+interpolated into a statement and executed by `rusqlite::Connection::execute` - *interpolated
+instead of bound*, the failure class `SECURITY.md` names. The full default Rust query suite found
+**no** `rust/sql-injection` finding, and `rust/summary/query-sinks` and `rust/summary/taint-sources`
+confirm both endpoints are modelled in that database.
 
-**The cause, isolated rather than assumed.** Two controlled variants bound it precisely. A caller
-value passed to the sink argument **unchanged** (`conn.execute(caller, ...)`) is flagged. The same
-value passed **through `format!`** - or through `+` string concat - into a produced `String` that is
-then executed is **not** flagged. Reading the shipped taint library (`codeql/rust-all` 0.2.20 at
-this CLI): Rust taint propagates a value into a `format_args!` node - which is why `rust/log-injection`,
-whose sink reads the format *arguments*, does fire - but there is **no step from a `format_args!`
-node to the `String` it produces**, and that step predicate is `cached`, not `extensible`, so no
-query pack can supply it with the shipped library. Taint out of string building is the missing edge.
+**The cause, isolated by re-measurement rather than assumed.** Six variants, taint traced from a
+caller-supplied value to the first argument of `execute`:
 
-**What this means for the recommendation.** The recommendation to add CodeQL for Rust stands, and
-the reason is now finer than "it is a real check": the tool's *source and sink modelling* for this
-class are present and correct, but the *interpolated-text* taint edge is absent, so the check cannot
-yet fail on the risk `SECURITY.md` names. A job that stops being green at a later CodeQL release
-that lands that edge - and a QL regression pinning it - is the shape to revisit, and the release to
-watch is the one whose notes mention taint through string formatting for Rust. Until then, adding
-the job would trade a recorded zero (through `#464`) for a green run that looks like coverage and
-isn't, which this record already treats as the worse error.
+| Variant | Reaches the sink |
+| --- | --- |
+| value passed straight to `execute` | **yes** |
+| value bound to a local, then passed | **yes** |
+| through `format!` into a local, then passed | no |
+| `format!` inline at the call | no |
+| through `+` string concat | no |
+| through `.to_string()` | no |
+
+`.to_string()` failing rules out anything specific to string formatting: what the four failing
+variants share is that the executed value is an owned `String` produced by a **standard-library**
+function. The shipped library models exactly that step - `codeql/rust/frameworks/stdlib` carries
+`alloc::fmt::format` as `Argument[0]` to `ReturnValue`, `taint`, `manual` - and the row **is
+loaded**. It is inert: **the database contains no function whose canonical path is `alloc::fmt::format`,
+and none beginning `alloc::` at all**, because a buildless database extracts the crate's own
+dependencies but not `alloc`/`std`. The summary has no callable to attach to, so the step silently
+does not exist. Every cargo dependency, `rusqlite` included, *is* extracted - which is why the sink
+is recognised and the direct variant flows.
+
+**The first reading of this was wrong, and the correction is the part worth keeping.** It was first
+recorded here as a missing edge in the query library - no step from a `format_args!` node to the
+`String` it produces, in a `cached` predicate no pack could extend. Both halves are false at this
+version: the step is modelled, and `summaryModel` is `extensible`, so a pack *can* supply models.
+The failure mode is worse than a missing query: **a taint summary that names a callable the database
+does not contain produces no finding and no error.** A SAST job can therefore be green because its
+models were inert, and nothing in the run says so - the same "looks like coverage" shape this record
+refuses, one layer further down.
+
+**What this means for the recommendation.** The recommendation to add CodeQL for Rust stands, and the
+next step is now an experiment rather than a wait: **build the database with a real build mode, or
+with dependency-and-standard-library extraction, and re-run the probe.** If the flow is then
+reported, a shippable job exists today and the only cost is build time in CI; if it still is not,
+the gap is in the library after all and the release to watch is the one whose notes mention Rust
+taint through owned-`String` construction. Until one of those is measured, adding the job would
+trade a recorded zero for a green run that looks like coverage and isn't, which this record already
+treats as the worse error.
+
+**What this does not say.** It does not say CodeQL Rust cannot track this class - only that it did
+not, in a buildless database at the version named, for the reason isolated above. The variant table
+was measured with a caller-supplied parameter as the taint source, which is not itself a modelled
+remote source; it isolates propagation, not whether `rust/sql-injection` fires end-to-end. And
+nothing here is held by a gate: `xtask`'s SAST rule refuses a Scorecard-recognised scanner while
+this record still accepts the zero, so the *absence* of the workflow is enforced - the reason for
+the absence is only written down.
