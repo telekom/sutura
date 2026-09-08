@@ -37,13 +37,13 @@ internal that a stable surface can grow behind.
 | 1 | ~~`feat/agent-surface`~~ | - | **DONE** - #35 |
 | 2 | ~~`docs/inbound-identity`~~ | - | **DONE** - landed as [0014](adr/0014-how-a-caller-proves-who-it-is.md) |
 | 3 | ~~`feat/agent-surface-scope`~~ | 1, and leg 1 for a claim to filter on | **DONE** - #49 |
-| 4 | ~~`feat/federation-decomposability`~~ | - | **DONE** - #33. Built and NOT wired; see AGENTS.md |
+| 4 | ~~`feat/federation-decomposability`~~ | - | **DONE** - #33. Wired since #441; the *built and NOT wired* note and its `AGENTS.md` citation are both spent - that section has not existed since #228, and the register is `.agents/skills/sutura/query-surface` |
 | 5 | ~~`feat/principal-chain`~~ | - | **DONE** - #37. Both tail positions still absent |
 | 6 | ~~`feat/query-bounds`~~ | - | **DONE** - #38 |
 | 7 | ~~`test/startup-source-refusals`~~ | - | **DONE** - #31 |
 | 8 | ~~`feat/source-registry`~~ | - | **DONE** - #48. Two of row 7's tests were replaced rather than kept: a multi-source CATALOG is servable now, and the source-NAME comparison became a declared kind |
-| 9 | ~~`feat/leg-plan-types`~~ | - | **DONE** - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md |
-| 10 | ~~`feat/two-source-execution`~~ | 8, 9 - both **done** | **DONE** - #89. The splitter, the combiner and `answer_federated`; both SHIPPED adapters still decline a leg, which is #112 |
+| 9 | ~~`feat/leg-plan-types`~~ | - | **DONE** - #47. The shapes and their rendering; wired since #441, and the `AGENTS.md` citation is dead - see row 4 |
+| 10 | ~~`feat/two-source-execution`~~ | 8, 9 - both **done** | **DONE** - #89. The splitter, the combiner and `answer_federated`. *Both SHIPPED adapters still decline a leg* is spent: the engine declares `EXECUTES_LEGS` since #441, so a published build answers two sources |
 | 11 | `feat/conformance-packs` | 10 - **done** | **#116**. None of [0012](adr/0012-conformance-packs-for-inputs-and-adapters.md) is built; the golden matrix is still a macro over three axes in one crate's tests |
 | 12 | ~~`feat/credential-port`~~ | 2, 5, 8 - all **done** | **DONE**. `Warehouse::execute` takes a `&Presented`, `LegCredentials` hoists one asker and one deadline over N legs, and a subject with no credential at a source is refused rather than answered as the process |
 | 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - all **done** | **#113**. A decision before a check: refuse a mixed-posture answer, disclose it, or make it configurable |

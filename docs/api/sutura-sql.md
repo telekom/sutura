@@ -244,11 +244,18 @@ keeps two projected aliases differing only in case as two distinct output column
 the coarser of the two behaviours covers both.
 
 **`Postgres` and `ClickHouse` are `Sensitive`, from their documented behaviour and NOT measured
-here** - neither has a server in this repository to ask, which is why the paragraph above about
-the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
-compares exactly, and this renderer force-quotes every identifier; `ClickHouse` identifiers are
-case-sensitive. Nothing in this workspace executes either, which `AGENTS.md` already says of
-every `ClickHouse` golden.
+here**, which is why the paragraph above about the direction of a wrong declaration matters.
+A Postgres quoted identifier preserves case and compares exactly, and this renderer
+force-quotes every identifier; `ClickHouse` identifiers are case-sensitive.
+
+**Two sentences that used to stand here are spent, and they went false in different
+directions.** *Neither has a server in this repository to ask* is now false for `Postgres`:
+`nix/postgres-tier.nix` provisions one and every venue that runs the suite provisions the
+tier, so `crates/sutura-exec-postgres/tests/conformance.rs`' cells RUN. What stays true is
+that this DECLARATION is still taken from documentation rather than from that server - the
+venue exists and nothing yet asks it about identifier folding. And *nothing in this workspace
+executes either, which `AGENTS.md` already says* was false twice over: `Postgres` executes,
+and `AGENTS.md` has said nothing about `ClickHouse` since `#228`.
 
 ```rust
 pub const fn identifier_quote(self) -> IdentifierQuote
@@ -311,7 +318,9 @@ and is what a `schema.table` model gets.
 
 **`ClickHouse` is `Dataset` for its `database.table`.** It has databases and no catalog above
 them. Its arm is a rendering claim and not an execution one: nothing in this workspace
-executes `ClickHouse`, which `AGENTS.md` already says of every `ClickHouse` golden.
+executes `ClickHouse`, and `.agents/skills/sutura/invariants` is where that is recorded.
+**This used to cite `AGENTS.md`, which has said nothing about `ClickHouse` since `#228`** -
+a citation to a deleted section reads as corroboration and supplies none.
 
 **`DuckDB` is `TableOnly`, and that arm is the one worth reading twice** - `DuckDB` *does* have
 schemas and attached catalogs, so this is narrower than what the engine can parse. It is
