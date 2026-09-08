@@ -2701,12 +2701,10 @@ how many there were supposed to be.</p>
 reason.</strong> The set alone cannot tell an EMPTY dataset from a document whose shape the service
 changed: both arrive as no ids at all, and the pre-flight reads no ids as <em>every table is
 absent</em>. <code>ListingTotal</code> is what the two can be told apart by.</p>
-<p><strong>And exactly that far, which is the limit next to the claim.</strong> It reaches a shape change the
-same document still reports a readable count beside: a service that re-spelled <code>totalItems</code> as
-well leaves <code>ListingTotal::Unreported</code> or <code>ListingTotal::Unreadable</code>, and those say <em>nothing
-to compare</em> rather than <em>empty dataset</em>. Nor does it reach a dataset every one of whose ids this
-crate drops - that is <code>ListingTotal::Accounted</code> beside no ids, deliberately, because it is an
-ordinary dataset no model in the bundle could have named anyway.</p>
+<p>A readable total can expose a shortfall. An unreadable total beside zero readable IDs exposes
+an inventory this adapter could not read, without supplying a count. <code>ListingTotal::Unreported</code>
+still cannot distinguish an empty dataset from a changed document. Readable IDs dropped by name
+filtering remain identified, so an ordinary dataset of unsupported names is not that finding.</p>
 <p><strong>Why it travels on the answer rather than being decided here, now that it IS decided on:</strong> the
 decision needs the tables the BUNDLE names, and this port has never seen them - it answers about
 a dataset. <code>BigQueryWarehouse::preflight</code> is where the two meet, and that is the layer that reads
@@ -2738,8 +2736,8 @@ carries the argument, and this is the call it makes.</p>
 <p>What a listing's own reported total said, against the entries of the same document whose table
 id it could read.</p>
 <p><strong>Four variants rather than an <code>Option&lt;u64&gt;</code>, because each says something different about what a
-caller may conclude</strong> - and the two that mean <em>nothing to compare</em> are the ones a boolean would
-have merged with the answer. A reader has to name the case, for the reason
+caller may conclude</strong> - a missing total and an unreadable one cannot carry the same decision.
+A reader has to name the case, for the reason
 <code>sutura_domain::source::AnchorIdentity</code> names <code>NoneDeclared</code> rather than answering <code>None</code>.</p>
 <p><strong>The comparison is against the entries that carried a table id this crate could READ - neither
 the ids the listing NAMED nor the entries it merely counted</strong>, and each half of that is a wrong
@@ -2752,8 +2750,8 @@ reporting every table absent while the cross-check read clean. An entry with no 
 the shape signal; an id <code>usable_table_id</code> rejected is the legitimate drop, and it still counts.</p>
 <p>The same cross-check one document over is <code>crate::BigQueryError::Incomplete</code>, which compares
 <code>delivered</code> against <code>total</code> on a query answer and REFUSES. Two vocabularies for one shape, named
-here so a reader who greps one finds the other: that one refuses because a short result set is a
-wrong number, and this one cannot, because a short listing is a boot warning.</p>
+here so a reader who greps one finds the other. This type carries the inventory evidence;
+preflight decides whether it leaves a requested table unaccounted for and refuses through a value.</p>
 <h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Unreported</code> - The document carried no total at all, so an empty listing and an empty dataset are one value.</li>

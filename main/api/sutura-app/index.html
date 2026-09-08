@@ -3415,7 +3415,7 @@ rendering a pure function its own suite can assert on. Before this the soft outc
 from inside the decision and no test could see it - so the mechanism the argument for that sink
 rests on was held by review, which <code>AGENTS.md</code> does not accept as held.</p>
 <p><code>sutura_domain::warehouse::Warehouse::preflight</code> is the port, and its own documentation carries
-why the answer has three shapes and why <em>could not verify</em> is an <code>Err</code> rather than a fourth.</p>
+why an answered inventory and <em>could not verify</em> are different outcomes.</p>
 <p><strong>The limit, stated with the claim:</strong> what a pre-flight establishes is that a table EXISTS. Not
 that the columns a model names are on it, and not that a question's identity may read it - a
 listing grant and a read grant are two grants. An anchor covers both, for the metrics that have
@@ -3424,14 +3424,14 @@ one.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>What one data system answered about the tables one bundle names in it.</p>
-<p><strong>Six outcomes and not three, because a root treats two of the failures differently and one of
-the answers is not about the catalog at all.</strong> The port answers four things and fails in one way,
+<p>A root treats two failures differently, and an incomplete or unreadable inventory is not a
+finding about the catalog. The port answers five things and fails in one way,
 and that one failure splits on <code>Warehouse::preflight_was_refused</code>: a data system that REFUSED to
 be listed will refuse identically on every launch and the fix is one grant, while one that could
 not be reached is a condition that passes. A root that collapsed them would either stop a
 deployment that would have worked or hide the check being off in the deployment least likely to
 read a startup log.</p>
-<p><strong><code>Self::Unaccounted</code> is the fourth answer and it is a REFUSAL, not the third failure.</strong> The
+<p><strong><code>Self::Unaccounted</code> is a REFUSAL, not a failure to get an answer.</strong> The
 data system answered; its answer did not account for its own inventory. Reading that as
 <code>Self::Absent</code> is what <code>telekom/sutura#275</code> is - a shortfall rounded down to zero and charged
 to the catalog - and reading it as <code>Self::Unverified</code> would be worse still: that is the warning
@@ -3443,6 +3443,7 @@ root that composed the adapter is the one that can flatten it.</p>
 <li><code>Present</code> - Asked, and every table is there. Carries how many, for a line that says so.</li>
 <li><code>NotReported</code> - The adapter did not report - <code>TablesPresent::NotAsked</code>, the port's default.</li>
 <li><code>Absent</code> - Asked, and these tables are not there. A refusal, and the models to name in it.</li>
+<li><code>UnreadableInventory</code> - An unreadable inventory established neither presence nor absence for these tables. A refusal without a count or model names: no catalog declaration was shown wrong.</li>
 <li><code>Unaccounted</code> - Asked, answered, and the answer did not account for every table the data system said it holds - so these tables are neither established present nor established absent.</li>
 <li><code>Refused</code> - The data system refused to be asked: this identity may not list it.</li>
 <li><code>Unverified</code> - The data system could not be asked, for a reason that is not a refusal.</li>
