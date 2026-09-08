@@ -4203,8 +4203,12 @@ transcripts. <code>crates/sutura-serve/tests/served.rs</code> starts this binary
 <code>examples/single-player</code> on a kernel-chosen port and asserts the liveness probe answering only once
 the catalog has loaded, a question with no bearer token refused by the gate, a certified question
 answered, the catalog route, a refusal arriving as its documented status, a caller's own token
-verified and every forgery refused alike, and a published key set this deployment cannot use
-stopping the process - <code>just serve-e2e</code> runs it. <code>crates/sutura-http/src/harness.rs</code> asserts the
+verified and every forgery refused alike, a published key set this deployment cannot use stopping the
+process, and <strong>four of the refusals in the table above on the binary that makes them</strong> - a
+non-loopback bind with no TLS termination declared, a production deployment with no credential, a
+configured source with no <code>security.identity</code>, and a misspelled key, each asserted as exit <code>1</code>, no
+listener opened, and the sentence <code>sutura_config</code> renders for that deployment. <code>just serve-e2e</code> runs
+it. <code>crates/sutura-http/src/harness.rs</code> asserts the
 envelope one status at a time, in process and with no socket: the token gate, <code>sql</code> in a body as a
 <code>400</code> naming the field, the bounds, the rate-limit tiers, and the interface description served in
 development and not in production. It reaches ten of the seventeen refusal reasons; the exhaustive
@@ -4214,8 +4218,14 @@ decides what it is on the wire.</p>
 <p><strong>What neither asserts, next to the claim:</strong> the startup banner's own wording. <code>announce_identity</code>
 in <code>crates/sutura-runtime/src/banner.rs</code> emits the <code>NO PER-CALLER IDENTITY</code> sentence from the
 config types, and no test compares it to a string - so quoting it on a page is a promise no gate
-keeps. Nor does anything pin a response's JSON <em>formatting</em> or the <code>detail</code> sentences beside the
-codes.</p>
+keeps. It is step 5 and the four refusal cases exit at step 3, so they reach it in neither direction.
+Nor does anything pin a response's JSON <em>formatting</em> or the <code>detail</code> sentences beside the codes.</p>
+<p><strong>And the refusals in the table are not all held on the binary.</strong> Four are; the rest are asserted
+over <code>Settings::load</code> alone, and nothing in the tree forces a new one onto either venue - there is no
+exhaustive match over the refusal enum the way <code>crates/sutura-http/src/wire/refusal.rs</code> has one over
+the wire's. A startup refusal also names <strong>no configuration layer</strong>, so a deployment refused because
+<code>SUTURA_CONFIG_DIR</code> was wrong is refused in the same words as one refused for its own file
+(<code>telekom/sutura#445</code>).</p>
 <p>A hand-captured session in <code>examples/single-player/README.md</code> used to hold the read-next role, and
 <code>docs/adr/0005</code> had already recorded it as stale - it showed <code>200 OK</code> for refusals, which stopped
 being true when a refusal got a status of its own. It is deleted rather than re-captured: a
