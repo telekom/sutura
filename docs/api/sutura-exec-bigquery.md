@@ -991,17 +991,6 @@ The one constructor, and every non-default setting below is a decision:
 pub struct EndpointMessage
 ```
 
-Why the endpoint did not answer with rows.
-
-Generic in the credential source's own error, for the reason `crate::BigQueryError` is generic
-in this one: a caller that knows which credential source is installed can still tell a missing
-file from a refused refresh, and erasing it here would be the information this whole chain of
-generics exists to keep.
-
-**`ureq::Error` appears as a `#[source]` and never as a variant this type re-exports**, which is
-the shape *Structured Errors* asks for at a boundary: the variant is ours, the chain still walks,
-and a caller who knows the transport can downcast. It is boxed because it is much larger than
-every other variant and `clippy::result_large_err` is on.
 The endpoint's own message on a refusal: free text, and the one field here that can name an
 account.
 
@@ -1015,9 +1004,19 @@ its error with `Debug`, and `Debug` walks the struct: on a real refusal that pri
 `Access Denied: ... permission: <an account>` into a public workflow log. Ten of the fourteen
 legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the job's
 `::add-mask::` step covers the project, the dataset and the table - **not an account**.
-`Display` keeps the message because a `400` with only a reason code is undiagnosable, and the
-outer `BigQueryError::Endpoint`'s own `Display` does not interpolate its cause - so a caller that
-wants the sentence has to ask for it by name.
+`Display` keeps the message because a `400` with only a reason code is undiagnosable, which is
+what `docs/adr/0018` prices.
+
+**What this does NOT do, and the earlier wording here claimed otherwise.** It said a caller
+"has to ask for the sentence by name". It does not: `WireError::Refused`'s own `Display`
+interpolates `detail`, so anything that walks a cause chain and `to_string()`s each link renders
+it. `sutura_app::surface::cause_chain` does exactly that, and its output reaches
+`tracing::error!` in the HTTP and agent transports - reachable from a `sutura-serve --features
+bigquery` deployment. That path is **pre-existing and deliberate**: this workspace flattens a
+cause chain at the sink, and a deployment's own log is not the public workflow log this
+redaction targets. So the scope of the control is exactly one thing - **`Debug`**, which is what
+a panicking test leg prints into a world-readable CI log - and it is not a general answer to
+where the endpoint's message may travel.
 
 It is already bounded and stripped on the way in - see `Self::bounded`.
 
@@ -1050,6 +1049,18 @@ guaranteed.
 ```rust
 pub enum WireError<C>
 ```
+
+Why the endpoint did not answer with rows.
+
+Generic in the credential source's own error, for the reason `crate::BigQueryError` is generic
+in this one: a caller that knows which credential source is installed can still tell a missing
+file from a refused refresh, and erasing it here would be the information this whole chain of
+generics exists to keep.
+
+**`ureq::Error` appears as a `#[source]` and never as a variant this type re-exports**, which is
+the shape *Structured Errors* asks for at a boundary: the variant is ours, the chain still walks,
+and a caller who knows the transport can downcast. It is boxed because it is much larger than
+every other variant and `clippy::result_large_err` is on.
 
 #### Variants
 
