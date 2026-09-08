@@ -2499,7 +2499,7 @@ as that nobody made, and a defaulted billing project would be a project somebody
 for. The billing project is the caller's to supply because there is nothing to infer it from -
 it is a path segment of the request that submits a job, and a federated identity has no project
 of its own.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">session_user</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">presented</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Presented</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">BigQueryError</span><span class="o">&lt;&lt;</span><span class="n">T</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">session_user</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">presented</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Presented</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">SessionUser</span><span class="p">,</span><span class="w"> </span><span class="n">BigQueryError</span><span class="o">&lt;&lt;</span><span class="n">T</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;&gt;</span>
 </span></code></pre></div>
 <p>Who this data system says the leg presenting <code>presented</code> is executing AS.</p>
 <p><strong>The observable for the claim this adapter's <code>IMPERSONATION</code> constant makes.</strong> A
@@ -2509,7 +2509,9 @@ asserting it is the difference between evidence and a comment. <code>docs/adr/00
 <code>SESSION_USER()</code> as the primitive; <code>SESSION_USER</code> is the only statement this can issue.</p>
 <p>It goes through <code>Self::deliverable</code> like every other credential-taking method, so a leg
 whose credential disagrees with the source's posture is refused here too rather than being
-answered by a read that looks harmless.</p>
+answered by a read that looks harmless.
+The <code>SessionUser</code> answer redacts under <code>Debug</code>; explicit access and <code>Display</code> still
+reveal it. Neither this read nor its return type establishes how the bearer was obtained.</p>
 <p><strong>Not part of the <code>Warehouse</code> port, and that is a decision rather than an omission.</strong> No
 other adapter can answer it - <code>sutura-exec-datafusion</code> and <code>sutura-exec-duckdb</code> execute in
 process under one identity, so a defaulted method would answer <em>the process</em> and read as
@@ -2532,6 +2534,7 @@ Nothing here quotes what came back: see that variant.</p>
 <h2 id="use-none_7"><code>use None</code><a class="headerlink" href="#use-none_7" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_8"><code>use None</code><a class="headerlink" href="#use-none_8" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_9"><code>use None</code><a class="headerlink" href="#use-none_9" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_10"><code>use None</code><a class="headerlink" href="#use-none_10" title="Permanent link">&para;</a></h2>
 <h2 id="module-transport">Module <code>transport</code><a class="headerlink" href="#module-transport" title="Permanent link">&para;</a></h2>
 <p>The one thing this adapter needs from a <code>BigQuery</code> endpoint, as a port.</p>
 <p><strong>Why there is a port here at all, when the adapter is already behind one.</strong> <code>Warehouse</code> is the
@@ -3177,12 +3180,12 @@ the credential source refreshes through - one connection pool, one set of pins, 
 <code>JobBounds</code> shared by the socket timeout and the request body.</p>
 <h4 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>JobTransport</code></p>
-<h3 id="use-none_10"><code>use None</code><a class="headerlink" href="#use-none_10" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_11"><code>use None</code><a class="headerlink" href="#use-none_11" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_12"><code>use None</code><a class="headerlink" href="#use-none_12" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_13"><code>use None</code><a class="headerlink" href="#use-none_13" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_14"><code>use None</code><a class="headerlink" href="#use-none_14" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_15"><code>use None</code><a class="headerlink" href="#use-none_15" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_16"><code>use None</code><a class="headerlink" href="#use-none_16" title="Permanent link">&para;</a></h3>
 <h3 id="module-bounds">Module <code>bounds</code><a class="headerlink" href="#module-bounds" title="Permanent link">&para;</a></h3>
 <p>What one job may spend: the TIME bound, the MONEY bound, and the per-call budget they are
 charged against.</p>
