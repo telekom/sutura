@@ -1,18 +1,24 @@
 //! What one leg of a federated question renders as, expanded over every dialect `sutura-sql` writes.
 //!
-//! **The fixtures are hand-built and the snapshots are not, and the split is deliberate.** What this
-//! axis pins is the RENDERING - `sutura_sql::generate_leg` over each shape, in each dialect,
-//! parse-checked in the dialect it was generated for - which is evidence that stands before anything
-//! executes a leg. The leg plans themselves are pinned too, as one snapshot of their serialized form,
-//! so a fixture edit is a reviewable diff rather than a Rust literal nobody reads twice.
+//! **The fixtures are hand-built and the snapshots are not, and the split is deliberate.** A corpus
+//! of question files cannot produce a `LegPlan` the way it produces a `QueryPlan` - the splitter
+//! decides both legs from a bundle's topology, not from the question - so these are written by
+//! hand. What this axis pins is therefore the RENDERING: `sutura_sql::generate_leg` over each shape,
+//! in each dialect, parse-checked in the dialect it was generated for. The leg plans themselves are
+//! pinned too, as one snapshot of their serialized form, so a fixture edit is a reviewable diff
+//! rather than a Rust literal nobody reads twice.
 //!
-//! **Why hand-built when `sutura_semantic::plan` emits these two shapes for real:** no question in
-//! the shared corpus splits over the catalog these snapshots are written against, so deriving them
-//! would mean registering `customers` on a second data system here.
-//! `crates/sutura-app/tests/differential/federated.rs` is the axis that does derive a two-source
-//! bundle, and it compares ANSWERS rather than statements. **The limit, next to the claim:** nothing
-//! holds these fixtures against what the splitter emits, which is why every reserved label below is
-//! taken from `InternalLabel` rather than spelled.
+//! **What no cell here reaches is the leg path a RELEASE executes, and the reason is structural
+//! rather than a gap to fill.** The only leg-executing adapter a published binary links is the
+//! engine, and it builds a logical plan and renders no SQL - so there is no statement for a golden
+//! to pin and there cannot be one. That path's evidence is `sutura-exec-datafusion`'s conformance
+//! binding, which holds a leg to the number the whole-plan case lands on, and the two-engine pass in
+//! `tests/differential/federated.rs`. These four dialects are evidence about the renderer.
+//!
+//! **And the limit these fixtures carry about themselves:** nothing holds them against what
+//! `sutura_semantic::plan` actually emits. That is why every reserved label below is taken from
+//! `InternalLabel` rather than spelled - a hand-written one is where the fixture and the splitter
+//! can drift with no cell to say so.
 //!
 //! **The fixtures are the federated form of questions that already exist in the corpus**, over the
 //! same telco catalog, with `customers` imagined on a second data system - which is the case
@@ -81,13 +87,12 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// The key the two legs are joined on, under the label the splitter gives it.
 ///
 /// **Taken from `InternalLabel` rather than spelled, and that is what makes the statements below
-/// evidence about the real scheme.** These fixtures are hand-built rather than derived from
-/// `sutura_semantic::plan` - this file's header says why - so a hand-written link label is a place
-/// where the fixture and the splitter can disagree without any test noticing; they did, and the
-/// label the splitter chose was a legal dimension name, which is `telekom/sutura#325`'s F2. The
-/// rendered statements are therefore also the parse check for a reserved label:
-/// `parses_in_the_dialect_it_was_generated_for` asks each of the four targets' PARSERS whether an
-/// alias in this namespace is valid there.
+/// evidence about the real scheme.** These fixtures are hand-built rather than derived, and a
+/// hand-written link label is a place where the fixture and the splitter can
+/// disagree without any test noticing; they did, and the label the splitter chose was a legal
+/// dimension name, which is `telekom/sutura#325`'s F2. The rendered statements are therefore also
+/// the parse check for a reserved label: `parses_in_the_dialect_it_was_generated_for` asks each of
+/// the four targets' PARSERS whether an alias in this namespace is valid there.
 ///
 /// **A parser is not the venue that decides, and the internal namespace is the one place in this
 /// repository where that gap is load-bearing.** Every internal label starts with the character

@@ -193,11 +193,23 @@ pub(crate) const DATA_CASES: &[(&str, Edit)] = &[(
     // `include_unmatched` was consulted, losing the measure entirely. The second row's key is
     // present and matches nothing (the corpus's own orphan customer), so the two arrive at one
     // answer group and a defect in either is a wrong number rather than a missing row.
+    //
+    // **The last row's `product_key` 99 is a SAME-SOURCE orphan, and it exists because the shared
+    // join decision was otherwise observed by nothing.** Every other orphan in this corpus is a
+    // REMOTE one - `customer_key` 41, which the derivation puts on the second data system, so the
+    // combiner's `include_unmatched` covers it and the fact leg's own `JOIN` never sees an unmatched
+    // row. Measured: with the leg path taking `EngineJoin::Inner` for its own same-source hops and
+    // the shared definition untouched, the whole suite was 2640 of 2640 passed. `dim_product.csv`
+    // stops at 8, so 99 matches nothing on the source the fact leg reads, and
+    // `two-source-a-same-source-orphan-beside-a-remote-one` groups by a column of that table -
+    // which is what makes LEFT-versus-INNER *inside a leg* a wrong number instead of an
+    // unobservable preference.
     Edit::Appended(
         "2026-07-01,1901,,3,active,1000,false,monthly\n\
          2026-07-01,1902,41,3,active,2000,false,monthly\n\
          2026-07-01,1903,2,3,active,3000,true,monthly\n\
-         2026-07-01,1904,1,4,active,4000,false,annual\n",
+         2026-07-01,1904,1,4,active,4000,false,annual\n\
+         2026-07-01,1905,1,99,active,5000,false,monthly\n",
     ),
 )];
 
@@ -242,6 +254,17 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
     (
         "two-source-a-minimum-re-taken-above-the-legs",
         "metric: smallest_subscription_mrr\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
+    ),
+    // **A same-source orphan beside a remote one**, which is the only question here whose fact leg
+    // has an unmatched row in its OWN `JOIN`. `product_family` comes off the metric's own data
+    // system and `region` off the second, so the fact leg carries a same-source hop and the lookup
+    // leg the remote one - and subscription 1905's `product_key` matches no product. Under LEFT it
+    // survives with a null family and its 5000 stays in the answer; under INNER the leg drops it and
+    // the two-source side totals less than the one-source side with nothing raising an error. That
+    // is the disagreement `leg::dimension_join` exists to make impossible.
+    (
+        "two-source-a-same-source-orphan-beside-a-remote-one",
+        "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region, product_family]\n",
     ),
     // A distinct value spanning join keys: refused, not answered.
     (

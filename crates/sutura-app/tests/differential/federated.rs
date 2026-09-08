@@ -35,14 +35,44 @@
 //! is measured here rather than stated - see [`recorded_identities`], which is also what makes the
 //! limit below a measurement.
 //!
+//! # Two two-source sides, and neither one is redundant
+//!
+//! [`a_two_source_answer_is_the_same_answer_as_one_source`] runs the legs on two `DuckDB`
+//! databases; [`two_engines_answer_what_one_engine_answers`] runs them on two instances of the
+//! ENGINE, which is the adapter a release links. Both compare against the same one-`DataFusion`
+//! side through [`differential`], so what differs between them is only which adapter holds the
+//! legs.
+//!
+//! **Why the `DuckDB` side is kept, corrected.** The reason first written here was that with the
+//! engine on both sides a bug shared between the leg and whole-plan translations would CANCEL, so
+//! only the `DuckDB` pass could catch that class. **That was wrong, and review measured it:** a
+//! shared defect reddens the engine pass too, because `verify_and_validate` re-executes each
+//! anchor against the registry before any comparison happens and an anchor is a literal DECLARED in
+//! the catalog - `value: 202121` in `metrics/recurring_revenue.md` - which no code under test
+//! produced. **The anchor, not the second engine, is what catches a bug shared between the two
+//! translations.**
+//!
+//! What the `DuckDB` pass actually adds is a different IMPLEMENTATION rather than a stronger oracle:
+//! its legs are rendered SQL through `sutura_sql::generate_leg`, so it is the only executed evidence
+//! that the renderer's leg path answers at all, and its rows cross that adapter's own Arrow-to-domain
+//! mapping. Deleting it would delete both. The engine pass is the half that says a PUBLISHED
+//! artefact answers.
+//!
 //! # What this does NOT establish
 //!
-//! **No published artifact can run either side of it.** Both legs execute on `DuckDB`, which is a
-//! development dependency and the only adapter here declaring `Warehouse::EXECUTES_LEGS`; a shipped
-//! binary refuses every two-source question as `FederationNotExecutable` before minting anything.
-//! So what is measured is the implemented federation path, not a deployment's answer - and both
-//! legs record `SharedServiceUser`, so neither ran as the asker and nothing here says two subjects
-//! get different rows.
+//! **Two sources are not two identities, and no side of this measures leg 2.** Every leg here runs
+//! under one operating-system identity: `DataFusionWarehouse::IMPERSONATION` is
+//! `NoPlaceForASubject`, both sources are opened `shared-service-user`, and
+//! [`recorded_identities`] reads that back off each answer rather than stating it. So this is
+//! single-player federation - nothing here says two subjects get different rows.
+//!
+//! **The `DuckDB` side still runs on a development dependency**, so that pass measures the
+//! implemented federation path rather than a deployment's answer. What changed is the engine side:
+//! it declares `Warehouse::EXECUTES_LEGS`, and it is non-optional in both shipped binaries.
+//!
+//! **Neither side is the served deployment.** These sides open adapters in-process from a bundle
+//! this file loads; `crates/sutura-serve/tests/served.rs` is the only place a two-source question
+//! reaches the composed binary over HTTP.
 
 use std::path::{Path, PathBuf};
 
@@ -93,6 +123,12 @@ fn bundle(catalog: &Path) -> PinnedDefinitions {
 /// by re-executing the anchors against the registry that will answer with it - which is what
 /// makes "this side reproduces its own certified numbers" a precondition of the comparison rather
 /// than a separate test.
+///
+/// **That precondition is this file's THIRD-PARTY oracle, and it is why the comparison is not
+/// circular.** An anchor's expected figure is a literal declared in the catalog
+/// (`metrics/recurring_revenue.md`'s `value: 202121`), not a number recorded from a run - so a
+/// defect shared by every side of the comparison still reddens here, before any two answers are
+/// compared. Review measured that: a mutation to a shared expression builder fails at this call.
 fn one_source(pinned: PinnedDefinitions) -> Side<sutura_exec_datafusion::DataFusionWarehouse> {
     let (bundle, warehouses) = validating_on_one_source(&derived().data, pinned);
     Side {
@@ -134,6 +170,53 @@ fn two_sources(pinned: PinnedDefinitions) -> Side<sutura_exec_duckdb::DuckDbWare
         bundle: bundle.expect("the anchors and the declarations hold on two sources"),
         warehouses,
     }
+}
+
+/// **The two-source side a release can actually run: one ENGINE per source.**
+///
+/// The same topology [`two_sources`] builds, with the adapter swapped for the one both shipped
+/// binaries link. Each engine attaches only its own source's tables, so neither can reach the
+/// other's - the isolation is which tables were registered, not which directory they came from,
+/// which is exactly what `sutura-serve`'s `open_files` does per declared `files` entry.
+fn two_engines(pinned: PinnedDefinitions) -> Side<sutura_exec_datafusion::DataFusionWarehouse> {
+    let (bundle, warehouses) = validating_on_two_engines(&derived().data, pinned);
+    Side {
+        bundle: bundle.expect("the anchors and the declarations hold on two engines"),
+        warehouses,
+    }
+}
+
+/// The two-engine registry, and whatever the bundle validated to. [`validating_on_two_sources`]'s
+/// twin, split out for its reason: the violated corpus reads the `Err` this one unwraps, and on this
+/// topology that refusal is the one a RELEASE would give.
+fn validating_on_two_engines(data: &Path, pinned: PinnedDefinitions) -> Attempted<sutura_exec_datafusion::DataFusionWarehouse> {
+    let warehouses = sutura_app::Warehouses::of(engine_on(data, &source(), &pinned))
+        .and(engine_on(data, &lookup_source(), &pinned))
+        .expect("two sources, one registry");
+    let validated = sutura_app::verify_and_validate(pinned, &warehouses);
+    (validated, warehouses)
+}
+
+/// One engine holding one source's tables and nothing else.
+///
+/// [`duckdb_on`]'s twin, and it asserts the same non-empty precondition for the same reason: an
+/// engine with no table attached would answer nothing and the failure would name the question.
+fn engine_on(data: &Path, name: &SourceName, pinned: &PinnedDefinitions) -> sutura_exec_datafusion::DataFusionWarehouse {
+    let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
+    let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
+        name.clone(),
+        posture(),
+        sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
+    )
+    .expect("an in-process engine starts");
+    let attached = tables_on(data, name, pinned);
+    assert!(!attached.is_empty(), "no model in the derived bundle sits on {name}");
+    for (table, csv) in attached {
+        engine
+            .attach_csv(&table, &csv)
+            .unwrap_or_else(|e| panic!("the engine could not attach {}: {e}", csv.display()));
+    }
+    engine
 }
 
 /// The two-source registry, and whatever the bundle validated to. [`validating_on_one_source`]'s
@@ -218,26 +301,68 @@ fn chain(error: &dyn core::error::Error, name: &str) -> String {
 
 // ----------------------------------------------------------------------------- the instrument ---
 
+/// **Two `DuckDB` databases hold the legs.** The only executed evidence that the RENDERER's leg path
+/// (`sutura_sql::generate_leg`) answers, and the only pass whose rows cross that adapter's own
+/// Arrow-to-domain mapping. A development dependency, so what it measures is the implemented
+/// federation path rather than a deployment's answer.
+#[test]
+fn a_two_source_answer_is_the_same_answer_as_one_source() {
+    let derived = derived();
+    let one = one_source(bundle(&derived.one_source));
+    let two = two_sources(bundle(&derived.two_source));
+    differential(&one, &two, "two duckdb databases");
+}
+
+/// **Two instances of the ENGINE hold the legs, which is the first two-source side a release can
+/// run.**
+///
+/// `DataFusionWarehouse` is non-optional in both shipped binaries and declares
+/// `Warehouse::EXECUTES_LEGS`, so this is the shipped adapter type on BOTH sides of the comparison
+/// for the first time - one instance answering whole, two answering as legs, over one derived
+/// corpus.
+///
+/// **It does not replace the `DuckDB` pass**, for the reason this file's header gives - which is not
+/// the reason first written there: a bug shared between `crate::leg`'s translation and the whole-plan
+/// one does NOT go unseen here, because the anchor re-execution below compares against a literal the
+/// catalog declares. What the `DuckDB` pass adds is the renderer's leg path and a second
+/// Arrow-to-domain mapping.
+///
+/// **The engine emits no SQL, so there is no golden that can see this path** - `tests/golden/legs.rs`
+/// pins rendered leg statements per dialect and the engine renders none. This cell and
+/// `sutura-exec-datafusion`'s conformance binding are the whole of its evidence.
+#[test]
+fn two_engines_answer_what_one_engine_answers() {
+    let derived = derived();
+    let one = one_source(bundle(&derived.one_source));
+    let two = two_engines(bundle(&derived.two_source));
+    differential(&one, &two, "two in-process engines");
+}
+
 /// **The differential.** Every question the two-source bundle splits, answered both ways.
 ///
 /// The classifier is the two compiles, not a list: a question is a two-source question when the
 /// one-source bundle plans a whole answer for it and the two-source bundle does something else.
 /// That is what keeps this file from asserting over a hand-maintained set of question names -
 /// adding a customer-attribute question to the shared corpus enrols it here.
-#[test]
-fn a_two_source_answer_is_the_same_answer_as_one_source() {
-    let derived = derived();
-    let one = one_source(bundle(&derived.one_source));
-    let two = two_sources(bundle(&derived.two_source));
-
+///
+/// **Generic in the two-source side's adapter, and that is what makes the second pass a second
+/// MEASUREMENT rather than a second copy of this body.** Both callers compare against the same
+/// one-`DataFusion` side and are held to the same [`MUST_BE_REACHED`] table, so a case that stopped
+/// being a two-source question is a coverage loss on both passes at once. `topology` names the side
+/// under test in every failure, because otherwise a red run says which question and not which
+/// adapter held its legs.
+fn differential<W>(one: &Side<sutura_exec_datafusion::DataFusionWarehouse>, two: &Side<W>, topology: &str)
+where
+    W: sutura_domain::warehouse::Warehouse,
+{
     let mut reached: Vec<(String, Reached)> = Vec::new();
     let mut found: Vec<String> = Vec::new();
     for (name, query) in every_question() {
         let Split::Yes(federated) = split_or_not(&name, &query, one.bundle.get(), two.bundle.get()) else {
             continue;
         };
-        let from_one = answered(&one, &query, &name);
-        let from_two = answered(&two, &query, &name);
+        let from_one = answered(one, &query, &name);
+        let from_two = answered(two, &query, &name);
         let outcome = match federated {
             Federated::Split => match (from_one, from_two) {
                 (
@@ -260,7 +385,7 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
                 }
                 (here, there) => {
                     found.push(format!(
-                        "{name}: one side answered and the other did not\n  one source: {here:?}\n  two sources: {there:?}"
+                        "{name} on {topology}: one side answered and the other did not\n  one source: {here:?}\n  two sources: {there:?}"
                     ));
                     Reached::Diverged
                 }
@@ -268,7 +393,8 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
             Federated::Refused(reason) => {
                 assert!(
                     matches!(from_one, Ok(ToolOutcome::Answer { .. })),
-                    "{name}: the one-source deployment must answer what the two-source one refuses, not {from_one:?}"
+                    "{name} on {topology}: the one-source deployment must answer what the two-source \
+                     one refuses, not {from_one:?}"
                 );
                 assert!(
                     matches!(reason, RefusalReason::MeasureDoesNotFederate { .. }),
@@ -287,7 +413,7 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
     // comparator that stops at the first row cannot report it.
     assert!(
         found.is_empty(),
-        "{} of {} two-source question(s) disagreed with their one-source answer:\n\n{}",
+        "on {topology}, {} of {} two-source question(s) disagreed with their one-source answer:\n\n{}",
         found.len(),
         reached.len(),
         found.join("\n\n")
@@ -297,8 +423,8 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
         match found {
             Some(&(_, got)) => assert!(
                 got == wanted,
-                "{case} reached {got:?} rather than {wanted:?}, so what F5 asks that case to cover \
-                 is no longer covered by it"
+                "{case} on {topology} reached {got:?} rather than {wanted:?}, so what F5 asks that \
+                 case to cover is no longer covered by it"
             ),
             None => panic!("{case} is no longer a two-source question, so this file no longer covers it"),
         }
@@ -308,7 +434,7 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
     for wanted in [Reached::Agreed, Reached::FailedTogether, Reached::RefusedAsUnfederatable] {
         assert!(
             reached.iter().any(|&(_, got)| got == wanted),
-            "no two-source question reached {wanted:?}, so that arm proved nothing"
+            "on {topology}, no two-source question reached {wanted:?}, so that arm proved nothing"
         );
     }
 }
@@ -352,6 +478,9 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
     ("recurring-revenue-business-only", Reached::Agreed),
     // A same-source join on the fact leg beside the remote one.
     ("recurring-revenue-by-region-and-family", Reached::Agreed),
+    // The same shape with an UNMATCHED row in that same-source join, which is the only case in this
+    // corpus that observes the leg's own join kind - see `corpus::DATA_CASES`.
+    ("two-source-a-same-source-orphan-beside-a-remote-one", Reached::Agreed),
     // Six buckets and two keys, which is where a key-then-bucket ordering could disagree.
     ("subscription-months-by-region-and-term", Reached::Agreed),
     // The whole reduction table above the legs.
@@ -494,11 +623,19 @@ fn a_subgroup_with_no_denominator_is_null_and_its_neighbours_are_not() {
 /// key value appears in either message. A deployment that moves the dimension model to a second data
 /// system gets the same refusal it got before it moved.
 ///
-/// **What this does NOT establish**, and it is the same limit the rest of this file carries: both
-/// sides run under one operating-system identity, and `DuckDB` is a development dependency. What is
-/// measured is the implemented path. It also measures exactly two adapters - the engine a release
-/// links and the embedded database this differential runs legs on; an adapter that takes the port's
-/// default answers `NotAsked` and this bundle would validate on it.
+/// **Three topologies, and the third is the one a release can be:** one engine, two `DuckDB`
+/// databases, and two ENGINES. The third exists because the engine now declares
+/// `Warehouse::EXECUTES_LEGS` - so a two-source deployment is reachable from a published artefact,
+/// and *a violated declaration never produces a number* has to hold on the topology that artefact
+/// can be in, not only on the development one. It is the assertion `telekom/sutura#427` makes
+/// required: the promise is the strong one, so what is asserted is a REFUSAL and never that two
+/// topologies agree on a figure.
+///
+/// **What this does NOT establish**, and it is the same limit the rest of this file carries: every
+/// side runs under one operating-system identity. It also measures exactly two adapters - the
+/// engine a release links and the embedded database this differential also runs legs on; an adapter
+/// that takes the port's default `declared_key` answers `NotAsked` and this bundle would validate
+/// on it.
 #[test]
 fn a_violated_cardinality_declaration_is_refused_by_both_topologies() {
     let violated = violated();
@@ -516,7 +653,12 @@ fn a_violated_cardinality_declaration_is_refused_by_both_topologies() {
 
     let (one, _) = validating_on_one_source(&violated.data, bundle(&violated.one_source));
     let (two, _) = validating_on_two_sources(&violated.data, bundle(&violated.two_source));
-    for (topology, refused) in [("one source", one), ("two sources", two)] {
+    let (shipped, _) = validating_on_two_engines(&violated.data, bundle(&violated.two_source));
+    for (topology, refused) in [
+        ("one source", one),
+        ("two duckdb databases", two),
+        ("two in-process engines", shipped),
+    ] {
         let refused = refused
             .err()
             .unwrap_or_else(|| panic!("{topology}: a bundle whose declared join key the data contradicts must not validate"));
@@ -635,16 +777,25 @@ fn split_or_not(name: &str, query: &Query, one: &PinnedDefinitions, two: &Pinned
     }
 }
 
-/// **Which registered data systems can run a leg, expanded over the registry itself.**
+/// **Which registered data systems can run a leg, expanded over the registry itself, and this file
+/// has a two-source pass for each of them.**
 ///
-/// This file's two-source side names `DuckDB` twice because it is the only registered adapter
-/// declaring [`Warehouse::EXECUTES_LEGS`], and an entry that cannot run a leg cannot be either half
-/// of a federated answer. A cell rather than a sentence, so registering a second leg-executing
-/// adapter REDDENS here and the diff that enrols it arrives beside the registration.
-/// `sutura-conformance`'s binding holds the per-adapter agreement between the tag and the constant;
-/// what this holds is the COUNT.
+/// An entry that cannot run a leg cannot be either half of a federated answer, so every `true` here
+/// owes this file a pass: `DuckDB` has
+/// [`a_two_source_answer_is_the_same_answer_as_one_source`] and the engine has
+/// [`two_engines_answer_what_one_engine_answers`]. A cell rather than a sentence, so registering a
+/// THIRD leg-executing adapter REDDENS here and the diff that enrols it arrives beside the
+/// registration. `sutura-conformance`'s binding holds the per-adapter agreement between the tag and
+/// the constant; what this holds is the SET.
+///
+/// **`LEG_EXECUTING` is a list of names rather than one comparison**, which is the correction the
+/// second entry earned: written as `name == "duckdb"` the assertion had nowhere for a second
+/// adapter to go except a boolean expression that grows, and the list is what a reader can compare
+/// against the two passes above.
 ///
 /// [`Warehouse::EXECUTES_LEGS`]: sutura_domain::warehouse::Warehouse::EXECUTES_LEGS
+const LEG_EXECUTING: &[&str] = &["datafusion", "duckdb"];
+
 macro_rules! leg_capability {
     ($name:ident, $adapter:ty) => {
         mod $name {
@@ -656,10 +807,11 @@ macro_rules! leg_capability {
                 let name = <$adapter as DataSystemUnderTest>::NAME;
                 assert_eq!(
                     <$adapter as Warehouse>::EXECUTES_LEGS,
-                    name == "duckdb",
+                    super::LEG_EXECUTING.contains(&name),
                     "{name} changed its leg capability; \
-                     crates/sutura-app/tests/differential/federated.rs is where a second \
-                     leg-executing adapter gets enrolled in the two-source differential"
+                     crates/sutura-app/tests/differential/federated.rs is where a leg-executing \
+                     adapter gets enrolled in a two-source pass, and every entry in \
+                     `LEG_EXECUTING` owes this file one"
                 );
             }
         }

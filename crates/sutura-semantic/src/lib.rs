@@ -83,9 +83,9 @@ impl Compiled {
 /// being wrong. Those are the two ways that can happen: the pinned bundle names something it does not
 /// hold, and the splitter built a two-source plan that
 /// [`FederatedPlan::new`](sutura_domain::plan::FederatedPlan::new) then rejected. The second used to
-/// be flattened into [`RefusalReason::FederationNotExecutable`], the refusal every two-source
-/// question already gets from a shipped binary - so a wiring defect and a governance answer arrived
-/// as one value, and a caller could not tell which it had.
+/// be flattened into [`RefusalReason::FederationNotExecutable`], which is what a build whose adapter
+/// type does not declare `Warehouse::EXECUTES_LEGS` is told - so a wiring defect and a statement
+/// about the build's own capability arrived as one value, and a caller could not tell which it had.
 ///
 /// **The limit, next to the claim:** nothing provokes [`NotAssembled`](CompileFailure::NotAssembled)
 /// today. Every `FederatedPlanError` variant is structurally unreachable from the splitter as it

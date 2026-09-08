@@ -195,18 +195,29 @@ itself, executes the plan over Arrow and generates no SQL, and it is what the sh
 statement down, and it is a development dependency, there to prove the rendered SQL runs somewhere.
 Postgres and ClickHouse are rendered for and parse-checked without either being connected to.
 
-A plan resolves to exactly **one** data system. Spanning two is not a bigger version of the same
-problem, it is a second identity to satisfy, and a plan whose legs cannot all run as one subject
-is refused rather than run partly as somebody else.
+A plan resolves to **one** data system per leg. Spanning two is not a bigger version of the same
+problem: it is a second identity to satisfy, and a plan whose legs cannot all run as one subject is
+refused rather than run partly as somebody else.
 
-**Enforced today.** The plan stage collects the source of the metric's own model and of every model
-reached through a join into a set. Three or more sources refuse as `PlanSpansTooManySources`; exactly
-two are split into a fact leg and a lookup leg - and `answer` refuses them as `FederationNotExecutable`
-while no adapter executes a leg - so no leg answers partly as somebody else. The count is computed
-from the plan rather than asserted about it afterwards, and a golden builds a two-source catalogue to
-provoke the split. **The identity half of that reasoning is a design target:** there is no per-leg
-credential, so nothing tests that two subjects get different
-rows, and nothing can until one exists.
+**Answered today, for two sources.** The plan stage collects the source of the metric's own model and
+of every model reached through a join into a set. Three or more sources refuse as
+`PlanSpansTooManySources`; exactly two are split into a fact leg and a lookup leg, each executed
+against its own data system, and joined and re-aggregated above them. The count is computed from the
+plan rather than asserted about it afterwards, and a golden builds a two-source catalogue to provoke
+the split.
+
+**Two sources are not two identities, and that is the limit to read this with.** Every adapter a
+released binary links declares it has nowhere for a subject to arrive, so both legs of a two-source
+answer run under the one identity the process itself has, and the answer records that same shared
+identity twice rather than two different ones. This is *single-player* federation: it is one asker's
+question reaching two data systems, not two data systems each applying that asker's own grants.
+Nothing here tests that two subjects get different rows, and nothing can until a source can execute
+as the asker.
+
+**A deployment still holds one KIND of data system.** Two `files` sources are a two-source
+deployment; a `files` source beside a warehouse is refused at startup, naming both entries. And a
+build whose only linked adapter cannot run a leg - which is any build without the in-process engine -
+refuses a two-source question as `FederationNotExecutable` rather than answering half of it.
 
 ## Provenance, and why results are meant to be Arrow
 

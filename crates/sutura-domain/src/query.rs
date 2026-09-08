@@ -268,23 +268,31 @@ pub enum RefusalReason {
     ///
     /// **Exactly two is served** - a question that spans two sources is split into two legs and
     /// combined above them (the splitter reaches `sutura_semantic::Plan::Federated`, and `answer`
-    /// either executes it or refuses it as [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)
-    /// while no adapter executes a leg). So this is the bound on an unbounded fan-out: the "too many"
-    /// is a named count against the limit the deployment serves.
+    /// executes it where the registered adapter can run a leg and otherwise refuses it as
+    /// [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)). So this is the bound on
+    /// an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
     PlanSpansTooManySources { sources: usize, limit: usize },
     /// The question asked is served by two sources, but this build has no adapter that can execute
     /// a leg.
     ///
-    /// The splitter and the combiner exist, but every shipped adapter answers an execution leg with
-    /// a typed refusal, so a two-source question cannot be answered yet - only the compile-side is
-    /// built. `answer` refuses here rather than surface the adapter's refusal as a retryable 503:
-    /// this is not a data system being down, and a caller must not retry it.
+    /// **A fact about the BUILD, not about the question or the sources.** `Warehouses<W>` holds one
+    /// adapter type, so this reads that type's `Warehouse::EXECUTES_LEGS` once: a build whose adapter
+    /// declares it answers every two-source question it can plan, and a build whose adapter takes the
+    /// default refuses all of them. The in-process engine declares it and is non-optional in both
+    /// published binaries, so a release answers; an adapter that takes the default - `BigQuery`, or a
+    /// fake - still arrives here.
+    ///
+    /// `answer` refuses here rather than surface the adapter's own refusal as a retryable 503: this
+    /// is not a data system being down, and a caller must not retry it.
     ///
     /// **One producer, and that is `telekom/sutura#338`.** The compile stage used to raise this too,
     /// for a two-source plan it had built and could not then assemble - a defect in this workspace
-    /// wearing a governance refusal's clothes, which a caller could not tell from a deployment whose
-    /// adapters cannot run a leg. That failure leaves as `sutura_semantic::CompileFailure` now, so
-    /// this variant means the capability and nothing else.
+    /// wearing a governance refusal's clothes. It mattered most while every published build refused
+    /// here anyway, because the two were then the same answer to a caller; it still matters now that
+    /// a release executes legs, because the question a caller has to be able to ask is *is this
+    /// build unable to run a leg, or did sutura fail to assemble a plan it had already decided on*.
+    /// That failure leaves as `sutura_semantic::CompileFailure` now, so this variant means the
+    /// capability and nothing else.
     FederationNotExecutable,
     /// The question's remote dimensions join the metric's own through more than one relationship.
     ///

@@ -1,9 +1,15 @@
 //! A plan becomes DataFusion expressions, and no SQL is produced anywhere in here.
 //!
 //! Split out of `lib.rs` when that file crossed the thousand-line gate, along one seam that was
-//! already there: everything here turns a piece of a [`QueryPlan`] into an [`Expr`], and nothing
-//! here reads a result. The other half of the adapter - the schema and array work that turns Arrow
-//! back into domain rows - stayed behind, and the two halves share no state.
+//! already there: everything here turns a PIECE of a plan into an [`Expr`], and nothing here reads
+//! a result. The other half of the adapter - the schema and array work that turns Arrow back into
+//! domain rows - stayed behind, and the two halves share no state.
+//!
+//! **A piece, deliberately, and that is what makes this module the shared half.** Which plan the
+//! piece came out of is not a question anything here asks, so `crate::leg` and the whole-plan path
+//! in `lib.rs` build their two different shapes out of these same functions - a column reference, a
+//! grain truncation, a term's aggregate and a predicate's bound value cannot be one thing for a
+//! whole answer and another for one source's share of one.
 //!
 //! What every function in this module has in common is the thing worth protecting: a plan arrives
 //! as typed values and leaves as a logical expression tree. There is no point at which a value is
@@ -18,7 +24,7 @@ use datafusion::functions_aggregate::expr_fn::{avg, count, count_distinct, max, 
 use datafusion::logical_expr::{Expr, cast, lit, when};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, TableName};
-use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
+use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm};
 use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
@@ -168,13 +174,19 @@ pub(crate) fn measure_expression(measure: &PlanMeasure) -> Result<Expr, DataFusi
 /// By index and not by position in the filter list, because that is what the plan records and what
 /// the SQL path's placeholder positions are derived from. An adapter that walked the filters and
 /// consumed parameters in order would agree with it right up until a filter stopped binding one.
-pub(crate) fn predicate(plan: &QueryPlan, plan_predicate: &PlanPredicate) -> Result<Expr, DataFusionError> {
+///
+/// **It takes the parameter LIST and not the plan**, so a whole plan and one leg of one resolve a
+/// bound value through the same code. Both carry their parameters in placeholder order and neither
+/// has anything else this needs; taking a `&QueryPlan` would have meant a second copy of the
+/// index arithmetic for the leg path, which is the one place a comparing predicate could quietly
+/// bind a different value on one path than on the other.
+pub(crate) fn predicate(params: &[ParamValue], plan_predicate: &PlanPredicate) -> Result<Expr, DataFusionError> {
     let subject = column(plan_predicate.column());
     let bound = match plan_predicate.param() {
         None => None,
-        Some(index) => Some(literal(plan.params().get(index).ok_or(DataFusionError::MissingParam {
+        Some(index) => Some(literal(params.get(index).ok_or(DataFusionError::MissingParam {
             index,
-            count: plan.params().len(),
+            count: params.len(),
         })?)),
     };
     match (plan_predicate, bound) {
@@ -189,7 +201,7 @@ pub(crate) fn predicate(plan: &QueryPlan, plan_predicate: &PlanPredicate) -> Res
         // and it is an error rather than a silently dropped comparison.
         (_, None) => Err(DataFusionError::MissingParam {
             index: usize::MAX,
-            count: plan.params().len(),
+            count: params.len(),
         }),
     }
 }

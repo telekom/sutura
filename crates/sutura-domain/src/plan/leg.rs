@@ -1,13 +1,11 @@
 //! One source's share of a federated question, and the only thing the port can be handed.
 //!
-//! **The shapes, their closure, and who produces one.** `sutura_semantic::plan`'s splitter
-//! constructs both variants and `crate::plan::federated`'s combiner consumes the rows they return,
-//! so this is production vocabulary rather than a shape waiting for a caller - the sentence here
-//! that said otherwise outlived both. What is still true is the LIMIT: no shipped adapter executes
-//! a leg, because `crate::warehouse::Warehouse::EXECUTES_LEGS` is a defaulted-`false` associated
-//! constant that only a dev-only vehicle sets, so a shipped binary refuses every two-source question
-//! before a leg runs. `.agents/skills/sutura/query-surface` carries that state, and this module says
-//! it rather than leaving it to be discovered.
+//! **The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
+//! `sutura_app::answer_federated` hands it to an adapter, and
+//! [`FederatedPlan::combine`](crate::plan::FederatedPlan::combine) - a function in this crate -
+//! assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
+//! builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+//! published artefact reaches, and this module says the shape rather than the state.
 //! `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 //! `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 //!

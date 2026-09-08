@@ -242,9 +242,10 @@ pub enum ServiceError<E, M> {
     ///
     /// **Both are our own side being wrong, which is what keeps them out of a refusal.**
     /// `telekom/sutura#338` is the second one's report: it used to arrive as
-    /// [`RefusalReason::FederationNotExecutable`], the refusal every two-source question gets from a
-    /// shipped binary, so a wiring defect was indistinguishable from a deployment that cannot execute
-    /// a leg. `sutura_semantic::CompileFailure` keeps them apart and keeps the typed cause.
+    /// [`RefusalReason::FederationNotExecutable`], which is what a build whose adapter type does not
+    /// declare `Warehouse::EXECUTES_LEGS` is told, so a wiring defect was indistinguishable from a
+    /// build that cannot run a leg. `sutura_semantic::CompileFailure` keeps them apart and keeps the
+    /// typed cause.
     #[error("the question could not be compiled")]
     Compile {
         #[source]

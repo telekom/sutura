@@ -145,9 +145,10 @@ pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
 /// is the question, and `sutura_sql::generate`'s `aliased` puts the label in exactly that one
 /// position: `GROUP BY` and `ORDER BY` carry the expression.
 ///
-/// A whole-answer plan rather than a leg, deliberately: no published adapter executes a leg
-/// (`EXECUTES_LEGS` is defaulted-`false`), and the alias is rendered by the same `aliased` either
-/// way - so this asks the service the alias question without pretending to execute federation.
+/// A whole-answer plan rather than a leg, deliberately: this adapter takes the default and declares
+/// no `EXECUTES_LEGS`, so it is never handed one - and since `telekom/sutura#441` the adapter that
+/// IS handed one renders no SQL at all. The alias is rendered by the same `aliased` either way, so
+/// this asks the service the alias question without pretending to execute federation.
 pub(crate) fn plan_in_the_internal_namespace(table: &QualifiedTable) -> QueryPlan {
     labelled_plan(
         table,

@@ -5320,10 +5320,10 @@ Both are accepted and both come back with the field names the statement asked fo
 documented restriction is on a **declared column** and not on a quoted alias.
 
 **The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
-Neither has an execution venue for a LEG - the whole federated path is gated by a
-defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle sets - so what stands
-for them is a quoted-identifier argument rather than a run. Read the row above for what each one
-is worth.
+Neither has an execution venue for a LEG, and `telekom/sutura#441` did not give them one: the
+leg-executing adapter a release links is the engine, which builds a logical plan and renders no
+SQL, so no leg RENDERED in either dialect is executed anywhere. What stands for them is a
+quoted-identifier argument rather than a run. Read the row above for what each one is worth.
 
 **Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
 range is a wiring defect the combiner reports as a missing column, not a label this type could
@@ -5576,14 +5576,12 @@ The label the answer's measure carries: the metric's own certified name.
 
 One source's share of a federated question, and the only thing the port can be handed.
 
-**The shapes, their closure, and who produces one.** `sutura_semantic::plan`'s splitter
-constructs both variants and `crate::plan::federated`'s combiner consumes the rows they return,
-so this is production vocabulary rather than a shape waiting for a caller - the sentence here
-that said otherwise outlived both. What is still true is the LIMIT: no shipped adapter executes
-a leg, because `crate::warehouse::Warehouse::EXECUTES_LEGS` is a defaulted-`false` associated
-constant that only a dev-only vehicle sets, so a shipped binary refuses every two-source question
-before a leg runs. `.agents/skills/sutura/query-surface` carries that state, and this module says
-it rather than leaving it to be discovered.
+**The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
+`sutura_app::answer_federated` hands it to an adapter, and
+`FederatedPlan::combine` - a function in this crate -
+assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
+builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+published artefact reaches, and this module says the shape rather than the state.
 `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 

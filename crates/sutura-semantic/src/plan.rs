@@ -57,10 +57,14 @@ pub(crate) enum Plan {
 /// the caller reads; a plan the splitter built and [`FederatedPlan::new`] then rejected is a defect
 /// in this workspace's own wiring, which no caller can act on and none should be told to retry.
 /// They used to be one value: the assembly failure was flattened into
-/// [`RefusalReason::FederationNotExecutable`], which is ALSO what every two-source question gets
-/// from a shipped binary (`Warehouse::EXECUTES_LEGS` is a defaulted-`false` associated constant) -
-/// so a wiring defect and the ordinary governance refusal were indistinguishable at the surface, and
-/// a refusal a caller can only tell apart by comparing two answers is not a refusal.
+/// [`RefusalReason::FederationNotExecutable`], which is ALSO the answer a build gets when its
+/// adapter type does not declare `Warehouse::EXECUTES_LEGS` - so a wiring defect here and a
+/// deployment that cannot run a leg were indistinguishable at the surface, and a refusal a caller
+/// can only tell apart by comparing two answers is not a refusal. **That was sharper before
+/// `telekom/sutura#441`**, when every published build took the default and the two were literally
+/// the same answer everywhere; it is narrower and still true now that the shipped engine executes a
+/// leg, because a build whose adapter takes the default - `BigQuery`, or a fake - still gets that
+/// refusal, and this failure must not look like it.
 ///
 /// The same two arms `crate::resolve::ResolveError` already has, for the same reason. **The limit,
 /// next to the claim:** every [`FederatedPlanError`] variant is structurally unreachable from
@@ -420,8 +424,8 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
         answer_keys,
     )
     // **The cause is no longer erased, and this is the whole of `telekom/sutura#338`.** It used to
-    // become `RefusalReason::FederationNotExecutable`, which is ALSO the refusal every two-source
-    // question gets from a shipped binary - so a plan this workspace could not assemble read exactly
+    // become `RefusalReason::FederationNotExecutable`, which is ALSO what a build whose adapter does
+    // not declare `EXECUTES_LEGS` gets - so a plan this workspace could not assemble read exactly
     // like the deployment simply not being able to execute a leg. It leaves as an error now, keeping
     // the typed cause, because a defect in our own wiring is not a governance answer and a caller
     // must not be handed one it could retry. `PlanError` carries what a reader needs, including
