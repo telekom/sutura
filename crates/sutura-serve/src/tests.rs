@@ -718,8 +718,10 @@ fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot(
         "an impersonating posture on an adapter that cannot impersonate must not start",
     );
     assert!(error.contains(ENGINE_SOURCE), "the refusal must name the source: {error}");
+    // `per-subject credential` is a substring of the fuller spelling, so the OR was one fact
+    // stated twice; the shorter arm alone is equivalent and the needle the rule trusts.
     assert!(
-        error.contains("cannot carry a per-subject credential") || error.contains("per-subject credential"),
+        error.contains("per-subject credential"),
         "the refusal must say what the adapter cannot do: {error}"
     );
     assert!(
