@@ -504,7 +504,7 @@ pub(crate) fn derived_beside(config_dir: &Path) -> PathBuf {
 ///
 /// `environment` reaches the child through [`command`]: it decides which refusals apply at all, so
 /// it is a parameter of the case rather than a constant of the harness.
-pub(crate) fn refused_to_start(environment: Environment, case: &str, settings: &str) -> Vec<String> {
+pub(crate) fn refused_to_start(environment: Environment, config_dir: PathBuf) -> Vec<String> {
     // **Held in a guard from the moment it is spawned, and the failing path is the reason rather
     // than the passing one.** The assertion below fires when the process is STILL RUNNING, which
     // is exactly the defect this function exists to catch - and `std::process::Child` does not
@@ -512,7 +512,6 @@ pub(crate) fn refused_to_start(environment: Environment, case: &str, settings: &
     // its configuration directory behind for the rest of the run. `Served`'s own `Drop` documents
     // the standard this file holds itself to: never a process or a directory left behind, a
     // panicking assertion included.
-    let config_dir = written(case, settings);
     let mut spawned = Spawned {
         child: command(&config_dir, environment).spawn().expect("the composed binary starts"),
         config_dir,

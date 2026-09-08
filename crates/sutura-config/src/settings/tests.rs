@@ -4,7 +4,7 @@
 //! [`Sources::defaults`] supplies an empty variable map that replaces the real one, so a variable in
 //! a developer's shell cannot change a verdict.
 //!
-//! **The three tests under *configuration layers* do read a disk**, and cannot not: what they assert
+//! **The configuration-layer tests do read a disk**, and cannot not: what they assert
 //! is which files were found, which is not a question a source with no filesystem can be asked. They
 //! write into a scratch directory named after the process and remove it again; the variable layer
 //! stays empty, because [`Sources::with_directory`] does not reach for the process environment.
@@ -67,7 +67,7 @@ fn the_defaults_alone_do_not_start_a_production_deployment() {
     // refusal, not a permissive service. Two refusals, because two separate controls are missing.
     let error =
         Settings::load(&Sources::defaults(Environment::Production)).expect_err("the defaults are not a production posture");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert!(
@@ -119,7 +119,7 @@ fn a_misspelled_key_is_an_error_and_not_a_silently_ignored_override() {
     // default the operator believed they had changed, and nothing anywhere says so.
     let sources = Sources::defaults(Environment::Development).with_overlay("server:\n  prot: 9000\n");
     let error = Settings::load(&sources).expect_err("a misspelled key is not a setting");
-    assert!(matches!(error, SettingsError::Source { .. }), "{error:?}");
+    assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
     let rendered = format!("{:?}", core::error::Error::source(&error));
     assert!(rendered.contains("prot"), "the error should name the key: {rendered}");
 }
@@ -129,7 +129,7 @@ fn a_stray_variable_under_the_prefix_is_an_error() {
     // The same protection on the variable layer. A typo in a deployment manifest is otherwise a
     // variable nothing reads.
     let sources = Sources::defaults(Environment::Development).with_variables(variables(&[("SUTURA__SERVER__PROT", "9000")]));
-    assert!(matches!(Settings::load(&sources), Err(SettingsError::Source { .. })));
+    assert!(Settings::load(&sources).is_err_and(|error| matches!(error.reason(), SettingsError::Source { .. })));
 }
 
 #[test]
@@ -137,9 +137,9 @@ fn the_environment_is_not_a_configuration_key() {
     // Deliberate: the environment decides which file is layered, so a layer that could set it
     // would be self-referential. Both spellings are unknown fields rather than settings.
     let sources = Sources::defaults(Environment::Development).with_overlay("environment: production\n");
-    assert!(matches!(Settings::load(&sources), Err(SettingsError::Source { .. })));
+    assert!(Settings::load(&sources).is_err_and(|error| matches!(error.reason(), SettingsError::Source { .. })));
     let sources = Sources::defaults(Environment::Development).with_variables(variables(&[("SUTURA__ENVIRONMENT", "production")]));
-    assert!(matches!(Settings::load(&sources), Err(SettingsError::Source { .. })));
+    assert!(Settings::load(&sources).is_err_and(|error| matches!(error.reason(), SettingsError::Source { .. })));
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn a_per_source_working_set_ceiling_is_refused_at_parse() {
         let sources =
             Sources::defaults(Environment::Development).with_overlay(format!("{group}:\n  working_set_max_bytes: 2048\n"));
         let error = Settings::load(&sources).expect_err("a ceiling on anything but the runtime group is not a setting");
-        assert!(matches!(error, SettingsError::Source { .. }), "{group}: {error:?}");
+        assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{group}: {error:?}");
         let rendered = format!("{:?}", core::error::Error::source(&error));
         assert!(
             rendered.contains("working_set_max_bytes"),
@@ -171,7 +171,7 @@ fn a_per_source_working_set_ceiling_is_refused_at_parse() {
         "catalogs:\n  - name: model\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n    working_set_max_bytes: 2048\n",
     );
     let error = Settings::load(&sources).expect_err("a ceiling on a catalog entry is not a setting");
-    assert!(matches!(error, SettingsError::Source { .. }), "{error:?}");
+    assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
     let rendered = format!("{:?}", core::error::Error::source(&error));
     assert!(
         rendered.contains("working_set_max_bytes"),
@@ -249,7 +249,7 @@ fn an_invalid_value_fails_at_startup_rather_than_falling_back_to_a_default() {
     for &(overlay, is_expected) in cases {
         let sources = Sources::defaults(Environment::Development).with_overlay(overlay);
         let error = Settings::load(&sources).unwrap_err();
-        assert!(is_expected(&error), "{overlay:?} produced {error:?}");
+        assert!(is_expected(error.reason()), "{overlay:?} produced {error:?}");
     }
 }
 
@@ -268,10 +268,10 @@ fn a_bound_at_its_ceiling_loads_and_one_past_it_does_not() {
         "server:\n  request_timeout_seconds: {}\n",
         RequestTimeout::MAX_SECONDS.saturating_add(1)
     );
-    assert!(matches!(
-        Settings::load(&Sources::defaults(Environment::Development).with_overlay(past)),
-        Err(SettingsError::Bound { .. })
-    ));
+    assert!(
+        Settings::load(&Sources::defaults(Environment::Development).with_overlay(past))
+            .is_err_and(|error| matches!(error.reason(), SettingsError::Bound { .. }))
+    );
 }
 
 // --------------------------------------------------------- posture refusals ----
@@ -289,7 +289,7 @@ fn a_non_loopback_bind_needs_a_tls_termination_declaration_in_every_environment(
             "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n"
         ));
         let error = Settings::load(&sources).expect_err("an undeclared wildcard bind is refused");
-        let SettingsError::NotFitToServe { ref refusals } = error else {
+        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
             panic!("expected a posture refusal for {environment}, got {error:?}");
         };
         assert!(
@@ -308,7 +308,7 @@ fn a_declared_non_loopback_bind_still_needs_a_token() {
     let sources = Sources::defaults(Environment::Development)
         .with_overlay("server:\n  host: \"0.0.0.0\"\nsecurity:\n  tls_termination: \"ingress\"\n");
     let error = Settings::load(&sources).expect_err("an off-host bind with no token is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(
@@ -343,7 +343,7 @@ fn a_forwarded_header_is_not_believed_without_a_named_hop() {
     // header is a value every caller writes, so every bucket is theirs to choose.
     let sources = Sources::defaults(Environment::Development).with_overlay("rate_limit:\n  client_address: \"forwarded\"\n");
     let error = Settings::load(&sources).expect_err("a believed header with no named hop is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(*refusals, vec![NotFitToServe::ForwardedWithoutTrustedProxies]);
@@ -356,7 +356,7 @@ fn a_trusted_proxy_list_that_nothing_reads_is_refused() {
     let sources = Sources::defaults(Environment::Development)
         .with_overlay("rate_limit:\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n    - \"10.1.0.0/16\"\n");
     let error = Settings::load(&sources).expect_err("a list nothing reads is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(*refusals, vec![NotFitToServe::TrustedProxiesWithoutForwarding { count: 2 }]);
@@ -386,7 +386,7 @@ fn in_process_tls_needs_material_and_material_needs_in_process_tls() {
         "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"in-process\"\n"
     ));
     let error = Settings::load(&sources).expect_err("in-process TLS with no material is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert!(refusals.contains(&NotFitToServe::InProcessTlsWithoutMaterial), "{refusals:?}");
@@ -394,7 +394,7 @@ fn in_process_tls_needs_material_and_material_needs_in_process_tls() {
     let sources = Sources::defaults(Environment::Development)
         .with_overlay("server:\n  tls_certificate: \"/tls/chain.pem\"\n  tls_key: \"/tls/key.pem\"\n");
     let error = Settings::load(&sources).expect_err("material nothing reads is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(
@@ -423,7 +423,7 @@ fn in_process_tls_is_refused_when_the_binary_cannot_do_it() {
         assert!(settings.server().tls().is_some());
     } else {
         let error = loaded.expect_err("without the feature there is nothing to terminate TLS with");
-        let SettingsError::NotFitToServe { ref refusals } = error else {
+        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
             panic!("expected a posture refusal, got {error:?}");
         };
         assert_eq!(*refusals, vec![NotFitToServe::InProcessTlsNotCompiledIn]);
@@ -435,7 +435,7 @@ fn production_refuses_to_start_with_rate_limiting_switched_off() {
     let sources = Sources::defaults(Environment::Production)
         .with_overlay(format!("{}rate_limit:\n  enabled: false\n", production_overlay()));
     let error = Settings::load(&sources).expect_err("production with no limiter is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
@@ -448,7 +448,7 @@ fn production_refuses_an_ephemeral_port() {
          tls_termination: \"ingress\"\n"
     ));
     let error = Settings::load(&sources).expect_err("production on a kernel-chosen port is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(*refusals, vec![NotFitToServe::EphemeralPortInProduction]);
@@ -462,7 +462,7 @@ fn a_variable_cannot_switch_a_production_control_off_behind_the_files_back() {
     let sources = Sources::defaults(Environment::Production)
         .with_overlay(production_overlay())
         .with_variables(variables(&[("SUTURA__RATE_LIMIT__ENABLED", "false")]));
-    assert!(matches!(Settings::load(&sources), Err(SettingsError::NotFitToServe { .. })));
+    assert!(Settings::load(&sources).is_err_and(|error| matches!(error.reason(), SettingsError::NotFitToServe { .. })));
 }
 
 #[test]
@@ -472,7 +472,7 @@ fn every_refusal_is_reported_rather_than_only_the_first() {
     let sources = Sources::defaults(Environment::Production)
         .with_overlay("server:\n  host: \"0.0.0.0\"\n  port: 0\nrate_limit:\n  enabled: false\n");
     let error = Settings::load(&sources).expect_err("a wholly unsafe production config is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(refusals.len(), 4, "{refusals:?}");
@@ -576,7 +576,7 @@ fn production_still_refuses_an_explicitly_disabled_limiter() {
     let sources = Sources::defaults(Environment::Production)
         .with_overlay(format!("{}rate_limit:\n  enabled: false\n", production_overlay()));
     let error = Settings::load(&sources).expect_err("an explicit false in production is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
@@ -605,7 +605,7 @@ fn a_variable_overrides_the_environment_default_in_both_directions() {
         .with_overlay(production_overlay())
         .with_variables(variables(&[("SUTURA__RATE_LIMIT__ENABLED", "false")]));
     let error = Settings::load(&sources).expect_err("a variable cannot switch the limiter off in production");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
@@ -685,6 +685,64 @@ fn a_deployment_on_embedded_defaults_says_so_and_a_wrong_directory_looks_the_sam
     assert_eq!(mistyped.layers(), no_directory.layers());
 }
 
+#[test]
+fn failed_loads_retain_the_observed_file_layers_in_order() {
+    let dir = scratch("failed-layers");
+    let base = dir.join("base.yaml");
+    let production = dir.join("production.yaml");
+    std::fs::write(&production, "telemetry:\n  service_name: \"layers\"\n").expect("the later layer is writable");
+    let mut observations = Vec::new();
+    for (case, yaml) in [
+        ("source", "server:\n  prot: 8081\n"),
+        ("typed", "server:\n  host: \"not an address\"\n"),
+        ("posture", "server:\n  port: 8081\n"),
+    ] {
+        std::fs::write(&base, yaml).expect("the base layer is writable");
+        match Settings::load(&Sources::defaults(Environment::Production).with_directory(dir.clone())) {
+            Ok(_) => observations.push((case, false, String::from("the load did not refuse"))),
+            Err(error) => {
+                let correct_stage = matches!(
+                    (case, error.reason()),
+                    ("source", SettingsError::Source { .. })
+                        | ("typed", SettingsError::Bind { .. })
+                        | ("posture", SettingsError::NotFitToServe { .. })
+                );
+                observations.push((case, correct_stage, error.to_string()));
+            }
+        }
+    }
+    std::fs::remove_dir_all(&dir).expect("the fixture directory is removed before assertions");
+    let base = base.display().to_string();
+    let production = production.display().to_string();
+    let missing: Vec<_> = observations
+        .iter()
+        .filter(|(_, correct_stage, message)| {
+            !correct_stage
+                || !matches!((message.find(&base), message.find(&production)), (Some(first), Some(second)) if first < second)
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "failed loads lost their observed layers or refusal stage: {missing:?}"
+    );
+}
+
+#[test]
+fn a_failed_load_without_files_names_the_embedded_defaults() {
+    let parent = scratch("missing-failed-layers");
+    let missing = parent.join("missing");
+    let without_directory = Settings::load(&Sources::defaults(Environment::Production));
+    let wrong_directory = Settings::load(&Sources::defaults(Environment::Production).with_directory(missing));
+    std::fs::remove_dir_all(&parent).expect("the fixture directory is removed before assertions");
+    let without_directory = without_directory.expect_err("production needs a credential");
+    let wrong_directory = wrong_directory.expect_err("a missing directory leaves the same production refusal");
+    assert_eq!(without_directory.to_string(), wrong_directory.to_string());
+    assert!(
+        wrong_directory.to_string().contains("embedded defaults only"),
+        "the refused load hid that no file layer was found: {wrong_directory}"
+    );
+}
+
 // ------------------------------------------------------------------ secrets ----
 
 #[test]
@@ -730,7 +788,7 @@ fn a_shared_source_in_a_multi_user_deployment_without_an_acknowledgement_is_not_
         source_overlay("shared-service-user", "")
     ));
     let error = Settings::load(&sources).expect_err("a shared source nobody acknowledged is not fit to serve");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(
@@ -799,7 +857,7 @@ fn a_deployment_that_configures_a_source_and_declares_no_mode_does_not_start() {
     // anyway - so the assertion below has two halves: refused with a source, and silent without one.
     let sources = Sources::defaults(Environment::Development).with_overlay(source_overlay("impersonation-at-source", ""));
     let error = Settings::load(&sources).expect_err("a configured source with no declared mode does not start");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(*refusals, vec![NotFitToServe::DeploymentIdentityUndeclared { count: 1 }]);
@@ -860,7 +918,7 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
         "security:\n  identity: \"multi-user\"\nsources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/d\"\n    \
          posture: \"impersonation-at-source\"\n    working_set_max_bytes: 2048\n",
     );
-    assert!(matches!(Settings::load(&with_ceiling), Err(SettingsError::Source { .. })));
+    assert!(Settings::load(&with_ceiling).is_err_and(|error| matches!(error.reason(), SettingsError::Source { .. })));
 }
 
 /// Reading an inbound-identity declaration. Carved out because this file hit the line limit.
