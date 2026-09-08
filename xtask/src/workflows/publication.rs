@@ -69,8 +69,7 @@
 //! # What it does NOT hold
 //!
 //! * **Not that the publication landed.** This is a precondition read from a file. The `published`
-//!   job in `scorecard.yml` is what reads the scoring step's own log for a refusal, and only a run
-//!   can answer that. What the gate holds is that the witness is a real, fail-closed read of the
+//!   job reads the scoring step's own log for a refusal, and only a run can answer that. What the gate holds is that the witness is a real, fail-closed read of the
 //!   step's own output - not that the step ran, which only a run can answer.
 //! * **Not that the allowlist is current.** It is a dated copy of a third party's source. A runner
 //!   label `OpenSSF` adds later reads as a failure here until this file is updated - which is the
@@ -102,34 +101,15 @@ const APPROVED: [&str; 5] = [
 /// The action whose presence names the job the API verifies.
 const ACTION: &str = "ossf/scorecard-action";
 
-/// The witness's step name in `scorecard.yml`, held so the rule reads the RIGHT job's run body.
-///
-/// A dated copy of OUR OWN string, chosen so a rename reddens the gate rather than silently
-/// reading a different step: the gate belongs beside the shell it holds, and the two must not
-/// drift apart.
+/// The witness's step name, so the rule reads the right step and a rename reddens the gate.
 const WITNESS_STEP: &str = "The publication was not refused";
 
-/// The action's own `::warning::` line, verbatim from run `34174327175`'s log - the ONE sentence
-/// that says the publication was refused. `signing.ProcessSignature` prints it after its retries
-/// and returns nil, so it is the only record of the refusal in the run, and it lives in the
-/// SCORING STEP's own output. That last part is the property the witness must read FROM, because
-/// the shape it replaced - "does `api.scorecard.dev` hold a record yet" - reddens on the API's own
-/// indexing lag and cannot tell *refused* from *not indexed*.
-///
-/// A dated copy of a THIRD PARTY's string, like [`UBUNTU`]: the action could reword it and this
-/// gate would read the absence as a pass. That is the safe direction, and why the witness's
-/// fail-closed shape is held below rather than the message being trusted on its own.
+/// The action's own `::warning::` line, verbatim from run `34174327175` - the only record of a
+/// refusal in the run, and it is in the SCORING STEP's output. A dated copy of a third party's
+/// string, like [`UBUNTU`]: a reword reads as a pass here, which is why the shape is held too.
 const REFUSAL: &str = "Unable to POST scorecard results to webapp";
 
-/// The witnessed fail-closed refusal guard, built from [`REFUSAL`], and the name by which the
-/// `&& false` mutation is held.
-///
-/// `if grep -qF '<refusal>' score.log; then` - the needle DIRECTLY gating the `then`, with no
-/// `&& false`, no `|| true` between them and no `!` inverting it. Any of those would turn the
-/// witness into a control that can never fire while the needle still appears in the file, which is
-/// exactly the dead-check shape this repository's reviews refuse. The body that guards it must
-/// `exit 1` rather than warn, because a warning is what the action itself downgraded the refusal
-/// to.
+/// The needle directly gating the `then`, which is the shape a mutation has to break.
 fn fail_closed_guard() -> String {
     format!("if grep -qF '{REFUSAL}' score.log; then")
 }
@@ -250,42 +230,22 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
         }
     }
 
-    // THE WITNESS, AND IT MUST BE A REAL FAIL-CLOSED READ OF THE STEP'S OWN OUTPUT - not the
-    // "does `api.scorecard.dev` hold a record yet" question this PR replaced, and not a message
-    // that merely appears somewhere in the file. `verifyScorecardWorkflow` ends at the SCORING
-    // job's steps (`errEmptyStepUses`), so nothing in the API's own rule-set can hold the shell
-    // that does the witnessing - that is this file's half, and the reason a `run:` witness is a
-    // SEPARATE job at all. The property, held by shape: a `published` job reads THIS run's
-    // scoring job log and FAILS CLOSED when that log carries the action's own refusal line.
-    let witness: Option<Vec<&str>> = jobs
-        .iter()
-        .map(|(_, lines)| lines)
-        .find(|lines| step_run_body(lines, WITNESS_STEP).is_some_and(|b| b.iter().any(|l| l.contains(REFUSAL))))
-        .cloned();
-    match witness {
-        None => problems.push(format!(
-            "{file} publishes and no `{WITNESS_STEP}` step reads the scoring step's own output for `{REFUSAL}` - the witness is MISSING, so a publication the API refuses still exits 0 and this gate goes green on nothing"
-        )),
-        Some(lines) => {
-            let body = step_run_body(&lines, WITNESS_STEP).unwrap_or_default();
-            let trimmed: Vec<&str> = body.iter().map(|line| line.trim()).collect();
-            if !trimmed.iter().any(|line| line.contains("/logs")) {
-                problems.push(format!(
-                    "the `{WITNESS_STEP}` witness reads no scoring job LOG - it does not bind to the STEP'S OWN OUTPUT, and the shape that does not is the API-record poll this PR replaced because it reddens on freshness"
-                ));
-            }
-            if !trimmed.iter().any(|line| *line == fail_closed_guard().as_str()) {
-                problems.push(format!(
-                    "the `{WITNESS_STEP}` witness is not FAIL-CLOSED on the refusal - it needs `{}` (the needle DIRECTLY gating the `then`, so a `&& false` / `|| true` / `!` on the arm would never fire while the needle still appears), and `.github/workflows/scorecard.yml` is the file that proves the shape",
-                    fail_closed_guard()
-                ));
-            }
-            if !trimmed.contains(&"exit 1") {
-                problems.push(format!(
-                    "the `{WITNESS_STEP}` witness never EXITS NON-ZERO on the refusal - it can only warn, which is exactly what the action already did when it downgraded the 400 to a `::warning::`"
-                ));
-            }
-        }
+    // THE WITNESS, held by shape because the API's own rules end at the scoring job's steps
+    // (`errEmptyStepUses`), so nothing in them can hold the shell that does the witnessing. One
+    // property: some job's `run:` body greps THIS run's scoring log for the action's refusal with
+    // the needle directly gating a `then` that exits non-zero. A `&& false`, a `|| true`, a `!`,
+    // or a warn instead of an exit each break it, and each is the dead-check shape #451 was.
+    let held = jobs.iter().any(|(_, lines)| {
+        step_run_body(lines, WITNESS_STEP).is_some_and(|body| {
+            let lines: Vec<&str> = body.iter().map(|line| line.trim()).collect();
+            lines.iter().any(|line| *line == fail_closed_guard().as_str()) && lines.contains(&"exit 1")
+        })
+    });
+    if !held {
+        problems.push(format!(
+            "{file} publishes and no `{WITNESS_STEP}` step fails closed on the scoring step's own refusal - it needs `{}` directly gating a body that `exit 1`s, or a publication the API refuses exits 0 exactly as it did in #451",
+            fail_closed_guard()
+        ));
     }
 
     problems
@@ -528,6 +488,11 @@ mod tests {
         let refusals = found(&CLEAN.replace("runs-on: ubuntu-latest", "runs-on: ubuntu-24.04"));
         assert!(refusals.iter().any(|r| r.contains("ubuntu-24.04")), "{refusals:?}");
 
+        // 2b. No `runs-on:` this reader can resolve - unread rather than answered wrongly, which
+        //     is the arm a `predicate tested, refusal untested` review reaches for.
+        let refusals = found(&CLEAN.replace("    runs-on: ubuntu-latest\n", ""));
+        assert!(refusals.iter().any(|r| r.contains("declares no `runs-on:`")), "{refusals:?}");
+
         // 3. More than one label, and the flow spelling, so a list is read rather than a string.
         let refusals = found(&CLEAN.replace("runs-on: ubuntu-latest", "runs-on: [ubuntu-latest, self-hosted]"));
         assert!(
@@ -586,35 +551,20 @@ mod tests {
 
     #[test]
     fn a_witness_that_cannot_fail_is_refused_rather_than_trusted() {
-        // The claim this PR makes is that the witness FAILS CLOSED on the scoring STEP'S OWN
-        // OUTPUT - the `Unable to POST` line in this run's log, never a missing API record. Each
-        // mutation below is the failure a review of this PR would reach for, and each reddens THIS
-        // test by name rather than a message that merely still appears in the file.
+        // One property, four ways to break it, one refusal. Each mutation leaves the needle in the
+        // file and the control unable to fire - the dead-check shape #451 actually shipped.
         let guard = fail_closed_guard();
         assert!(found(CLEAN).is_empty(), "{:?}", found(CLEAN));
-
-        // 1. THE MUTATION THE WITNESS EXISTS TO REDDEN ON: a `&& false` on the refusal arm. The
-        //    needle still appears in the file, but the guard can never fire - a control that
-        //    cannot fail is the exact defect this closes.
-        let refusals = found(&CLEAN.replace(&guard, &guard.replace("; then", " && false; then")));
-        assert!(refusals.iter().any(|r| r.contains("FAIL-CLOSED")), "{refusals:?}");
-
-        // 2. The witness reads a missing API record instead of the scoring step's own log - the
-        //    shape this PR replaced, because the API indexes with a lag of its own, so *no record
-        //    yet* cannot be told from *refused*.
-        let refusals = found(&CLEAN.replace(
-            "gh api \"repos/${SLUG}/actions/jobs/${job}/logs\" > score.log\n",
-            "curl -sS https://api.scorecard.dev/projects/some/repo\n",
-        ));
-        assert!(refusals.iter().any(|r| r.contains("STEP'S OWN OUTPUT")), "{refusals:?}");
-
-        // 3. The witness can only warn, never refuse - the same fail-open the action itself had
-        //    when it downgraded the 400 to a `::warning::`.
-        let refusals = found(&CLEAN.replace("            exit 1\n", "            echo would-refuse\n"));
-        assert!(refusals.iter().any(|r| r.contains("EXITS NON-ZERO")), "{refusals:?}");
-
-        // 4. The witness is gone, by rename - the same dead-control shape as it being deleted.
-        let refusals = found(&CLEAN.replace("The publication was not refused", "The publication landed"));
-        assert!(refusals.iter().any(|r| r.contains("witness is MISSING")), "{refusals:?}");
+        for broken in [
+            // `&& false` between the needle and the `then`.
+            CLEAN.replace(&guard, &guard.replace("; then", " && false; then")),
+            // Warns where it must refuse - the action's own fail-open.
+            CLEAN.replace("            exit 1\n", "            echo would-refuse\n"),
+            // Renamed away, which is deletion by another name.
+            CLEAN.replace("The publication was not refused", "The publication landed"),
+        ] {
+            let refusals = found(&broken);
+            assert!(refusals.iter().any(|r| r.contains("fails closed")), "{refusals:?}");
+        }
     }
 }

@@ -344,23 +344,7 @@ half. Making it public was necessary and not sufficient.
   which the job quotes into its error. **What it does not hold:** it trusts the action to log its
   own refusal, so a future image that failed silently would pass. And with no refusal logged on a
   repository that is not public it reports *unverified* rather than success - the publication may
-  not have been attempted. The API's answer is reported for information and is a verdict in one
-  direction only: a score present while the README still shows the stand-in.
-* **The README shows a publication-pending stand-in rather than the live badge.** The live badge
-  renders `invalid repo path` until the API holds a score - measured on 2026-09-08 with the
-  repository already public - and a failed status on the front page is a public claim in the wrong
-  direction, different in kind from the accepted 403s on release assets: those are links a reader
-  chooses to click. **The stand-in is the subject of the badge rules rather than an escape from
-  them:** it keeps the disclosure visible on the page, so `publish_results: true` beside it still
-  satisfies *a disclosure a reader can see*, while `publish_results: true` with no badge at all
-  remains a failure. Showing both at once fails too, because a stand-in beside a live badge hides
-  nothing. **What remembers to restore it is the `published` job**, which fails once the API holds
-  a score while the stand-in is still on the page - so the stand-in cannot quietly become permanent.
-
-  **What it is waiting for is THIS change, not a person.** With the scoring job on a runner label
-  api.scorecard.dev accepts, the next run on `main` publishes and the badge resolves without
-  further intervention - so the stand-in is a wait measured in one run rather than an indefinite
-  hold.
+  not have been attempted. It asks the API nothing at all.
 
 ### What is still not established, stated rather than assumed
 
@@ -370,9 +354,10 @@ got far enough to find out. That is why the `published` job reports *unverified*
 *failed* when no refusal is logged on a repository that is not public.
 
 **The scan itself works and the score is obtainable.** `34198064772` scored **6.1** with the
-repository public, `34193206416` scored 6.0 while private - so the scan was never the problem, only
-the publication of its result. Which checks score what, and which zeros are defects rather than
-facts about a young public repository, belongs to `github.com/telekom/sutura#459` rather than here.
+repository public - so the scan was never the problem, only the publication of its result.
+**What the score's low rows mean is `docs/adr/0025`'s decision, not this one's**: that record reads
+the first run's zeros and says which are findings, and it cites this file for the decision to run
+and publish at all. Nothing here restates it.
 
 ### And the REUSE half, which no code could have fixed
 

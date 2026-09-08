@@ -74,6 +74,11 @@ concurrency:
 
 jobs:
   score:
+    # `name:` SET DELIBERATELY, and it is the `published` job's dependency: that job finds this one
+    # by `select(.name == "score")` over the run's jobs, and the API reports a job's `name` when it
+    # has one and its KEY when it does not. Written down, a later cosmetic rename cannot break the
+    # witness quietly - it breaks the selector visibly instead.
+    name: score
     # `ubuntu-latest` AND NOT `rust-mcp`, and it is the only job here that is not self-hosted.
     # This is the fix for a publication that reported success three times and landed nothing.
     # `api.scorecard.dev` verifies the PRODUCING WORKFLOW before it accepts a score, and one of
@@ -164,16 +169,17 @@ jobs:
   # WHAT IT DOES NOT HOLD, and both are real. It trusts the action to LOG its own refusal - a
   # future image that fails silently would pass this. And where the log carries no refusal and the
   # repository is not public, it reports UNVERIFIED rather than success: the publication may not
-  # have been attempted at all, and an overstated control is itself the defect here. The API answer
-  # is reported for information and is only a verdict in one direction - a score present while the
-  # README still shows the stand-in, which is the badge's restore trigger.
+  # have been attempted at all, and an overstated control is itself the defect here.
   published:
     # `ubuntu-latest` for `score`'s reason, one step weaker: this job builds nothing either, and
     # the witness should not depend on capacity the scan itself no longer needs.
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # `needs: score` because the subject is THIS run's log, and `always()` so a scoring job that
-    # failed or was cancelled is still reported rather than silently unwitnessed.
+    # `needs: score` because the subject is THIS run's log. `always()` so a `score` that FAILED
+    # still gets its log read - but the claim stops there: a `score` that dies BEFORE the publish
+    # step logs no refusal, so this job passes and says so. Nothing is hidden, because the run is
+    # already red from `score`; what this job adds is the case `score` reports GREEN over a
+    # refusal, which is #451.
     needs: score
     if: always()
     # NO `id-token: write`, and that is a hard requirement rather than least privilege for its own
@@ -214,19 +220,6 @@ jobs:
               "downgraded that to a warning, so the scoring step exited 0 and published nothing." \
               "See xtask/src/workflows/publication.rs for every workflow-shape rule the API" \
               "applies before it accepts a score - the reason quoted above names which one."
-            exit 1
-          fi
-
-          code=$(curl -sS -m 30 -o /dev/null -w '%{http_code}' \
-            "https://api.scorecard.dev/projects/github.com/${SLUG}" || echo 000)
-          pending=$(grep -c 'openssf%20scorecard-publication%20pending' README.md || true)
-          echo "no refusal in the scoring log; api.scorecard.dev -> HTTP ${code} (a fresh" \
-            "publication is not indexed instantly); README stand-ins=${pending}"
-
-          if [ "${code}" = "200" ] && [ "${pending}" != "0" ]; then
-            echo "::error ::The publication landed and README.md still shows the" \
-              "publication-pending stand-in. Restore the live badge - this job is the mechanism" \
-              "that remembers, so the stand-in cannot quietly become permanent."
             exit 1
           fi
 

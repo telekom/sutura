@@ -158,4 +158,28 @@ sutura_tier_up() {
             ;;
     esac
     export SUTURA_DEV_REQUIRE_TIER=1
+    # AND THE CREDENTIAL, for the reason the line above exists: the adapter cannot default one any
+    # more (`github.com/telekom/sutura#455` - it used to substitute `sutura`/`sutura`/`sutura` from a
+    # `pub fn` whose host is a parameter), so the thing that provisioned the server publishes what it
+    # provisioned and this is where it reaches the suite. Exported HERE rather than on each caller's
+    # line, for the same reason the requirement is: two statements about one fact can disagree.
+    #
+    # In EVERY branch above, including the two that started nothing. A tier somebody else brought up
+    # still published a credential, and adopting its address while guessing its password is the shape
+    # this replaces.
+    #
+    # A tier that publishes no credential is a hard failure and not a skip: a server IS up, the
+    # requirement above is already exported, so the cells are required and would refuse one by one
+    # with the same message. Failing here says it once, before the suite is paid for.
+    local published
+    if ! published="$(sutura-postgres-tier credentials)"; then
+        echo "with-tier: the tier published no credential, so the postgres cells would refuse."
+        echo "           \`just postgres-tier stop\` then run this again - a server started by a"
+        echo "           tier from before that subcommand existed has nothing to publish."
+        return 1
+    fi
+    # `eval` rather than reading the file here: the tier owns where it keeps that value and this
+    # file has no business deriving the path a second time.
+    eval "$published"
+    export SUTURA_POSTGRES_TIER_USER SUTURA_POSTGRES_TIER_PASSWORD SUTURA_POSTGRES_TIER_DB
 }
