@@ -40,22 +40,27 @@
       usage() {
         echo "usage: $0 publish <worktree> <service> <host> <port>" >&2
         echo "       $0 published <worktree> <service> <host> <port>" >&2
+        echo "       $0 claimed <worktree> <service>" >&2
         echo "       $0 withdraw <worktree> <service>" >&2
         exit 2
       }
 
-      # `project` and `provisioner` match what `nix/postgres-tier.nix` wrote before this file
-      # existed, so `Endpoints::provisioner` still answers `nix` and no reader changes.
+      # THE MARKER IS ON THE ENTRY, not on the document - `github.com/telekom/sutura#317`. This
+      # used to set a document-level `.provisioner = "nix"`, which is the last writer's opinion
+      # about every other writer's service: after an `xtask dev-up` merged its own entries beside
+      # these, one field had to answer for both and answered wrong for one of them. So each entry
+      # carries what provisioned it, `dev/src/discovery.rs` reads it per service, and neither
+      # writer touches a key belonging to the other.
       publish() {
         root="$1"; service="$2"; host="$3"; port="$4"
         state="$root/.sutura-dev"
         file="$state/endpoints.json"
         mkdir -p "$state"
         if [ ! -f "$file" ]; then
-          printf '{"project":"sutura","provisioner":"nix","services":{}}\n' > "$file"
+          printf '{"project":"sutura","services":{}}\n' > "$file"
         fi
         jq --arg service "$service" --arg host "$host" --argjson port "$port" \
-          '.provisioner = "nix" | .services[$service] = { host: $host, port: $port }' \
+          '.services[$service] = { host: $host, port: $port, provisioner: "nix" }' \
           "$file" > "$file.new"
         mv "$file.new" "$file"
       }
@@ -72,6 +77,25 @@
         # absent entry non-zero without a second branch to keep in step with this one.
         jq --exit-status --arg service "$service" --arg host "$host" --argjson port "$port" \
           '.services[$service] // empty | .host == $host and .port == $port' \
+          "$file" >/dev/null 2>&1 || return 1
+      }
+
+      # Is ANY address published for this service? The question `nix/with-tier.sh` has, and the
+      # reason it is a subcommand rather than an inference from a tier's `status`: that wrapper's
+      # skip-or-start decision needs the claim THE SUITE reads, and taking a composite verdict off
+      # a co-versioned helper is `github.com/telekom/sutura#335` - a `status` from between two
+      # revisions answered 0 for a postmaster with no entry, and the wrapper started nothing.
+      #
+      # Fail-closed toward *no*, exactly as `published` is: a missing file, a missing entry and a
+      # document that does not parse are one answer. And a caller reaching an OLDER build of this
+      # script gets the usage message and exit 2, which is the same answer - so the degradation is
+      # "start a server", never "block the run".
+      claimed() {
+        root="$1"; service="$2"
+        file="$root/.sutura-dev/endpoints.json"
+        [ -f "$file" ] || return 1
+        jq --exit-status --arg service "$service" \
+          '.services[$service] // empty | true' \
           "$file" >/dev/null 2>&1 || return 1
       }
 
@@ -92,6 +116,7 @@
       case "''${1:-}" in
         publish) [ "$#" -eq 5 ] || usage; publish "$2" "$3" "$4" "$5" ;;
         published) [ "$#" -eq 5 ] || usage; published "$2" "$3" "$4" "$5" ;;
+        claimed) [ "$#" -eq 3 ] || usage; claimed "$2" "$3" ;;
         withdraw) [ "$#" -eq 3 ] || usage; withdraw "$2" "$3" ;;
         *) usage ;;
       esac

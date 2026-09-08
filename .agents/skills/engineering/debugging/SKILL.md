@@ -63,14 +63,15 @@ removed BEFORE the tier is touched, so a failed `dev-up` or `dev-down` leaves no
 can connect to. **A tier that is up with no discovery file is that**, and `just dev-up` again is the
 fix.
 
-**The nix Postgres tier in that state HEALS ITSELF now, and only that one.** `just dev-up` still
-serialises the whole document from the docker services it read, so a nix tier's entry goes with it
-and the postmaster survives unnamed - which used to be a `just test` whose postgres cells failed
-closed, because the wrapper asked `sutura-postgres-tier status` (the process) while the cells asked
-the file (`github.com/telekom/sutura#298`). That answer is derived from the file now: the state
-reads as *unclaimed*, `just test` republishes the entry and leaves the server running, and
-`checks.postgres-tier` holds all three arms. A `just dev-endpoint postgres` between the `dev-up` and
-the next `just test` still answers nothing.
+**A `dev-up` no longer takes a nix tier's entry with it** (`github.com/telekom/sutura#317`): both
+writers of that file merge per service and withdraw per service, so `just dev-endpoint postgres`
+answers between a `dev-up` and the next `just test`. It used to be a `just test` whose postgres
+cells failed closed, because the wrapper asked `sutura-postgres-tier status` (the process) while
+the cells asked the file (`#298`) - and then again because a **pre-#298 `status` on a long-lived
+PATH** answers 0 for a postmaster nothing publishes (`#335`). `nix/with-tier.sh` derives the claim
+from the document itself now and asks `status` only whether a postmaster is alive, so a tier script
+it cannot version-check can cost a redundant `start` and not a blocked run. `checks.postgres-tier`
+holds every arm, the lying-`status` one included, and measures the lie before acting on it.
 
 **No other nix tier is healed, and for keycloak `start` is NOT the remedy** - it returns 0 having
 published nothing. Its guard is `status`, which is the process there and deliberately so (see that
