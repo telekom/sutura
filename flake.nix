@@ -740,7 +740,7 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'not binary(two_principals) and not binary(exchanged_identity)' "$@"
+              --run-ignored only -E 'not binary(two_principals) and not binary(exchanged_identity) and not binary(cross_resource)' "$@"
           '');
         };
         # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth

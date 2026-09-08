@@ -8,12 +8,12 @@
 //! deterministic tests in `corpus.rs` can hold it.
 //!
 //! In `tests/naming/mod.rs` rather than `tests/naming.rs` so cargo does not build it as a test
-//! target of its own - the reason `tests/support/mod.rs` gives. Unlike `support`, only the corpus
-//! leg declares it: `dead_code` is `deny` in the workspace lint table, and `tests/acceptance.rs`
+//! target of its own - the reason `tests/support/mod.rs` gives. The corpus and explicit cross-resource
+//! legs declare it: `dead_code` is `deny` in the workspace lint table, and `tests/acceptance.rs`
 //! names its one table from the developer's own environment rather than deriving it, so an item
 //! here would be dead in that target.
 //!
-//! **Every `#[test]` over this module stays in `corpus.rs`.** `.agents/skills/sutura/gates` states
+//! **Assertions stay in their target files.** `.agents/skills/sutura/gates` states
 //! the reason as a rule: `just causality` reverts a file that added no test and keeps one that did,
 //! so moving assertions out of a file turns it revertible and orphans the module they moved into.
 //! What moved here is the harness.
@@ -23,7 +23,7 @@
 //! the project are resources.
 
 use sutura_domain::catalog::{Definitions, Description, Metric, Model, Relationship};
-use sutura_domain::model::{InvalidIdentifier, TableName};
+use sutura_domain::model::{InvalidIdentifier, QualifiedTable, TableName};
 use sutura_domain::pinned::PinnedDefinitions;
 
 /// A token unique to this RUN of the leg, so two runs never share a fixture table.
@@ -114,7 +114,7 @@ pub(crate) fn suffixed_bundle(tokened: &PinnedDefinitions, token: &str, leg: &st
             Model::new(
                 model.name().clone(),
                 model.source().clone(),
-                table,
+                QualifiedTable::new(model.table().qualifier().cloned(), table),
                 model.columns().clone(),
                 Description::parse(model.description()).expect("a loaded description reparses"),
             )
