@@ -21,13 +21,16 @@
 //! `-D warnings`. That is the same measurement `served.rs` records for spelling its two `cfg`s as two
 //! attributes rather than one `all(..)`.
 
-// `#[cfg(test)]` here for the same reason it is on this module's own declaration: clippy needs a
-// literal one on an ancestor for `allow-expect-in-tests` to apply.
+// **No `#[cfg(test)]` of its own, and that is deliberate twice over.** This module's declaration in
+// `served.rs` carries a literal one, and clippy walks the whole ancestor chain - so
+// `allow-expect-in-tests` already applies inside the child and a second attribute buys nothing. It
+// also costs: `just causality` reads an added `#[cfg(test)] mod` as a NEW test module and refuses a
+// diff that declares one while naming no test, which is the right rule and the wrong reading of a
+// harness split. Measured - with the attribute, `FAILED - the added tests could not be NAMED`.
 //
 // `#[path]` because this file is itself loaded by one, and that changes where a child is looked for:
 // measured, `E0583` asked for `served/reading.rs` rather than `served/harness/reading.rs`. The
 // directory is named explicitly so the layout matches the module tree instead of flattening it.
-#[cfg(test)]
 #[path = "harness/reading.rs"]
 pub(crate) mod reading;
 
