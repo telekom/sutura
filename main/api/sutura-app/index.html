@@ -3072,9 +3072,9 @@ heading, a fence, a bare instruction, or a fake <code>definitions:</code> traile
 <h2 id="module-warehouses">Module <code>warehouses</code><a class="headerlink" href="#module-warehouses" title="Permanent link">&para;</a></h2>
 <p>The data systems this process opened, keyed by the name a plan selects them with.</p>
 <h1 id="why-a-registry-rather-than-one-warehouse">Why a registry rather than one warehouse<a class="headerlink" href="#why-a-registry-rather-than-one-warehouse" title="Permanent link">&para;</a></h1>
-<p>A plan resolves to a single source for one answer - a question spanning two is federated and
-refused as <code>FederationNotExecutable</code> while no adapter executes a leg (three or more are refused at
-plan time) - but a
+<p>A plan resolves to a single source for one answer - a question spanning two is federated, and
+answered where every registered adapter declares <code>Warehouse::EXECUTES_LEGS</code> and refused as
+<code>FederationNotExecutable</code> where one does not (three or more are refused at plan time) - but a
 <em>deployment</em> holds as many as its catalog names, and until now the service held exactly one. That
 made two facts indistinguishable: "this question is for a data system nobody configured" and "this
 question is for the other one of the two we opened". The first is a refusal an operator has to fix

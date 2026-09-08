@@ -5971,11 +5971,12 @@ metric, so the metric's name distinguishes nothing inside it. The answer's measu
 under the metric's own certified name, which <code>FederatedPlan</code>'s <code>measure_label</code> holds.</p>
 <h3 id="module-leg">Module <code>leg</code><a class="headerlink" href="#module-leg" title="Permanent link">&para;</a></h3>
 <p>One source's share of a federated question, and the only thing the port can be handed.</p>
-<p><strong>The shapes, their closure, and nothing that produces or executes one.</strong> There is no splitter
-and no combiner in this workspace, so no production code constructs a <code>LegPlan</code>: what is here
-is the vocabulary a splitter will emit and <code>sutura-sql</code> already renders, pinned per dialect
-before anything runs it. <code>.agents/skills/sutura/query-surface</code> carries that state, and this
-module says it rather than leaving it to be discovered.
+<p><strong>The shapes and their closure.</strong> <code>sutura_semantic::federated_plan</code> produces one of these,
+<code>sutura_app::answer_federated</code> hands it to an adapter, and
+<code>FederatedPlan::combine</code> - a function in this crate -
+assembles the two results; <code>sutura-sql</code> renders a leg per dialect and <code>sutura-exec-datafusion</code>
+builds one as a logical plan. <code>.agents/skills/sutura/query-surface</code> carries which of those a
+published artefact reaches, and this module says the shape rather than the state.
 <code>docs/adr/0007-federating-across-different-data-systems.md</code> decides the shape and
 <code>docs/adr/0009-the-plan-from-one-source-to-many.md</code> Decision 2 decides what a leg may compute.</p>
 <p><strong>Why a leg is not a <code>QueryPlan</code>, which is the whole reason this module exists.</strong> A

@@ -2325,9 +2325,13 @@ the crate root because it is this crate's output rather than any one module's de
 from a <code>QueryPlan</code>; <code>generate_leg</code> renders one leg of a federated question from a <code>LegPlan</code>.
 They share every decision that could drift - the quoting, the placeholder style, the bucket, the
 joins, how a term renders - and differ in the four ways <code>generate_leg</code>'s own documentation
-lists. Nothing in a binary calls the second one yet: there is no splitter, so
-<code>.agents/skills/sutura/query-surface</code>'s built-and-not-wired section is where its state is
-recorded.</p>
+lists. <strong>Nothing a RELEASE runs calls the second one</strong>, and the reason is not the absence of a
+splitter - <code>sutura_semantic::federated_plan</code> produces a <code>LegPlan</code> and <code>sutura_app</code> executes it.
+It is that the one leg-executing adapter a release links is the engine, which builds a logical
+plan and renders no SQL; the renderer-backed adapters that would call this are a dev-dependency
+and a default-off feature. <code>.agents/skills/sutura/query-surface</code>'s federation section records
+that state, and it is why this crate's leg goldens are evidence about four dialects and about
+nothing a shipped binary executes.</p>
 <h1 id="why-this-is-its-own-crate-and-not-the-compilers-last-stage">Why this is its own crate and not the compiler's last stage<a class="headerlink" href="#why-this-is-its-own-crate-and-not-the-compilers-last-stage" title="Permanent link">&para;</a></h1>
 <p>It used to be <code>sutura_semantic::generate</code> and <code>sutura_semantic::dialect</code>, and rendering was
 already off the compile path - <code>sutura_semantic::compile</code> stops at a plan, because the
@@ -2916,9 +2920,13 @@ than a flag on the first.</strong></p>
 <code>term_expression</code>, <code>predicate</code>, <code>bucket_expression</code>, <code>joined</code> and <code>render</code> - so a
 change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
 path and not the other.</p>
-<p><strong>Nothing calls this from a binary.</strong> There is no splitter, so no <code>LegPlan</code> is constructed
-outside a test; what pins it is the golden family under <code>crates/sutura-app/tests/golden</code>, one
-statement per shape per dialect, parse-checked in the dialect it was generated for.</p>
+<p><strong>Nothing a RELEASE runs calls this</strong>, and the reason is worth stating precisely because it used
+to read <em>there is no splitter</em>: there is one - <code>sutura_semantic::federated_plan</code> - and
+<code>sutura-exec-duckdb</code> calls this from a leg it was handed. What no release does is link an adapter
+that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+which builds a logical plan instead. So what pins this is the golden family under
+<code>crates/sutura-app/tests/golden</code>, one statement per shape per dialect, parse-checked in the
+dialect it was generated for - and none of those four is what a release executes.</p>
 <h3 id="fn-generate_key_probe"><code>fn generate_key_probe</code><a class="headerlink" href="#fn-generate_key_probe" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate_key_probe</span><span class="p">(</span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">cardinality</span><span class="p">::</span><span class="n">DeclaredKey</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
 </span></code></pre></div>

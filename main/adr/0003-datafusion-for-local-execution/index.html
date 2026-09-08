@@ -2615,7 +2615,7 @@ is refused rather than run partly as somebody else.</p>
 <tbody>
 <tr>
 <td>A mono answer resolves to one data system</td>
-<td>The plan stage's source set. One is a mono plan; exactly two are split into a fact leg and a lookup leg (<code>answer</code> refuses them as <code>FederationNotExecutable</code> while no adapter executes a leg); three or more refuse as <code>PlanSpansTooManySources</code>. A second data system reachable from one process is federation once it is split, and does not merge with a mono plan by being convenient</td>
+<td>The plan stage's source set. One is a mono plan; exactly two are split into a fact leg and a lookup leg (<code>answer</code> executes them where the registered adapter declares <code>EXECUTES_LEGS</code> - this engine does - and refuses as <code>FederationNotExecutable</code> where it does not); three or more refuse as <code>PlanSpansTooManySources</code>. A second data system reachable from one process is federation once it is split, and does not merge with a mono plan by being convenient</td>
 </tr>
 <tr>
 <td>We never re-parse SQL we did not generate</td>
