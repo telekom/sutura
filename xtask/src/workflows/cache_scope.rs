@@ -180,10 +180,7 @@ impl Step<'_> {
     fn gate(&self) -> Option<String> {
         self.lines.iter().find_map(|line| {
             let key = key_of(line)?;
-            let value = key
-                .strip_prefix("if:")
-                .or_else(|| key.strip_prefix("save:"))?
-                .trim();
+            let value = key.strip_prefix("if:").or_else(|| key.strip_prefix("save:"))?.trim();
             let inner = value
                 .strip_prefix("${{")
                 .and_then(|rest| rest.strip_suffix("}}"))
@@ -226,9 +223,7 @@ fn steps(text: &str) -> Vec<Step<'_>> {
             .iter()
             .enumerate()
             .skip(index.saturating_add(1))
-            .find(|(_, next)| {
-                !next.trim().is_empty() && next.len().saturating_sub(next.trim_start().len()) <= depth
-            })
+            .find(|(_, next)| !next.trim().is_empty() && next.len().saturating_sub(next.trim_start().len()) <= depth)
             .map_or(lines.len(), |(at, _)| at);
         out.push(Step {
             line: index.saturating_add(1),
@@ -263,10 +258,7 @@ mod tests {
 
     #[test]
     fn a_step_gated_on_the_main_push_is_the_only_accepted_shape() {
-        for accepted in [
-            MAIN_PUSH.to_owned(),
-            format!("{MAIN_PUSH} && vars.NIX_CACHE_NAME != ''"),
-        ] {
+        for accepted in [MAIN_PUSH.to_owned(), format!("{MAIN_PUSH} && vars.NIX_CACHE_NAME != ''")] {
             assert!(narrower_than_main_push(&accepted), "{accepted}");
         }
         // Each of these is a `pull_request` path that can save, and each was reachable by editing
@@ -296,11 +288,7 @@ mod tests {
         assert_eq!(step.gate().as_deref(), Some("true"));
         assert!(!narrower_than_main_push(&step.gate().unwrap_or_default()));
 
-        let gated = workflow(
-            "nix-community/cache-nix-action",
-            "save:",
-            &format!("${{{{ {MAIN_PUSH} }}}}"),
-        );
+        let gated = workflow("nix-community/cache-nix-action", "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
         let step = steps(&gated)
             .into_iter()
             .find(|step| step.uses().as_deref() == Some("nix-community/cache-nix-action"))
@@ -382,9 +370,7 @@ mod tests {
         // provocation on `ci.yml` - so neutralising the name list is red without an edit to a
         // workflow.
         let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
-        let back = format!(
-            "{store}\n      - uses: DeterminateSystems/magic-nix-cache-action@908b263f # v14\n"
-        );
+        let back = format!("{store}\n      - uses: DeterminateSystems/magic-nix-cache-action@908b263f # v14\n");
         let found = super::judge(&[("ci.yml", &back)]);
         assert_eq!(found.len(), 1, "{found:#?}");
         assert!(
@@ -414,7 +400,10 @@ mod tests {
         };
         let saving: Vec<_> = steps(&text)
             .into_iter()
-            .filter(|step| step.uses().is_some_and(|uses| uses.starts_with("nix-community/cache-nix-action")))
+            .filter(|step| {
+                step.uses()
+                    .is_some_and(|uses| uses.starts_with("nix-community/cache-nix-action"))
+            })
             .collect();
         assert_eq!(saving.len(), 1, "one restore/save step, not {}", saving.len());
         let gate = saving.first().and_then(super::Step::gate).unwrap_or_default();
