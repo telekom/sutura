@@ -193,9 +193,11 @@ principal_newtype! {
 /// string; as an enum it cannot be, and a reader gets the distinction from a match it cannot skip.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Subject {
-    /// A caller the transport verified. Nothing constructs this yet: it arrives with the record that
-    /// decides how a caller proves who it is, and the type is what that step fills in rather than
-    /// adds.
+    /// A caller the transport verified. `sutura_http`'s `TokenValidator::verify` constructs it, on
+    /// the chain it hands the request path - the record that decided how a caller proves who it is
+    /// (`docs/adr/0014`) has landed, and this variant is what it filled in. The sentence that used
+    /// to stand here said nothing constructed it, which had already stopped being true in one file
+    /// and been carried to no other.
     Verified { id: SubjectId },
     /// No caller identity was established. The transport authenticated the deployment and not
     /// whoever asked, so the deployment is the only principal there is.

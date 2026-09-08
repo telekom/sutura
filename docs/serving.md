@@ -1010,9 +1010,11 @@ Named rather than implied, because an absence that reads as an oversight gets as
   `wire` feature holds one - `ureq` over rustls, with a compiled-in root set and `https_only` - so
   outbound TLS to a data source exists and works. What does not exist is any way for a deployment to
   *configure* it: no trust-store setting, no client certificate, no pinning, and no configuration
-  group at all. Two reasons, and the second is why it is not simply an omission. There is nothing to
-  attach one to yet: no composition root links that crate, `sutura-serve` refuses `kind: bigquery`
-  by name, and the two adapters a shipped binary can open read local files. And for that endpoint
+  group at all. Two reasons, and the second is why it is not simply an omission. There is little to
+  attach one to: the crate is linked and `kind: bigquery` dispatches behind a default-off feature,
+  so what a default build can open still reads local files. **Both clauses that used to stand here -
+  *no composition root links that crate* and *`sutura-serve` refuses `kind: bigquery` by name* - are
+  spent**, which `docs/adr/0017`'s second amendment recorded. And for that endpoint
   the *absence* of configuration is the safer default - a compiled-in root set means the same binary
   trusts the same authorities on every machine, and a settable host is a settable place to send a
   bearer token, which `docs/adr/0018` records as a deliberate trade against local testability. A

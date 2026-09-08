@@ -19,7 +19,7 @@
       "repo": "https://github.com/curityio/oauth-developer-skills",
       "ref": "d411f195ab0d03bc68de6b16504036b6f7533244",
       "upstream_path": "skills/oauth-api-developer",
-      "sha256": "d662e86b0a9b46c1a8db2e58eabae396b412cd4f14d1dc69f31c321466b6260f"
+      "sha256": "3e027822434f284c14cc732adf343b9a5ccdc056391302c90b53fbff9fc07930"
     },
     {
       "name": "ponytail",

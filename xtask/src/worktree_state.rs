@@ -300,8 +300,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // performing the read**: the read moved, the order of the two rules did not.
     //
     // What DID move, and it is the direction this gate wanted: the unreadable-file arm used to be
-    // a `Looked::Unreachable` this closure spelled, which meant a mis-labelled `OutOfScope` was
-    // the one way to hide it. The read is the census's now, so there is no arm to mis-label - the
+    // a `repo::Looked::Unreachable` this closure spelled, which meant a mis-labelled `OutOfScope`
+    // was the one way to hide it. **Qualified deliberately, because `#438` DELETED that type when
+    // the census took over the read** - and an unrelated private `Looked`, with an `Unreachable`
+    // variant of its own, survives in `examples/corpus.rs`. So an unqualified name here does not
+    // dangle where a reader would notice; it resolves to machinery this gate never used and reads
+    // as live. The read is the census's now, so there is no arm to mis-label - the
     // refusal is `Refusal::Unreachable` from inside `inspect`, and it still fails closed on ONE
     // unreadable file rather than on every file being unreadable, which is the difference
     // `sutura/gates` records three times.
