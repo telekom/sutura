@@ -205,7 +205,7 @@ it is a path segment of the request that submits a job, and a federated identity
 of its own.
 
 ```rust
-pub fn session_user(&self, presented: &Presented) -> Result<String, BigQueryError<<T as >::Error>>
+pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQueryError<<T as >::Error>>
 ```
 
 Who this data system says the leg presenting `presented` is executing AS.
@@ -219,6 +219,8 @@ asserting it is the difference between evidence and a comment. `docs/adr/0008` n
 It goes through `Self::deliverable` like every other credential-taking method, so a leg
 whose credential disagrees with the source's posture is refused here too rather than being
 answered by a read that looks harmless.
+The `SessionUser` answer redacts under `Debug`; explicit access and `Display` still
+reveal it. Neither this read nor its return type establishes how the bearer was obtained.
 
 **Not part of the `Warehouse` port, and that is a decision rather than an omission.** No
 other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
@@ -236,6 +238,8 @@ Nothing here quotes what came back: see that variant.
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `use None`
 
 ## `use None`
 

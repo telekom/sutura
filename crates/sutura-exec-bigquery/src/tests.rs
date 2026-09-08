@@ -136,6 +136,20 @@ fn answered_as(who: &str) -> JobRows {
 }
 
 #[test]
+fn a_session_users_debug_is_redacted_but_explicit_access_and_display_preserve_the_answer() {
+    for answer in ["user@example.com", " USER@EXAMPLE.COM "] {
+        let warehouse = open(Recording::answering(answered_as(answer)), shared_posture());
+        let who = warehouse
+            .session_user(&leg_of(&shared_posture()))
+            .expect("the fake answers one identity");
+        assert_eq!(who.as_str(), answer);
+        assert_eq!(format!("{who}"), answer);
+        assert_eq!(format!("{who:?}"), "SessionUser(<redacted>)");
+        assert_eq!(format!("{who:#?}"), "SessionUser(<redacted>)");
+    }
+}
+
+#[test]
 fn the_identity_read_goes_out_under_the_subjects_own_bearer_and_carries_no_values() {
     // **The half of the exchanged-identity venue a fake CAN answer**, and it is the half that
     // decides whether that venue means anything: an identity read submitted under the credential
@@ -154,7 +168,7 @@ fn the_identity_read_goes_out_under_the_subjects_own_bearer_and_carries_no_value
     let who = warehouse
         .session_user(&a_subject_token(token))
         .expect("the fake answers one identity");
-    assert_eq!(who, "principal-a@example.com");
+    assert_eq!(who.as_str(), "principal-a@example.com");
     let seen = warehouse.transport.seen.borrow();
     let asked = seen.first().expect("the transport was asked once");
     assert_eq!(asked.subject.as_deref(), Some(token));
@@ -174,7 +188,7 @@ fn the_identity_read_under_a_shared_source_sends_no_bearer_of_its_own() {
     let who = warehouse
         .session_user(&leg_of(&shared_posture()))
         .expect("the fake answers one identity");
-    assert_eq!(who, "ci@example.com");
+    assert_eq!(who.as_str(), "ci@example.com");
     let seen = warehouse.transport.seen.borrow();
     assert_eq!(seen.first().and_then(|asked| asked.subject.clone()), None);
 }

@@ -95,6 +95,8 @@
 //! interpolates what came back: every leg is judged by [`who_answered`], which reduces an answer to
 //! one of four verdicts carrying no text, and a test below holds that property against the verdicts
 //! themselves. `BigQueryError::NoIdentityInTheAnswer` is the same decision one layer down.
+//! The successful `SessionUser` answer also redacts under `Debug`. Its explicit accessor and
+//! `Display` still expose the identity; the class-only verdict remains necessary here.
 //!
 //! **And the claim that used to end *and nowhere else* was false, which review measured.** The
 //! disclosure is not a property of this file: any leg that formats a `BigQueryError<WireError<_>>`
@@ -153,17 +155,17 @@ mod tests {
     };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::SourcePosture;
-    use sutura_exec_bigquery::BigQueryError;
     use sutura_exec_bigquery::wire::{EndpointMessage, StsOverHttp, WireAgent, WireError};
+    use sutura_exec_bigquery::{BigQueryError, SessionUser};
     use sutura_exec_bigquery::{WorkloadIdentity, WorkloadIdentityBroker};
 
     use crate::support::{Connection, bounds, named, opened, opened_as, presented};
 
     /// What an identity read answers, or why it could not.
     ///
-    /// Named because `Result<String, BigQueryError<WireError<C>>>` is over the `type_complexity`
+    /// Named because `Result<SessionUser, BigQueryError<WireError<C>>>` is over the `type_complexity`
     /// threshold this workspace tightened - the same reason `crate::tests::fakes::Case` is named.
-    type IdentityRead<C> = Result<String, BigQueryError<WireError<C>>>;
+    type IdentityRead<C> = Result<SessionUser, BigQueryError<WireError<C>>>;
 
     /// The scope the exchanged credential is minted for.
     ///
@@ -217,8 +219,8 @@ mod tests {
     /// Case-insensitive because an account identifier is, and trimmed because a cell arrives as the
     /// endpoint spelled it. Nothing here is a substring test on the expected values: an identifier
     /// that merely CONTAINS the expected one is a different account.
-    fn who_answered(observed: &str, expected: &str, the_other: &str) -> WhoAnswered {
-        let observed = observed.trim();
+    fn who_answered(observed: &SessionUser, expected: &str, the_other: &str) -> WhoAnswered {
+        let observed = observed.as_str().trim();
         if observed.eq_ignore_ascii_case(expected.trim()) {
             return WhoAnswered::TheExpectedPrincipal;
         }
@@ -245,7 +247,7 @@ mod tests {
     /// they name a class of failure and never an identity. `detail` is the free text and is the one
     /// field that can carry an account, so nothing here reads it. `two_principals.rs`'s control leg
     /// prints exactly the same pair.
-    fn identity_or_die<C>(read: IdentityRead<C>, leg: &str) -> String
+    fn identity_or_die<C>(read: IdentityRead<C>, leg: &str) -> SessionUser
     where
         C: core::error::Error + Send + Sync + 'static,
     {
@@ -353,7 +355,7 @@ mod tests {
     fn the_expected_principal_is_the_only_answer_this_cell_passes() {
         assert_eq!(
             who_answered(
-                "principal-a@example.com",
+                &SessionUser::new(String::from("principal-a@example.com")),
                 "principal-a@example.com",
                 "principal-b@example.com"
             ),
@@ -362,7 +364,7 @@ mod tests {
         // The endpoint's own spelling is not this cell's to insist on.
         assert_eq!(
             who_answered(
-                "  Principal-A@Example.com ",
+                &SessionUser::new(String::from("  Principal-A@Example.com ")),
                 "principal-a@example.com",
                 "principal-b@example.com"
             ),
@@ -378,7 +380,7 @@ mod tests {
         // exists to find. This is the verdict that makes the crossed case a distinguishable red.
         assert_eq!(
             who_answered(
-                "principal-b@example.com",
+                &SessionUser::new(String::from("principal-b@example.com")),
                 "principal-a@example.com",
                 "principal-b@example.com"
             ),
@@ -397,7 +399,11 @@ mod tests {
             "principalSet://iam.googleapis.com/projects/0/locations/global/workloadIdentityPools/p/*",
         ] {
             assert_eq!(
-                who_answered(observed, "principal-a@example.com", "principal-b@example.com"),
+                who_answered(
+                    &SessionUser::new(String::from(observed)),
+                    "principal-a@example.com",
+                    "principal-b@example.com"
+                ),
                 WhoAnswered::AFederatedPoolSubject,
                 "{observed}"
             );
@@ -410,13 +416,17 @@ mod tests {
         // silently fell back to the credential the transport holds answers exactly this, and the
         // cell has to be red rather than merely unsurprised.
         assert_eq!(
-            who_answered("ci@example.com", "principal-a@example.com", "principal-b@example.com"),
+            who_answered(
+                &SessionUser::new(String::from("ci@example.com")),
+                "principal-a@example.com",
+                "principal-b@example.com"
+            ),
             WhoAnswered::NeitherPrincipal
         );
         // A near miss is a different account, not a partial match.
         assert_eq!(
             who_answered(
-                "principal-a@example.com.attacker.example",
+                &SessionUser::new(String::from("principal-a@example.com.attacker.example")),
                 "principal-a@example.com",
                 "principal-b@example.com"
             ),
@@ -509,7 +519,10 @@ mod tests {
         // `NeitherPrincipal { observed }`, say - fails here rather than in a public log.
         let inputs = ["principal-a@example.com", "principal-b@example.com", "ci@example.com"];
         for observed in inputs {
-            let rendered = format!("{:?}", who_answered(observed, inputs[0], inputs[1]));
+            let rendered = format!(
+                "{:?}",
+                who_answered(&SessionUser::new(String::from(observed)), inputs[0], inputs[1])
+            );
             for identifier in inputs {
                 assert!(!rendered.contains(identifier), "{rendered} carries {identifier}");
             }
@@ -599,7 +612,7 @@ mod tests {
             .expect("a clock that reads the present")
             .as_secs();
 
-        let asked_as = |assertion: &str, subject: &str| -> String {
+        let asked_as = |assertion: &str, subject: &str| -> SessionUser {
             let chain = |id: &str| {
                 PrincipalChain::of(Subject::Verified {
                     id: SubjectId::parse(id).expect("a subject id parses"),
@@ -642,7 +655,7 @@ mod tests {
         // which the two assertions above cannot catch on their own if the expectations were crossed
         // in the environment rather than in the exchange.
         assert!(
-            !both_legs_answered_one_identity(&from_a, &from_b),
+            !both_legs_answered_one_identity(from_a.as_str(), from_b.as_str()),
             "both legs executed as one identity, so nothing was exchanged per subject"
         );
     }
