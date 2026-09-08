@@ -4350,11 +4350,10 @@ the only BigQuery venue with evidence. Masked there, guarded in the cell's own s
 was satisfied either way, which is why review and not the gate found it, and it is the sharpest
 example of this record's own warning about a job red for a configuration reason.</p>
 <h3 id="and-two-limits-this-cell-does-not-close-named-so-they-are-not-read-as-closed">And two limits this cell does not close, named so they are not read as closed<a class="headerlink" href="#and-two-limits-this-cell-does-not-close-named-so-they-are-not-read-as-closed" title="Permanent link">&para;</a></h3>
-<p><strong><code>check-venues</code> reads ONE credential path.</strong> It takes the job's <code>GOOGLE_APPLICATION_CREDENTIALS</code>,
-so <em>written under <code>$RUNNER_TEMP</code> and removed</em> and <em>the file is a second copy of the secret</em> are held
-for the CI key and by review for the two principal keys placed beside it. Deriving the credential set
-from the job is the fix, and the split it was waiting on has landed: <code>xtask/src/venues/acceptance.rs</code>
-is 672 lines now, with the five properties in <code>acceptance/properties.rs</code> (#323).</p>
+<p><strong>The single-credential limit is superseded by the twelfth amendment.</strong>
+<code>acceptance/properties.rs</code> now derives recognised <code>$RUNNER_TEMP</code> destinations from lines naming
+configured secrets and requires each file in an <code>rm</code> argument list. Indirect copies, <code>cd</code>-relative
+writes and whether a conditional cleanup actually executes remain outside that scan.</p>
 <p><strong>Nothing checks that the two nextest filters are complements.</strong> <code>binary(two_principals)</code> and
 <code>not binary(two_principals)</code> appear in two <code>just</code> recipes and two flake apps, and no gate reads a
 nextest filter expression - so renaming the target would silently un-filter the acceptance app.
@@ -4382,6 +4381,34 @@ the typed policy is that module's own suite plus two cells per leg asserting tha
 <code>null</code>, and an integer and its own text, are refused <strong>by the content comparison</strong> - the diagnosis
 named in the expected panic, not merely that some panic fired. The next <code>bigquery-acceptance</code> run is
 what would restate the number with <em>exactly</em> meaning what it says.</p>
+<h2 id="twelfth-amendment-2026-09-07-the-first-of-the-tenth-amendments-two-limits-is-closed">Twelfth amendment, 2026-09-07: the first of the tenth amendment's two limits is closed<a class="headerlink" href="#twelfth-amendment-2026-09-07-the-first-of-the-tenth-amendments-two-limits-is-closed" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted; it closes a limit this record named, and carries no new run.</strong></p>
+<p>The tenth amendment states that <code>check-venues</code> reads ONE credential path, so <em>written under
+<code>$RUNNER_TEMP</code> and removed</em> and <em>this file is a second copy of the secret</em> are held for the CI key
+and <strong>by review</strong> for the two principal keys placed beside it. That sentence was true when it was
+written and is not now: telekom/sutura#389 derives the credential set from the job, which is the fix
+this record named. <code>properties::credential_placement</code> reads recognised redirects into <code>$RUNNER_TEMP</code>
+from a line that spells a secret, and each such file has to be deleted by name; <code>shape::removes</code> reads an
+<code>rm</code>'s ARGUMENT LIST, because one <code>rm</code> over three paths contains the whole-string form of none of
+them but the first - so the form it replaces would also have failed a job that removes three
+correctly.</p>
+<p><strong>Measured on this job, tree restored after each:</strong> the two principals' writes added under
+<code>$RUNNER_TEMP</code> and left out of the cleanup, <code>cargo xtask check-venues</code> names both files and
+<code>just hygiene</code> exits 1; with one <code>rm</code> naming all three, the leg's own path LAST, it exits 0. The
+pre-change pair that both exited 0 was the additional writes with and without separate ordinary
+cleanup commands, while retaining the original primary cleanup. The combined cleanup with the
+primary path last instead exited 1 before this change: it was a false refusal of a correct job.</p>
+<p><strong>Review narrowed the shell spelling claim.</strong> Plain and braced <code>RUNNER_TEMP</code> expansions, with the
+whole word or directory double-quoted, now resolve to the same path in both the primary-write and
+additional-copy checks. A single-quoted variable is literal and earns no placement or cleanup.
+Cleanup arguments end at the command boundary: a trailing comment or later <code>echo</code> removes nothing,
+while an <code>rm</code> behind a compound-command keyword is still read. This recognises commands; it does
+not establish that a condition lets them execute.</p>
+<p><strong>What is still review's, narrower than the sentence it replaces:</strong> a copy made by a command that
+does not spell the secret's name - a <code>cp</code> of the key file, a <code>base64 -d</code> of it - a <code>cd</code>-relative write
+or other shell-built path, and a removal whose condition never fires. The second limit that
+amendment names, the two nextest filters, is
+untouched and is telekom/sutura#430.</p>
 
 
 

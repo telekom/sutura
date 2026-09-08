@@ -2748,6 +2748,10 @@ carrying leg 2. A <strong>built</strong> venue whose <code>Reached by</code> nam
 in backticks is refused, because dropping that prefix made the cell resolve to nothing and its
 verdict permanent. And <em>CI invokes it</em> reads a <strong>command</strong> rather than a substring, because a
 task named inside an <code>echo</code> was resolving as an invocation.</p>
+<p><strong><code>Where it runs</code> is a closed vocabulary too:</strong> <code>in process</code>, <code>a GitHub environment</code>, or
+<code>nowhere</code>, with explanatory text after the token. A synonym such as <code>not anywhere yet</code> is
+refused rather than silently changing which verdicts the row permits. This closes a spelling
+bypass, not the truth of the row: an accepted token falsely claiming a run site still passes.</p>
 <p><strong>What none of it reaches, said next to it.</strong> What is read is an <em>invocation</em> in a workflow, a
 local composite action or the shared <code>nix/</code> shell - never a green run. A wired job that always
 skips reads the same as one that passes, and a hand-run is invisible to both. So <em><code>unrun</code> has
@@ -2756,8 +2760,16 @@ review's, with the run named beside it.</p>
 <p><strong>And the one that is REVIEW's alone, named rather than left to be discovered.</strong> Nothing checks
 that the task a <code>Reached by</code> cell names is the task that runs <em>this</em> venue. Measured: pointing
 the two-keys row at <code>`nix run .#actionlint`</code> - a real, CI-invoked, entirely unrelated lint -
-passes at exit 0. What the gate holds is that a venue's state is consistent with what CI runs;
-that a row describes the thing it names is read by a person.</p>
+AND changing its matrix cell and section from <code>unrun</code> to <code>wired</code> passes at exit 0. Repointing
+alone is refused by the <code>unrun</code> ratchet. What the gate holds is that a venue's state is
+consistent with a named invocation; that the invocation belongs to this venue, and that an
+accepted run-site token is true, remain review's. An invented run site plus an unrelated
+invocation can still publish a false leg-2 <code>yes</code>; this change does not close that gap.</p>
+<p><strong>Invocation reading has syntax limits too.</strong> Workflow and action sources contribute their
+<code>run:</code> bodies, not ordinary YAML names or descriptions; shared shell scripts are read whole.
+The indentation reader is not a YAML parser: a <code>run:</code>-shaped line inside a prose block scalar
+can still be collected. Heredoc content beginning with a task can invent an invocation; an
+apostrophe in unquoted prose can instead hide one. Neither is evidence of shell execution.</p>
 </div>
 <h2 id="the-venues">The venues<a class="headerlink" href="#the-venues" title="Permanent link">&para;</a></h2>
 <table>
@@ -3281,6 +3293,8 @@ subject bound to either grant</em>. Until that exists, <code>AGENTS.md</code> ke
 <ul>
 <li>A new venue arrives as a row in the table above <strong>with its exclusions written</strong>, in the same change.</li>
 <li>A test moving from one venue to another moves its row, rather than gaining a second one.</li>
+<li><code>Where it runs</code> must use the closed vocabulary; the gate holds its meaning, not whether the
+  claimed run site is true or its named task belongs to that venue.</li>
 <li><code>just validate</code> runs every venue that needs no network. The other three do not, and each says so where
   it is invoked.</li>
 </ul>
