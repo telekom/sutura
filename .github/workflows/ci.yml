@@ -249,10 +249,10 @@ jobs:
             ${{ secrets.NIX_CACHE_SUBSTITUTER != '' && format('substituters = {0}', secrets.NIX_CACHE_SUBSTITUTER) || '' }}
             ${{ secrets.NIX_CACHE_PUBLIC_KEY != '' && format('trusted-public-keys = {0}', secrets.NIX_CACHE_PUBLIC_KEY) || '' }}
 
-      # Restored on every event, written only from a push to `main` - see the action for why.
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
+          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
 
       # MAIN POPULATES THE BINARY CACHE every pull request substitutes from: it signs the native
       # closure into a GLOBAL, non-ref-scoped cache so a PR's cold leg restores instead of compile
@@ -875,10 +875,10 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      # Its own scope: this job builds one crate, not the gate closure.
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: bq
+          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #

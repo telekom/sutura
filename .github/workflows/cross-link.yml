@@ -157,6 +157,7 @@ jobs:
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ${{ matrix.target }}
+          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
 
       # MAIN'S ALL-4 RUN POPULATES the read-only binary cache that `extra_nix_config` above makes
       # every pull request and every other leg substitute from. Gated on the push event AND the

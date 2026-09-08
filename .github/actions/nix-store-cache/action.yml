@@ -47,6 +47,13 @@ inputs:
     # other's entry. A pull request restores the entry its own scope wrote on `main`.
     description: What this job's store is, so two jobs do not share one entry - `ci`, `bq`, a target triple.
     required: true
+  hosted:
+    # AN INPUT AND NOT `vars.NIX_CACHE_NAME != ''` READ HERE, and the reason is measured rather than
+    # stylistic: a composite action manifest cannot see the `vars` context at all. Run 34261889080
+    # failed to LOAD this file - "Unrecognized named-value: 'vars'", a manifest validation error, so
+    # no step in it ran. The caller evaluates it and passes the answer through.
+    description: Whether the hosted binary cache is provisioned, as `vars.NIX_CACHE_NAME != ''`.
+    required: true
 
 runs:
   using: composite
@@ -94,7 +101,7 @@ runs:
         PRIMARY: ${{ steps.store.outputs.primary-key }}
         RESTORED: ${{ steps.store.outputs.restored-key }}
         WRITES: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        HOSTED: ${{ vars.NIX_CACHE_NAME != '' }}
+        HOSTED: ${{ inputs.hosted }}
       run: |
         set -eu
         carried="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
