@@ -375,7 +375,7 @@
         inherit (shipped) binaries crossPackages imageTargets;
 
       in
-      {
+      rec {
         # WHAT `nix build .#<name>` OFFERS, and every name in it but `xtask` comes from
         # `nix/shipped.nix`'s `binaries` list rather than from a line here:
         #
@@ -496,8 +496,9 @@
 
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
-          doctest = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
+          doctest = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts checks.nextest // {
             pnameSuffix = "-doctest";
+            src = wholeTree;
             doCheck = false;
             buildPhaseCargoCommand = "cargo test --doc --workspace --all-features --profile \"$CARGO_PROFILE\"";
           });
