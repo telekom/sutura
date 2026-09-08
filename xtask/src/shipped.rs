@@ -811,7 +811,7 @@ mod tests {
             [
                 ".github/actions/build-artefacts/action.yml:16",
                 ".github/actions/embedded-dependency-list/action.yml:15",
-                ".github/workflows/cross-link.yml:94",
+                ".github/workflows/cross-link.yml:101",
                 ".github/workflows/release.yml:82",
             ],
             "the set of files spelling the shipped set literally has changed"
@@ -826,7 +826,7 @@ mod tests {
                 ".github/actions/build-artefacts/action.yml:118 -> inputs.binaries",
                 ".github/actions/build-artefacts/action.yml:235 -> inputs.binaries",
                 ".github/actions/embedded-dependency-list/action.yml:83 -> inputs.binaries",
-                ".github/workflows/cross-link.yml:221 -> env.BINARIES",
+                ".github/workflows/cross-link.yml:260 -> env.BINARIES",
                 ".github/workflows/release.yml:236 -> env.BINARIES",
             ],
             "the set of declarations referencing the shipped set has changed"

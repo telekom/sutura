@@ -48,10 +48,10 @@ const JUSTFILE: &str = "justfile";
 /// The recipe names in this repo's justfile, or `None` when it could not be read.
 ///
 /// Exposed for the citation checkers that are not this gate. `check-guidance` reads the remedy text
-/// in `xtask/src/guidance/claims.rs` and, since `github.com/telekom/sutura#243`, every `just <task>`
-/// a program PRINTS - both rot exactly the way a citation in a page does. This is the only parser in
-/// the workspace that knows what a recipe header looks like, and a second copy of it is the
-/// transcription this module's header objects to.
+/// in `xtask/src/guidance/claims/contradicted.rs` and, since `github.com/telekom/sutura#243`, every
+/// `just <task>` a program PRINTS - both rot exactly the way a citation in a page does. This is the
+/// only parser in the workspace that knows what a recipe header looks like, and a second copy of it
+/// is the transcription this module's header objects to.
 pub(crate) fn recipe_names(root: &std::path::Path) -> Option<BTreeSet<String>> {
     let text = std::fs::read_to_string(root.join(JUSTFILE)).ok()?;
     Some(recipes(&text).into_iter().map(|recipe| recipe.name).collect())
@@ -573,6 +573,37 @@ lint:
             found.iter().any(|p| p.contains("no `just <task>` citation")),
             "a justfile this repo's size with no citation means the span walk broke: {found:?}"
         );
+    }
+
+    #[test]
+    fn ci_preserves_a_failed_build_even_if_an_offline_retry_would_pass() {
+        let root = super::repo::root().expect("the repo root is discoverable");
+        let body = super::recipe_body(&root, "ci").expect("the ci recipe is readable").join("\n");
+        // Execute the real recipe with a fake Nix command: no build or network is reached.
+        for first_exit in [0, 23] {
+            let script = format!(
+                "next_exit={first_exit}\n\
+                 nix() {{\n\
+                   local code=$next_exit\n\
+                   next_exit=0\n\
+                   return \"$code\"\n\
+                 }}\nPATH=''\n{body}"
+            );
+            let output = std::process::Command::new("bash")
+                .args(["--noprofile", "--norc", "-c", &script])
+                .env_remove("BASH_ENV")
+                .env("SUTURA_NIX_SYSTEM", "fixture")
+                .current_dir(&root)
+                .output()
+                .expect("the recipe runs under bash");
+            assert_eq!(
+                output.status.code(),
+                Some(first_exit),
+                "a later success must not erase the first failure: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 
     #[test]

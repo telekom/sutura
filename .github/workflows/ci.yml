@@ -191,7 +191,7 @@ jobs:
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
     # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
-    # `magic-nix-cache` has anything to restore - spends most of an hour compiling before a
+    # the store cache has anything to restore - spends most of an hour compiling before a
     # single test runs, and 60 killed exactly that run mid-`Tests`. Warm runs are far quicker;
     # the cap has to survive the cold one that fills the cache for the rest.
     timeout-minutes: 120
@@ -241,12 +241,31 @@ jobs:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
           # absent: with it, a pull request could add a substituter and a trusted key and have
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
-          # goes here, where the workflow diff shows it.
+          # goes here, where the workflow diff shows it. The read-only binary-cache backstop is
+          # added HERE (never from flake.nix); its secret-driven lines interpolate to nothing
+          # while unprovisioned, so no store a pull request does not control is ever trusted.
           extra_nix_config: |
             fallback = true
+            ${{ secrets.NIX_CACHE_SUBSTITUTER != '' && format('substituters = {0}', secrets.NIX_CACHE_SUBSTITUTER) || '' }}
+            ${{ secrets.NIX_CACHE_PUBLIC_KEY != '' && format('trusted-public-keys = {0}', secrets.NIX_CACHE_PUBLIC_KEY) || '' }}
 
-      # Carries /nix/store between runs. Without it every run recompiles from scratch.
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
+
+      # MAIN POPULATES THE BINARY CACHE every pull request substitutes from: it signs the native
+      # closure into a GLOBAL, non-ref-scoped cache so a PR's cold leg restores instead of compile
+      # (the Actions cache is ref-scoped and dies with its PR). Gated on the event AND the cache
+      # name; the token rides the action input (`secrets` is not visible to an `if`) and an empty
+      # token means configure-push-nothing, keeping an unprovisioned repo inert. The NIX_CACHE_NAME
+      # variable and NIX_CACHE_AUTH_TOKEN secret are the owner's to create.
+      - name: Populate the binary cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.NIX_CACHE_NAME != ''
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ${{ vars.NIX_CACHE_NAME }}
+          authToken: ${{ secrets.NIX_CACHE_AUTH_TOKEN }}
 
       - name: Toolchain in use
         run: |
@@ -615,8 +634,26 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         env:
           BASE: ${{ steps.base.outputs.base }}
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
+          if [ "$EVENT" = pull_request ]; then
+            # Ordinary CI keeps its merge checkout; causality measures only the topic's diff.
+            merge_head=$(git rev-parse HEAD)
+            read -r base_tip merged_pr extra <<< "$(git show -s --format=%P HEAD)"
+            if [ -z "$PR_HEAD" ] || [ "$merged_pr" != "$PR_HEAD" ] || [ -n "$extra" ]; then
+              echo "causality requires the checked-out merge's second parent to be the event's PR head" >&2
+              exit 1
+            fi
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "causality refuses to switch a checkout with tracked changes" >&2
+              exit 1
+            fi
+            BASE=$(git merge-base "$base_tip" "$PR_HEAD")
+            trap 'git checkout --detach "$merge_head" || exit 1' EXIT
+            git checkout --detach "$PR_HEAD"
+          fi
           if [ -z "$BASE" ]; then
             echo "no usable base ref; causality not checked"
             exit 0
@@ -675,6 +712,9 @@ jobs:
       - name: The shipped feature set runs its tests
         if: steps.classify.outputs.rust == 'true'
         run: nix run .#default-feature-tests
+
+      - uses: ./.github/actions/nix-store-cache-report
+        if: always()
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
@@ -835,7 +875,10 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: bq
+          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #
@@ -938,17 +981,19 @@ jobs:
     needs: [ci]
     # Same `== 'true'` test the main-only steps use, against the classification `ci` published.
     #
-    # THE EVENT, NOT THE REF, and the difference is four runners per queue entry. This job IS the
-    # pull-request link check, so it now says so. What it said before was two exclusions -
-    # a negative ref list - which named the refs a run was known to arrive on and let through
-    # anything else. A `merge_group` run arrives
-    # on `refs/heads/gh-readonly-queue/<base>/pr-<N>-<sha>`, which is neither, so every queued
-    # entry would have built all four targets a SECOND time, over the pull request's own commits
-    # rebased onto the base - possibly batched with the entries ahead of them, which is a tree the
-    # merge itself will produce and not one a link check is the gate for. Positive on the
-    # event rather than negative on a list of refs: a ref shape nobody has seen yet cannot make it
-    # wrong, and the condition now states the intent instead of enumerating its exceptions.
-    if: needs.ci.outputs.build == 'true' && github.event_name == 'pull_request'
+    # THE EVENT, NOT THE REF. A merge-queue entry arrives on
+    # `refs/heads/gh-readonly-queue/<base>/pr-<N>-<sha>` and would build the full set a SECOND
+    # time, over the pull request's own commits rebased onto the base - a tree the merge itself
+    # will produce, not one a link check gates. So the condition names the events this job serves
+    # instead of the refs it does not: a ref shape nobody has seen cannot make it wrong.
+    #
+    # THE TWO EVENTS, AND THE MATRIX DIFFERS BY THEM. `pull_request` runs the aarch64 pair (the
+    # cross surface the native job never compiles); a push runs ALL FOUR targets - the all-4 link
+    # gate AND the binary-cache-priming run every PR restores from. The `push` branch is safe:
+    # `ci.yml`'s `on.push` is `branches: [main]`. `cross-link.yml` reads the caller's
+    # `github.event_name` (a called workflow's `github` context reflects the CALLER's event, not
+    # `workflow_call`) to select the same two-vs-four split.
+    if: needs.ci.outputs.build == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push')
     # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
     # omitting it leaves this workflow's own `contents: read`, which is what the job declared.
     uses: ./.github/workflows/cross-link.yml

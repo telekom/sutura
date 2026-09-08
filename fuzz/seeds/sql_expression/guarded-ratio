@@ -1,0 +1,1 @@
+SUM(mrr_eur) / (NULLIF(COUNT(DISTINCT status), 0))

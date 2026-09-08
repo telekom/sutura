@@ -194,7 +194,7 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 /// and this command reads the same tree a service would precisely so the two cannot disagree. What is
 /// added is the sentence that makes them actionable here: this command binds nothing, so a refusal
 /// about a listener is about the configuration it was pointed at rather than about the question.
-fn unservable(cause: &sutura_config::SettingsError) -> String {
+fn unservable(cause: &sutura_config::SettingsLoadError) -> String {
     format!(
         "{}\nthis command reads the same configuration a deployment would, so a refusal about \
          serving stops it too - it binds no listener of its own. Point \

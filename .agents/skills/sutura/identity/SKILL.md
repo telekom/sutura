@@ -154,8 +154,22 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   caller whose exchange the provider refuses gets `503` from `SurfaceFailure::Broker`. None of that
   is an answer *under* an asker.
 
-**What it would take to call leg 2 served:** a workload-identity pool to exchange against, and a
-two-grant acceptance leg showing two subjects reading two different row sets. The scaffold for that
-leg is in `sutura-exec-bigquery`'s `tests/acceptance.rs`
-(`two_subjects_with_different_grants_read_two_different_row_sets`), `#[ignore]`d and failing rather
-than skipping when its environment is unset.
+**What it would take to call leg 2 served, and it is THREE things rather than two.** The list used
+to read *a workload-identity pool to exchange against, and a two-grant acceptance leg*. The pool is
+provisioned, the leg is written - `sutura-exec-bigquery`'s
+`two_subjects_with_different_grants_read_two_different_row_sets` and
+`each_principal_is_who_this_source_says_it_is_executing_as`, both `#[ignore]`d and both failing
+rather than skipping when their environment is unset - and neither has run. The third was found by
+writing the second:
+
+**The shipped exchange cannot become a service account at all.** `wire::StsOverHttp` posts one
+RFC 8693 request and returns what comes back, which for a workload-identity pool is a FEDERATED
+credential: the provider resolves it to a pool subject, not to an account. Turning that into a
+service account is a second call (`iamcredentials`) this adapter does not make, and the test stack
+binds no pool principal to either service account. So a real run of the exchange leg reads back a
+pool subject and goes red, which is the finding rather than a defect in the leg.
+
+**And one consequence for what a subject token can buy.** A plain exchange yields exactly ONE
+identity per subject token - whoever the token's `sub` is - so *two* principals need *two* subject
+tokens. One workload identity cannot become two accounts without the hop above, whatever the pool
+is configured with.

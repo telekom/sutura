@@ -960,7 +960,7 @@ mod tests {
         // does not populate the field: a cross-check whose input is never sent has no teeth, and a
         // log line nobody reads is how that would go unnoticed for a release.
         assert!(
-            !matches!(held.total(), ListingTotal::Unreported | ListingTotal::Unreadable),
+            !matches!(held.total(), ListingTotal::Unreported | ListingTotal::Unreadable { .. }),
             "the service reported no total this crate could read, so the cross-check has no input: {:?}",
             held.total()
         );

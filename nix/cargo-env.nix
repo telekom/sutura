@@ -53,7 +53,7 @@ let
   # WHY: `apps.causality` shells out to `cargo nextest`, and a bare cargo cannot read
   # /nix/store. On the run that prompted this, `Test causality` took 12m16s, of which 9m48s
   # was the head leg compiling the whole closure a SECOND time - `checks.nextest` had
-  # compiled the same closure minutes earlier in the same job. `magic-nix-cache` caches the
+  # compiled the same closure minutes earlier in the same job. The store cache caches the
   # store, which is exactly what a bare cargo does not read, and `ci.yml` caches no
   # `target/`. So the artifacts existed and the tool could not see them.
   #

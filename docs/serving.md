@@ -939,8 +939,12 @@ transcripts. `crates/sutura-serve/tests/served.rs` starts this binary against
 `examples/single-player` on a kernel-chosen port and asserts the liveness probe answering only once
 the catalog has loaded, a question with no bearer token refused by the gate, a certified question
 answered, the catalog route, a refusal arriving as its documented status, a caller's own token
-verified and every forgery refused alike, and a published key set this deployment cannot use
-stopping the process - `just serve-e2e` runs it. `crates/sutura-http/src/harness.rs` asserts the
+verified and every forgery refused alike, a published key set this deployment cannot use stopping the
+process, and **four of the refusals in the table above on the binary that makes them** - a
+non-loopback bind with no TLS termination declared, a production deployment with no credential, a
+configured source with no `security.identity`, and a misspelled key, each asserted as exit `1`, no
+listener opened, and the sentence `sutura_config` renders for that deployment. `just serve-e2e` runs
+it. `crates/sutura-http/src/harness.rs` asserts the
 envelope one status at a time, in process and with no socket: the token gate, `sql` in a body as a
 `400` naming the field, the bounds, the rate-limit tiers, and the interface description served in
 development and not in production. It reaches ten of the seventeen refusal reasons; the exhaustive
@@ -951,8 +955,15 @@ decides what it is on the wire.
 **What neither asserts, next to the claim:** the startup banner's own wording. `announce_identity`
 in `crates/sutura-runtime/src/banner.rs` emits the `NO PER-CALLER IDENTITY` sentence from the
 config types, and no test compares it to a string - so quoting it on a page is a promise no gate
-keeps. Nor does anything pin a response's JSON *formatting* or the `detail` sentences beside the
-codes.
+keeps. It is step 5 and the four refusal cases exit at step 3, so they reach it in neither direction.
+Nor does anything pin a response's JSON *formatting* or the `detail` sentences beside the codes.
+
+**And the refusals in the table are not all held on the binary.** Four are; the rest are asserted
+over `Settings::load` alone, and nothing in the tree forces a new one onto either venue - there is no
+exhaustive match over the refusal enum the way `crates/sutura-http/src/wire/refusal.rs` has one over
+the wire's. A startup refusal also names **no configuration layer**, so a deployment refused because
+`SUTURA_CONFIG_DIR` was wrong is refused in the same words as one refused for its own file
+(`telekom/sutura#445`).
 
 A hand-captured session in `examples/single-player/README.md` used to hold the read-next role, and
 `docs/adr/0005` had already recorded it as stale - it showed `200 OK` for refusals, which stopped
@@ -1010,9 +1021,11 @@ Named rather than implied, because an absence that reads as an oversight gets as
   `wire` feature holds one - `ureq` over rustls, with a compiled-in root set and `https_only` - so
   outbound TLS to a data source exists and works. What does not exist is any way for a deployment to
   *configure* it: no trust-store setting, no client certificate, no pinning, and no configuration
-  group at all. Two reasons, and the second is why it is not simply an omission. There is nothing to
-  attach one to yet: no composition root links that crate, `sutura-serve` refuses `kind: bigquery`
-  by name, and the two adapters a shipped binary can open read local files. And for that endpoint
+  group at all. Two reasons, and the second is why it is not simply an omission. There is little to
+  attach one to: the crate is linked and `kind: bigquery` dispatches behind a default-off feature,
+  so what a default build can open still reads local files. **Both clauses that used to stand here -
+  *no composition root links that crate* and *`sutura-serve` refuses `kind: bigquery` by name* - are
+  spent**, which `docs/adr/0017`'s second amendment recorded. And for that endpoint
   the *absence* of configuration is the safer default - a compiled-in root set means the same binary
   trusts the same authorities on every machine, and a settable host is a settable place to send a
   bearer token, which `docs/adr/0018` records as a deliberate trade against local testability. A

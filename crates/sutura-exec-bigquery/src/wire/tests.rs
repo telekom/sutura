@@ -37,8 +37,8 @@ use crate::transport::{Cell, DatasetId, FieldType, JobRequest, JobTransport as _
 use crate::wire::credential::{AccessTokens, Bearer, QuotaProject};
 use crate::wire::document::{body, cells, columns, complete, refusal, reported, url};
 use crate::wire::{
-    BigQueryWire, BytesBilledCeiling, CallDeadline, DryRun, HOST, JobBounds, QueryDeadline, UnusableBound, WireAgent, WireError,
-    bounded,
+    BigQueryWire, BytesBilledCeiling, CallDeadline, DryRun, EndpointMessage, HOST, JobBounds, QueryDeadline, UnusableBound,
+    WireAgent, WireError, bounded,
 };
 
 // ------------------------------------------------------------------- the fixtures ----
@@ -160,6 +160,59 @@ fn answer(document: &str) -> crate::wire::QueryAnswer {
 }
 
 // --------------------------------------------------------------- the request built ----
+
+#[test]
+fn the_endpoints_own_message_is_redacted_under_debug_and_verbatim_under_display() {
+    // **The mechanism the leak fix rests on, held here rather than at fourteen call sites.** A leg
+    // that ends `.expect(..)` formats its error with `Debug`, and `Debug` walks the struct - so on a
+    // real refusal that printed the endpoint's sentence, which names the resource and the PRINCIPAL
+    // it refused, into a public workflow log. Ten of the fourteen legs
+    // `nix run .#bigquery-acceptance` invokes were in that shape.
+    //
+    // `Display` keeps it, because a refusal with only a reason code is undiagnosable and that is
+    // what `docs/adr/0018` prices. The two formatters are the whole control.
+    let refused: WireError<std::io::Error> = WireError::Refused {
+        status: 403,
+        named: String::from("accessDenied"),
+        detail: EndpointMessage::bounded(Some(String::from(
+            "Access Denied: Project p: User does not have permission: someone@example.com",
+        ))),
+    };
+    let debugged = format!("{refused:?}");
+    assert!(
+        !debugged.contains("someone@example.com"),
+        "Debug is what a panicking leg prints, and it may not carry the message: {debugged}"
+    );
+    assert!(!debugged.contains("Access Denied"), "{debugged}");
+    // It still says the field was populated, so a reader is not left wondering.
+    assert!(debugged.contains("redacted"), "{debugged}");
+    assert!(
+        debugged.contains("accessDenied"),
+        "the reason code is a class, not an identity: {debugged}"
+    );
+
+    let displayed = refused.to_string();
+    assert!(
+        displayed.contains("someone@example.com"),
+        "Display is the diagnostic path and keeps the endpoint's own sentence: {displayed}"
+    );
+}
+
+#[test]
+fn the_outer_error_does_not_render_its_cause_so_a_display_panic_carries_nothing() {
+    // The other half, and the half an earlier comment in `tests/exchanged_identity.rs` got wrong:
+    // `BigQueryError::Endpoint`'s own `Display` is a fixed sentence with no `{cause}`, so
+    // `panic!("{err}")` leaks nothing even before the redaction above. `Debug` was the leak.
+    let inner: WireError<std::io::Error> = WireError::Refused {
+        status: 403,
+        named: String::from("accessDenied"),
+        detail: EndpointMessage::bounded(Some(String::from("names someone@example.com"))),
+    };
+    let outer = crate::BigQueryError::Endpoint { cause: inner };
+    let displayed = outer.to_string();
+    assert!(!displayed.contains("someone@example.com"), "{displayed}");
+    assert!(!displayed.contains("accessDenied"), "{displayed}");
+}
 
 #[test]
 fn the_request_carries_the_statement_and_its_values_in_separate_fields() {
@@ -317,7 +370,9 @@ fn a_page_of_a_larger_result_is_a_size_bound_and_every_other_failure_is_not() {
         wire.result_did_not_fit(&WireError::<CannotFail>::Refused {
             status: 403,
             named: String::from("responseTooLarge"),
-            detail: String::from("the query results are larger than the maximum response size"),
+            detail: EndpointMessage::bounded(Some(String::from(
+                "the query results are larger than the maximum response size",
+            ))),
         }),
         "the endpoint's own reason for too-large is the size bound"
     );
@@ -333,7 +388,7 @@ fn a_page_of_a_larger_result_is_a_size_bound_and_every_other_failure_is_not() {
         WireError::Refused {
             status: 400,
             named: String::new(),
-            detail: String::new(),
+            detail: EndpointMessage::bounded(None),
         },
     ] {
         assert!(
@@ -482,15 +537,21 @@ fn a_refusal_keeps_the_endpoints_reason_and_a_bounded_message() {
         } => {
             assert_eq!(status, 403);
             assert_eq!(*named, "accessDenied");
-            assert!(detail.contains("Access Denied"), "the detail lost the sentence: {detail}");
             assert!(
-                detail.contains("does not have permission"),
+                detail.as_str().contains("Access Denied"),
+                "the detail lost the sentence: {detail}"
+            );
+            assert!(
+                detail.as_str().contains("does not have permission"),
                 "the detail was truncated: {detail}"
             );
-            assert!(!detail.contains('\n'), "the detail carried a newline: {detail:?}");
-            assert!(!detail.contains('\r'), "the detail carried a carriage return: {detail:?}");
+            assert!(!detail.as_str().contains('\n'), "the detail carried a newline: {detail}");
             assert!(
-                !detail.contains('\u{1b}'),
+                !detail.as_str().contains('\r'),
+                "the detail carried a carriage return: {detail}"
+            );
+            assert!(
+                !detail.as_str().contains('\u{1b}'),
                 "the detail carried an escape sequence: {detail:?}"
             );
         }
@@ -507,7 +568,7 @@ fn a_message_from_the_endpoint_cannot_be_longer_than_a_log_line() {
     let document = format!("{{\"error\": {{\"message\": \"{long}\"}}}}");
     let mapped: WireError<CannotFail> = refusal(500, &document);
     match mapped {
-        WireError::Refused { ref detail, .. } => assert_eq!(detail.len(), 400),
+        WireError::Refused { ref detail, .. } => assert_eq!(detail.as_str().len(), 400),
         ref other => panic!("a long message was mapped to {other:?}"),
     }
 }
@@ -526,7 +587,7 @@ fn a_refusal_whose_body_is_not_the_envelope_still_reports_the_status() {
             } => {
                 assert_eq!(status, 502);
                 assert!(named.is_empty(), "{document:?} produced a reason: {named}");
-                assert!(detail.is_empty(), "{document:?} produced a detail: {detail}");
+                assert!(detail.as_str().is_empty(), "{document:?} produced a detail: {detail}");
             }
             ref other => panic!("{document:?} was mapped to {other:?}"),
         }

@@ -78,7 +78,11 @@ pub fn announce(settings: &Settings) {
 /// legal and still not the ones they wrote.
 ///
 /// Paths only. `ConfigLayers` has nowhere for a value to go, which is what makes this safe to log
-/// next to a tree that contains an access token.
+/// next to a tree that contains an access token. **Held by
+/// `a_configured_file_is_named_in_the_report`, which reads the record's FIELD SET** - the claim is
+/// about the line, so a second field carrying a configured value has to be what reddens it, and for
+/// one round it was not: the cell asserted `config_layers` and a field carrying the bind address
+/// rode alongside it, green.
 fn announce_provenance(settings: &Settings) {
     tracing::info!(
         config_layers = %settings.layers(),
@@ -342,16 +346,56 @@ mod tests {
             "a deployment with a file is not running on defaults only:\n{recorded}"
         );
         // Paths, and never a value: the port came out of that file and has no business on this
-        // line. Searched in the FIELD and not in the rendered line, and that is a fix rather than a
-        // narrowing: the line also carries the subscriber's own metadata, and a nanosecond timestamp
-        // is nine arbitrary digits. This assertion failed once in CI on
-        // `"time":"2026-09-03T19:26:32.069101003Z"` with the field itself clean - a flake, not a
-        // regression, and one no amount of re-running would have explained. What this function
-        // controls is the field, so the field is the haystack; the assertion above is what holds the
-        // field to what reached the log.
-        assert!(
-            !layers.contains(PORT),
-            "a value from a file reached the provenance line:\n{layers}"
+        // line. **An EQUALITY over the RENDERED field.** `!layers.contains(PORT)` had the right
+        // haystack - the field rather than the whole line, because the line carries a nanosecond
+        // timestamp and the wider form failed once in CI on
+        // `"time":"2026-09-03T19:26:32.069101003Z"` - but a substring over it is still a coin flip:
+        // the scratch directory spells `std::process::id()`, so a four-digit needle lands inside it
+        // at roughly one run in a few thousand.
+        //
+        // **An equality over `files()` was written first and is WEAKER, measured rather than
+        // argued.** With `Display for ConfigLayers` mutated to append ` port=9999`, `files()` is
+        // unchanged and that assertion PASSES while a value really is on the line; this one is red
+        // on the same mutation. `files()` is also the wrong LAYER for this cell:
+        // `the_files_a_deployment_is_running_on_are_carried_out_of_the_load` already asserts it in
+        // the crate that owns the type.
+        //
+        // **The overlap is not gone, and saying otherwise would be the same error one step over:**
+        // `only_the_files_that_are_there_are_reported` asserts this same rendering, in that same
+        // crate. What is local here is the PAIR - the assertion above says this exact field reached
+        // the log, and this one says the field is that path and nothing else - and the pair is the
+        // claim the provenance line makes.
+        assert_eq!(
+            layers,
+            dir.join("base.yaml").display().to_string(),
+            "the provenance field names the file that was read, and nothing out of it"
+        );
+
+        // AND THE LINE, which is what the function's doc actually claims. The equality above holds
+        // one FIELD; "paths only" is a statement about the whole record, and a second field carrying
+        // `settings.server().bind()` satisfied every assertion here while putting a configured value
+        // on the line. So the record is parsed and its own fields are named: everything bunyan puts
+        // on every event is subtracted, and what may remain is exactly `config_layers`.
+        //
+        // The envelope is listed rather than derived, and that is the limit: `tracing-bunyan-
+        // formatter` deciding to emit an eleventh key reddens this cell. That is the right
+        // direction to fail - a new key on the provenance line is exactly what wants a reader.
+        let record: serde_json::Value = serde_json::from_str(recorded.trim()).expect("bunyan writes one JSON object");
+        let envelope = [
+            "v", "level", "name", "hostname", "pid", "time", "msg", "target", "line", "file",
+        ];
+        let mut carried: Vec<&str> = record
+            .as_object()
+            .expect("a bunyan record is an object")
+            .keys()
+            .map(String::as_str)
+            .filter(|key| !envelope.contains(key))
+            .collect();
+        carried.sort_unstable();
+        assert_eq!(
+            carried,
+            ["config_layers"],
+            "the provenance line carries a field that is not a path: {recorded}"
         );
     }
 

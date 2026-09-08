@@ -142,8 +142,22 @@ pub enum DateTruncShape {
 
 /// Every dialect, for iterating a golden suite over all of them.
 ///
-/// A `const` rather than a derive, so a new variant that is not added here fails the exhaustiveness
-/// test below rather than being silently untested.
+/// A `const` rather than a derive, and **the compiler is what holds a new variant rather than the
+/// test below.** A fifth variant does not compile until seven production exhaustive matches over
+/// `Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`, `date_trunc_shape`,
+/// `qualification` and `identifier_case` in this file, and `dialect_type` in
+/// [`mod@crate::generate`]. So a data system cannot arrive without somebody deciding how it renders.
+///
+/// **What is held by review and by nothing else is the edge from the enum to this list**, and this
+/// paragraph used to promise the opposite. `every_dialect_is_in_all` restates the four names by
+/// hand, so a fifth variant added to the enum and OMITTED here leaves it green while the golden
+/// suite iterates four of five and reads as covered; a variant added to both turns it red on the
+/// length assertion until the literal is bumped. `crates/sutura-app/tests/golden/dialects.rs` does
+/// not close the edge either - it compares this list against that suite's own registry, never the
+/// enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
+/// `match` over `Dialect` is what BUILDS the list to compare against; a restated array anywhere in
+/// that chain reintroduces the same hole one level down, which is why the obvious rewrite of the
+/// test body is not the fix. `github.com/telekom/sutura#410` carries the measurement.
 pub const ALL: &[Dialect] = &[Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse, Dialect::BigQuery];
 
 /// Why a dialect name was not recognised.
@@ -248,7 +262,9 @@ impl Dialect {
     ///
     /// **`ClickHouse` is `Dataset` for its `database.table`.** It has databases and no catalog above
     /// them. Its arm is a rendering claim and not an execution one: nothing in this workspace
-    /// executes `ClickHouse`, which `AGENTS.md` already says of every `ClickHouse` golden.
+    /// executes `ClickHouse`, and `.agents/skills/sutura/invariants` is where that is recorded.
+    /// **This used to cite `AGENTS.md`, which has said nothing about `ClickHouse` since `#228`** -
+    /// a citation to a deleted section reads as corroboration and supplies none.
     ///
     /// **`DuckDB` is `TableOnly`, and that arm is the one worth reading twice** - `DuckDB` *does* have
     /// schemas and attached catalogs, so this is narrower than what the engine can parse. It is
@@ -297,11 +313,18 @@ impl Dialect {
     /// the coarser of the two behaviours covers both.
     ///
     /// **`Postgres` and `ClickHouse` are `Sensitive`, from their documented behaviour and NOT measured
-    /// here** - neither has a server in this repository to ask, which is why the paragraph above about
-    /// the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
-    /// compares exactly, and this renderer force-quotes every identifier; `ClickHouse` identifiers are
-    /// case-sensitive. Nothing in this workspace executes either, which `AGENTS.md` already says of
-    /// every `ClickHouse` golden.
+    /// here**, which is why the paragraph above about the direction of a wrong declaration matters.
+    /// A Postgres quoted identifier preserves case and compares exactly, and this renderer
+    /// force-quotes every identifier; `ClickHouse` identifiers are case-sensitive.
+    ///
+    /// **Two sentences that used to stand here are spent, and they went false in different
+    /// directions.** *Neither has a server in this repository to ask* is now false for `Postgres`:
+    /// `nix/postgres-tier.nix` provisions one and every venue that runs the suite provisions the
+    /// tier, so `crates/sutura-exec-postgres/tests/conformance.rs`' cells RUN. What stays true is
+    /// that this DECLARATION is still taken from documentation rather than from that server - the
+    /// venue exists and nothing yet asks it about identifier folding. And *nothing in this workspace
+    /// executes either, which `AGENTS.md` already says* was false twice over: `Postgres` executes,
+    /// and `AGENTS.md` has said nothing about `ClickHouse` since `#228`.
     #[inline]
     #[must_use]
     pub const fn identifier_case(self) -> IdentifierCase {
@@ -361,7 +384,10 @@ mod tests {
     #[test]
     fn every_dialect_is_in_all() {
         // The list is what the golden suite iterates. A variant missing from it is a data system
-        // with no snapshot, which reads as covered and is not.
+        // with no snapshot, which reads as covered and is not - and this test does NOT catch that,
+        // because the loop restates the same four names. It holds the list against a hand-written
+        // set and its length; the enum-to-`ALL` edge is held by review, which `ALL`'s own doc
+        // comment states beside the claim.
         for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse, Dialect::BigQuery] {
             assert!(ALL.contains(&dialect), "{dialect} is not in ALL");
         }

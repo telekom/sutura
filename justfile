@@ -53,10 +53,8 @@ setup:
     echo 'Ready. just lists the tasks; just gates is what CI runs.'
 
 # Bump the pinned inputs.
-#
-# Both locks in one task because they are bumped for the same reason and reviewed together.
-# Nothing needs generating: no tool is pinned in both places - `cargo xtask check-pins` is
-# what keeps that true - so there is no table to rewrite and nothing to fall out of step.
+# Both locks in one task and nothing needs generating: no tool is pinned in both places -
+# `cargo xtask check-pins` is what keeps that true - so there is no table to fall out of step.
 update:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -108,11 +106,9 @@ fmt:
     cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
 
-# `--all-features` is load-bearing rather than foresight: crates here declare features and make
-# dependencies optional, so an entry point missing the flag lints and tests nothing behind them.
-# `grep -rln '^\[features\]' --include=Cargo.toml .` is the current set, and is not written down.
-# `check-guidance` holds the retired claim that no crate declares one, but NOT here: this file has
-# no extension, so it is outside that gate's scope and this comment is held by review alone.
+# `--all-features` is load-bearing: crates declare features and make deps optional, so an entry
+# point missing the flag lints and tests nothing behind them. `grep -rln '^\[features\]' --include=Cargo.toml .`
+# is the current set, held by review (this file has no extension, outside `check-guidance`'s scope).
 
 # Lint everything.
 lint:
@@ -229,7 +225,15 @@ declared-source:
 # a diff nobody had read. See the doc comment on `run_check_changed`.
 
 # cargo check, narrowed to the packages that changed. No paths reads the working tree.
+#
+# It sources the helper because it did NOT while the `rust-check-changed` hook entry did: the hook
+# ran on stable, and the recipe a person types ran the cranelift nightly in the nightly target
+# directory - what that helper exists to refuse. hooks.rs executes this body, so the line is held.
 check-changed *paths:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo run -q -p xtask -- check-changed {{ paths }}
 
 # THE gate. Run this before saying a change is done; nothing else counts as verified.
@@ -266,8 +270,8 @@ validate:
     # needs a network). So the steady-state tax is seconds and the first run is the expensive one.
     #
     # SEPARATED, because ordering it first would otherwise mean a machine that cannot materialise
-    # the env gets NO signal from this recipe at all, where before it got the nix checks - which
-    # retry `--offline` below - and the secret sweep. So: materialise, and if that fails say so in
+    # the env gets NO signal from this recipe at all, where before it got the nix checks and the
+    # secret sweep. So: materialise, and if that fails say so in
     # one line, run everything else, and fail at the END. A page that cannot RENDER still aborts
     # immediately, which is the whole point of running it first.
     #
@@ -298,9 +302,9 @@ validate:
 # What CI runs, through nix, without entering the dev shell. Prefer `just validate`, which adds
 # the two checks that need network and therefore cannot be nix checks.
 #
-# `--offline` is retried on failure rather than passed always: a substituter that cannot be
-# reached must not silently become a local rebuild of everything, but it must not stop the gate
-# either. A skipped check is the failure mode this repo cares about most.
+# A failed check ends this invocation. An automatic offline retry also retries failed tests,
+# so a later pass can hide the failure. Network failures also leave this invocation red;
+# diagnose the failure before explicitly rerunning the task.
 ci:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -316,8 +320,7 @@ ci:
     # along - but this loop names its checks, so a name left out is a check nobody ran.
     for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier; do
         printf '\n=== %s ===\n' "$check"
-        nix build ".#checks.$system.$check" -L \
-            || nix build ".#checks.$system.$check" -L --offline
+        nix build ".#checks.$system.$check" -L
     done
 
 # The fat-LTO build. Opt-in, never automatic: minutes of build time for throughput nobody
@@ -378,17 +381,15 @@ ship-check:
     devenv shell ship-check
 
 # Exactly what `nix build .#checks.x86_64-linux.crap` runs, reached the cheap way. Through
-# `nix/run-gate.sh` so it works on a host with neither the tools nor the dev shell: the tools
-# themselves, then `nix run .#crap` with the same pin CI uses, then a notice.
+# `nix/run-gate.sh`: configured local stable tools, then the pinned Nix route. Missing stable
+# configuration requires Nix; existing optional-tool abstentions remain after configuration.
 #
 # `source nix/stable-env.sh` because coverage instrumentation is LLVM-specific and the dev
-# shell's bare cargo is a cranelift nightly, where `-C instrument-coverage` does not exist. This
-# one is not the channel-consistency argument the lints have - it is that the instrumentation is
-# absent. `cargo xtask crap` re-establishes it anyway rather than trusting this line.
+# shell's bare cargo is a cranelift nightly, where `-C instrument-coverage` does not exist.
+# `cargo xtask crap` re-establishes it anyway rather than trusting this line.
 #
 # Every run leaves `target/crap/baseline.json` behind, which is what `just crap-delta` below
-# compares. Scope, cost and the two halves of the ratchet - the absolute threshold and the delta
-# against the base - are all in docs/crap.md.
+# compares. Scope, cost and the two halves of the ratchet are all in docs/crap.md.
 
 # The CRAP score: complexity weighted by the tests that cover it. Scoped to sutura-domain.
 crap:
@@ -611,6 +612,16 @@ attribution:
 licences:
     nix run .#reuse -- lint
 
+# Fuzz every target, or one, with a time budget. NOT A GATE: a run that fails a merge on a fresh
+# random path gets turned off, and then nothing generates input. `nix/fuzz.nix` argues the
+# provisioning; each `fuzz/fuzz_targets/*.rs` header says what it covers and what it does not.
+fuzz seconds="300" target="":
+    bash nix/run-fuzz.sh run "{{ seconds }}" "{{ target }}"
+
+# Replay every committed corpus seed, mutating nothing - the regression half of fuzzing.
+fuzz-smoke:
+    bash nix/run-fuzz.sh smoke
+
 # ------------------------------------------------------------------ tooling ---
 
 # Scan the whole worktree for secrets. The hook already covers each commit.
@@ -787,7 +798,15 @@ bigquery-acceptance:
     echo "bigquery-acceptance: scope sutura-exec-bigquery - the acceptance leg only, against a real project."
     echo "bigquery-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'not binary(two_principals)'
+    # **The filter is the same one `apps.bigquery-acceptance` uses, and the two are held apart by
+    # nothing but this line.** Adding the exchanged-identity target without this exclusion made the
+    # task run that cell's `#[ignore]`d legs: red for every developer, because it fails on an
+    # environment value that does not exist rather than skipping - and where the two `_EMAIL`
+    # variables ARE set, it ran the exchange venue's control leg under the acceptance task's name,
+    # which is the venue confusion `docs/where-identity-is-proven.md` exists to prevent. It also
+    # made the echo above false. Nothing derives one filter from the other; see telekom/sutura#430.
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
+      -E 'not binary(two_principals) and not binary(exchanged_identity)'
 
 # The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s eighth
 # amendment and issue #123.
@@ -811,6 +830,23 @@ bigquery-two-principals:
     echo "bigquery-two-principals: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "bigquery-two-principals: CI runs it through \`nix run .#bigquery-two-principals\`, in the bq-test job."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(two_principals)'
+
+# Run the exchanged-identity cell: one workload identity, exchanged per subject, against SESSION_USER().
+#
+# The only BigQuery leg that holds no principal's key - which is what separates impersonation from
+# credential selection, and the whole reason it is a cell of its own. NO WORKFLOW INVOKES IT: two of
+# the five values it is pointed at are not in the `bq-test` environment, and
+# `crates/sutura-exec-bigquery/tests/exchanged_identity.rs` carries why they cannot be derived from
+# the CI workload identity with the exchange this adapter ships. **It has never run.**
+bigquery-exchanged-identity:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "bigquery-exchanged-identity: scope sutura-exec-bigquery - one workload identity, exchanged per subject."
+    echo "bigquery-exchanged-identity: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "bigquery-exchanged-identity: no workflow runs it - see the test file's header for what is missing."
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(exchanged_identity)'
 
 # ------------------------------------------------------------------ dev flow ---
 
@@ -858,7 +894,13 @@ doctor:
 keycloak-tier *args:
     nix run .#keycloak-tier -- {{ args }}
 
-# The Postgres tier, by hand: `just postgres-tier start|stop|status`.
+# The Postgres tier, by hand: `just postgres-tier start|stop|status|credentials`.
+#
+# `credentials` prints the three `export` lines the adapter needs and refuses if nothing here is
+# provisioned - `github.com/telekom/sutura#455`: `FixtureCredential::from_env` has no fallback, so
+# the provisioner is what says how to log in. `just test` evaluates them for you through
+# `nix/with-tier.sh`; type it yourself only to point a bare `cargo nextest` at a tier you started
+# here.
 #
 # The same shape as `just keycloak-tier` and it exists for the same reason: a remedy that names the
 # venue for a missing service has to name a task a reader can type, and `nix/postgres-tier.nix` had

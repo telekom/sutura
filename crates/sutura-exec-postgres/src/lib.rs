@@ -11,6 +11,16 @@
 //! - A `statement_timeout` is set at connect, so a slow server statement cannot hold a
 //!   blocking-pool thread past the caller's request deadline.
 
+/// The fixture tier's credential - a value that cannot exist unconfigured.
+///
+/// **Behind the default-off `fixtures` feature**, because both callers are tests
+/// (`crates/sutura-exec-postgres/tests/conformance.rs` and
+/// `crates/sutura-app/tests/adapters/mod.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
+/// no artefact a release publishes contains this module or the connection config over it, which
+/// deletes the *reachable from a consumer* half rather than hardening it. `--all-features` compiles,
+/// lints and tests it on every run.
+#[cfg(feature = "fixtures")]
+pub mod fixture;
 mod importer;
 
 use std::path::Path;
@@ -186,7 +196,8 @@ impl PostgresWarehouse {
         // `block_on` here is polling is NOT cancelled by it - a slow statement would hold this
         // blocking-pool thread past the caller's deadline. `statement_timeout` is the cheap guard:
         // the server aborts the statement itself. The value is generous (a development tier, not a
-        // query budget) and overridable, matching how the connection details honour `SUTURA_DEV_*`.
+        // query budget) and overridable - a BUDGET, which is the one thing left here that a default
+        // is the right answer for. The connection's credential is not: see `fixture`.
         let timeout_ms = env_or("SUTURA_DEV_STATEMENT_TIMEOUT_MS", "15000");
         runtime
             .block_on(async { client.batch_execute(&format!("SET statement_timeout = {timeout_ms}")).await })
@@ -230,17 +241,28 @@ impl PostgresWarehouse {
         Ok(warehouse)
     }
 
-    /// A connection config for the fixture tier, honouring the `SUTURA_DEV_*` overrides the
-    /// compose file reads, so a host that objects to a weak default can change one value.
+    /// A connection config for the fixture tier, over a credential that has already been parsed.
+    ///
+    /// **It TAKES the credential and reads no environment of its own**, which is the whole change:
+    /// `host` and `port` are parameters, so this function cannot know it is talking to an ephemeral
+    /// local server, and the shape it replaced offered `sutura`/`sutura`/`sutura` to whatever host
+    /// it was handed whenever nothing was set. There is no unconfigured state to substitute for now
+    /// - [`fixture::FixtureCredential`] cannot hold one - so this stays infallible.
     #[must_use]
-    pub fn local_config(host: &str, port: u16) -> tokio_postgres::Config {
+    #[cfg(feature = "fixtures")]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the credential's destination is a connection handshake, which is the one place the \
+                  value itself is the payload"
+    )]
+    pub fn local_config(host: &str, port: u16, credential: &fixture::FixtureCredential) -> tokio_postgres::Config {
         let mut config = tokio_postgres::Config::new();
         config
             .host(host)
             .port(port)
-            .user(env_or("SUTURA_DEV_USER", "sutura"))
-            .password(env_or("SUTURA_DEV_PASSWORD", "sutura"))
-            .dbname(env_or("SUTURA_DEV_DB", "sutura"));
+            .user(credential.user())
+            .password(credential.password().expose_secret())
+            .dbname(credential.database());
         config
     }
 
@@ -741,6 +763,9 @@ fn decode_numeric(raw: &[u8]) -> Result<PgNumeric, WireError> {
     })
 }
 
+/// A tuning value, or this build's own. **Not for a credential** - it was, and the credential half
+/// is `fixture::FixtureCredential` now: a fallback is the right shape for a timeout a host may want
+/// to widen and the wrong shape for a secret nobody chose.
 fn env_or(key: &str, fallback: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| String::from(fallback))
 }

@@ -226,6 +226,7 @@ pub(crate) enum Unmigrated {
     Examples,
     FeatureRemedies,
     Guidance,
+    Jscpd,
     MaxLines,
     NewtypeLeaks,
     OneBound,
@@ -263,7 +264,7 @@ pub(crate) enum Unmigrated {
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
 /// fixtures already avoid reporting their own source. **44 became 47 when the file skip went**,
 /// and all three are this module's own `#[cfg(test)]` calls - which the old rule could not see.
-pub(crate) const UNMIGRATED_DOORS: usize = 48;
+pub(crate) const UNMIGRATED_DOORS: usize = 49;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.
@@ -281,7 +282,8 @@ impl Census {
     ///
     /// **What the read being here makes unconstructible.** The closure returns `()`. There is no
     /// arm in which to say *judged*, *out of scope* or *unreachable* about a subject, so the shape
-    /// measured on `565ebaae` - a closure answering `Looked::Judged` for a file it could not open,
+    /// measured on `565ebaae` - a closure answering `repo::Looked::Judged` for a file it could not
+    /// open,
     /// which discharged the anchor, incremented the numerator and left the verdict byte-identical
     /// to a clean tree's at exit 0 - is not expressible. The three instruments no longer share one
     /// caller-written arm:

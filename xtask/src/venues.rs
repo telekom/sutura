@@ -52,6 +52,8 @@
 //!   whose venue CI does **not** invoke is refused - because the honest state for a venue nothing
 //!   reaches is `unrun`, and a `wired` that nothing reaches would be the softer spelling this whole
 //!   vocabulary exists to refuse.
+//! * **A venue's `Where it runs` cell states a place from a closed vocabulary**, because it decides
+//!   whether the row may be cited at all and was free prose. [`page::RUN_SITES`] has the measurement.
 //! * **A venue nothing runs claims nothing**, and a venue that IS reached and answers no claim is
 //!   a row with no reason to be there.
 //! * **Every venue has its own section**, and every `##` section is a venue's or one of the three
@@ -107,39 +109,18 @@ use page::{NOT_BUILT, STRUCTURAL, VERDICTS, Venue, cited_tests, claims, key, sec
 // What the TREE holds - which tests exist, and which tasks CI really runs - as against what the
 // page says about it. The third side of the seam `mod page;` opens, and the 1000-line gate is what
 // forced it: every `#[test]` stayed here, only the readers moved.
+// What a venues ROW must HOLD before a verdict rule may read one. Split out when this file
+// reached the 1000-line gate a third time; every `#[test]` stayed here.
+mod rows;
+
+use rows::row_problems;
+
 mod sources;
 
 use sources::{cited_invocations, invoked, test_names};
 
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
-
-/// Every built venue whose `Reached by` names nothing its own readers can resolve.
-///
-/// **The cheapest bypass on the page, and it closes one that predates `wired`.** Every rule that
-/// decides a venue's state resolves this cell through [`cited_invocations`], which wants a
-/// backticked `just <task>` or `nix run .#<app>` - so dropping that prefix, to *the
-/// `bigquery-two-principals` task*, made the cell resolve to nothing and the venue's verdict
-/// permanent at exit 0, whatever CI ran.
-///
-/// Its own function rather than a loop inside [`page_problems`], because that function is at the
-/// line budget this workspace sets and a rule with a paragraph belongs where the paragraph fits.
-fn resolvable_problems(listed: &[Venue]) -> Vec<String> {
-    listed
-        .iter()
-        .filter(|venue| venue.is_built() && cited_invocations(&venue.reached).is_empty())
-        .map(|venue| {
-            format!(
-                "{PAGE}: `{}` is reached by `{}`, which names no `just <task>` and no \
-                 `nix run .#<app>` in backticks - every rule that decides this venue's state \
-                 resolves that cell, so a `Reached by` nothing can resolve is a venue whose state \
-                 cannot be judged. Either name the invocation the way this page names one, or the \
-                 cell is `{NOT_BUILT}`",
-                venue.name, venue.reached
-            )
-        })
-        .collect()
-}
 
 /// Everything the two un-citable verdicts have to be consistent with, for the venues stating them.
 ///
@@ -404,7 +385,7 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
         }
     }
 
-    problems.extend(resolvable_problems(&listed));
+    problems.extend(row_problems(&listed));
     problems.extend(transition_problems(text, &listed, &unrun, &wired, invoked));
 
     for name in cited_tests(text) {
@@ -502,7 +483,7 @@ mod tests {
 | Venue | Where it runs | What it costs | Reached by |
 | --- | --- | --- | --- |
 | **A fake at the port** | in process | nothing | `just test` |
-| **A real dataset under a shared key** | an environment | a key | `just bigquery-acceptance` |
+| **A real dataset under a shared key** | a GitHub environment | a key | `just bigquery-acceptance` |
 | **A real token exchange** | nowhere yet | a pool | not built |
 
 ## Which venue answers which claim
@@ -767,6 +748,28 @@ Not built.
     }
 
     #[test]
+    fn a_synonym_for_nowhere_is_not_a_place_this_page_may_state() {
+        // **RED WHEN WRITTEN.** `runs_nowhere` matched the SUBSTRING `nowhere`, and it is the only
+        // remaining guard on `yes` for the row carrying leg 2. Measured on the real page: spell the
+        // cell `not anywhere yet`, point `Reached by` at a real CI-invoked lint, and *whether two
+        // subjects read two different row sets* published `yes` at exit 0.
+        let reworded = map_with_a_venue_that_runs_nowhere_but_names_a_task()
+            .replace("| nowhere yet | a pool |", "| not anywhere yet | a pool |")
+            .replace(
+                "| An exchange endpoint accepts it | no | no | **unrun** |",
+                "| An exchange endpoint accepts it | no | no | **yes** |",
+            );
+        let found = problems_with_ci(&reworded, &["bigquery-exchanged-identity"]);
+        assert!(found.iter().any(|p| p.contains("about where it runs")), "{found:?}");
+
+        // And the direction that gets a gate deleted, which is why `runs_nowhere` reads the
+        // classified site: a venue that DOES run, whose cell spells the word while saying so, is
+        // not a venue that runs nowhere.
+        let explained = MAP.replace("| in process |", "| in process, nowhere near a warehouse |");
+        assert_eq!(problems(&explained), Vec::<String>::new());
+    }
+
+    #[test]
     fn a_venue_that_runs_nowhere_may_not_say_wired_either() {
         // `wired` is *a job reaches this*, so it contradicts a row that says the venue runs
         // nowhere. Two cells of one row disagreeing is the shape the `yes` guard was found missing.
@@ -785,8 +788,8 @@ Not built.
         // the page uses - so dropping `just ` made the cell resolve to nothing and `unrun`
         // permanent at exit 0, whatever CI ran.
         let unresolvable = map_with_an_unrun_cell().replace(
-            "| **A real dataset under a shared key** | an environment | a key | `just bigquery-acceptance` |",
-            "| **A real dataset under a shared key** | an environment | a key | the `bigquery-acceptance` task |",
+            "| **A real dataset under a shared key** | a GitHub environment | a key | `just bigquery-acceptance` |",
+            "| **A real dataset under a shared key** | a GitHub environment | a key | the `bigquery-acceptance` task |",
         );
         let found = problems_with_ci(&unresolvable, &["bigquery-acceptance"]);
         assert!(found.iter().any(|p| p.contains("names no `just <task>`")), "{found:?}");

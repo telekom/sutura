@@ -310,7 +310,7 @@ fn shapes() -> Vec<(&'static str, LegPlan)> {
 ///
 /// Dialect-independent, so it is off the per-dialect matrix: a leg plan is a function of the split
 /// and of nothing a renderer decides. It is here because the fixtures are hand-written rather than
-/// derived - this file's header says why - and a hand-written fixture that changed silently would
+/// derived from the splitter, which exists - and a hand-written fixture that changed silently would
 /// move five statements with it.
 #[test]
 fn every_leg_shape_is_pinned_as_a_plan() {
