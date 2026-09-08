@@ -240,11 +240,12 @@ jobs:
       # could not run is not evidence, so it buys the gates back rather than the skip.
       #
       # WHAT THIS NO LONGER CHECKS ON A PULL REQUEST, stated rather than implied, because the
-      # replacement is NARROWER than what it replaced. `hygiene` is thirteen gates. Seven of them
-      # - `check-boundaries`, `check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`,
-      # `check-workflows`, `check-crap` - read Rust, manifests, lock files or workflow YAML, none
-      # of which a markdown-only diff can change, so skipping those loses nothing. The six that
-      # DO read prose are the residual, and only part of one is replaced above:
+      # replacement is NARROWER than what it replaced. `hygiene` is fourteen gates. Eight of
+      # them - `check-boundaries`, `check-jscpd`, `check-pins`, `check-warm-start`, `unused-deps`,
+      # `check-arrow`, `check-workflows`, `check-crap` - read Rust, manifests, lock files or
+      # workflow YAML, none of which a markdown-only diff can change, so skipping those loses
+      # nothing. The six that DO read prose are the residual, and only part of one is replaced
+      # above:
       #
       #   * `check-guidance` - the citation half is replaced. Its stale phrases, its
       #     version-against-pin comparison, its contradicted claims and its counts are not.

@@ -103,6 +103,23 @@ repos:
         language: system
         pass_filenames: false
 
+      # The jscpd copy/paste gate (issue #474). Scoped by `files:` to the Rust that can
+      # duplicate and the things that decide the verdict - the allowlist, the gate, and the
+      # nix provisioning. It scans the WHOLE first-party Rust tree (`crates/`, `xtask/`, the
+      # same paths `check-jscpd` uses), not just the diff: a clone is a fact about two files
+      # that rarely sit in one edit.
+      #
+      # Through nix/run-gate.sh, the same tiering the tests and CRAP hooks use - and jscpd is
+      # the only pin for the version, so `cargo xtask check-pins` fails if it reappears in
+      # pixi.toml. The fail-closed verdict with the allowlist is `checks.hygiene`; where this
+      # host cannot run the gate, it delays the finding to CI rather than blocking the commit.
+      - id: jscpd
+        name: copy/paste detection (jscpd)
+        entry: bash nix/run-gate.sh jscpd
+        language: system
+        files: ^(crates/.*\.rs|xtask/.*\.rs|devco/dup-ignore|xtask/src/jscpd\.rs|nix/(jscpd\.nix|run-gate\.sh)|flake\.nix)$
+        pass_filenames: false
+
       # The CRAP score: cyclomatic complexity weighted by the tests that cover it.
       #
       # SCOPED BY `files:` so it does not fire on unrelated edits. The regex is the scored crate

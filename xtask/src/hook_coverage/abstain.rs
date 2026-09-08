@@ -1,6 +1,6 @@
 //! Whether a hook COULD have inspected the diff on this host, derived from the shell that decides.
 //!
-//! **The finding this exists for: eight of the fifteen declared hooks print `Passed` after deciding
+//! **The finding this exists for: nine of the sixteen declared hooks print `Passed` after deciding
 //! not to run.** `shellcheck` and `zizmor` are
 //! `command -v nix >/dev/null 2>&1 && exec ... || echo "... skipped ..."`; `betterleaks` is the same
 //! on its own tool; `rust-tests`, `rust-crap`, `secret-sweep`, `cargo-deny` and `fmt-parity` route
@@ -344,8 +344,8 @@ mod tests {
         let declared = crate::hooks::hooks(&text);
         let read = super::over(&root, &declared).expect("the run-gate script");
         assert!(read.unreadable.is_empty(), "{:?}", read.unreadable);
-        // EIGHT of the fifteen, which is the count the report measured by hand.
-        assert_eq!(read.deciding, 8, "{} hook(s) decide", read.deciding);
+        // NINE of the sixteen, which is the count the report measured by hand.
+        assert_eq!(read.deciding, 9, "{} hook(s) decide", read.deciding);
         // And the tools come out per hook, so a tier silently losing its nix fallback is visible.
         let script = std::fs::read_to_string(root.join(super::RUN_GATE)).expect(super::RUN_GATE);
         let tools = |id: &str| -> Vec<super::Group> {
@@ -355,6 +355,7 @@ mod tests {
         assert_eq!(tools("shellcheck"), vec![vec![String::from("nix")]]);
         assert_eq!(tools("zizmor"), vec![vec![String::from("nix")]]);
         assert_eq!(tools("betterleaks"), vec![vec![String::from("betterleaks")]]);
+        assert_eq!(tools("jscpd"), vec![vec![String::from("jscpd")], vec![String::from("nix")]]);
         assert_eq!(
             tools("rust-tests"),
             vec![vec![String::from("cargo-nextest")], vec![String::from("nix")]]

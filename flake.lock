@@ -33,6 +33,23 @@
         "type": "github"
       }
     },
+    "jscpd-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788860828,
+        "narHash": "sha256-li9t5y811sQvYb4zq5OryyhMNSAEJV/BuPi32kElq8g=",
+        "owner": "kucherenko",
+        "repo": "jscpd",
+        "rev": "b4cdcc250df0aaa9c3a8d2ba57f26e4c6510a909",
+        "type": "github"
+      },
+      "original": {
+        "owner": "kucherenko",
+        "ref": "v5.2.0",
+        "repo": "jscpd",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1787900134,
@@ -53,6 +70,7 @@
       "inputs": {
         "crane": "crane",
         "flake-utils": "flake-utils",
+        "jscpd-src": "jscpd-src",
         "nixpkgs": "nixpkgs",
         "rust-overlay": "rust-overlay"
       }

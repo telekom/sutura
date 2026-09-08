@@ -121,6 +121,30 @@ crap)
         echo "          CI runs it on every push; this only delays the finding."
     fi
     ;;
+jscpd)
+    # The copy/paste gate (issue #474): detect copied blocks in first-party Rust.
+    #
+    # Tier 1 runs the GATE (`cargo xtask check-jscpd`) when jscpd is on PATH - the dev
+    # shell cannot satisfy this (jscpd lives in nix, not devenv, like shellcheck), so it is
+    # mostly for a host that installed jscpd for the hygiene hook to find.
+    #
+    # Tier 2 reaches the SAME pin CI uses through `nix run .#jscpd`. It scans the same
+    # paths and thresholds as `check-jscpd`, but a bare jscpd run prints clones without the
+    # allowlist verdict - so on this tier the hook is advisory, and the fail-closed gate is
+    # `checks.hygiene`, which carries jscpd and applies `devco/dup-ignore`.
+    #
+    # Tier 3 skips with a notice: a hook that cannot run must not be a wall, and CI is
+    # authoritative, exactly the contract the shellcheck / zizmor hooks use.
+    if command -v jscpd >/dev/null 2>&1; then
+        exec cargo run -q -p xtask -- check-jscpd
+    elif command -v nix >/dev/null 2>&1; then
+        echo "run-gate: jscpd absent, using nix (same pin as CI)"
+        exec nix run .#jscpd -- --silent --no-colors --format rust --min-lines 30 --min-tokens 250 --ignore 'target/**,site/**,result/**,.pixi/**,.sutura-dev/**,report/**' .
+    else
+        echo "run-gate: SKIPPED the copy-paste scan - no jscpd and no nix on this host."
+        echo "          CI (checks.hygiene) enforces it; this only delays the finding."
+    fi
+    ;;
 fmt-parity)
     # PUSH-TIER ONLY, and it exists because of a deliberate split rather than an oversight.
     #

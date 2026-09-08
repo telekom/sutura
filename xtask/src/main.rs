@@ -37,6 +37,7 @@ mod guidance;
 mod hook_coverage;
 mod hooks;
 mod inconclusive;
+mod jscpd;
 mod line_endings;
 mod markdown;
 mod max_lines;
@@ -72,6 +73,16 @@ const TASKS: &[Task] = &[
         description: "the domain crate depends on no framework",
         kind: Kind::Hygiene(Reads::Code),
         run: boundaries::run,
+    },
+    Task {
+        // The jscpd copy/paste gate (issue #474). `Reads::Code`, so a `docs/*.md`-only diff
+        // stays excluded from the docs.yml skip. See the module header for why it FAILS OPEN
+        // when `jscpd` is absent locally and FAILS CLOSED in the nix sandbox (which carries
+        // it), and for the allowlist contract.
+        name: "check-jscpd",
+        description: "no copied block in crates/ or xtask/ without a reason in devco/dup-ignore",
+        kind: Kind::Hygiene(Reads::Code),
+        run: jscpd::run,
     },
     Task {
         name: "max-lines",
