@@ -103,21 +103,12 @@
 //! log whose `::add-mask::` step covers the project, the dataset and the table but **not an
 //! account**. Two tests over one function in one file is not a control over that.
 //!
-//! So the fix moved to where it can hold: `wire::EndpointMessage` renders redacted under `Debug`
-//! and verbatim under `Display`, so every leg is covered by the type rather than by remembering
-//! which formatter it used. What is left here is this cell's own choice to print the *class* -
-//! status and reason code - which is a readability decision rather than the safety one.
+//! `wire::EndpointMessage` redacts under `Debug`, including derived error diagnostics and
+//! `.expect`. Class-only output is this cell's separate choice, not a property of every formatter.
 //!
-//! **That sentence used to stop at the assertions, and the FAILURE path is where the leak was.**
-//! Review measured it: `session_user(..).expect("the endpoint answered the identity read")` renders
-//! the whole error chain, and `WireError::Refused` carries the endpoint's own free-text message in
-//! `detail` - which quotes the principal it refused. Worse, by this file's own second finding a
-//! federated pool subject holds no `BigQuery` grant, so **the first real run reaches a `403` before
-//! [`who_answered`] ever executes**: the leak was on the only path a real run takes, and nowhere
-//! else. Every read goes through [`identity_or_die`] now, which names the refusal's STATUS and
-//! REASON CODE - `BigQuery`'s own closed vocabulary - and never its message. `#287`'s masking step
-//! does not cover this either: it masks the dataset, the table and the key's project, not the two
-//! principal accounts.
+//! Every read here goes through [`identity_or_die`], which names the refusal's status and reason
+//! code, never its message. The type's redaction is limited to `Debug`: `WireError::Refused`'s
+//! `Display` includes the message, so cause-chain logging elsewhere can still render it.
 //!
 //! # How to run it
 //!

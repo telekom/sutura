@@ -371,9 +371,10 @@ long form of everything below.
 **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data
 system resolves to a DIFFERENT principal.** That is the half the two-keys venue above cannot reach at
 any cost, because a key on disk is not an asking subject - and it is the half that separates
-impersonation from credential selection. `each_principal_is_who_this_source_says_it_is_executing_as`
-exchanges a subject's own assertion through the composition `sutura-serve` ships and reads
-`SESSION_USER()` back through the adapter, asserting the account each leg became;
+impersonation from credential selection. The unrun test
+`each_principal_is_who_this_source_says_it_is_executing_as` is written to exchange a subject's own
+assertion through the composition `sutura-serve` ships and read `SESSION_USER()` back through the
+adapter, asserting the account each leg became;
 `the_deployments_own_identity_is_neither_principal` is the control, the same read under the
 credential the transport itself holds, without which an exchange that did nothing at all would pass.
 

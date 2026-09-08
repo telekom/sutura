@@ -909,10 +909,9 @@ golden matrix still gains no entry - one live statement is not a registered data
   the reported
   `reason` is folded into whichever of those fires, because it is the best diagnostic
   available at that point. See `complete`, and the limit stated there.
-- **Every foreign string that reaches an error is bounded and filtered.** The endpoint's
-  `reason` is kept and its free-text `message` is not, because a reason is a fixed vocabulary an
-  operator can act on and a message is unbounded text from another service heading for a log.
-  `credential::bounded` is the one function that does it, shared with the credential module.
+- **Refusal text is bounded and filtered, not discarded.** `credential::bounded` handles the
+  `reason`; `EndpointMessage` retains the free-text `message` and redacts it under `Debug`
+  only. `Display` and cause-chain logging can still render the message.
 
 # What is deliberately absent
 
