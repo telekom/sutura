@@ -432,9 +432,9 @@ where
     ///
     /// **`detail` is an [`EndpointMessage`], which redacts under `Debug` and not under `Display`**,
     /// so the `#[error]` line below still renders it and every `to_string()` on this variant carries
-    /// it. That is deliberate and pre-existing - a refusal with only a reason code is undiagnosable
-    /// - and it means a caller that flattens a cause chain into a log is choosing to log the
-    /// message. What the type removes is the accident: a `Debug` rendering nobody asked for.
+    /// it. That is deliberate and pre-existing, because a refusal carrying only a reason code is
+    /// undiagnosable, and it means a caller that flattens a cause chain into a log is choosing to
+    /// log the message. What the type removes is the accident: a `Debug` rendering nobody asked for.
     #[error("the endpoint refused the job with {status}: {named}: {detail}")]
     Refused {
         status: u16,
