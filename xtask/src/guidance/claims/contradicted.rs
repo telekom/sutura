@@ -1,23 +1,65 @@
-//! The table itself: every claim the tree contradicts, one entry per claim.
+//! Every claim the tree contradicts, as data.
 //!
-//! **Split out of `claims.rs` under the 1000-line cap, and it is the TABLE that moved this time.**
-//! The two earlier splits moved a check and left the table room, on the argument that
-//! [`CONTRADICTED`] is what grows by entry; that room ran out - the last entry added took
-//! `claims.rs` past the cap, measured, which is what a blunt limit is for. So the data is its own
-//! file now and the machinery that reads it stays with the assertions, which is the same seam the
-//! causality gate forces either way: a file adding no `#[test]` may be reverted, so nothing here
-//! is a test and every test over this table is in the parent's `tests` module.
+//! **Split out of `claims.rs` under the 1000-line cap, and the seam is the one the parent named
+//! before it was reached:** `CONTRADICTED` is what grows by ENTRY - one claim is about twenty
+//! lines - so a file holding the table AND the mechanism AND the tests runs out of room on the
+//! entry that finds the next stale sibling, which is precisely when nobody wants to be splitting
+//! a module. The table is data and reads nothing; [`super`] is the mechanism that walks it.
 //!
-//! Nothing gained REACH on the way, which is the property that makes the move mechanical.
-//! [`Contradicted`](super::Contradicted) and [`Evidence`](super::Evidence) are still declared in
-//! the parent with private fields, and a child module reads a parent's private items - so no field
-//! opened up. The table's own `pub(super)` became `pub(in crate::guidance)` because `super` moved a
-//! level down and that is the SAME set of modules it was already visible to; `guidance.rs` imports
-//! it exactly as before.
+//! The tests stay in the parent, beside the mechanism, for the reason its header gives: a file
+//! that adds no `#[test]` is one the causality gate may revert, and reverting this one would take
+//! the parent's `mod contradicted;` with it.
 
 use super::{Contradicted, Evidence};
 
 pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
+    Contradicted {
+        name: "formatter commit hook uses the shell's nightly",
+        wordings: &["On the shell's nightly: the `fmt`, `check-changed` and doctest commit hooks"],
+        evidence: &[Evidence {
+            path: ".pre-commit-config.yaml",
+            holds: "entry: bash -c 'source nix/stable-env.sh; exec cargo run -q -p xtask -- fmt --check'",
+        }],
+        instead: "The formatter hook sources `nix/stable-env.sh` before dispatch. \
+                  Local Rust gates require the configured stable toolchain; this trusts the \
+                  configured environment, not arbitrary wrappers or compiler overrides",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
+        // The SIBLING of the entry above, found by reviewing that one: the same change that made
+        // the formatter hook require configured stable tools also made `run-gate.sh` REFUSE a host
+        // with neither that configuration nor nix - and the two hook comments that described the
+        // old unconditional tiering were not carried. Registered rather than only reworded,
+        // because a rewording that lands in one file and not its sibling is the whole reason this
+        // table exists.
+        //
+        // **What is NOT registered, and why, because a reader will find it.** The posture epigram
+        // itself is quoted in `nix/with-tier.sh`, `xtask/src/hook_coverage/abstain.rs` and one
+        // library doc comment, each about a DIFFERENT tiering that this change did not touch - the
+        // Postgres tier's `command -v` arm, and the hooks that self-skip on a missing tool. Those
+        // read as attributions and are corrected in place; forbidding the epigram outright would
+        // fail prose that is still true of the mechanism it describes.
+        name: "a Rust commit hook tiers down to a notice on any host",
+        wordings: &[
+            "falls back to nix and then to a notice",
+            "falls back to `nix run .#crap` and then to a notice",
+        ],
+        // The rule it retired against, in the script that decides. Not the hook file: this claim
+        // is about what `run-gate.sh` DOES, and evidence read out of the page being checked would
+        // make the entry circular.
+        evidence: &[Evidence {
+            path: "nix/run-gate.sh",
+            holds: "with neither route, the helper refuses rather than skips",
+        }],
+        instead: "`nix/run-gate.sh` requires either configured local stable tools or Nix for the \
+                  `tests`, `supply-chain` and `crap` arms, and `nix/stable-env.sh` terminates the \
+                  caller when it has neither - so those hooks DO wall a host with no route, deliberately, \
+                  because a silent skip of the suite is worse than a stopped commit. What is left of the \
+                  notice is one host: a configured toolchain missing the optional tool with no Nix beside it",
+        only: &[],
+        except: &[],
+    },
     Contradicted {
         name: "additional named credential writes are held only by review",
         wordings: &["for the CI key and by review for the two principal keys placed beside it"],

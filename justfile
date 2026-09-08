@@ -229,7 +229,15 @@ declared-source:
 # a diff nobody had read. See the doc comment on `run_check_changed`.
 
 # cargo check, narrowed to the packages that changed. No paths reads the working tree.
+#
+# It sources the helper because it did NOT while the `rust-check-changed` hook entry did: the hook
+# ran on stable, and the recipe a person types ran the cranelift nightly in the nightly target
+# directory - what that helper exists to refuse. hooks.rs executes this body, so the line is held.
 check-changed *paths:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo run -q -p xtask -- check-changed {{ paths }}
 
 # THE gate. Run this before saying a change is done; nothing else counts as verified.
@@ -377,8 +385,8 @@ ship-check:
     devenv shell ship-check
 
 # Exactly what `nix build .#checks.x86_64-linux.crap` runs, reached the cheap way. Through
-# `nix/run-gate.sh` so it works on a host with neither the tools nor the dev shell: the tools
-# themselves, then `nix run .#crap` with the same pin CI uses, then a notice.
+# `nix/run-gate.sh`: configured local stable tools, then the pinned Nix route. Missing stable
+# configuration requires Nix; existing optional-tool abstentions remain after configuration.
 #
 # `source nix/stable-env.sh` because coverage instrumentation is LLVM-specific and the dev
 # shell's bare cargo is a cranelift nightly, where `-C instrument-coverage` does not exist. This

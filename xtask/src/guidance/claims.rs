@@ -20,17 +20,24 @@
 
 use std::path::Path;
 
-// Both split off under the 1000-line cap, on the seam the causality gate forces: the mechanism
-// moves and every assertion stays in `tests` below, in the file that DECLARES the module - a file
-// adding no `#[test]` is one that gate may revert, which would take the declaration with it and
-// orphan the tests. `remedies` judges the sentence a claim hands a reader and `counts` is the whole
-// second check named in the header above; both went before the table, on the argument that
-// [`CONTRADICTED`] is what grows by ENTRY at about twenty lines each and this is the file that has
-// to have room. **It ran out**: the entry about the discovery document took this file past the cap,
-// so the table is `contradicted` now and what is left here is the machinery plus the assertions.
+// All three split off under the 1000-line cap, on the seam the causality gate forces: the
+// mechanism moves and every assertion stays in `tests` below, in the file that DECLARES the module
+// - a file adding no `#[test]` is one that gate may revert, which would take the declaration with
+// it and orphan the tests. `remedies` judges the sentence a claim hands a reader; `counts` is the
+// whole second check named in the header above.
 //
-// **`counts` is a CHILD rather than a sibling of `claims`, and that is deliberate.** `guidance.rs`
-// lists the two as peers, which argues for a sibling; against that, `flatten` below is the one
+// **`contradicted` went LAST, and the note it replaces is why it had to.** That note said `counts`
+// moved rather than the table because [`CONTRADICTED`] is what grows by ENTRY - one claim is about
+// twenty lines - "so this is the file that has to have room". The room it bought was spent, and it
+// ran out on the entry registering a stale hook comment: a reserve measured in one file's spare
+// lines is a reserve that expires. The table is data and reads nothing, so it is the half that can
+// leave without taking a check with it, and what is left here grows by MECHANISM instead. The
+// entry about the discovery document this branch carries joins it there on the same seam, and the
+// merge of the two brought both - a reserve measured in one file's spare lines expires, whichever
+// entry spends it.
+//
+// **Each is a CHILD rather than a sibling of `claims`, and that is deliberate.** `guidance.rs`
+// lists the checks as peers, which argues for a sibling; against that, `flatten` below is the one
 // thing they share, and a child reads it while private. A peer would need it exported to all of
 // `guidance` to borrow it, which is a wider change than the one the placement buys.
 mod contradicted;

@@ -151,7 +151,13 @@ jobs:
             ${{ secrets.NIX_CACHE_SUBSTITUTER != '' && format('substituters = {0}', secrets.NIX_CACHE_SUBSTITUTER) || '' }}
             ${{ secrets.NIX_CACHE_PUBLIC_KEY != '' && format('trusted-public-keys = {0}', secrets.NIX_CACHE_PUBLIC_KEY) || '' }}
 
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      # One entry PER TARGET: each leg builds a different closure, so a shared key would have the
+      # four overwrite each other. Restore-only on a pull request - see
+      # `.github/actions/nix-store-cache`, whose save condition `check-workflows` pins.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ${{ matrix.target }}
+          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
 
       # MAIN'S ALL-4 RUN POPULATES the read-only binary cache that `extra_nix_config` above makes
       # every pull request and every other leg substitute from. Gated on the push event AND the

@@ -396,13 +396,22 @@ pub enum InvalidComputation {
 /// its definition digest - does not move for gaining this type. An `authored_sql` metric is a new
 /// key, visible in the diff, which is the whole point.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(rename_all = "snake_case", deny_unknown_fields, try_from = "ComputationInput")]
 pub enum Computation {
     /// The closed vocabulary, and the ordinary case. Every metadata provider can produce this, and
     /// nothing about it is optional or degraded.
     Measure(Measure),
     /// SQL somebody wrote in the catalog, compiled at load. The exception, named so that it reads as
     /// one.
+    AuthoredSql(AuthoredSql),
+}
+
+/// The same externally tagged wire form, with construction delegated to `assemble`.
+/// The enum already excludes both/neither; routing keeps future constructor policy in one place.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+enum ComputationInput {
+    Measure(Measure),
     AuthoredSql(AuthoredSql),
 }
 
@@ -454,6 +463,17 @@ impl Computation {
         match *self {
             Self::Measure(_) => "measure",
             Self::AuthoredSql(_) => "authored_sql",
+        }
+    }
+}
+
+impl TryFrom<ComputationInput> for Computation {
+    type Error = InvalidComputation;
+
+    fn try_from(input: ComputationInput) -> Result<Self, Self::Error> {
+        match input {
+            ComputationInput::Measure(measure) => Self::assemble(Some(measure), None),
+            ComputationInput::AuthoredSql(authored) => Self::assemble(None, Some(authored)),
         }
     }
 }

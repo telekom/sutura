@@ -165,8 +165,8 @@ in
   # Environment rather than .cargo/config.toml because that file is committed and read by CI
   # too - an `[unstable]` table there would fail every stable build. These variables exist
   # only inside this shell.
-  # Read by nix/stable-env.sh, which every gate sources. Unset outside this shell,
-  # where the snippet is then a no-op - which is exactly right for CI.
+  # Required by nix/stable-env.sh for local Rust gates. Nix checks/apps supply their own pinned
+  # toolchain instead; an absent local setting must not fall back to the interactive nightly.
   env.SUTURA_STABLE_BIN = stableBin;
 
   # Build-time and run-time paths to libduckdb, from nix/duckdb.nix. Spelled out there, once,

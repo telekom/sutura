@@ -50,8 +50,12 @@
 # when a tier is actually up, so "the server is there" and "the cells are required" cannot come
 # apart. The consequence matters for a hook: on a host with `cargo nextest` but no
 # `sutura-postgres-tier`, nothing is exported, the cells are vacuous rather than failing, and the
-# commit is not blocked - which is `nix/run-gate.sh`'s own posture, *a hook that cannot run must not
-# be a wall*, applied one level down. CI provisions the tier unconditionally and is authoritative.
+# commit is not blocked - which is `nix/run-gate.sh`'s posture WHERE IT STILL TIERS, *a hook that
+# cannot run must not be a wall*, applied one level down. That qualifier is load-bearing now and
+# was not when this was written: that script tiers only a configured toolchain missing its optional
+# tool, and REFUSES a host with neither the configuration nor nix. This arm is the other kind - a
+# missing tier binary is not a missing compiler - so it stays. CI provisions the tier
+# unconditionally and is authoritative.
 #
 # It is a small weakening of `just test` in exactly one case - a dev shell missing its own tier
 # binary, where that recipe used to fail - and it is the honest direction: a missing tool is not a
