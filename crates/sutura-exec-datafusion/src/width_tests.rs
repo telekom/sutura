@@ -25,8 +25,8 @@ use datafusion::arrow::record_batch::RecordBatch;
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::Warehouse as _;
 
-use super::fixture::{day, question, source};
 use super::{DataFusionWarehouse, WorkingSet};
+use super::{day, question, source};
 
 /// How many callers ask at once, and how many workers the engine is given.
 const CALLERS: usize = 4;

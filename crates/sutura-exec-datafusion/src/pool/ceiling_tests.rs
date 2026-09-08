@@ -24,8 +24,8 @@ use datafusion::arrow::record_batch::RecordBatch;
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::Warehouse as _;
 
-use crate::fixture::{day, question, source};
 use crate::{DataFusionError, DataFusionWarehouse, WorkingSet};
+use crate::{day, question, source};
 
 /// A ceiling small enough that any real operator reservation is over it.
 ///
