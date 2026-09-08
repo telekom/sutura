@@ -122,22 +122,28 @@ fn is_vendored_prose(path: &str) -> bool {
 /// interleaved with upstream's changes. Vendoring exists to hold someone else's code exactly
 /// as they published it, so a gate that rewrites it defeats the purpose.
 ///
+/// `fuzz/seeds/**` is the same property arrived at from the other direction. A fuzz seed IS
+/// its bytes: the file is an input handed to a parser, and the seeds that matter most are
+/// crash reproducers - the exact input that once made a process abort. Appending a final
+/// newline to one of those changes the input and can un-reproduce the crash it was committed
+/// to hold, so the gate that reformats it silently destroys the regression.
+///
 /// WIDER than `VENDORED_PROSE`, which exempts only the em dash: this also exempts the
 /// whitespace and final-newline rules. Conflict markers and the size limit still apply,
 /// because those are about a file being well-formed rather than about its formatting - a bad
 /// merge in a vendored tree is still a bad merge, and an enormous blob is still a problem.
-const VENDORED_SOURCE: &[&str] = &["vendor/"];
+const BYTE_EXACT: &[&str] = &["vendor/", "fuzz/seeds/"];
 
-/// Is this path vendored third-party source, exempt from the formatting rules?
-fn is_vendored_source(path: &str) -> bool {
-    VENDORED_SOURCE.iter().any(|prefix| path.starts_with(prefix))
+/// Is this path byte-exact, exempt from the formatting rules?
+fn is_byte_exact(path: &str) -> bool {
+    BYTE_EXACT.iter().any(|prefix| path.starts_with(prefix))
 }
 
 pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     // Both mean "do not reformat these bytes": a generated file is rewritten by its own
     // generator, and a vendored file has to keep matching the upstream artifact it records.
-    let byte_exact = is_generated(text) || is_vendored_source(path);
+    let byte_exact = is_generated(text) || is_byte_exact(path);
     let prose_exempt = byte_exact || is_vendored_prose(path);
 
     for (i, line) in text.lines().enumerate() {
@@ -182,7 +188,7 @@ pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
 pub(crate) fn fixed(path: &str, text: &str) -> String {
     // Returned byte for byte: `--fix` must never be the thing that makes a vendored tree
     // differ from the upstream release it records.
-    if is_generated(text) || is_vendored_source(path) {
+    if is_generated(text) || is_byte_exact(path) {
         return String::from(text);
     }
     let mut out = String::with_capacity(text.len());

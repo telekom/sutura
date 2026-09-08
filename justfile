@@ -53,10 +53,8 @@ setup:
     echo 'Ready. just lists the tasks; just gates is what CI runs.'
 
 # Bump the pinned inputs.
-#
-# Both locks in one task because they are bumped for the same reason and reviewed together.
-# Nothing needs generating: no tool is pinned in both places - `cargo xtask check-pins` is
-# what keeps that true - so there is no table to rewrite and nothing to fall out of step.
+# Both locks in one task and nothing needs generating: no tool is pinned in both places -
+# `cargo xtask check-pins` is what keeps that true - so there is no table to fall out of step.
 update:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -108,11 +106,9 @@ fmt:
     cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
 
-# `--all-features` is load-bearing rather than foresight: crates here declare features and make
-# dependencies optional, so an entry point missing the flag lints and tests nothing behind them.
-# `grep -rln '^\[features\]' --include=Cargo.toml .` is the current set, and is not written down.
-# `check-guidance` holds the retired claim that no crate declares one, but NOT here: this file has
-# no extension, so it is outside that gate's scope and this comment is held by review alone.
+# `--all-features` is load-bearing: crates declare features and make deps optional, so an entry
+# point missing the flag lints and tests nothing behind them. `grep -rln '^\[features\]' --include=Cargo.toml .`
+# is the current set, held by review (this file has no extension, outside `check-guidance`'s scope).
 
 # Lint everything.
 lint:
@@ -389,13 +385,11 @@ ship-check:
 # configuration requires Nix; existing optional-tool abstentions remain after configuration.
 #
 # `source nix/stable-env.sh` because coverage instrumentation is LLVM-specific and the dev
-# shell's bare cargo is a cranelift nightly, where `-C instrument-coverage` does not exist. This
-# one is not the channel-consistency argument the lints have - it is that the instrumentation is
-# absent. `cargo xtask crap` re-establishes it anyway rather than trusting this line.
+# shell's bare cargo is a cranelift nightly, where `-C instrument-coverage` does not exist.
+# `cargo xtask crap` re-establishes it anyway rather than trusting this line.
 #
 # Every run leaves `target/crap/baseline.json` behind, which is what `just crap-delta` below
-# compares. Scope, cost and the two halves of the ratchet - the absolute threshold and the delta
-# against the base - are all in docs/crap.md.
+# compares. Scope, cost and the two halves of the ratchet are all in docs/crap.md.
 
 # The CRAP score: complexity weighted by the tests that cover it. Scoped to sutura-domain.
 crap:
@@ -617,6 +611,16 @@ attribution:
 # git-derived copy - so it also sees a file you have not staged yet, which the check cannot.
 licences:
     nix run .#reuse -- lint
+
+# Fuzz every target, or one, with a time budget. NOT A GATE: a run that fails a merge on a fresh
+# random path gets turned off, and then nothing generates input. `nix/fuzz.nix` argues the
+# provisioning; each `fuzz/fuzz_targets/*.rs` header says what it covers and what it does not.
+fuzz seconds="300" target="":
+    bash nix/run-fuzz.sh run "{{ seconds }}" "{{ target }}"
+
+# Replay every committed corpus seed, mutating nothing - the regression half of fuzzing.
+fuzz-smoke:
+    bash nix/run-fuzz.sh smoke
 
 # ------------------------------------------------------------------ tooling ---
 
