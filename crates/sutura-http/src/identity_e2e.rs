@@ -350,6 +350,12 @@ async fn two_subjects_drive_two_different_exchanged_credentials() {
     // The subject half: each leg named the person who asked for it, and neither named the other.
     assert!(ada.contains("for:ada@example.com"), "{ada}");
     assert!(grace.contains("for:grace@example.com"), "{grace}");
+    // A SUBSTRING over a haystack whose tail is random, and it is safe by ARITHMETIC rather than by
+    // alphabet: `exchanged_from` appends eight base64url characters of a signature, `grace` is five
+    // characters of that same 64-character alphabet, so there are four offsets to land in and the
+    // odds are about 4 x 64^-5. That is small enough to leave alone and NOT a property of the
+    // needle - it is a property of the two lengths. Shorten the needle or lengthen that window and
+    // this becomes the assertion `sutura-http`'s key-set cell already had to stop being.
     assert!(!ada.contains("grace"), "the first caller's leg named the second: {ada}");
 
     // **The material half, and it is the one that would be missed.** The credential is derived from

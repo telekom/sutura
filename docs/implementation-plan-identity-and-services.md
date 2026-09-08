@@ -962,6 +962,7 @@ economise.
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |
    | `check-one-bound` | the Rust under `crates/`, for how many execution bounds each crate builds, plus which crates have a `src/main.rs` and are therefore a process |
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
+   | `check-worktree-state` | the Rust under `crates/`, `xtask/` and `dev/`, and the shell under `nix/*.sh` - for every acquisition of a machine-shared filesystem root, and whether anything keys the path it builds |
    | `check-conformance-bindings` | the Rust and the manifests under `crates/` - the golden matrix's `data_systems` registry against the crates holding a conformance binding |
    | `check-refusal-coverage` | the Rust and the snapshots under `crates/`, and `devco/refusals-unprovoked-allow` |
    | `check-feature-remedies` | the string literals under `crates/*/src/` and each crate's own `Cargo.toml` |
@@ -972,7 +973,7 @@ economise.
    | `check-inconclusive` | the `justfile`, `devenv.nix`, `flake.nix`, `nix/*.nix` and everything `crate::workflows::sources` walks - for what each venue does with exit 3 |
    | `check-hook-tiers` | `.pre-commit-config.yaml` |
    | `check-devenv-shell` | `devenv.nix` and every module its `imports` reach - which attributes assign a shell body, and whether the value goes through the wrapper ShellCheck reads |
-   | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares |
+   | `check-workflows` | `.github/**`, against the outputs `flake.nix` declares - plus `devco/required-contexts` for which jobs gate, and `README.md`, `REUSE.toml` and `devco/scorecard-publication` for whether a badge's claim has a mechanism behind it |
 
    **Reads prose.** Each of these reads at least one file such a diff CAN change, so skipping one
    defers a verdict rather than costing nothing - and only part of one is replaced:

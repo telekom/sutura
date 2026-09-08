@@ -27,6 +27,10 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+// `Environment` rather than a string, because it is the type that owns the spelling: `as_str` is
+// documented as the canonical name AND the file stem this environment layers, so a case that says
+// which deployment environment it is about cannot say it in a word `sutura_config` would refuse.
+use sutura_config::Environment;
 // `PublishedKeySet` is deliberately absent: the tests own the key set's lifetime, because which
 // document is published - and whether it is rotated to an unusable one - is what a case is about.
 use sutura_dev::issuer::{MockIssuer, Token};
@@ -127,29 +131,190 @@ pub(crate) fn settings_declaring_inbound(example: &Path, issuer: &MockIssuer, ke
 /// fixture path that moves moves once. `credential` is the rest of the `security:` block, indented
 /// for it.
 pub(crate) fn settings_crediting(example: &Path, credential: &str) -> String {
-    let catalog = example.join("catalog").display().to_string();
-    let data = example.join("data").display().to_string();
+    deployment(example, LOOPBACK, &format!("{SINGLE_USER}{credential}"))
+}
+
+/// The bind every deployment that is meant to SERVE uses: loopback, and the kernel picks the port.
+///
+/// A constant rather than a literal inside [`settings_over`], because a startup-refusal case changes
+/// exactly this block and the reader has to be able to see that the serving cases do not.
+pub(crate) const LOOPBACK: &str = "  host: \"127.0.0.1\"\n  port: 0\n";
+
+/// The mode declaration every servable deployment in this file makes, as the head of `security:`.
+///
+/// Split out for the same reason as [`LOOPBACK`]: `security.identity` has no default and a
+/// deployment that omits it with a source configured does not start, so the case that omits it is
+/// the case that leaves this string out.
+pub(crate) const SINGLE_USER: &str = "  identity: \"single-user\"\n  \
+     single_user_because: \"an end-to-end test reads its own fixture files as one identity\"\n";
+
+/// The example deployment with the two groups a **startup refusal** turns on written by the caller.
+///
+/// `server` and `security` are the BODIES of their own groups, indented for them; the catalog and the
+/// one source are the example's own. Everything a refusal case wants to change is in those two
+/// groups, which is what makes a refusal attributable to the lines the case changed rather than to a
+/// second fixture that drifted.
+///
+/// **A refusing deployment still gets the catalog and the source, and that is deliberate.** Three of
+/// the four postures `served.rs` refuses are only reachable on a deployment that could otherwise
+/// serve - `security.identity` is checked *because* a source is configured - so a fixture stripped
+/// down to the failing key would be a different deployment from the one an operator has.
+pub(crate) fn deployment(example: &Path, server: &str, security: &str) -> String {
+    let data = example.join("data");
+    settings_over(
+        &example.join("catalog"),
+        &data,
+        server,
+        security,
+        &files_source(LOCAL_SOURCE, &data),
+    )
+}
+
+/// The one data system every other deployment in this file declares.
+pub(crate) const LOCAL_SOURCE: &str = "local";
+
+/// The SECOND data system, which only the two-source deployment declares.
+pub(crate) const LOOKUP_SOURCE: &str = "geo";
+
+/// One `sources:` entry, indented for the block.
+///
+/// A helper rather than a second format string, so a `files` entry's shape is written once and the
+/// two-source deployment cannot declare its second source differently from its first - which is the
+/// asymmetry that would make a two-source failure read as a federation defect.
+pub(crate) fn files_source(name: &str, data: &Path) -> String {
     format!(
-        "server:\n  \
-           host: \"127.0.0.1\"\n  \
-           port: 0\n\
-         security:\n  \
-           identity: \"single-user\"\n  \
-           single_user_because: \"an end-to-end test reads its own fixture files as one identity\"\n\
-         {credential}\
+        "  {name}:\n    \
+           kind: \"files\"\n    \
+           data_dir: \"{}\"\n    \
+           posture: \"shared-service-user\"\n",
+        data.display()
+    )
+}
+
+/// Every deployment in this file, above the three things that vary: the server group, the security
+/// group and the sources.
+///
+/// Extracted when the two-source case arrived, because that case needs a DERIVED catalog directory
+/// and a second `sources:` entry - and a second copy of the server, security and telemetry blocks
+/// would have been a settings file that could drift from the one every other test starts. The
+/// startup-refusal cases widened it by two: `server` and `security` are whole group BODIES rather
+/// than a credential line, because a refusal is a combination of settings and three of the four this
+/// file provokes live in one of those two groups.
+pub(crate) fn settings_over(catalog: &Path, data: &Path, server: &str, security: &str, sources: &str) -> String {
+    format!(
+        "server:\n\
+         {server}\
+         security:\n\
+         {security}\
          telemetry:\n  \
            format: \"bunyan\"\n\
          catalogs:\n  \
            - name: \"model\"\n    \
              kind: \"markdown\"\n    \
-             dir: \"{catalog}\"\n    \
-             data_dir: \"{data}\"\n    \
+             dir: \"{}\"\n    \
+             data_dir: \"{}\"\n    \
              version: \"{VERSION}\"\n\
-         sources:\n  \
-           local:\n    \
-             kind: \"files\"\n    \
-             data_dir: \"{data}\"\n    \
-             posture: \"shared-service-user\"\n"
+         sources:\n\
+         {sources}",
+        catalog.display(),
+        data.display(),
+    )
+}
+
+/// **The two-source deployment: the example's own catalog with ONE line rewritten, and two `files`
+/// entries over the one data directory.**
+///
+/// The rewrite puts the `customers` model on [`LOOKUP_SOURCE`], which is the whole difference - it
+/// is the same one-line derivation `crates/sutura-app/tests/differential/federated.rs` makes, and
+/// it is derived rather than committed for that file's reason: a second-source topology is one
+/// deployment's, not something a single-source quickstart can state.
+///
+/// **The two sources share a data directory, and the isolation is real anyway.** `open_files` builds
+/// one adapter per declared `files` entry and attaches only that entry's models' tables, so neither
+/// engine has the other's table registered and a join across them has to happen above the port or
+/// not at all. What is under test is that behaviour of the composition root, so pointing both at
+/// one directory removes a variable rather than adding one - two directories would differ in what
+/// was copied as well as in what was attached.
+///
+/// A `Rewrite` that found nothing PANICS: a derivation that silently stopped applying would leave
+/// this deployment single-source and the test below green over a whole-plan answer.
+pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
+    let example = example_root();
+    let data = example.join("data");
+    let catalog = derived_catalog(case, &example.join("catalog"));
+    let sources = format!("{}{}", files_source(LOCAL_SOURCE, &data), files_source(LOOKUP_SOURCE, &data));
+    settings_over(
+        &catalog,
+        &data,
+        LOOPBACK,
+        &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
+        &sources,
+    )
+}
+
+/// The example catalog, copied, with the dimension model moved to the second data system.
+///
+/// Copied rather than edited in place for the obvious reason and one less obvious: this suite runs
+/// beside every other gate in one checkout, so a test that rewrote a committed document would
+/// change what a concurrent run reads.
+pub(crate) fn derived_catalog(case: &str, from: &Path) -> PathBuf {
+    let root = derived_beside(&config_path(case));
+    drop(std::fs::remove_dir_all(&root));
+    copied(from, &root);
+    let model = root.join("models").join("customers.md");
+    let text = std::fs::read_to_string(&model).expect("the derived catalog carries the dimension model");
+    let moved = text.replace(&format!("source: {LOCAL_SOURCE}"), &format!("source: {LOOKUP_SOURCE}"));
+    assert_ne!(
+        moved,
+        text,
+        "{} no longer declares `source: {LOCAL_SOURCE}`, so this deployment is not two-source and \
+         the question below would be answered whole",
+        model.display()
+    );
+    std::fs::write(&model, moved).expect("the derived model document is writable");
+    root
+}
+
+/// One directory tree, copied.
+///
+/// `std::fs` has no recursive copy and this suite has no dev-dependency that does; the catalog is
+/// two levels of markdown, so a six-line walk is cheaper than a crate.
+fn copied(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("the derived catalog directory is creatable");
+    let entries = std::fs::read_dir(from).unwrap_or_else(|cause| panic!("{} is not readable: {cause}", from.display()));
+    for entry in entries {
+        let entry = entry.expect("a directory entry is readable");
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copied(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).expect("a catalog document is copyable");
+        }
+    }
+}
+
+/// The one question this file asserts a two-source number for.
+///
+/// `recurring_revenue` is read off the metric's own model and `region` off the dimension model the
+/// derivation moved, so this question spans both data systems by construction. The fixture is READ
+/// for [`question`]'s reason, and `region` is checked in it too - a fixture that stopped grouping by
+/// a remote attribute would leave this suite asking a single-source question.
+pub(crate) fn recurring_revenue_by_region() -> String {
+    let stem = "recurring-revenue-by-region";
+    let path = example_root().join("questions").join(format!("{stem}.yaml"));
+    let fixture = std::fs::read_to_string(&path)
+        .unwrap_or_else(|cause| panic!("{} is the example question this body mirrors: {cause}", path.display()));
+    for expected in ["recurring_revenue", GRAIN, "2026-06-01", "2026-07-01", "region"] {
+        assert!(
+            fixture.contains(expected),
+            "{} no longer mentions `{expected}`, so this suite asks something the example does \
+             not:\n{fixture}",
+            path.display()
+        );
+    }
+    String::from(
+        r#"{"metric":"recurring_revenue","grain":"month",
+        "range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
     )
 }
 
@@ -158,7 +323,14 @@ pub(crate) fn settings_crediting(example: &Path, credential: &str) -> String {
 /// **Not cosmetic.** `sutura_config` layers one environment variable per key on top of the
 /// files, so a developer with `SUTURA__SERVER__PORT` exported would be running a different
 /// deployment from CI and the failure would name a setting nobody wrote in this file.
-pub(crate) fn command(config_dir: &Path) -> Command {
+///
+/// `environment` is a PARAMETER because three of this file's refusals are the same configuration in
+/// two different deployments: `security.access_token` is optional on a development laptop and a
+/// refusal in production, and a case that could not say which one it is about would be asserting a
+/// posture over the wrong deployment. Its spelling comes from [`Environment::as_str`], which is the
+/// same function `sutura_config` parses back - so a case cannot name an environment the binary
+/// would reject.
+pub(crate) fn command(config_dir: &Path, environment: Environment) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_sutura-serve"));
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("SUTURA") {
@@ -166,7 +338,7 @@ pub(crate) fn command(config_dir: &Path) -> Command {
         }
     }
     command
-        .env("SUTURA_ENVIRONMENT", "development")
+        .env("SUTURA_ENVIRONMENT", environment.as_str())
         .env("SUTURA_CONFIG_DIR", config_dir)
         .env_remove("RUST_LOG")
         .stdin(Stdio::null())
@@ -274,11 +446,32 @@ pub(crate) fn drained(readers: Vec<JoinHandle<()>>, lines: &Receiver<String>) ->
 /// now - the one that expects a listener and the one that expects a refusal - and a case whose
 /// directory was named differently by each would be a confusing failure rather than a wrong one.
 pub(crate) fn written(case: &str, settings: &str) -> PathBuf {
-    let config_dir = std::env::temp_dir().join(format!("sutura-serve-e2e-{case}-{}", std::process::id()));
+    let config_dir = config_path(case);
     drop(std::fs::remove_dir_all(&config_dir));
     std::fs::create_dir_all(&config_dir).expect("the temporary configuration directory is creatable");
     std::fs::write(config_dir.join("base.yaml"), settings).expect("the settings file is writable");
     config_dir
+}
+
+/// Where one case's configuration directory is.
+///
+/// A function rather than an expression inside [`written`], because a two-source case has to name a
+/// SECOND directory derived from the same path - see [`derived_beside`].
+pub(crate) fn config_path(case: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("sutura-serve-e2e-{case}-{}", std::process::id()))
+}
+
+/// Where one case's derived catalog is: a SIBLING of its configuration directory, never inside it.
+///
+/// Inside is what a reader would write and it does not work: [`written`] clears the configuration
+/// directory when it writes the settings file, so a catalog derived under it would be removed
+/// between the derivation and the spawn and the deployment would refuse a catalog directory that is
+/// not there. Named off the same path so [`Served`]'s `Drop` - the one owner of this suite's
+/// cleanup - removes both.
+pub(crate) fn derived_beside(config_dir: &Path) -> PathBuf {
+    let mut path = config_dir.as_os_str().to_os_string();
+    path.push("-catalog");
+    PathBuf::from(path)
 }
 
 /// Spawns the binary on settings it must **refuse**, and returns what it said before exiting.
@@ -289,10 +482,26 @@ pub(crate) fn written(case: &str, settings: &str) -> PathBuf {
 /// establishes a caller identity, and answers `401` to everybody. That difference is invisible to
 /// a harness that only ever waits for a listener.
 ///
-/// Asserts a non-zero exit here rather than in the caller, so a settings file this suite got
-/// wrong - one the binary happily serves - fails as *it started* instead of as a missing line in
-/// the log.
-pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
+/// Asserts the EXIT CODE here rather than in the caller, so a settings file this suite got wrong -
+/// one the binary happily serves - fails as *it started* instead of as a missing line in the log.
+///
+/// **Exactly `1`, and not merely non-zero, and the reason is MEASURED rather than reasoned.** `main`
+/// returns `ExitCode::FAILURE` for every refusal it makes; the failure this separates it from is a
+/// process that stopped without deciding to. With step 3 changed to `panic!` on an unservable
+/// configuration instead of returning `Err`, the child exits `101`: `just serve-e2e` is
+/// `40 passed` at exit 0 under the `!status.success()` this replaced, and `36 passed, 4 failed`
+/// against `Some(1)`. A deployment that PANICKED while reading its configuration is not a deployment
+/// that declined to serve, and only the exact code separates the two.
+///
+/// **What this note used to say, corrected rather than deleted:** that `panic = "abort"` leaves no
+/// exit code at all. That names the shipped and `ci` profiles - the child this harness spawns is
+/// built at `test`, which inherits `dev` and unwinds, so the abort case is real for a release
+/// artefact and is not what is exercised here. `code()` is still compared as `Some(1)` rather than
+/// by subtraction, because a signal gives `None`.
+///
+/// `environment` reaches the child through [`command`]: it decides which refusals apply at all, so
+/// it is a parameter of the case rather than a constant of the harness.
+pub(crate) fn refused_to_start(environment: Environment, case: &str, settings: &str) -> Vec<String> {
     // **Held in a guard from the moment it is spawned, and the failing path is the reason rather
     // than the passing one.** The assertion below fires when the process is STILL RUNNING, which
     // is exactly the defect this function exists to catch - and `std::process::Child` does not
@@ -302,7 +511,7 @@ pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
     // panicking assertion included.
     let config_dir = written(case, settings);
     let mut spawned = Spawned {
-        child: command(&config_dir).spawn().expect("the composed binary starts"),
+        child: command(&config_dir, environment).spawn().expect("the composed binary starts"),
         config_dir,
         reaped: false,
     };
@@ -332,9 +541,10 @@ pub(crate) fn refused_to_start(case: &str, settings: &str) -> Vec<String> {
     // Joined and then drained - see [`drained`]. This used to be a bare `try_recv` sweep under a
     // comment claiming the readers had finished, which is `github.com/telekom/sutura#387`.
     let said = drained(readers, &lines);
-    assert!(
-        !status.success(),
-        "the deployment started on settings it must refuse:\n{}",
+    assert_eq!(
+        status.code(),
+        Some(1),
+        "a deployment given settings it must refuse did not decline to serve:\n{}",
         said.join("\n")
     );
     said
@@ -366,6 +576,10 @@ impl Drop for Spawned {
             drop(self.child.wait());
         }
         drop(std::fs::remove_dir_all(&self.config_dir));
+        // And the derived catalog a two-source case writes beside it. Unconditional: a case that
+        // derived nothing has no such directory and the removal is a no-op, which is cheaper than a
+        // flag saying which cases derive.
+        drop(std::fs::remove_dir_all(derived_beside(&self.config_dir)));
     }
 }
 
@@ -391,7 +605,9 @@ pub(crate) fn start(case: &str) -> Served {
 #[expect(clippy::zombie_processes, reason = "the returned `Served` waits on it in `Drop`")]
 pub(crate) fn start_configured(case: &str, settings: &str) -> Served {
     let config_dir = written(case, settings);
-    let mut child = command(&config_dir).spawn().expect("the composed binary starts");
+    let mut child = command(&config_dir, Environment::Development)
+        .spawn()
+        .expect("the composed binary starts");
     let stdout = child.stdout.take().expect("standard output was piped");
     let stderr = child.stderr.take().expect("standard error was piped");
     let (sender, lines) = channel();
@@ -586,6 +802,10 @@ impl Drop for Served {
             drop(self.child.wait());
         }
         drop(std::fs::remove_dir_all(&self.config_dir));
+        // And the derived catalog a two-source case writes beside it. Unconditional: a case that
+        // derived nothing has no such directory and the removal is a no-op, which is cheaper than a
+        // flag saying which cases derive.
+        drop(std::fs::remove_dir_all(derived_beside(&self.config_dir)));
     }
 }
 

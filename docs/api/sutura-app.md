@@ -773,9 +773,9 @@ The data systems this process opened, keyed by the name a plan selects them with
 
 # Why a registry rather than one warehouse
 
-A plan resolves to a single source for one answer - a question spanning two is federated and
-refused as `FederationNotExecutable` while no adapter executes a leg (three or more are refused at
-plan time) - but a
+A plan resolves to a single source for one answer - a question spanning two is federated, and
+answered where every registered adapter declares `Warehouse::EXECUTES_LEGS` and refused as
+`FederationNotExecutable` where one does not (three or more are refused at plan time) - but a
 *deployment* holds as many as its catalog names, and until now the service held exactly one. That
 made two facts indistinguishable: "this question is for a data system nobody configured" and "this
 question is for the other one of the two we opened". The first is a refusal an operator has to fix
@@ -1239,12 +1239,19 @@ pub enum Verdict<E>
 
 What one data system answered about the tables one bundle names in it.
 
-**Five outcomes and not three, because a root treats two of the failures differently.** The port
-answers three things and fails in one way, and that one failure splits on
-`Warehouse::preflight_was_refused`: a data system that REFUSED to be listed will refuse
-identically on every launch and the fix is one grant, while one that could not be reached is a
-condition that passes. A root that collapsed them would either stop a deployment that would have
-worked or hide the check being off in the deployment least likely to read a startup log.
+**Six outcomes and not three, because a root treats two of the failures differently and one of
+the answers is not about the catalog at all.** The port answers four things and fails in one way,
+and that one failure splits on `Warehouse::preflight_was_refused`: a data system that REFUSED to
+be listed will refuse identically on every launch and the fix is one grant, while one that could
+not be reached is a condition that passes. A root that collapsed them would either stop a
+deployment that would have worked or hide the check being off in the deployment least likely to
+read a startup log.
+
+**`Self::Unaccounted` is the fourth answer and it is a REFUSAL, not the third failure.** The
+data system answered; its answer did not account for its own inventory. Reading that as
+`Self::Absent` is what `telekom/sutura#275` is - a shortfall rounded down to zero and charged
+to the catalog - and reading it as `Self::Unverified` would be worse still: that is the warning
+half, so the one shape the cross-check exists to catch would end in a deployment that serves.
 
 Generic in the adapter's error so the cause travels: nothing here can read `W::Error`, and the
 root that composed the adapter is the one that can flatten it.
@@ -1254,6 +1261,7 @@ root that composed the adapter is the one that can flatten it.
 - `Present` - Asked, and every table is there. Carries how many, for a line that says so.
 - `NotReported` - The adapter did not report - `TablesPresent::NotAsked`, the port's default.
 - `Absent` - Asked, and these tables are not there. A refusal, and the models to name in it.
+- `Unaccounted` - Asked, answered, and the answer did not account for every table the data system said it holds - so these tables are neither established present nor established absent.
 - `Refused` - The data system refused to be asked: this identity may not list it.
 - `Unverified` - The data system could not be asked, for a reason that is not a refusal.
 

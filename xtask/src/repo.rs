@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 mod census;
 
-pub(crate) use census::{Census, Looked, Refusal, Unmigrated};
+pub(crate) use census::{Census, Refusal, Scope, Unmigrated};
 
 /// Directories no gate ever descends into: build output, VCS internals, tool caches.
 const SKIP_DIRS: &[&str] = &[
@@ -215,11 +215,13 @@ fn shown(root: &Path, path: &Path) -> String {
 /// have made every gate pass vacuously in the sandbox, which is the failure mode a gate
 /// exists to prevent - and [`Refusal::Empty`] is what now says so out loud instead.
 ///
-/// **Where the unreachable-subject finding comes from on this path, stated because it reads
-/// stronger than it is.** `git ls-files` reads the INDEX, so it lists a file inside a directory
-/// nothing can open and the walk's own finding is empty. On a git checkout the finding therefore
-/// arrives from the gate's own read - `Looked::Unreachable`, refused by [`Census::inspect`] - and
-/// the walk's finding covers the sandbox fallback and the two directory-scoped doors above.
+/// **Which carrier produces the unreachable-subject finding on this path - there are three, and
+/// the verdict's own sentence says which fired.** `git ls-files` reads the INDEX, so it lists a
+/// file inside a directory nothing can open: on a checkout the finding then arrives from
+/// [`Census::inspect`]'s own read and NAMES THE FILES (the *read* carrier), while the sandbox
+/// fallback and the two directory-scoped doors above name a bare DIRECTORY (the *walk* carrier).
+/// The third is [`from_git`]'s stderr rule, for a path the listing never offered at all - it names
+/// the git invocation. File paths, a directory, or a `git ls-files` command: that is the tell.
 pub(crate) fn all_files() -> Result<Census, Refusal> {
     let Some(root) = root() else {
         return Err(Refusal::NoRoot);
@@ -237,44 +239,116 @@ pub(crate) fn all_files() -> Result<Census, Refusal> {
     // symlink support only the index can say what it is. `--others --exclude-standard` has no
     // mode, but an untracked symlink is rare enough that the walk's own symlink check covers
     // it in the fallback path.
-    let tracked = std::process::Command::new("git")
-        .args(["ls-files", "--stage", "-z"])
-        .current_dir(&root)
-        .output();
-    let untracked = std::process::Command::new("git")
-        .args(["ls-files", "--others", "--exclude-standard", "-z"])
-        .current_dir(&root)
-        .output();
+    //
+    // **`strip_git_env` on both**, because the listing IS the denominator. A gate that shells out
+    // to git is often invoked BY git - `hygiene` is an `always_run` pre-commit hook, so `GIT_DIR`
+    // and `GIT_INDEX_FILE` are live there - and those variables outlive the process that set them.
+    // Measured without it: `GIT_DIR`/`GIT_WORK_TREE` pointed at another checkout of this repo gave
+    // `377 of 1169 subject(s) judged` against a control of `378 of 1170`, one subject silently out
+    // of the denominator at exit 0, with the READS still coming from this tree. The `Census`
+    // constructor being `pub(super)` stops a caller conjuring a denominator from inside the
+    // process; this is the same conjuring from outside it.
+    let tracked = listed(&root, &["ls-files", "--stage", "-z"]);
+    let untracked = listed(&root, &["ls-files", "--others", "--exclude-standard", "-z"]);
 
-    if let Ok(tracked) = tracked
-        && tracked.status.success()
-    {
-        let mut files: Vec<String> = tracked
-            .stdout
-            .split(|b| *b == 0)
-            .filter(|raw| !raw.is_empty())
-            .filter_map(|raw| staged_path(&String::from_utf8_lossy(raw)))
-            .collect();
-
-        if let Ok(untracked) = untracked
-            && untracked.status.success()
-        {
-            files.extend(
-                untracked
-                    .stdout
-                    .split(|b| *b == 0)
-                    .filter(|raw| !raw.is_empty())
-                    .map(|raw| String::from(String::from_utf8_lossy(raw))),
-            );
-        }
-
-        files.sort_unstable();
-        files.dedup();
-        if !files.is_empty() {
-            return Ok(Census::found(root, files, Vec::new()));
-        }
+    if let Some(census) = from_git(&root, &tracked, &untracked) {
+        return Ok(census);
     }
     Ok(gather(&root, &root, &Wanted::Everything))
+}
+
+/// One `git ls-files` result, reduced to what a census needs.
+///
+/// A named struct rather than `std::process::Output` because `ExitStatus` cannot be constructed
+/// portably, and the stderr rule in [`from_git`] has to be testable without a checkout.
+struct Listed {
+    /// Did git answer at all, and exit 0?
+    ok: bool,
+    /// The NUL-separated listing.
+    stdout: Vec<u8>,
+    /// **Everything git said it could not do.** Not the exit code: see [`from_git`].
+    stderr: Vec<u8>,
+}
+
+/// Run one `git ls-files` invocation, with this process's git environment stripped.
+fn listed(root: &Path, args: &[&str]) -> Listed {
+    let mut command = std::process::Command::new("git");
+    strip_git_env(&mut command);
+    match command.args(args).current_dir(root).output() {
+        Ok(output) => Listed {
+            ok: output.status.success(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        },
+        Err(_) => Listed {
+            ok: false,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        },
+    }
+}
+
+/// The census a git listing produces, or `None` when git could not answer and the walk must.
+///
+/// **The THIRD carrier, and the one that had no tell at all.** This function used to hand the
+/// census a hard-coded empty `unreachable` while holding two subprocess results that say what was
+/// missed. `git ls-files --others --exclude-standard` **exits 0 and warns on stderr** when it
+/// cannot enter a directory, so the exit status is not the tell - measured on `565ebaae`, where two
+/// real defects planted in an untracked directory at mode `000` gave a verdict **byte-identical to
+/// the pristine tree's** on `check-expect-thresholds`, `line-endings` and `text-hygiene`, all at
+/// exit 0, while the same tree readable failed the first two at exit 1. The path never enters the
+/// listing, so no gate's read is attempted and the READ carrier cannot see it either.
+///
+/// **Non-empty stderr is the rule, and the wording is deliberately not read.** git localises that
+/// warning - it arrives as `Warnung: konnte Verzeichnis … nicht öffnen` under a German locale - so
+/// a needle would be a locale bug. Both invocations write **0 bytes** on a clean tree, verified in
+/// a checkout and in a linked worktree, which is what makes emptiness usable as the predicate.
+fn from_git(root: &Path, tracked: &Listed, untracked: &Listed) -> Option<Census> {
+    if !tracked.ok {
+        return None;
+    }
+    let mut files: Vec<String> = tracked
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|raw| !raw.is_empty())
+        .filter_map(|raw| staged_path(&String::from_utf8_lossy(raw)))
+        .collect();
+
+    let mut unreachable = Vec::new();
+    if untracked.ok {
+        files.extend(
+            untracked
+                .stdout
+                .split(|b| *b == 0)
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| String::from(String::from_utf8_lossy(raw))),
+        );
+    } else {
+        // **The `ok` half this function read on one invocation and not the other.** A tracked
+        // listing that answered and an untracked one that did not is a listing short by every
+        // untracked file, which is silent if that failure wrote nothing to stderr - a spawn error,
+        // or a kill. `!tracked.ok` above falls back to the WALK, which is more inclusive; there is
+        // no such fallback for half a listing, so it refuses.
+        unreachable.push(String::from(
+            "git ls-files --others could not answer, so every untracked-but-not-ignored file is \
+             missing from this listing and no gate's read can reach it",
+        ));
+    }
+
+    files.sort_unstable();
+    files.dedup();
+    if files.is_empty() {
+        return None;
+    }
+
+    for (which, said) in [("git ls-files --stage", tracked), ("git ls-files --others", untracked)] {
+        if !said.stderr.is_empty() {
+            unreachable.push(format!("{which}: {}", String::from_utf8_lossy(&said.stderr).trim()));
+        }
+    }
+    // A listing git could not fully produce is a listing short by an unknown amount, so an
+    // untracked subtree nothing can enter refuses here rather than shrinking the denominator.
+    Some(Census::found(root.to_path_buf(), files, unreachable))
 }
 
 /// The path from one `git ls-files --stage` entry, or `None` for a symlink.
@@ -343,13 +417,23 @@ pub(crate) fn is_text_file(path: &Path) -> bool {
         return false;
     };
     head.truncate(read);
+    looks_like_text(&head)
+}
 
+/// The CONTENT half of [`is_text_file`], for a gate that already holds the bytes.
+///
+/// Exposed because [`Census::inspect`] performs the read now, and a gate must not re-open a file
+/// the census already read to ask this: `is_text_file` answers `false` for a file it cannot open,
+/// so asking it again would turn a subject whose reachability was just PROVEN back into a scope
+/// decision - which is the fail-open this whole module exists to remove.
+pub(crate) fn looks_like_text(bytes: &[u8]) -> bool {
+    let head = bytes.get(..SNIFF_BYTES).unwrap_or(bytes);
     if head.contains(&0) {
         return false;
     }
     // A multi-byte character can straddle the cutoff, so an incomplete tail is not evidence of
     // binary. Only an error before the last few bytes is.
-    match std::str::from_utf8(&head) {
+    match std::str::from_utf8(head) {
         Ok(_) => true,
         Err(e) => e.valid_up_to() + 4 >= head.len(),
     }
@@ -442,6 +526,111 @@ fn glob_star(pattern: &[char], rest: &[char], path: &[char]) -> bool {
 mod tests {
     use super::matches;
 
+    /// Every subject is in scope. A named `fn` because [`super::Scope`] is a bare `fn` pointer:
+    /// a closure would not compile there, which is the point of it.
+    fn every_subject(_rel: &str) -> bool {
+        true
+    }
+
+    fn listed(stdout: &str, stderr: &str) -> super::Listed {
+        super::Listed {
+            ok: true,
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    /// One `git ls-files --stage` line per path, NUL-terminated the way `-z` writes them.
+    fn staged(paths: &[&str]) -> String {
+        let mut listing = String::new();
+        for path in paths {
+            listing.push_str("100644 abc123 0\t");
+            listing.push_str(path);
+            listing.push('\0');
+        }
+        listing
+    }
+
+    #[test]
+    fn a_git_listing_that_could_not_be_fully_produced_refuses() {
+        // **The third carrier.** `git ls-files --others` EXITS 0 and warns on stderr when it
+        // cannot enter a directory, so an untracked subtree at mode `000` was absent from the
+        // listing, contributed nothing to `unreachable`, and - because the path never entered the
+        // listing - could not be seen by the read carrier either. Measured on `565ebaae`: two real
+        // defects planted in such a directory gave verdicts byte-identical to the pristine tree's
+        // on three gates, all exit 0.
+        let root = std::path::Path::new("/nowhere");
+        let clean = super::from_git(root, &listed(&staged(&["a.rs"]), ""), &listed("", ""));
+        assert!(clean.is_some(), "a clean listing has to produce a census");
+        assert!(
+            clean
+                .and_then(|census| census.into_listing(super::Unmigrated::Docs).ok())
+                .is_some(),
+            "0 bytes of stderr is the clean tree's shape, verified in a checkout and in a worktree"
+        );
+
+        // The wording is deliberately not read: git localises it, and this is what it says under a
+        // German locale on this machine.
+        let warned = super::from_git(
+            root,
+            &listed(&staged(&["a.rs"]), ""),
+            &listed("", "Warnung: konnte Verzeichnis 'x/' nicht offnen: Permission denied\n"),
+        )
+        .expect("a listing was still produced");
+        match warned.into_listing(super::Unmigrated::Docs) {
+            Err(super::Refusal::Unreachable(subjects)) => {
+                assert!(
+                    subjects.first().is_some_and(|why| why.starts_with("git ls-files --others: ")),
+                    "the refusal has to name the invocation that could not answer: {subjects:?}"
+                );
+            }
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(listing) => panic!("a partial git listing produced {} subject(s)", listing.1.len()),
+        }
+    }
+
+    #[test]
+    fn half_a_git_listing_refuses_even_when_it_said_nothing_on_stderr() {
+        // The `ok` half this function read on one invocation and not the other: a tracked listing
+        // that answered and an untracked one that did NOT is short by every untracked file, and
+        // stderr is not the tell when the failure wrote none - a spawn error, or a kill. There is
+        // no fallback for half a listing the way `!tracked.ok` falls back to the more inclusive
+        // WALK, so it refuses.
+        let half = super::Listed {
+            ok: false,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        };
+        let census = super::from_git(std::path::Path::new("/nowhere"), &listed(&staged(&["a.rs"]), ""), &half)
+            .expect("the tracked half still produced a listing");
+        match census.into_listing(super::Unmigrated::Docs) {
+            Err(super::Refusal::Unreachable(subjects)) => assert!(
+                subjects.first().is_some_and(|why| why.contains("untracked")),
+                "the refusal has to say what is missing: {subjects:?}"
+            ),
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(listing) => panic!("half a listing produced {} subject(s)", listing.1.len()),
+        }
+    }
+
+    #[test]
+    fn the_tracked_listing_carries_the_same_rule() {
+        // Both invocations, because a stderr rule on one of two subprocesses is half a rule.
+        let census = super::from_git(
+            std::path::Path::new("/nowhere"),
+            &listed(&staged(&["a.rs"]), "fatal-ish warning on the index\n"),
+            &listed("", ""),
+        )
+        .expect("a listing was still produced");
+        let Err(super::Refusal::Unreachable(subjects)) = census.into_listing(super::Unmigrated::Docs) else {
+            panic!("the tracked listing's stderr was dropped");
+        };
+        assert!(
+            subjects.first().is_some_and(|why| why.starts_with("git ls-files --stage: ")),
+            "{subjects:?}"
+        );
+    }
+
     #[test]
     fn a_symlink_entry_is_skipped_but_a_regular_file_is_not() {
         use super::staged_path;
@@ -462,7 +651,12 @@ mod tests {
     fn text_detection_is_by_content_not_extension() {
         use std::io::Write as _;
 
-        let dir = std::env::temp_dir().join("sutura-is-text-test");
+        // Keyed by process, because this directory is WRITTEN: an unkeyed name under the
+        // machine's temporary root is one directory for every checkout on the machine, which is
+        // `telekom/sutura#405`'s class. The bytes two worktrees write here are identical today -
+        // which is exactly the argument that was true per tree and not per machine.
+        let dir = std::env::temp_dir().join(format!("sutura-is-text-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
         drop(std::fs::create_dir_all(&dir));
 
         // No extension at all - the case three extension lists all missed.
@@ -534,7 +728,7 @@ mod tests {
         let _cleanup = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch tree");
 
-        let refused = super::collect_files(&root, &root.join("no-such-dir"), &["rs"]).inspect(&[], |_| super::Looked::Judged);
+        let refused = super::collect_files(&root, &root.join("no-such-dir"), &["rs"]).inspect(&[], every_subject, |_, _| {});
 
         let _swept = std::fs::remove_dir_all(&root);
         match refused {
@@ -556,7 +750,7 @@ mod tests {
         let not_a_directory = root.join("regular.txt");
         std::fs::write(&not_a_directory, "not a directory\n").expect("a regular file");
 
-        let refused = super::collect_files(&root, &not_a_directory, &["rs"]).inspect(&[], |_| super::Looked::Judged);
+        let refused = super::collect_files(&root, &not_a_directory, &["rs"]).inspect(&[], every_subject, |_, _| {});
 
         let _swept = std::fs::remove_dir_all(&root);
         let Err(why) = refused else {
@@ -586,7 +780,7 @@ mod tests {
         std::fs::set_permissions(root.join("shut"), std::fs::Permissions::from_mode(0o000)).expect("chmod");
 
         let took_effect = std::fs::read_dir(root.join("shut")).is_err();
-        let refused = super::collect_files(&root, &root, &["rs"]).inspect(&[], |_| super::Looked::Judged);
+        let refused = super::collect_files(&root, &root, &["rs"]).inspect(&[], every_subject, |_, _| {});
 
         drop(std::fs::set_permissions(
             root.join("shut"),
@@ -625,10 +819,7 @@ mod tests {
 
         let mut found = Vec::new();
         super::collect_files(&root, &root, &["rs"])
-            .inspect(&[], |rel| {
-                found.push(String::from(rel));
-                super::Looked::Judged
-            })
+            .inspect(&[], every_subject, |rel, _| found.push(String::from(rel)))
             .expect("the scratch tree holds one .rs file and nothing unreadable");
 
         let _swept = std::fs::remove_dir_all(&root);

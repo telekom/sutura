@@ -93,6 +93,21 @@ adding a pin anywhere.
 `check-pins` fails if a tool appears in both nix and pixi. `nix` is the only pin for a tool whose
 version changes what it reports.
 
+**Adding a NEW gate needs a spare line in `xtask/src/main.rs`, and there may not be one.** That file
+holds the task table, and on 2026-09-07 it stood at **999 of the 1000-line cap** `max-lines`
+enforces - a cap `crates/` and `xtask/` cannot be exempted from, because `UNEXEMPTABLE_PREFIXES` is
+exactly those two. A module declaration plus a `Task { .. }` entry is seven lines at its shortest,
+so *add a gate* silently means *split `main.rs` first*. Two ways out, and the second is usually
+better: split the table, or add the rule to an existing gate that already reads the same inputs -
+a submodule under `xtask/src/<gate>/` costs `main.rs` nothing, and a second gate over the same walk
+would be a second answer anyway. `check-workflows`' badge rules landed that way.
+
+**And when a new gate reads `flake.nix` for a name, LEX it - do not search the text.** `flake.nix`
+declares `apps.<name>` and `checks.<name>` for overlapping sets of names, so *does the file mention
+`reuse`* is true of a tree whose CHECK has been renamed away. Measured: that exact substring rule
+passed the mutation it existed to catch, and `workflows::declared_block` - which already lexes the
+block - refuses it. Same family as the brace-counting and fence-scanning defects further down.
+
 ## Never hand-write the cargo line
 
 `just lint` and `just test` ARE the gates' invocations. A hand-written line diverges twice, and
@@ -744,6 +759,55 @@ therefore does not see.
   they buy is that a commented-OUT line is not one - which is the whole property a wiring assertion
   needs, and nothing more.
 
+**A PATH WITH NO KEY IN IT IS ONE PATH FOR EVERY CHECKOUT ON THE MACHINE, and the failure is a
+confident wrong verdict rather than an error.** `telekom/sutura#405` collected six collisions
+measured in one day; the transferable part is the shape of the argument that hid the live one.
+`sutura-conformance` renamed its corpus onto `<temp_dir>/sutura-conformance/<table>.csv` and the
+comment beside it said *the bytes are identical either side of the rename* - **true per tree, false
+per machine**. Reproduced 2026-09-07 with two worktrees, each running its own `on_disk`, one row
+differing by one cent: the `DuckDB` binding failed two cases as CONTENT faults naming this
+repository's own corpus, while the run that overwrote the file was green. The window is wide because
+`attach_csv` builds a VIEW over `read_csv_auto`, so the bytes are read at QUERY time and the view
+holds only the path.
+
+Three things worth carrying:
+
+- **The default is under the worktree, not keyed under a shared root.** `Scope::state_dir()` needs no
+  key because the tree IS the key. `Scope::scratch(purpose)` exists for one reason - a unix socket
+  path caps around 100 bytes, so a server cannot sit under a deep worktree - and it is a NAME rather
+  than an allocation, the same asymmetry `dev/src/scope.rs` argues for naming over ports.
+- **The first segment below the root is the question.** That corpus DID carry the process id, in the
+  staged file it renamed away from, so a rule asking *is a key anywhere near this* would have passed
+  the very defect it was written for. `cargo xtask check-worktree-state` reads the first `.join`
+  argument and nothing deeper.
+- **AN ANCHOR IS STRICTLY STRONGER THAN A COUNT FLOOR, and the ORDER of two refusals decides
+  whether a gate refuses for its own reason.** Both of `check-worktree-state`'s conservation laws
+  take their numbers from one scope predicate, so a predicate that stops matching leaves them
+  agreeing over a subset with every floor satisfied - which is why the gate anchors named subjects,
+  one per arm, instead: an unreachable subject refuses whether or not anybody reads a number. The
+  trap is what came next. Written as a refusal inside the witness's constructor, the anchor made the
+  gate's verdict over the falsifier tree - where no anchor can exist - come from a MISSING INPUT
+  rather than from its own rule, measured, and only three of the sweep's gates manage the latter. So
+  a violation is reported AHEAD of a missed anchor, through an exhaustive `Decision` a test can
+  read. **A fail-closed precondition placed ahead of the rule turns a rule-refusal into an
+  input-refusal, and nothing but reading the verdict will tell you.**
+- **A NEEDLE HAS TO BE CODE, and the two words the gate's own remedy printed were the ones that
+  defeated it.** `check-worktree-state` matched its key spellings as substrings of the raw path
+  expression, so `temp_dir().join("sutura-scratch")` passed - the word was in the BASENAME, not in a
+  derivation - and so did `"shared-digest-cache"` and `"my-tempdir"`: three written, machine-shared
+  paths at exit 0. `scratch` and `state_dir` are exactly what its `explain()` tells a developer to
+  use, so following the printed remedy produced a path it then accepted. **And the planted fixture
+  could not see it**, because the basename it used (`"sutura-planted-fixture"`) contained no needle -
+  a fixture that cannot express the shape it covers is the recurring failure here. The blanking is
+  language-scoped (`"$( .. )"` in shell still executes) and keeps `{..}` placeholders, which are
+  code: dropping those would redden `format!("sutura-{digest}")`.
+- **A `/tmp/` literal cannot be judged from a line, and the measurement is why the gate does not
+  try.** Every rooted literal in this workspace is a fixture value that never reaches a filesystem
+  - `cargo xtask check-worktree-state` prints the count, so no figure is copied here;
+  a rule reddening them would redden correct work, so the gate reads the STATEMENT for a filesystem
+  mutation and answers `Unwritten` where there is none. What that does not reach is a mutation
+  laundered into a helper - stated at the variant rather than left to be found.
+
 ## The causality gate, and how it can lie
 
 `just causality` proves red-before-green by reverting changed files that **added no test** and
@@ -1071,14 +1135,20 @@ into the trunk, malformed JSON and a missing key, and `forked` is always `merge-
 therefore always an ancestor of HEAD. The reachable failure is the degenerate endpoint INSIDE
 history: **a recorded parent whose commit CONTAINS this branch forks at HEAD**, a base equal to HEAD
 makes the diff the uncommitted working tree alone, and the gate answers *no changed tests - nothing
-to prove* at **exit 0 over every file the branch changed**. Reproduced twice, and the trigger is this
-repository's own house style rather than a corner - merge-forward-never-rebase means a parent with
-your branch merged into it is an ordinary thing to have locally, as is metadata retargeted at the
-branch above. It is `causality::stack::Origin::Contains` now, refused AHEAD of the equality because
-the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is an ancestor of
-HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT that compares
-NAMES enumerates one spelling of one input** - the first version did exactly that, and it was
-untested glue, which is what let the enumeration stand.
+to prove* at **exit 0 over every file the branch changed**. Reproduced twice. **The trigger is a
+condition, not a list of shapes: it fires whenever HEAD is an ancestor of the recorded parent's
+commit** - reflexively, so a parent sitting exactly ON HEAD counts. Ordinary states that satisfy it
+include metadata still naming the branch ABOVE after a hand retarget, and a branch with no commit
+of its own yet whose parent's tip IS HEAD; there are others, and counting them would be the mistake
+this arm exists to record, in a second spelling. A parent STRICTLY behind HEAD cannot fire, and
+strictly is the load-bearing word: merging `main` into a branch that has a commit of its own leaves
+`main` a strict ancestor of the merge commit, so the fork point is `main`'s own tip and this arm is
+not reached - while `main` FAST-FORWARDED onto that same branch satisfies *ancestor* without the
+strictness, and fires. It is `causality::stack::Origin::Contains` now, refused AHEAD of the
+equality because the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is
+an ancestor of HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT
+that compares NAMES enumerates one spelling of one input** - the first version did exactly that, and
+it was untested glue, which is what let the enumeration stand.
 
 **What is STILL not asked, and a correct base does not rule it out:** whether the reverted
 implementation is something the measured test could even read. #293's pairing was wrong in that

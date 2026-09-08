@@ -98,8 +98,8 @@ fn mean_of(column_name: &str) -> Measure {
 
 /// The terms a leg carries for one measure, taken from the classification rather than chosen here.
 ///
-/// This is a TEST caller of [`crate::federation`] and not a production one: there is still no
-/// splitter, so nothing in a binary builds a leg. What it buys is that the fixtures below cannot
+/// This is a TEST caller of [`crate::federation`], and it is no longer the only kind: the splitter
+/// builds a leg on the shipped answer path. What it buys is that the fixtures below cannot
 /// disagree with the classification about how many columns travel - a hand-picked pair of terms
 /// would prove the shape is expressible and nothing about whether anything produces it.
 fn carried_terms(measure: &Measure) -> Vec<LegTerm> {

@@ -24,9 +24,10 @@
 //! request it says it builds and reads the answer it says it reads*, over documents that are not the
 //! service's.
 //!
-//! So: still built and not wired - `.agents/skills/sutura/query-surface` - two lines further along. `sutura-serve` links no
-//! `BigQuery` adapter and refuses `kind: bigquery` by name, and the `data_systems:` axis of the
-//! golden matrix still gains no entry - one live statement is not a registered data system.
+//! So: one live statement is not a registered data system, and the `data_systems:` axis of the
+//! golden matrix still gains no entry. `sutura-serve` DOES link this adapter and dispatch
+//! `kind: bigquery` behind its default-off `bigquery` feature; the sentence that used to stand here
+//! said it linked none, which `docs/adr/0017`'s second amendment had already spent.
 //!
 //! # What this module decides, and every one of them is pinned by a TYPE or by a test
 //!

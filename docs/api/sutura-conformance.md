@@ -621,9 +621,26 @@ pub fn on_disk() -> std::path::PathBuf
 
 The corpus on a filesystem, written once per process, as the path a fixture attaches.
 
-Written under a per-process temporary name and RENAMED onto the shared one, so two adapters'
-fixtures running in one process cannot read a half-written file. The bytes are identical either
-side of the rename, so a reader that saw the old file saw the same corpus.
+**Inside THIS WORKTREE, and that is the whole of `telekom/sutura#405`'s first instance.** It
+used to land on `<temp_dir>/sutura-conformance/<table>.csv` - a purpose and no key - and the
+argument for the rename below was *the bytes are identical either side*, which is true per TREE
+and not per machine. Reproduced on 2026-09-07 with two worktrees of this repository, each
+running its own `on_disk`, one row differing: the `DuckDB` binding failed
+`total-by-region-and-day` and `total-by-region-and-day-as-a-leg` as content faults naming this
+corpus's own cases, while the run that overwrote the file was green. The window is wide because
+`attach_csv` makes a VIEW over `read_csv_auto`, so the file is read at QUERY time; the Postgres
+binding reads it seven times per binding at LOAD time.
+
+A path under the worktree needs no key, because the worktree is the key - the same answer
+`sutura_dev::scope::Scope::state_dir` gives, and `tests/bound.rs` pins the two spellings
+together against that type rather than leaving a comment claiming they agree. This crate may not
+reach `sutura-dev` through a normal dependency (`xtask/src/boundaries/harness.rs`), so the
+SPELLING is duplicated and the AGREEMENT is mechanical.
+
+Written under a per-process temporary name and RENAMED onto the shared one, which is still
+needed and now means something narrower: `nextest` gives each test its own process, so several
+processes of THIS worktree write this path at once, and a reader must not see a half-written
+file. Those processes write identical bytes - which is the claim the old path could not make.
 
 ### `fn cases`
 
@@ -772,8 +789,9 @@ pub fn a_leg_is_refused<W>(warehouse: &W) -> crate::Conformed<<W as >::Error>
 A leg is refused by an adapter that declares it does not execute one.
 
 Selected for an adapter that leaves `EXECUTES_LEGS` at its default. This is the direction
-`docs/adr/0012` calls *a declared absence with something to try*: the value of it is that nothing
-upstream builds a leg today, so this is the only thing that exercises the adapter's own guard -
+`docs/adr/0012` calls *a declared absence with something to try*: a leg IS built and executed
+on the shipped answer path now, so what this direction is worth is narrower and still real -
+it is the only thing that exercises the guard of an adapter with no leg venue of its own -
 and an adapter that quietly computed one instead would be surfacing half an answer under a
 certified metric name.
 
