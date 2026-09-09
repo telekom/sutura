@@ -826,7 +826,7 @@ mod tests {
                 ".github/actions/build-artefacts/action.yml:118 -> inputs.binaries",
                 ".github/actions/build-artefacts/action.yml:235 -> inputs.binaries",
                 ".github/actions/embedded-dependency-list/action.yml:83 -> inputs.binaries",
-                ".github/workflows/cross-link.yml:242 -> env.BINARIES",
+                ".github/workflows/cross-link.yml:244 -> env.BINARIES",
                 ".github/workflows/release.yml:236 -> env.BINARIES",
             ],
             "the set of declarations referencing the shipped set has changed"
