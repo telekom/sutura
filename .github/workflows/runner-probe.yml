@@ -67,11 +67,11 @@
 name: runner-probe
 
 on:
+  # A measurement tool, run when a runner needs checking - never on a pull request or a push.
+  # It builds the clippy check cold on several hosts (3x32-core + 1x16-core), which is a job's
+  # worth of CPU every time it runs, and its arms are measurement for the owner rather than a
+  # gate any commit must pass.
   workflow_dispatch:
-  pull_request:
-    paths:
-      - ".github/workflows/runner-probe.yml"
-      - ".github/actions/host-probe/**"
 
 permissions:
   contents: read
