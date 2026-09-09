@@ -42,9 +42,8 @@ Those three plus secure-by-design are the definition of *correct* in review here
   done. Its nix checks build a GIT-DERIVED copy of the tree - so `git add -N` a new file at once,
   or it compiles under cargo and does not exist in the sandbox.
 - **Never run a bare `cargo clippy` / `cargo nextest`. Run `just lint` / `just test`.** The task IS
-  the gate's invocation: a hand-written line loses `nix/stable-env.sh` (this shell's cargo is
-  nightly for cranelift and reports lints stable has not got) *and* `-D warnings`. Fixing only one
-  of those still fails the gate.
+  the gate's invocation: a hand-written line loses `-D warnings`, which turns a
+  `restriction`-category finding into a success. Fixing that alone still fails the gate.
 - **A new or changed test is red against base and green with your change.** One that passes both
   ways is worse than none, because it looks like coverage. `just causality` proves it mechanically;
   `just ship-check` before saying done.

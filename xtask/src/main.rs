@@ -32,11 +32,13 @@ mod examples;
 mod falsifier;
 mod feature_remedies;
 mod fmt;
+mod fuzz;
 mod gate_classification;
 mod guidance;
 mod hook_coverage;
 mod hooks;
 mod inconclusive;
+mod jscpd;
 mod line_endings;
 mod markdown;
 mod max_lines;
@@ -44,7 +46,10 @@ mod newtype_leaks;
 mod one_bound;
 mod pins;
 mod refusals;
+mod registry;
+mod release_provenance;
 mod repo;
+mod rust_source;
 mod serde_parse;
 mod shared_client;
 mod shipped;
@@ -56,114 +61,14 @@ mod unused_deps;
 mod venues;
 mod warm_start;
 mod workflows;
+mod worktree_state;
 
 use std::process::ExitCode;
 
-/// What a task concluded.
-///
-/// Not `ExitCode`: that type is opaque - it cannot be compared or read back - so a task that
-/// runs other tasks could not tell whether they passed. `main` converts this to an `ExitCode`
-/// once, at the process boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Verdict {
-    /// Nothing to report.
-    Pass,
-    /// A violation. The task has already printed it.
-    Fail,
-    /// Invoked wrongly - bad or missing arguments. Distinct from a violation, because a
-    /// mistyped command is not a repo problem.
-    Usage,
-    /// The gate reached no verdict about the change: its precondition held, it ran, and what it
-    /// exists to measure was not measurable. Neither a violation nor a clean bill.
-    ///
-    /// WHY IT IS A THIRD EXIT CODE RATHER THAN A SENTENCE. A required CI step reads the exit code
-    /// and nothing else, so a gate that could not measure and exits 0 hands its reader a green
-    /// check over no evidence - measured twice on finished branches, and the record is
-    /// `github.com/telekom/sutura#307`. Failing instead was weighed and rejected: the changes that
-    /// land on `causality`'s inconclusive arms are legitimate ones (a harness move, a changed
-    /// public signature a held-at-HEAD test calls) and a gate that reddens correct work gets
-    /// disabled. So the decision moves to the venue, and the DEFAULT is closed: any consumer that
-    /// does not recognise this code fails on it, because 3 is not 0.
-    ///
-    /// **What it is not**: a venue may still choose to continue over it - `ci.yml`'s causality step
-    /// and `devenv.nix`'s `ship-check` both do, at one line each, and surface the verdict instead.
-    /// What changed is that continuing is now a stated decision in one readable place rather than
-    /// an exit code no reader can tell from a proof.
-    Inconclusive,
-}
-
-impl Verdict {
-    // Not const: `ExitCode::from` is not a const fn.
-    fn exit_code(self) -> ExitCode {
-        match self {
-            Self::Pass => ExitCode::SUCCESS,
-            Self::Fail => ExitCode::FAILURE,
-            Self::Usage => ExitCode::from(2),
-            Self::Inconclusive => ExitCode::from(3),
-        }
-    }
-}
-
-/// What a gate does: read the repo, print a verdict.
-type Gate = fn(&[String]) -> Verdict;
-
-/// Whether a task belongs to the `hygiene` sweep.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    /// Cheap, argument-free, judges the whole repo. Collected into `hygiene`, and it says what
-    /// it reads - see [`Reads`], and `gate_classification` for what that buys.
-    Hygiene(Reads),
-    /// Everything else: takes arguments, changes files, or runs other tasks. Never collected,
-    /// which is also what stops `hygiene` from recursing into itself.
-    Standalone,
-}
-
-/// Which side of the prose/code line a hygiene gate's INPUTS fall on.
-///
-/// A payload on [`Kind::Hygiene`] rather than a separate field, so a new gate cannot be added
-/// without answering the question: the compiler asks it, no test has to. It exists because a
-/// workflow skips the `hygiene` build for a diff of `docs/*.md` and `mkdocs.yml` alone, and the
-/// argument for that skip is a CLASSIFICATION of the sweep - not its size. A count would stay
-/// green while a gate joined the set unclassified, which is the drift that already happened.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Reads {
-    /// Nothing a `docs/*.md`-or-`mkdocs.yml` diff can change: Rust, manifests, lock files, nix,
-    /// workflow YAML, the justfile, the hook configuration, the skills tree, `ATTRIBUTION.md`.
-    /// Prose OUTSIDE `docs/` is on this side too - the classification is about reachability from
-    /// that diff, not about whether a gate reads English. Skipping it on such a diff loses nothing.
-    Code,
-    /// At least one file such a diff CAN change - so skipping it DEFERS a real verdict, and
-    /// which verdict is what the plan's table has to say.
-    Prose,
-}
-
-impl Reads {
-    /// The word the plan's table is keyed by. One spelling, in the type.
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Code => "code",
-            Self::Prose => "prose",
-        }
-    }
-}
-
-/// A task: the name, the `--help` line, whether it is a hygiene gate, and the code it runs.
-///
-/// The handler is IN the table, so `--help` and dispatch cannot disagree. They did once - six
-/// dispatched tasks were missing from the list, so `--help` lied and `check-guidance` reported
-/// every mention of them as a deleted gate. A table plus a separate `match` is two lists.
-///
-/// `kind` is here for the same reason. The hygiene list used to be hand-transcribed in the
-/// justfile, twice in devenv.nix, in flake.nix and as eight separate hooks - and the order
-/// differed in three of them. `check-guidance` verifies that a NAMED task exists, so it catches
-/// a rename but is blind to an omission: adding a gate and forgetting one of five call sites
-/// was invisible. Now there is one list and the callers ask for it by name.
-struct Task {
-    name: &'static str,
-    description: &'static str,
-    kind: Kind,
-    run: Gate,
-}
+// The registry's types live in `registry`, which `max-lines` is the reason for - see that
+// module's header. Re-exported here so every gate's `crate::Verdict` resolves unchanged.
+use registry::{Kind, Task};
+pub(crate) use registry::{Reads, Verdict};
 
 const TASKS: &[Task] = &[
     Task {
@@ -171,6 +76,16 @@ const TASKS: &[Task] = &[
         description: "the domain crate depends on no framework",
         kind: Kind::Hygiene(Reads::Code),
         run: boundaries::run,
+    },
+    Task {
+        // The jscpd copy/paste gate (issue #474). `Reads::Code`, so a `docs/*.md`-only diff
+        // stays excluded from the docs.yml skip. See the module header for why it FAILS CLOSED
+        // when `jscpd` is absent - locally and in the nix sandbox - and for the allowlist
+        // contract.
+        name: "check-jscpd",
+        description: "no copied block in crates/ or xtask/ without a reason in devco/dup-ignore",
+        kind: Kind::Hygiene(Reads::Code),
+        run: jscpd::run,
     },
     Task {
         name: "max-lines",
@@ -277,15 +192,15 @@ const TASKS: &[Task] = &[
     Task {
         // Beside `check-serde-parse` because it is the third rule from the same page held by the
         // same kind of check - and this one is about the ERROR principle rather than the newtype
-        // one. `AGENTS.md`: a variant no test can provoke is what that enum refuses to carry.
+        // one. Name coverage is narrower than proving a test actually provokes the refusal.
         name: "check-refusal-coverage",
-        description: "every RefusalReason variant is provoked, or excused in devco/refusals-unprovoked-allow",
+        description: "every variant of the 3 ENROLLED refusal enums is named, or separately excused with a date and reason",
         kind: Kind::Hygiene(Reads::Code),
         run: refusals::run,
     },
     Task {
         // Beside `check-refusal-coverage` because it is the other half of the same subject: that
-        // one asks whether a refusal can be provoked, this one whether the REMEDY it prints can be
+        // one asks whether a refusal is named, this one whether the REMEDY it prints can be
         // acted on. `github.com/telekom/sutura#246` made a gate's own remedy resolve; this is the
         // same rule where the claim is about the manifest rather than about the justfile.
         name: "check-feature-remedies",
@@ -337,6 +252,18 @@ const TASKS: &[Task] = &[
         description: "one place in the compose tier can be blocked by a child process",
         kind: Kind::Hygiene(Reads::Code),
         run: bounded_wait::run,
+    },
+    Task {
+        // `telekom/sutura#405`, and it belongs with the two above rather than with the naming gates:
+        // the rule is about a DIRECTORY two things reach and neither may assume, which is
+        // `check-warm-start`'s subject one level up. Six collisions were measured in one day and
+        // nothing held any of them - a path with no key in it is one path for every checkout on the
+        // machine, and the failure is a confident wrong verdict rather than an error. It starts
+        // GREEN, over a tree whose one live instance this change fixes.
+        name: "check-worktree-state",
+        description: "no test or gate writes to a path a second worktree also reaches",
+        kind: Kind::Hygiene(Reads::Code),
+        run: worktree_state::run,
     },
     Task {
         // Beside `check-bounded-wait` because it is the fourth of that shape: a rule the code
@@ -396,7 +323,7 @@ const TASKS: &[Task] = &[
         // owns the `justfile`; this one owns `.pre-commit-config.yaml`, where the tiering
         // decision lives and where deleting one block silently un-tiers it.
         name: "check-hook-tiers",
-        description: "the push stage compiles, with the commit stage's own invocation",
+        description: "the pre-push stage runs only the security checks, and compiles nothing",
         kind: Kind::Hygiene(Reads::Code),
         run: hooks::run,
     },
@@ -593,6 +520,12 @@ const TASKS: &[Task] = &[
         run: action_shell::run,
     },
     Task {
+        name: "collect-provenance",
+        description: "export five release attestation bundles after exact subject-set checks",
+        kind: Kind::Standalone,
+        run: release_provenance::run,
+    },
+    Task {
         // The other half of `check-devenv-shell`, and standalone for `action-shell`'s reason plus
         // one of its own: it takes an ARGUMENT - the store path of a body the wrapper produced,
         // interpolated by nix at the call site - and it reads a derivation, which needs a store
@@ -609,6 +542,12 @@ const TASKS: &[Task] = &[
         description: "cargo fmt, scoped to our packages (--check to verify)",
         kind: Kind::Standalone,
         run: fmt::run,
+    },
+    Task {
+        name: "check-fuzz",
+        description: "every fuzz target is declared, seeded, and run by the workflow",
+        kind: Kind::Hygiene(Reads::Code),
+        run: fuzz::run,
     },
     Task {
         name: "hygiene",

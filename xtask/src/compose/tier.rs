@@ -23,7 +23,7 @@ use crate::Verdict;
 /// What a service reported as its published address, per service name.
 type Published = Vec<(&'static str, String)>;
 
-/// Change the tier with this worktree's discovery file removed FIRST.
+/// Change the tier with this worktree's DOCKER endpoint entries withdrawn FIRST.
 ///
 /// **The order is what makes it hold, and it holds for everything inside the closure.** From the
 /// moment provisioning or teardown starts, an endpoint file written by an earlier run is a claim
@@ -43,9 +43,13 @@ type Published = Vec<(&'static str, String)>;
 /// about its own wait loop. The generalisable form is one layer down, where `Budget::of` already
 /// reads *this is a provisioning call* off the argv.
 ///
-/// **A second limit: the file is the granularity, not one service.** `publish` writes the whole
-/// document, so a failed `dev-up` also drops a *different* provisioner's entry -
-/// `nix/postgres-tier.nix`'s, which republishes on `start` - exactly as a successful one did.
+/// **The granularity is one PROVISIONER's entries, and it used to be the whole file** -
+/// `github.com/telekom/sutura#317`. `discovery::forget` was a `remove_file`, so this function
+/// withdrew a nix-native tier's claim over a server that was still running, on every failing path
+/// as well as on `dev-down`. For Postgres that healed on the next `nix/with-tier.sh`; for any
+/// other nix tier it stayed dropped until that task was run again. It now withdraws what
+/// `discovery::publish` published and nothing else, and the last entry out still takes the file
+/// with it - so the fail-closed direction below is unchanged for the entries this task owns.
 pub(super) fn with_endpoints_forgotten<T>(
     task: &str,
     scope: &Scope,

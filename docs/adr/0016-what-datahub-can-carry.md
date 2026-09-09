@@ -304,7 +304,7 @@ deciding that on a source's behalf is exactly the substitution of our reading fo
 **Lineage, and it is out of scope rather than useful.** `upstreamLineage`, `fineGrainedLineages` and
 `metricUpstreams` model dataset-level and column-level derivation. There is **no lineage type anywhere
 in `crates/`** - `grep -rni lineage crates/` returns nothing - and none is wanted on the query path: a
-plan resolves to exactly one source, a measure reads columns a model declares, and knowing where a
+plan reads at most two data systems, a measure reads columns a model declares, and knowing where a
 column came from upstream changes none of it. It is genuinely valuable metadata and it is somebody
 else's product. Where it could matter later is provenance for a human reviewing a promotion candidate,
 which is a different feature from anything in this repository today.

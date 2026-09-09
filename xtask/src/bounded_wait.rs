@@ -292,9 +292,12 @@ struct Waiting {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-bounded-wait: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::BoundedWait)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask check-bounded-wait: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
 
     let mut scanned = 0_usize;
@@ -777,7 +780,10 @@ mod tests {
     fn a_status_field_is_not_a_status_call() {
         // `out.status.success()` is how every caller in this tier reads an exit code, so reading it
         // as a wait would make the gate fire on the code it is protecting.
-        assert!(found("let ok = out.status.success();\n").is_empty());
+        assert!(
+            found("let ok = out.status.success();\n").is_empty(),
+            "a status field is not read as a wait"
+        );
     }
 
     #[test]

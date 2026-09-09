@@ -10,9 +10,13 @@
 //! from a `QueryPlan`; [`generate_leg`] renders one leg of a federated question from a `LegPlan`.
 //! They share every decision that could drift - the quoting, the placeholder style, the bucket, the
 //! joins, how a term renders - and differ in the four ways `generate_leg`'s own documentation
-//! lists. Nothing in a binary calls the second one yet: there is no splitter, so
-//! `.agents/skills/sutura/query-surface`'s built-and-not-wired section is where its state is
-//! recorded.
+//! lists. **Nothing a RELEASE runs calls the second one**, and the reason is not the absence of a
+//! splitter - `sutura_semantic::federated_plan` produces a `LegPlan` and `sutura_app` executes it.
+//! It is that the one leg-executing adapter a release links is the engine, which builds a logical
+//! plan and renders no SQL; the renderer-backed adapters that would call this are a dev-dependency
+//! and a default-off feature. `.agents/skills/sutura/query-surface`'s federation section records
+//! that state, and it is why this crate's leg goldens are evidence about four dialects and about
+//! nothing a shipped binary executes.
 //!
 //! # Why this is its own crate and not the compiler's last stage
 //!
@@ -62,7 +66,7 @@ pub mod generate;
 pub use crate::dialect::{Dialect, PlaceholderStyle};
 pub use crate::expression::refusal::{Construct, ExpressionError};
 pub use crate::expression::{CompiledExpression, Rendering, compile};
-pub use crate::generate::{GenerateError, generate, generate_leg};
+pub use crate::generate::{GenerateError, generate, generate_key_probe, generate_leg};
 
 /// A statement, its parameters, and the one data system it runs against.
 ///

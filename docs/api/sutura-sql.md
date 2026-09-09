@@ -19,9 +19,13 @@ the crate root because it is this crate's output rather than any one module's de
 from a `QueryPlan`; `generate_leg` renders one leg of a federated question from a `LegPlan`.
 They share every decision that could drift - the quoting, the placeholder style, the bucket, the
 joins, how a term renders - and differ in the four ways `generate_leg`'s own documentation
-lists. Nothing in a binary calls the second one yet: there is no splitter, so
-`.agents/skills/sutura/query-surface`'s built-and-not-wired section is where its state is
-recorded.
+lists. **Nothing a RELEASE runs calls the second one**, and the reason is not the absence of a
+splitter - `sutura_semantic::federated_plan` produces a `LegPlan` and `sutura_app` executes it.
+It is that the one leg-executing adapter a release links is the engine, which builds a logical
+plan and renders no SQL; the renderer-backed adapters that would call this are a dev-dependency
+and a default-off feature. `.agents/skills/sutura/query-surface`'s federation section records
+that state, and it is why this crate's leg goldens are evidence about four dialects and about
+nothing a shipped binary executes.
 
 # Why this is its own crate and not the compiler's last stage
 
@@ -109,6 +113,8 @@ pub fn sql(&self) -> &str
 ### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+## `use None`
 
 ## `use None`
 
@@ -238,11 +244,18 @@ keeps two projected aliases differing only in case as two distinct output column
 the coarser of the two behaviours covers both.
 
 **`Postgres` and `ClickHouse` are `Sensitive`, from their documented behaviour and NOT measured
-here** - neither has a server in this repository to ask, which is why the paragraph above about
-the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
-compares exactly, and this renderer force-quotes every identifier; `ClickHouse` identifiers are
-case-sensitive. Nothing in this workspace executes either, which `AGENTS.md` already says of
-every `ClickHouse` golden.
+here**, which is why the paragraph above about the direction of a wrong declaration matters.
+A Postgres quoted identifier preserves case and compares exactly, and this renderer
+force-quotes every identifier; `ClickHouse` identifiers are case-sensitive.
+
+**Two sentences that used to stand here are spent, and they went false in different
+directions.** *Neither has a server in this repository to ask* is now false for `Postgres`:
+`nix/postgres-tier.nix` provisions one and every venue that runs the suite provisions the
+tier, so `crates/sutura-exec-postgres/tests/conformance.rs`' cells RUN. What stays true is
+that this DECLARATION is still taken from documentation rather than from that server - the
+venue exists and nothing yet asks it about identifier folding. And *nothing in this workspace
+executes either, which `AGENTS.md` already says* was false twice over: `Postgres` executes,
+and `AGENTS.md` has said nothing about `ClickHouse` since `#228`.
 
 ```rust
 pub const fn identifier_quote(self) -> IdentifierQuote
@@ -305,7 +318,9 @@ and is what a `schema.table` model gets.
 
 **`ClickHouse` is `Dataset` for its `database.table`.** It has databases and no catalog above
 them. Its arm is a rendering claim and not an execution one: nothing in this workspace
-executes `ClickHouse`, which `AGENTS.md` already says of every `ClickHouse` golden.
+executes `ClickHouse`, and `.agents/skills/sutura/invariants` is where that is recorded.
+**This used to cite `AGENTS.md`, which has said nothing about `ClickHouse` since `#228`** -
+a citation to a deleted section reads as corroboration and supplies none.
 
 **`DuckDB` is `TableOnly`, and that arm is the one worth reading twice** - `DuckDB` *does* have
 schemas and attached catalogs, so this is narrower than what the engine can parse. It is
@@ -422,8 +437,22 @@ Why a dialect name was not recognised.
 
 Every dialect, for iterating a golden suite over all of them.
 
-A `const` rather than a derive, so a new variant that is not added here fails the exhaustiveness
-test below rather than being silently untested.
+A `const` rather than a derive, and **the compiler is what holds a new variant rather than the
+test below.** A fifth variant does not compile until seven production exhaustive matches over
+`Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`, `date_trunc_shape`,
+`qualification` and `identifier_case` in this file, and `dialect_type` in
+`mod@crate::generate`. So a data system cannot arrive without somebody deciding how it renders.
+
+**What is held by review and by nothing else is the edge from the enum to this list**, and this
+paragraph used to promise the opposite. `every_dialect_is_in_all` restates the four names by
+hand, so a fifth variant added to the enum and OMITTED here leaves it green while the golden
+suite iterates four of five and reads as covered; a variant added to both turns it red on the
+length assertion until the literal is bumped. `crates/sutura-app/tests/golden/dialects.rs` does
+not close the edge either - it compares this list against that suite's own registry, never the
+enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
+`match` over `Dialect` is what BUILDS the list to compare against; a restated array anywhere in
+that chain reintroduces the same hole one level down, which is why the obvious rewrite of the
+test body is not the fix. `github.com/telekom/sutura#410` carries the measurement.
 
 ## Module `expression`
 
@@ -852,6 +881,38 @@ Everything else is shared with `generate` on purpose - `column`, `aliased`, `agg
 change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
 path and not the other.
 
-**Nothing calls this from a binary.** There is no splitter, so no `LegPlan` is constructed
-outside a test; what pins it is the golden family under `crates/sutura-app/tests/golden`, one
-statement per shape per dialect, parse-checked in the dialect it was generated for.
+**Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
+to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
+`sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
+that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+which builds a logical plan instead. So what pins this is the golden family under
+`crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
+dialect it was generated for - and none of those four is what a release executes.
+
+### `fn generate_key_probe`
+
+```rust
+pub fn generate_key_probe(key: &sutura_domain::warehouse::cardinality::DeclaredKey<'_>, dialect: crate::dialect::Dialect) -> Result<crate::GeneratedQuery, GenerateError>
+```
+
+Renders one declared join key's uniqueness probe as one statement.
+
+**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
+`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
+and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
+`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
+answer a narrower question than the one the join path spends.
+
+**No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
+bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
+returned `GeneratedQuery` carries an empty parameter list rather than one this could fill.
+
+**No key value is projected**, which is the same decision the answer type makes and for the same
+reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
+source data copied into a sink nobody scoped for it.
+
+Shared with `generate` and `generate_leg`: `qualified`, `aliased`, `table_path` and
+`render`, so identifier quoting, column qualification and path depth cannot be one thing here
+and another there. The two aliases are `sutura-domain`'s constants rather than this crate's
+literals, so the label an adapter reads the count back under is the label the statement asked
+for.

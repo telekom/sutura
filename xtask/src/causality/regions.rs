@@ -26,6 +26,30 @@
 //!   reached that way is not recognised as test code.
 //! - A file whose post-image cannot be read gets NO regions, so its added lines read as
 //!   production code. Same direction: ask rather than guess.
+//!
+//! # Which of these questions a raw line cannot answer
+//!
+//! Three defects in this gate have been one shape - *the region boundary was computed by something
+//! that does not know what the lexer knows* - so after [`item_end`] was fixed the remaining
+//! raw-line predicates were enumerated and each was measured rather than reasoned about. Over the
+//! **362** `.rs` files under `crates/`, `xtask/` and `dev/` on 2026-09-07, with a scanner that
+//! handles raw strings, block comments and the char literal `'"'` that made a first attempt report
+//! eighteen false positives:
+//!
+//! | the predicate | what a wrong answer gives | occurrences | inside a literal |
+//! | --- | --- | --- | --- |
+//! | `#![cfg(test)]` anywhere ([`scope`]) | the whole file is test code | **0** | 0 |
+//! | `#[cfg(test)]` at a line start ([`cfg_test_regions`]) | a region opens | 301 | **4** |
+//! | `mod <name>;` in the parent ([`declared_under_cfg_test`]) | the whole file is test code | 327 | 0 |
+//!
+//! **The four are all in `xtask` fixtures of Rust source and none is reached first**, because
+//! [`cfg_test_regions`] resumes past each region it opens and every one of them already sits inside
+//! its own file's real test module. That is an ordering accident and not a mechanism, and the other
+//! two predicates do not even have that - they are plain scans - which is why the zeroes are worth
+//! writing down beside them. [`attribute_end`] was audited in the same pass and asks the scanner
+//! for everything: no raw terminator test, so the shape that produced the three defects is not in
+//! it. Nothing here is closed by a mechanism; what is claimed is that nothing reaches them today.
+//!
 
 use std::ops::Range;
 
@@ -172,9 +196,15 @@ pub(super) fn item_end(lines: &[&str], start: usize) -> usize {
             }
             continue;
         }
-        // `in_code` matters: a `;` inside a string literal closes no statement, and a
-        // `const X: &str = "a;` would otherwise end the region on its first line.
-        if braces.in_code() && line.trim_end().ends_with(';') {
+        // ASK THE LEXER, NEVER THE RAW LINE. This tested `line.trim_end().ends_with(';')`, which
+        // is a second reading of a line the scanner had just read properly - so
+        // `#[cfg(test)] mod probe; // the unit assertions live next door` closed no statement, the
+        // walk carried on to the next brace-balanced item, and PRODUCTION code below it was inside
+        // a `#[cfg(test)]` region in both images. Review drove that to `INCONCLUSIVE` exit 3 over a
+        // genuinely non-causal diff whose only difference from a `FAILED` one was that comment.
+        // The braces balance, no literal is involved, and the file is ordinary warning-free Rust:
+        // this was the `;` test, not the brace counter.
+        if braces.ends_statement() {
             return index;
         }
     }
@@ -348,6 +378,12 @@ struct Nesting {
     /// declaration, and does it correctly for `fn h() { 1 }` on a single line.
     saw_open: bool,
     span: Span,
+    /// The last non-blank CODE character of the line most recently fed, if it had one.
+    ///
+    /// The scanner already knows where a line's code stops - `in_code_at` returns `true` the moment
+    /// it sees `//` - and it used to throw that away, leaving every caller to re-read the raw line.
+    /// One of them did, and got a door for it.
+    last_code: Option<char>,
 }
 
 impl Nesting {
@@ -368,16 +404,36 @@ impl Nesting {
             depth: 0,
             saw_open: false,
             span: Span::Code,
+            last_code: None,
         }
     }
 
     /// Is the scanner outside every comment and literal?
+    ///
+    /// `#[cfg(test)]` since the `;` test stopped asking it: `ends_statement` answers the one
+    /// question production code had, and this is what lets the span tests read the scanner's state
+    /// directly rather than through a consequence of it.
+    #[cfg(test)]
     const fn in_code(&self) -> bool {
         matches!(self.span, Span::Code)
     }
 
+    /// Did the line just fed END A STATEMENT - a `;` that is CODE rather than text or comment?
+    ///
+    /// The question `super::item_end` asks, answered from what the scanner saw rather than from the
+    /// line's last byte. A `;` inside a string is never recorded, so `const X: &str = "a;` is not a
+    /// statement end; a trailing `// ..` is never recorded either, so `mod probe; // why` is one.
+    const fn ends_statement(&self) -> bool {
+        matches!(self.last_code, Some(';'))
+    }
+
     /// Consume one line, updating the depth.
     fn feed(&mut self, line: &str) {
+        // Per LINE, because `ends_statement` is a question about the line just fed. DEFENSIVE
+        // rather than load-bearing today: `item_end` returns on the first line that ends a
+        // statement, so no later line can inherit that answer. It stays because the invariant is
+        // the scanner's, not its caller's.
+        self.last_code = None;
         let mut chars = line.chars().peekable();
         while let Some(c) = chars.next() {
             match self.span {
@@ -438,9 +494,12 @@ impl Nesting {
     fn in_code_at(&mut self, c: char, chars: &mut Chars<'_>) -> bool {
         match c {
             '/' if chars.peek() == Some(&'/') => return true,
+            // NOT recorded below, and that is the point: `mod x; /* why */` ends its statement at
+            // the `;`, so the `/` that opens the comment may not become the line's last code.
             '/' if chars.peek() == Some(&'*') => {
                 skip_one(chars);
                 self.span = Span::BlockComment(1);
+                return false;
             }
             '"' => self.span = Span::Text,
             'r' | 'b' => self.maybe_literal_prefix(c, chars),
@@ -451,6 +510,9 @@ impl Nesting {
             }
             _ if c == self.close => self.depth = self.depth.saturating_sub(1),
             _ => {}
+        }
+        if !c.is_whitespace() {
+            self.last_code = Some(c);
         }
         false
     }
@@ -538,7 +600,7 @@ fn skip_char_literal(chars: &mut Chars<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Nesting, Range, TestScope, attribute_end, cfg_test_regions, has_non_test_additions, scope};
+    use super::{Nesting, Range, TestScope, attribute_end, cfg_test_regions, has_non_test_additions, item_end, scope};
     use crate::causality::fixtures::{added_from as from, tree};
 
     /// The expected regions, as `(first, past_last)` pairs. A helper rather than `vec![a..b]`
@@ -818,6 +880,40 @@ mod tests {
         let added = from(1, &["", "// a note", "#[derive(Debug)]"]);
         assert!(!has_non_test_additions(&added, &scoped));
         assert!(has_non_test_additions(&from(1, &["fn f() {}"]), &scoped));
+    }
+
+    #[test]
+    fn a_declaration_with_a_trailing_comment_still_ends_its_region() {
+        // THE FIFTH DOOR, and the comment is the whole difference. `item_end` tested `;` against
+        // the RAW line, so a `#[cfg(test)] mod probe; // ..` closed no statement, the walk carried
+        // on to the next brace-balanced item, and the production lines between them were inside a
+        // test region - in BOTH images, so `super::super::reverted` excused reverting them. Review
+        // drove two workspaces differing only in that comment to exit 1 and exit 3.
+        let commented = [
+            "#[cfg(test)]",
+            "mod probe; // the unit assertions live next door",
+            "pub fn check(x: u8) -> bool { accepts(x) }",
+            "#[cfg(test)]",
+            "mod tests {",
+            "    #[test]",
+            "    fn t() {}",
+            "}",
+        ];
+        // The region is the attribute and its declaration: lines 1..=2, and nothing below.
+        assert_eq!(item_end(&commented, 0), 1);
+        let regions = cfg_test_regions(&commented.join("\n"));
+        assert_eq!(regions, vec![1..3, 4..9], "{regions:?}");
+        // The production line between the two regions is production in both.
+        let scope = TestScope::Regions(regions);
+        assert!(!scope.covers(3), "`pub fn check` is not test code");
+
+        // AND THE FORMS AROUND IT, so the fix is not a special case for `//`: a block comment ends
+        // the statement the same way, an unterminated string still does not, and a declaration
+        // whose `;` is only inside text is not one.
+        assert_eq!(item_end(&["#[cfg(test)]", "mod probe; /* why */", "fn after() {}"], 0), 1);
+        assert_eq!(item_end(&["#[cfg(test)]", "mod probe;", "fn after() {}"], 0), 1);
+        let in_text = ["#[cfg(test)]", "const X: &str = \"a;", "b\";", "fn after() {}"];
+        assert_eq!(item_end(&in_text, 0), 2, "the `;` inside the literal closes nothing");
     }
 
     #[test]

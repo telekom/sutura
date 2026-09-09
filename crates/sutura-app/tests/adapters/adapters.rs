@@ -12,11 +12,12 @@
 //!    open it over the example corpus;
 //! 2. one line in [`registered`].
 //!
-//! In `tests/adapters/mod.rs` rather than `tests/adapters.rs` so cargo does not build it as a test
-//! target of its own. It is shared by every test target here, which is why nothing in it is
-//! target-specific: `unused_imports` and `dead_code` are both `deny` in the workspace lint table, so
-//! an item only one target used would fail the build of the other. The fakes live in
-//! `tests/support/mod.rs`, which one target includes.
+//! Declared by `golden.rs` and `differential.rs` with `#[path = "adapters/adapters.rs"] mod adapters;`
+//! and living in a self-named `tests/adapters/adapters.rs` rather than `tests/adapters.rs` at the
+//! root, so cargo does not build it as a test target of its own. It is shared by every test target
+//! here, which is why nothing in it is target-specific: `unused_imports` and `dead_code` are both
+//! `deny` in the workspace lint table, so an item only one target used would fail the build of the
+//! other. The fakes live in `tests/support/support.rs`, which one target includes.
 //!
 //! # The axes, and why each artefact sits on the one it does
 //!
@@ -48,6 +49,7 @@ use sutura_domain::model::TableName;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::Warehouse;
+use sutura_exec_postgres::fixture::FixtureCredential;
 
 /// The version the goldens are pinned under.
 ///
@@ -85,7 +87,7 @@ fn catalog_root() -> PathBuf {
     example_root().join("catalog")
 }
 
-fn data_root() -> PathBuf {
+pub(crate) fn data_root() -> PathBuf {
     example_root().join("data")
 }
 
@@ -332,7 +334,11 @@ impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
     fn open(pinned: &PinnedDefinitions) -> Self {
         // `available()` guards every cell, so this is reached only when discovery answered.
         let endpoint = postgres_tier().expect("`available()` guards the Open of every postgres cell");
-        let config = Self::local_config(endpoint.host(), endpoint.port());
+        // The tier PUBLISHES the credential and nothing here defaults one: a discovered server with
+        // no published credential is a provisioner that half-ran, and the refusal names the
+        // variable rather than trying `sutura` at whatever host discovery answered with.
+        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        let config = Self::local_config(endpoint.host(), endpoint.port(), &credential);
         // One PRIVATE schema per open, so parallel corpus cells sharing one server cannot clobber one
         // another's tables - the same per-worktree isolation the compose tier gets, applied per cell.
         let schema = format!("cell_{}_{}", std::process::id(), schema_counter());

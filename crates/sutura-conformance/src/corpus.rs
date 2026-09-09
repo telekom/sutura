@@ -51,10 +51,10 @@ use std::sync::OnceLock;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
     LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
-    QueryPlan, StatementTables,
+    QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{ParamValue, Real, RowSet, Value};
@@ -200,9 +200,26 @@ pub const fn csv() -> &'static str {
 
 /// The corpus on a filesystem, written once per process, as the path a fixture attaches.
 ///
-/// Written under a per-process temporary name and RENAMED onto the shared one, so two adapters'
-/// fixtures running in one process cannot read a half-written file. The bytes are identical either
-/// side of the rename, so a reader that saw the old file saw the same corpus.
+/// **Inside THIS WORKTREE, and that is the whole of `telekom/sutura#405`'s first instance.** It
+/// used to land on `<temp_dir>/sutura-conformance/<table>.csv` - a purpose and no key - and the
+/// argument for the rename below was *the bytes are identical either side*, which is true per TREE
+/// and not per machine. Reproduced on 2026-09-07 with two worktrees of this repository, each
+/// running its own `on_disk`, one row differing: the `DuckDB` binding failed
+/// `total-by-region-and-day` and `total-by-region-and-day-as-a-leg` as content faults naming this
+/// corpus's own cases, while the run that overwrote the file was green. The window is wide because
+/// `attach_csv` makes a VIEW over `read_csv_auto`, so the file is read at QUERY time; the Postgres
+/// binding reads it seven times per binding at LOAD time.
+///
+/// A path under the worktree needs no key, because the worktree is the key - the same answer
+/// `sutura_dev::scope::Scope::state_dir` gives, and `tests/bound.rs` pins the two spellings
+/// together against that type rather than leaving a comment claiming they agree. This crate may not
+/// reach `sutura-dev` through a normal dependency (`xtask/src/boundaries/harness.rs`), so the
+/// SPELLING is duplicated and the AGREEMENT is mechanical.
+///
+/// Written under a per-process temporary name and RENAMED onto the shared one, which is still
+/// needed and now means something narrower: `nextest` gives each test its own process, so several
+/// processes of THIS worktree write this path at once, and a reader must not see a half-written
+/// file. Those processes write identical bytes - which is the claim the old path could not make.
 #[must_use]
 pub fn on_disk() -> PathBuf {
     static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
@@ -211,13 +228,52 @@ pub fn on_disk() -> PathBuf {
 
 /// Writes [`ROWS`] where an adapter can attach it.
 fn materialise() -> PathBuf {
-    let dir = std::env::temp_dir().join("sutura-conformance");
+    let dir = state_dir().join(PURPOSE);
     std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("could not create {}: {e}", dir.display()));
     let staged = dir.join(format!("{TABLE}.{}.csv", std::process::id()));
     let final_path = dir.join(format!("{TABLE}.csv"));
     std::fs::write(&staged, ROWS).unwrap_or_else(|e| panic!("could not write {}: {e}", staged.display()));
     std::fs::rename(&staged, &final_path).unwrap_or_else(|e| panic!("could not rename onto {}: {e}", final_path.display()));
     final_path
+}
+
+/// The directory under [`state_dir`] this crate writes into.
+///
+/// Named rather than inlined so `tests/bound.rs` can assert the whole path against the type that
+/// owns the other half of it.
+const PURPOSE: &str = "conformance";
+
+/// The name of this worktree's own state directory, as `sutura_dev::scope` spells it.
+///
+/// **A second spelling of one value, and the duplication is deliberate rather than overlooked** -
+/// the same arrangement `crate::REQUIRE_TIER` is in, for the same reason and with the same
+/// mechanism: this crate may reach `sutura-dev` only as a DEV-dependency, so a pack body cannot be
+/// written against anything but the interior, and `tests/bound.rs` compares this constant against
+/// `sutura_dev::scope::STATE_DIR` so the two cannot drift.
+const STATE_DIR: &str = ".sutura-dev";
+
+/// This worktree's own state directory, resolved from this crate's own manifest directory.
+///
+/// **`CARGO_MANIFEST_DIR` is the only root available here**, and it is enough: cargo bakes it in at
+/// compile time, it is inside the worktree being built, and in the nix sandbox it is inside that
+/// derivation's own writable copy of the tree - so it is per-worktree wherever this compiles. The
+/// walk looks for the two markers `xtask::repo::root` looks for, because a single marker is
+/// satisfiable by a directory that is not a checkout of this repository.
+///
+/// A tree with no root above this crate is a broken fixture rather than a case to handle - the
+/// same argument the module's `#![expect]` makes about the two filesystem calls in [`materialise`].
+fn state_dir() -> PathBuf {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest
+        .ancestors()
+        .find(|dir| dir.join("flake.nix").is_file() && dir.join("Cargo.lock").is_file())
+        .unwrap_or_else(|| {
+            panic!(
+                "no checkout root above {} - the corpus has nowhere in this worktree to live",
+                manifest.display()
+            )
+        });
+    root.join(STATE_DIR)
 }
 
 /// Every question in the corpus.
@@ -249,7 +305,10 @@ pub fn leg_case() -> LegCase {
                     aggregate: Aggregate::Sum,
                     column: column("amount_cents"),
                 },
-                String::from("amount_total"),
+                // The metric's own name and not a leaf position, because this leg's expected rows
+                // ARE the whole-answer case's - the labels have to agree for the comparison to be
+                // about the numbers.
+                ResultLabel::measure(&metric("amount_total")),
             )],
             filters: range_filters(),
             params: range_params(),
@@ -273,7 +332,7 @@ fn total_by_region_and_day() -> Case {
                 column: column("amount_cents"),
             },
         },
-        String::from("amount_total"),
+        ResultLabel::measure(&metric("amount_total")),
         range_filters(),
         range_params(),
         range(),
@@ -313,7 +372,7 @@ fn mean_by_day() -> Case {
                 column: column("amount_cents"),
             },
         },
-        String::from("amount_mean"),
+        ResultLabel::measure(&metric("amount_mean")),
         range_filters(),
         range_params(),
         range(),
@@ -360,12 +419,15 @@ fn real(value: f64) -> Value {
 
 /// The time bucket every case groups by: one day.
 fn bucket() -> PlanBucket {
-    PlanBucket::new(String::from("period"), Grain::Day, column("day"))
+    PlanBucket::new(ResultLabel::bucket(), Grain::Day, column("day"))
 }
 
 /// The one dimension key in the corpus.
 fn region_key() -> PlanKey {
-    PlanKey::new(String::from("region"), column("region"))
+    PlanKey::new(
+        ResultLabel::dimension(&DimensionName::parse("region").expect("a corpus dimension is a dimension")),
+        column("region"),
+    )
 }
 
 /// The window every case reads: two days of the three in the corpus.

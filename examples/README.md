@@ -88,13 +88,23 @@ machine-readable `code` AND a sentence, and the service refuses to start in a po
 it. `crates/sutura-serve/tests/served.rs` runs **against this directory** on a kernel-chosen port:
 the token gate, a certified answer, a refusal arriving as its documented status, the catalog route,
 a caller's own token against every forgery, and a published key set this deployment cannot use
-stopping the process - `just serve-e2e` runs it. The **configuration** refusals are
-`crates/sutura-config/src/settings/tests.rs`, over `Settings::load` rather than over a port: a
-non-loopback bind with no TLS termination declared, a production deployment with no token, a source
-configured with no `security.identity`, and a misspelled key are each a case there.
+stopping the process - `just serve-e2e` runs it. The four startup refusals a reader is most likely
+to hit are **each a case in both suites**, and the two say different things: a non-loopback bind with
+no TLS termination declared, a production deployment with no token, a source configured with no
+`security.identity`, and a misspelled key are asserted over `Settings::load` in
+`crates/sutura-config/src/settings/tests.rs`, and asserted over the composed binary in `served.rs` -
+exit `1`, no listener opened, and the message the operator reads.
 
-**What nothing covers, next to the claim.** Those four are asserted over the settings type, not over
-the composed binary - nothing asserts that `sutura-serve` itself exits `1` and never binds for any
-of them, and nothing asserts the `not fit to serve` message at all. `docs/serving.md` says the same
-of the startup banner's wording. A captured session in `single-player/README.md` used to stand in
-for all of it and is gone: it restated the reference and nothing held it true.
+**What that still does not cover, next to the claim.** *Nothing bound* is read off the process's own
+log, so a root that opened a socket and did not report it would be invisible; what makes that narrow
+rather than hollow is that the event is emitted by the bind itself. The message is compared against
+what `sutura_config` renders for that same deployment rather than against a quoted string, so a
+reword stays green **by design** and the refusal each case names is what carries the claim. Four
+cases is three `NotFitToServe` variants and one parse refusal, out of twelve variants; nothing forces
+a thirteenth onto the binary. And a startup refusal names **no configuration layer**, so a deployment
+refused because its configuration directory was wrong is refused in the same words as one refused for
+its own file - `telekom/sutura#445`. `docs/serving.md` says the same of the startup banner's wording,
+which is a different sentence on a path these cases never reach.
+
+A captured session in `single-player/README.md` used to stand in for all of it and is gone: it
+restated the reference and nothing held it true.

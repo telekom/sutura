@@ -52,8 +52,9 @@ out of prose. The pin is `nix/stax.nix` and the dev shell echoes what it resolve
   `skills update` is "download the latest skills from GitHub and update installed skill files",
   and a skill file that lands in this tree without a `skill-router.json` entry makes the router
   and the tree disagree - which is exactly what `cargo xtask check-skills` fails on.
-- **Never force-push a shared branch unless asked** (`AGENTS.md`). `st refresh` rewrites history
-  by design, so on a branch someone else has, ask first.
+- **Never force-push unless asked** (`AGENTS.md`). `st refresh` rewrites history and submits it,
+  so obtain explicit authorization before rewriting any published branch, even one you alone own.
+  Without it, ask rather than merging `main` as a workaround.
 - **Bottom-up.** Land the base before the branches on top; merging out of order recreates by
   hand exactly the conflicts the tool exists to avoid.
 - **`ship-check` per branch, not once for the stack.** Each PR is reviewed alone, so each has

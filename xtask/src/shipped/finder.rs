@@ -38,12 +38,13 @@ use std::collections::BTreeMap;
 /// So the `NotFound`-versus-anything-else split the `read_to_string` below already had now covers
 /// the DIRECTORIES as well, via [`entries_in`]. `github.com/telekom/sutura#414` is the class.
 ///
-/// **What this does NOT reach, in this gate:** `documented::pages` walks `docs/` through
-/// `repo::collect_files`, which fails open the same way. `chmod 000 docs` is caught by the
-/// empty-scan floor, and `chmod 000 docs/adr` - the directory holding the very ADR this gate's
-/// remedies cite - is **exit 0 and silent**, measured. That is one of `repo.rs`' three shared
-/// walkers, with 25 production call sites between them, and it is filed on #414 rather than
-/// changed here: a signature change across those callers is its own review.
+/// **And the half this gate could not reach is closed one layer down now.** `documented::pages`
+/// walks `docs/` through `repo::collect_files`, which used to fail open the same way: `chmod 000
+/// docs/adr` - the directory holding the very ADR this gate's remedies cite - was `ok - 4
+/// literal(s) across 12 file(s)` at **exit 0 and silent**, measured on `110591d5`. That walker
+/// returns a `repo::Census` now and records what it could not reach, so the same seed is **exit 1**
+/// naming `docs/adr`, and this gate got the property without being migrated - which is the whole
+/// argument for fixing the three shared doors rather than each gate above them.
 pub(super) fn yaml_files(root: &std::path::Path) -> Result<Yaml, String> {
     let mut files = BTreeMap::new();
     let github = root.join(".github");

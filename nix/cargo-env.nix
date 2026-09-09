@@ -39,12 +39,11 @@ let
     export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
     export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     # The third omission, and the one that only shows up where an app is easiest to try: the
-    # cranelift backend is INHERITED from the dev shell, and the pinned STABLE cargo these apps
-    # carry rejects it before running anything - "feature codegen-backend is required", because
-    # cargo VALIDATES every profile named in the environment even when --profile ci is what was
-    # asked for. nix/api-docs.nix unsets the same two variables for the same reason and says so
-    # at length. Reproduced by running `nix run .#causality` from inside the dev shell, which is
-    # how a developer would first try it; CI never sees it, because CI has no dev shell.
+    # cranelift backend is INHERITED from the dev shell, and it cannot build some of this tree
+    # (see nix/api-docs.nix, which unsets the same two variables for the same reason and says so
+    # at length). CI never sees it, because CI has no dev shell; a developer running an app from
+    # inside the dev shell would. Reproduced by running `nix run .#causality` from inside the dev
+    # shell, which is how a developer would first try it.
     unset CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
   '';
 
@@ -53,7 +52,7 @@ let
   # WHY: `apps.causality` shells out to `cargo nextest`, and a bare cargo cannot read
   # /nix/store. On the run that prompted this, `Test causality` took 12m16s, of which 9m48s
   # was the head leg compiling the whole closure a SECOND time - `checks.nextest` had
-  # compiled the same closure minutes earlier in the same job. `magic-nix-cache` caches the
+  # compiled the same closure minutes earlier in the same job. The store cache caches the
   # store, which is exactly what a bare cargo does not read, and `ci.yml` caches no
   # `target/`. So the artifacts existed and the tool could not see them.
   #

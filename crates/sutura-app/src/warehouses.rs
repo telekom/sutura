@@ -2,9 +2,9 @@
 //!
 //! # Why a registry rather than one warehouse
 //!
-//! A plan resolves to a single source for one answer - a question spanning two is federated and
-//! refused as `FederationNotExecutable` while no adapter executes a leg (three or more are refused at
-//! plan time) - but a
+//! A plan resolves to a single source for one answer - a question spanning two is federated, and
+//! answered where every registered adapter declares `Warehouse::EXECUTES_LEGS` and refused as
+//! `FederationNotExecutable` where one does not (three or more are refused at plan time) - but a
 //! *deployment* holds as many as its catalog names, and until now the service held exactly one. That
 //! made two facts indistinguishable: "this question is for a data system nobody configured" and "this
 //! question is for the other one of the two we opened". The first is a refusal an operator has to fix
@@ -35,7 +35,7 @@
 use std::collections::BTreeMap;
 
 use sutura_domain::model::SourceName;
-use sutura_domain::source::{ExecutedAs, SourcePosture};
+use sutura_domain::source::{SourcePosture, UniformlyExecuted};
 use sutura_domain::warehouse::Warehouse;
 
 /// The data systems this process opened.
@@ -143,11 +143,16 @@ where
     /// The one place a mono-source answer's provenance comes from, so the posture in an answer is the
     /// posture the adapter that executed it was holding. `None` when nothing is open for that source,
     /// which is the case the caller has already turned into a refusal by the time it asks.
+    ///
+    /// [`UniformlyExecuted`] rather than `ExecutedAs`, and it needs no verdict on the way: one leg
+    /// cannot decide identity two ways, so the mono answer path has no arm for a refusal it could
+    /// never provoke. The federated path builds its own record from both adapters and asks
+    /// `ExecutedAs::uniform` for the verdict.
     #[must_use]
-    pub fn executed_on(&self, source: &SourceName) -> Option<ExecutedAs> {
+    pub fn executed_on(&self, source: &SourceName) -> Option<UniformlyExecuted> {
         self.by_source
             .get(source)
-            .map(|warehouse| ExecutedAs::of(source.clone(), warehouse.posture().clone()))
+            .map(|warehouse| UniformlyExecuted::of(source.clone(), warehouse.posture().clone()))
     }
 }
 

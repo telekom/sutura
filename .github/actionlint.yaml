@@ -11,6 +11,23 @@
 # `just lint-ci`, and a label named here that no runner group serves is caught by the job queueing
 # rather than by a gate. So the entry is a claim that an org runner group serves this repository -
 # which is a permission on the GitHub side and cannot be checked from the tree.
+#
+# PINNED HOSTS, AND THE BARE PREFIX IS ABSENT ON PURPOSE. The runner group now serves
+# `rust-mcp-32core` and `rust-mcp-16core` beside the older `rust-mcp`, and which machine a bare
+# `runs-on: rust-mcp` lands on is not something this repository can read - so a timing taken under
+# it is a timing on an unknown host, which is what made the label unusable for a comparison. Every
+# `runs-on:` in `.github/workflows` therefore names its host: `rust-mcp-32core` where Rust is
+# compiled, `ubuntu-latest` where nothing is.
+#
+# `rust-mcp` is gone from the list below so that a drift back to it FAILS rather than lands: a
+# workflow change sets `run_all` in `cargo xtask classify` (`.github/**` is a run-all pattern),
+# `run_all` runs `ci.yml`'s workflow static analysis step, and that step's `nix/lint-workflows.sh`
+# runs `actionlint` against this file - inside `ci`, the one required context. The refusal is
+# `label "rust-mcp" is unknown. available labels are ...`.
+#
+# `rust-mcp-16core` is absent for the same reason rather than by omission: this list is what is IN
+# USE, so adding a label here is the same decision as putting a job on it. It is added by whatever
+# change first measures it.
 self-hosted-runner:
   labels:
-    - rust-mcp
+    - rust-mcp-32core

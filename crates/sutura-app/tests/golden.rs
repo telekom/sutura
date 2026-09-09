@@ -30,8 +30,11 @@
 //!   placeholder style is visible in the target it affects rather than only in the one we execute
 //!   against. Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere.
 //!   `golden/legs.rs` is the same axis over the federated plan shapes, and it is a second file rather
-//!   than more cells in the first because its input is not the question corpus: there is no splitter,
-//!   so a leg plan is a hand-built fixture and says so. `golden/qualified.rs` is a third file on the
+//!   than more cells in the first because its input is not the question corpus: a leg plan there is a
+//!   hand-built fixture rather than one the splitter produced, and it says so. **What no cell on this
+//!   axis reaches is the leg path a release executes** - that is the engine's, and the engine renders
+//!   nothing; its evidence is `sutura-exec-datafusion`'s conformance binding and the two-engine pass
+//!   in `differential/federated.rs`. `golden/qualified.rs` is a third file on the
 //!   same axis and a third file for the same reason: a question has no field that names a table, so a
 //!   table outside the connection's own dataset comes from a catalog document - and the shipped
 //!   corpus is deliberately unqualified, because the two data systems that EXECUTE it register one
@@ -59,8 +62,10 @@
 // `expect` in a corpus helper is a lint error, and writing that setup in the `?`-ceremony the ban
 // would demand makes those helpers worse, which is what that exemption exists to avoid.
 #[cfg(test)]
+#[path = "adapters/adapters.rs"]
 mod adapters;
 #[cfg(test)]
+#[path = "support/support.rs"]
 mod support;
 
 // `#[path]` because a bare `mod catalogs;` at a crate root resolves to `tests/catalogs.rs`, and cargo

@@ -77,6 +77,20 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Refuse a previous provenance export
+      shell: bash
+      env:
+        ASSETS: ${{ inputs.assets-dir }}
+      run: |
+        set -eu
+        # Neither a previous export nor an interrupted stage may enter the unchanged snapshot.
+        for path in "$ASSETS/sutura-provenance.intoto.jsonl" "$ASSETS/.sutura-provenance.intoto.jsonl.tmp"; do
+          if [ -e "$path" ] || [ -L "$path" ]; then
+            echo "::error::provenance export or staging file already exists; require fresh release inputs"
+            exit 1
+          fi
+        done
+
     # A SIGNATURE PER IMAGE, and an SBOM attached to each one that a registry client can fetch
     # without the release page.
     #
@@ -182,12 +196,30 @@ runs:
     # reading the directory as it writes into it would sign its own output, and then sign that - a
     # `find` evaluated once is what stops it.
     #
-    # THE `.sha256` SIDECARS ARE NOT SIGNED, and this is the one exclusion. A bundle over
-    # `sutura-x86_64-unknown-linux-gnu.tar.gz` already commits to that file's digest, so a second
-    # signature over a file whose entire content is that digest proves nothing new and costs a
-    # certificate and a transparency-log entry. They still get PROVENANCE, which is one call for
-    # every subject and therefore free. The sidecars stay in the release because a consumer's
-    # script may already read them.
+    # THERE IS NO EXCLUSION. Every file that reaches the release page gets a bundle, `.sha256`
+    # sidecars included, and that is a REVERSAL - `github.com/telekom/sutura#459` is the decision.
+    #
+    # The argument for excluding them was cryptographically correct and ergonomically wrong. It ran:
+    # a bundle over `sutura-x86_64-unknown-linux-gnu.tar.gz` already commits to that file's digest,
+    # so a signature over a file whose entire content IS that digest proves nothing new and costs a
+    # certificate and a transparency-log entry. Every clause of that is true. What it missed is that
+    # a signature's ABSENCE is read by a person, and on a release page holding 30 bundles the 13
+    # files without one are indistinguishable from an oversight.
+    #
+    # Worse, it is a trap with a direction. Someone who checks `foo.tar.gz.sha256` and stops has
+    # verified integrity against a file an attacker who could replace the tarball could replace
+    # too - while believing they checked provenance. The signature they needed was there all along,
+    # one file over, and nothing on the page told them the sidecar was not it.
+    #
+    # So the rule is now the one the `Read the subjects` step below already applies to provenance,
+    # and the two are finally consistent: **every published byte is signed** is a rule a reader can
+    # check, and *every published byte except the ones we judged uninteresting* is not. The cost is
+    # 13 more certificates and transparency-log entries per release, against 30 already minted.
+    #
+    # `! -name '*.sigstore.json'` replaces the sidecar filter rather than joining it, and it buys
+    # idempotence the snapshot below only approximated: a re-run over a directory that already
+    # holds bundles now skips them by name instead of relying on `find` having been evaluated
+    # before the first one was written.
     - name: Sign the release assets
       shell: bash
       env:
@@ -196,7 +228,7 @@ runs:
         set -eu
         # Sorted, so the log reads the same way twice and a diff between two releases' logs is
         # about the assets rather than about directory order.
-        find "$ASSETS" -maxdepth 1 -type f ! -name '*.sha256' | sort > assets.txt
+        find "$ASSETS" -maxdepth 1 -type f ! -name '*.sigstore.json' | sort > assets.txt
         count="$(wc -l < assets.txt)"
         if [ "$count" -lt 1 ]; then
           echo "::error::${ASSETS} holds no files to sign"
@@ -226,7 +258,8 @@ runs:
     # instead of a glob per shape. The file is written from within the assets directory so the names it carries are the
     # basenames a consumer downloads, which is what the attestation is looked up by.
     #
-    # WHAT IS EXCLUDED, and it is one thing: the signature bundles written by the step above.
+    # WHAT IS EXCLUDED: the signature bundles written by the step above. The provenance export
+    # does not exist until after this snapshot; the first step refuses a previous export.
     # Provenance over a signature says the pipeline produced the signature, which nobody needs to
     # know and which the signature's own certificate already says. Everything else is included
     # without exception - the `.sha256` sidecars too, though they are trivially derivable -
@@ -254,6 +287,7 @@ runs:
         cat subjects.sha256
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: asset_provenance
       with:
         subject-checksums: subjects.sha256
 
@@ -314,11 +348,13 @@ runs:
         done
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: glibc_provenance
       with:
         subject-name: ${{ steps.lists.outputs.glibc_name }}
         subject-digest: ${{ steps.lists.outputs.glibc }}
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: musl_provenance
       with:
         subject-name: ${{ steps.lists.outputs.musl_name }}
         subject-digest: ${{ steps.lists.outputs.musl }}
@@ -326,11 +362,29 @@ runs:
     # And the server's two lists. `sutura-serve` is what closed #111: before it, no published
     # artefact could answer a question over HTTP, so there was nothing here to attest.
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: serve_glibc_provenance
       with:
         subject-name: ${{ steps.lists.outputs.serve_glibc_name }}
         subject-digest: ${{ steps.lists.outputs.serve_glibc }}
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: serve_musl_provenance
       with:
         subject-name: ${{ steps.lists.outputs.serve_musl_name }}
         subject-digest: ${{ steps.lists.outputs.serve_musl }}
+
+    - name: Collect the provenance bundles
+      shell: bash
+      env:
+        ASSETS: ${{ inputs.assets-dir }}
+        IMAGE_DIGESTS: ${{ inputs.digests-file }}
+        ASSET_BUNDLE: ${{ steps.asset_provenance.outputs.bundle-path }}
+        GLIBC_BUNDLE: ${{ steps.glibc_provenance.outputs.bundle-path }}
+        MUSL_BUNDLE: ${{ steps.musl_provenance.outputs.bundle-path }}
+        SERVE_GLIBC_BUNDLE: ${{ steps.serve_glibc_provenance.outputs.bundle-path }}
+        SERVE_MUSL_BUNDLE: ${{ steps.serve_musl_provenance.outputs.bundle-path }}
+      run: |
+        set -eu
+        nix run .#xtask -- collect-provenance subjects.sha256 "$IMAGE_DIGESTS" \
+          "$ASSETS/sutura-provenance.intoto.jsonl" "$ASSET_BUNDLE" "$GLIBC_BUNDLE" \
+          "$MUSL_BUNDLE" "$SERVE_GLIBC_BUNDLE" "$SERVE_MUSL_BUNDLE"

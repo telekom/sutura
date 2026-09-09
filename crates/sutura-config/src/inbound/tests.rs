@@ -288,7 +288,7 @@ fn what_each_mode_says_at_startup_is_read_from_the_type_and_never_claims_leg_two
     // The same sentence for both modes, deliberately: the mode changes who authenticates the caller
     // and changes nothing about leg 2.
     for mode in [direct(), behind_gateway()] {
-        assert!(!mode.mode().is_empty());
+        assert!(!mode.mode().is_empty(), "each inbound mode names an authenticator");
         assert!(InboundIdentity::MODES.contains(&mode.mode()), "{}", mode.mode());
     }
 }

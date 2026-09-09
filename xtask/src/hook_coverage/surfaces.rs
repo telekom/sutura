@@ -32,7 +32,7 @@ pub(super) const SURFACES: &[Surface] = &[
         // the only thing this module measures.
         label: "Rust source",
         paths: &["*.rs"],
-        hooks: &["rust-fmt", "rust-clippy", "rust-check-changed"],
+        hooks: &["rust-fmt", "rust-clippy", "rust-check-changed", "jscpd"],
         reached_by: "lint",
     },
     Surface {
@@ -76,6 +76,27 @@ pub(super) const SURFACES: &[Surface] = &[
         paths: &["devenv.nix"],
         hooks: &[],
         reached_by: "devenv-linter",
+    },
+    Surface {
+        // The surface the `fuzz` pre-commit hook claims: the `fuzz/` harness tree plus the crates
+        // the two targets' headers name. It is a separate row from "Rust source" on purpose - the
+        // hook's `files:` never inspects all `*.rs`, only this reach, so claiming the broader row
+        // would report a permanent gap there. A change at the boundary of both surfaces is covered
+        // when every hook claiming EACH ran, which is the same all-must-run rule.
+        label: "fuzzed tree",
+        paths: &[
+            "fuzz/**",
+            "nix/fuzz.nix",
+            "nix/run-fuzz.sh",
+            "crates/sutura-domain/src/query.rs",
+            "crates/sutura-domain/src/model/**",
+            "crates/sutura-http/src/wire.rs",
+            "crates/sutura-http/src/wire/**",
+            "crates/sutura-sql/**",
+            "crates/sutura-semantic/**",
+        ],
+        hooks: &["fuzz"],
+        reached_by: "fuzz-smoke",
     },
 ];
 

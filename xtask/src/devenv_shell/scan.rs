@@ -249,7 +249,7 @@ fn lambda(code: &str) -> (Vec<String>, usize) {
 ///
 /// An attribute key (`x =`) and an `inherit` name are excluded: those are the argument set, which
 /// its own rule reads. A Nix PATH is excluded too - a token containing `/` - so
-/// `${./nix/stable-env.sh}` does not read as three unknown identifiers.
+/// `${./nix/toolchains.nix}` does not read as three unknown identifiers.
 pub(super) fn identifiers(code: &str) -> Vec<String> {
     let mut found = Vec::new();
     let chars: Vec<char> = code.chars().collect();
@@ -394,12 +394,12 @@ mod tests {
     #[test]
     fn a_wrapped_body_reads_as_an_application_whatever_the_quoting() {
         assert_eq!(
-            one("{ a.exec = onStable \"a\" \"good\"; }", "exec"),
-            Value::Head(String::from("onStable"))
+            one("{ a.exec = runs \"a\" \"good\"; }", "exec"),
+            Value::Head(String::from("runs"))
         );
         assert_eq!(
-            one("{ a.exec = onStable \"a\" ''\n  good\n'';\n}", "exec"),
-            Value::Head(String::from("onStable"))
+            one("{ a.exec = sourced \"a\" ''\n  good\n'';\n}", "exec"),
+            Value::Head(String::from("sourced"))
         );
         // The newline spelling that defeats a fixed needle does not defeat this: the head is
         // found on the next line and is still the wrapper.

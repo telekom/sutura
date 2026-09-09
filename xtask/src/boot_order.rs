@@ -175,7 +175,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 /// One `Result` rather than a print-and-return block per failure: the task name and the paragraph
 /// under it are then written once, which is `api_docs`'s shape and the reason it has it.
 fn check() -> Result<Counted, String> {
-    let repo::RepoFiles { root, files } = repo::all_files().ok_or_else(|| String::from("could not locate the repo root"))?;
+    let (root, files) = repo::all_files()
+        .and_then(|census| census.into_listing(repo::Unmigrated::BootOrder))
+        .map_err(|why| why.describe())?;
     let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
     let found = scan(&files, &read)?;
     every_caller_is_declared(&declared(), &found.callers)?;
@@ -548,7 +550,9 @@ mod tests {
     /// The real tree carries no alias, so the check above is not vacuous on it.
     #[test]
     fn the_tree_itself_holds_no_aliased_import_of_the_preflight() {
-        let Some(crate::repo::RepoFiles { root, files }) = crate::repo::all_files() else {
+        let Ok((root, files)) =
+            crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::BootOrder))
+        else {
             return;
         };
         let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
@@ -560,7 +564,9 @@ mod tests {
         // The OMISSION half, over the real tree: a third root that calls the pre-flight would be a
         // serving path whose order nothing reads. Non-vacuous by construction - the scan has to have
         // read more files than it found roots in, and `every_caller_is_declared` fails on an empty one.
-        let crate::repo::RepoFiles { root, files } = crate::repo::all_files().expect("the repo root");
+        let (root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::BootOrder))
+            .expect("the repo root");
         let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
         let found = scan(&files, &read).expect("every Rust file under crates/ is readable");
         assert_eq!(

@@ -202,7 +202,7 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 /// variable changes nothing and the one thing that fixes it is the one thing the message did not
 /// say. The environment overlay is now the third thing named, with the variables this process
 /// actually has - it can see them, so guessing is not required of the reader.
-fn unservable(cause: &sutura_config::SettingsError) -> String {
+fn unservable(cause: &sutura_config::SettingsLoadError) -> String {
     format!(
         "{}\nthis command reads the same configuration a deployment would, so a refusal about \
          serving stops it too - it binds no listener of its own. Point \
@@ -267,17 +267,22 @@ pub(crate) fn open_engine(
         [only] => (*only).clone(),
         [] => return Err(String::from("this catalog declares no models, so there is nothing to open")),
         many => {
-            // **No remedy is offered, and that is a correction rather than terseness.** An earlier
-            // version said "serve it over HTTP, where a plan spanning two sources is split into
-            // legs", and no shipped build delivers that: `Warehouse::EXECUTES_LEGS` defaults to
-            // `false`, the only implementor setting it `true` is the DuckDB dev vehicle, so
-            // `sutura-serve` refuses the same question as `FederationNotExecutable`. Sending an
-            // operator to stand up a server that refuses them again is worse than saying nothing.
+            // **The remedy is offered again, and the round trip it used to send an operator on is
+            // gone.** This message said no shipped binary answered a two-source question either,
+            // because `Warehouse::EXECUTES_LEGS` defaulted to `false` on every adapter a release
+            // linked and `sutura-serve` refused the same question as `FederationNotExecutable`.
+            // `sutura-exec-datafusion` declares it now and is non-optional in both binaries, so
+            // `sutura-serve` with one `files` entry per data system answers this - measured on the
+            // composed binary by `a_served_deployment_answers_a_question_spanning_two_sources`.
+            //
+            // **What is still true here, and is the whole of what this arm refuses:** this command
+            // opens ONE adapter for ONE source (`open_files` is `sutura-serve`'s, not this
+            // binary's), so a catalog spanning two has no engine to answer against in this process.
+            // Opening two here is a second composition decision and a separate change.
             return Err(format!(
                 "this catalog spans {} data systems, and this command answers one question against \
-                 one. No shipped binary answers a two-source question either - every adapter a \
-                 release links declares it executes no leg - so this is a catalog to split rather \
-                 than a surface to move to",
+                 one. Serve it over HTTP instead - `sutura-serve` opens one data system per \
+                 declared source and splits a question spanning two into legs",
                 many.len()
             ));
         }
@@ -853,14 +858,22 @@ mod tests {
             error.contains("spans 2 data systems"),
             "the refusal must say how many it found: {error}"
         );
-        // **The remedy it must NOT offer.** An earlier version said "serve it over HTTP, where a plan
-        // spanning two sources is split into legs", and no shipped build delivers that: every adapter
-        // a release links declares `EXECUTES_LEGS = false`, so `sutura-serve` refuses the same
-        // question as `FederationNotExecutable`. Review reproduced the round trip. Asserted as an
-        // ABSENCE, because that is what the defect was.
+        // **The remedy it must offer, and this assertion is the inverse of the one it replaces.**
+        // It used to assert the ABSENCE of "over http", because at the time every adapter a release
+        // linked declared `EXECUTES_LEGS = false` and `sutura-serve` refused the same question as
+        // `FederationNotExecutable` - so naming that surface sent an operator on a round trip.
+        // `sutura-exec-datafusion` declares the constant now, and
+        // `crates/sutura-serve/tests/served.rs` asks the composed binary a two-source question and
+        // gets rows, so the surface is a real remedy and withholding it is the defect.
         assert!(
-            !error.to_lowercase().contains("over http"),
-            "the refusal must not send an operator to a surface that refuses them again: {error}"
+            error.to_lowercase().contains("over http"),
+            "the refusal must name the surface that does answer a two-source question: {error}"
+        );
+        // And the claim that inverted with it, asserted as an absence because it is now FALSE: a
+        // release does link an adapter that executes a leg.
+        assert!(
+            !error.contains("executes no leg"),
+            "the refusal still claims no shipped adapter executes a leg: {error}"
         );
         // NOT the neighbouring arm, and this is the half that stops the test passing on the wrong
         // branch: `production_warehouse` is also undeclared, so a test that only checked for *a*

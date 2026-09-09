@@ -47,9 +47,11 @@ types it speaks in:
   absence.
 - `plan` is what we decided to execute, and the artifact the execution port speaks in.
 - `federation` is how a measure survives being computed in pieces: which aggregates descend
-  into a leg, which one descends decomposed, and which needs its rows pulled up. Nothing executes
-  it yet - there is no splitter and no combiner - so it is a classification with no production
-  caller, and its own header says so.
+  into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
+  and the combiner (`plan::FederatedPlan::combine`) both call it, and since
+  `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS` a published build answers a
+  two-source question end to end - so this is a classification on the answer path rather than
+  one with no production caller, which is what this line used to say.
 - `catalog` is what a catalog says, and where its cross-references are checked.
 - `knowledge` is what a catalog says ABOUT what it defines - the glossary, the caveats, the
   terms deliberately left undefined, the worked questions - checked against a `catalog` and read
@@ -119,7 +121,7 @@ the posture each leg ran under, and the expiry the credentials carried.**
 A verified subject's question can be answered under the *deployment's* own identity on a source
 declared `shared-service-user` - that is honest, acknowledged and not impersonation - and the
 incident question is then "whose access filtered these rows". The answer is
-`crate::source::ExecutedAs`, which rides on the `Provenance` an answer carries, and
+`crate::source::UniformlyExecuted`, which rides on the `Provenance` an answer carries, and
 `CallRecord::executed_as` is the accessor: a sink writing an audit line does not have to know
 that provenance transitively holds it. It answers `None` for a refusal, because nothing executed.
 
@@ -196,7 +198,7 @@ pub const fn chain(&self) -> &PrincipalChain
 Who the call is attributable to.
 
 ```rust
-pub const fn executed_as(&self) -> Option<&ExecutedAs>
+pub const fn executed_as(&self) -> Option<&UniformlyExecuted>
 ```
 
 Which identity produced each leg, where anything executed.
@@ -1792,11 +1794,19 @@ derived column that belongs upstream, which is what `docs/adr/0001` says about t
 How a measure federates: what descends into a leg, and the one computation that happens above
 them.
 
-**This module is a classification and a rule, and nothing executes it.** There is no leg plan
-type, no splitter and no combiner in this workspace yet, so nothing here has a production
-caller: the same shape `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory describes for the
-authored-SQL hatch. It is stated here rather than left for a reader to discover, because a
-classification that looks wired is worse than one that says it is not.
+**This module is a classification and a rule, and the splitter above it reads them.**
+`crate::plan::LegPlan` is the leg plan type; the splitter is `sutura_semantic::plan`, which
+calls `Federation::of` on the measure it resolves; and the combiner above the legs is
+`crate::plan::FederatedPlan::combine`, called from `sutura_app::federated`. So this has a
+production caller, and the sentence that used to stand here said it had none - the correction is
+recorded rather than quietly applied, because *a classification with no production caller* is
+what a reader would otherwise still plan against.
+
+And it is on the answer path of a published build, not merely in library code:
+`sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS`, so `sutura` and `sutura-serve`
+execute a leg. What the defaulted-`false` constant still holds is the OTHER direction - an
+adapter with no leg venue refuses rather than half-answering.
+`.agents/skills/sutura/query-surface` carries that state.
 
 **The problem it answers.** Grouping a fact leg by a remote join key is a strictly finer grouping
 than the answer, so a combine above the legs has to aggregate again - and whether that is correct
@@ -3754,13 +3764,15 @@ pub const fn digest(&self) -> &DefinitionDigest
 ```
 
 ```rust
-pub const fn executed_as(&self) -> &ExecutedAs
+pub const fn executed_as(&self) -> &UniformlyExecuted
 ```
 
 What each leg of this answer ran as.
 
 Read off the posture the **adapter was handed**, never off a settings tree - see
-`crate::source`. Non-empty, because `ExecutedAs` has no empty form.
+`crate::source`. Non-empty, because `crate::source::ExecutedAs` has no empty form, and
+uniform, because `UniformlyExecuted` is the only thing `PinnedDefinitions::provenance`
+accepts.
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -3926,7 +3938,7 @@ fn _pin(
 ```
 
 ```rust
-pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance
+pub fn provenance(&self, executed_as: UniformlyExecuted) -> Provenance
 ```
 
 The provenance to attach to one answer produced from this bundle.
@@ -3941,6 +3953,40 @@ A caller that only wants to *describe* this bundle - a catalog endpoint, the age
 prompt - reads `Self::version` and `Self::digest` instead. Nothing executed for it, and a
 `Provenance` with an empty execution record would be the one shape this argument exists to
 make unrepresentable.
+
+# And a MIXED execution record is unrepresentable the same way
+
+The argument is `UniformlyExecuted` rather than `crate::source::ExecutedAs`, so an answer
+combining rows read under one posture with rows read under another cannot be built at all -
+not refused at a call site somebody may move, but absent from the type system. A record with
+two legs reaches this only through `crate::source::ExecutedAs::uniform`, which is where the
+verdict is made.
+
+**A mixed record has no way in:**
+
+```compile_fail
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+use sutura_domain::source::ExecutedAs;
+
+fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
+    pinned.provenance(both_legs)
+}
+```
+
+The compiling twin, differing by exactly the one call that makes the verdict - so the block
+above cannot be passing on a typo:
+
+```
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+use sutura_domain::source::{ExecutedAs, LegsDecideIdentityDifferently};
+
+fn _uniform(
+    pinned: &PinnedDefinitions,
+    both_legs: ExecutedAs,
+) -> Result<Provenance, LegsDecideIdentityDifferently> {
+    Ok(pinned.provenance(both_legs.uniform()?))
+}
+```
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -4085,6 +4131,8 @@ Why a bundle is not validated.
 - `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`
 - `UnknownMetricChecked`
+- `DeclaredKeyNotUnique` - A declared join key the data contradicts.
+- `DeclaredKeyNotCounted` - A declared join key no data system would count.
 
 #### Implements
 
@@ -4482,6 +4530,40 @@ pub struct PlanBucket
 
 The truncated time column, and the label it is projected under.
 
+**The label is a `ResultLabel` and not a `String`, which is the third carrier
+`telekom/sutura#337` names.** Every producer in this workspace passes `ResultLabel::bucket`,
+which takes no argument because there is nothing to choose:
+`TIME_BUCKET_LABEL` is the one spelling.
+
+**The limit, next to the claim:** the type says the text came from something already parsed, not
+WHICH of the four constructors produced it - so a bucket labelled with a dimension's own name is
+still representable here, and what refuses that particular collision is
+`Definitions::assemble`, which will not accept a dimension named
+`period` in the first place.
+
+A computed bucket label is a compile error, which is the pair `ResultLabel` carries for a key
+applied to the carrier it did not reach:
+
+```compile_fail
+use sutura_domain::model::{ColumnName, Grain, TableName};
+use sutura_domain::plan::{PlanBucket, PlanColumn};
+
+fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanBucket {
+    PlanBucket::new(format!("0_leaf_{leaf}"), Grain::Month, PlanColumn::new(table, column))
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::model::{ColumnName, Grain, TableName};
+use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
+
+fn _parsed(table: TableName, column: ColumnName) -> PlanBucket {
+    PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table, column))
+}
+```
+
 #### Methods
 
 ```rust
@@ -4496,8 +4578,10 @@ pub const fn grain(&self) -> Grain
 pub fn label(&self) -> &str
 ```
 
+The text the bucket is projected under.
+
 ```rust
-pub const fn new(label: String, grain: Grain, column: PlanColumn) -> Self
+pub const fn new(label: ResultLabel, grain: Grain, column: PlanColumn) -> Self
 ```
 
 #### Implements
@@ -4512,6 +4596,11 @@ pub struct PlanKey
 
 One group-by key.
 
+**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
+to be labelled with whatever text its producer computed, and what kept that out of the internal
+namespace a federated leg also projects into was a derivation held by review. The type is the
+mechanism now: `ResultLabel` carries the compile-fail pair that says so.
+
 #### Methods
 
 ```rust
@@ -4522,8 +4611,14 @@ pub const fn column(&self) -> &PlanColumn
 pub fn label(&self) -> &str
 ```
 
+The text this key is projected under.
+
+Text rather than the `ResultLabel`, because every reader of a label renders it: the
+generator quotes it as an alias and the combiner looks a column up by it. What the type
+holds is the way IN.
+
 ```rust
-pub const fn new(label: String, column: PlanColumn) -> Self
+pub const fn new(label: ResultLabel, column: PlanColumn) -> Self
 ```
 
 #### Implements
@@ -4719,7 +4814,7 @@ pub const fn metric(&self) -> &MetricName
 ```
 
 ```rust
-pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
+pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: ResultLabel, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
 ```
 
 One statement's worth of decisions.
@@ -4937,6 +5032,8 @@ one place: the caller owns the order, which is what the placeholder-position con
 
 ### `use None`
 
+### `use None`
+
 ### `constant MAX_ROWS`
 
 The most rows any plan may return.
@@ -5069,7 +5166,7 @@ pub const fn metric(&self) -> &MetricName
 The metric this answer is measured in.
 
 ```rust
-pub fn new(metric: MetricName, measure_label: String, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
 ```
 
 Constructs a federated plan from its two legs and the answer's key order.
@@ -5123,7 +5220,7 @@ One group-by key of the answer: which leg owns it, and the label it carries in t
 ##### Methods
 
 ```rust
-pub const fn fact(label: String) -> Self
+pub const fn fact(label: ResultLabel) -> Self
 ```
 
 A key read from the fact leg's result, under `label`.
@@ -5132,10 +5229,10 @@ A key read from the fact leg's result, under `label`.
 pub fn label(&self) -> &str
 ```
 
-The label this key carries in its leg's result.
+The text this key carries in its leg's result.
 
 ```rust
-pub const fn lookup(label: String) -> Self
+pub const fn lookup(label: ResultLabel) -> Self
 ```
 
 A key read from the lookup leg's result, under `label`.
@@ -5269,10 +5366,15 @@ Both are accepted and both come back with the field names the statement asked fo
 documented restriction is on a **declared column** and not on a quoted alias.
 
 **The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
-Neither has an execution venue for a LEG - the whole federated path is gated by a
-defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle sets - so what stands
-for them is a quoted-identifier argument rather than a run. Read the row above for what each one
-is worth.
+Neither has an execution venue for a LEG - each leaves `EXECUTES_LEGS` at its default `false` -
+so what stands for them is a quoted-identifier argument rather than a run. Read the row above
+for what each one is worth.
+
+**The reason that sentence changed rather than the claim:** it used to say *the whole federated
+path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle
+sets*, which stopped being true when the engine declared the constant and a published build
+began answering two sources. The limit for these two dialects is unaffected - it never rested on
+the path being gated, only on neither having a venue.
 
 **Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
 range is a wiring defect the combiner reports as a missing column, not a label this type could
@@ -5290,16 +5392,18 @@ with another public label at load, and cannot collide with an internal one at al
 nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
 is the property the test asserts, and the thing to re-establish if this spelling ever changes.
 
-**And the two halves are held by different KINDS of thing, which is the asymmetry to know about.**
-This half is a type. The public half is not: `PlanKey` and
-`LegTerm` carry their labels as `String`, so what keeps a public label out
-of this namespace is that `sutura_semantic::plan::federated_plan` derives every one of them from a
-`DimensionName`, a `MetricName` or `TIME_BUCKET_LABEL` - a derivation held by review, and by no
-test: the test above asks the four name parsers to refuse these spellings, which is a property of
-`parse_identifier`, not of any plan. A computed public label landing on `0_leaf_{n}` would be
-refused by `distinct_columns` as `DuplicateLabels`, so the failure direction is a refusal rather
-than a wrong number - which is why the `String`s are still here. `telekom/sutura#337` is the
-typed-label remedy that would make the comparison impossible rather than unnecessary.
+**Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
+`InternalLabel`; the public half is `ResultLabel`, whose only
+constructors take a `DimensionName`, a `MetricName`, `InternalLabel` or nothing at all - so a
+computed string is not a label a plan can carry, and the derivation
+`sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
+instead. What that changes about the paragraph above: the two namespaces are still disjoint
+*because* of the leading digit, and what the types add is that no producer can put a value in
+both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
+something already parsed, never WHICH of the four constructors produced it - so a value built by
+`ResultLabel::internal` is accepted anywhere a label is
+taken, the bucket's position included. Nothing here reads the provenance back, because nothing
+needs to: the disjointness is the leading digit.
 
 **Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
 is 63 characters because that is the tightest among the data systems targeted, and it is a
@@ -5345,15 +5449,190 @@ divides a column by itself. Position cannot collide, and it is all a leg needs: 
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
 
+### Module `label`
+
+What a result column may be labelled, and the four things a label can be derived from.
+
+#### `struct ResultLabel`
+
+```rust
+pub struct ResultLabel
+```
+
+The label one column of a result carries, which can only be built out of something already
+parsed.
+
+**The half of the labelling scheme that used to be held by review.** A federated leg's result
+carries two kinds of label in one namespace. The internal kind is
+`InternalLabel`, a type: every rendering starts with a digit, and
+`crate::model`'s identifier parser refuses a leading digit as a FIRST character, so no
+`DimensionName`, `MetricName`, `ColumnName` or `TableName` can spell one. The public kind was
+a `String` on `PlanKey` and `LegTerm`, and what
+kept a public label out of the internal namespace was that `sutura_semantic::plan` happened to
+derive every one of them from a dimension name, a metric name or
+`TIME_BUCKET_LABEL` - a derivation held by review, and by no
+test. `telekom/sutura#337` is the report.
+
+This type is the other half. There is no constructor taking text, so the four functions below are
+the whole of what a label can come from, and a computed string is not one of them. That turns
+*nothing compares the two halves* into *nothing can put a value in both*, which is the stronger
+version of the same argument and the one the leading digit was chosen to support.
+
+**Why a newtype over the rendering rather than the four-variant enum the report sketched.** An
+enum would have to hand out its text, and `Internal(InternalLabel::Leaf(n))` has no `&'static
+str` rendering to hand out - the position is formatted - so `label()` would return a
+`Cow` and the five alias call sites in `sutura_sql::generate` would change
+with it. Measured, not assumed: `aliased(inner: Expr, label: &str)` is called five times there,
+once per projected column shape. So the rendering is stored and the four constructors are the
+gate. **The limit, next to the claim:** which of the four a label came from is not recoverable
+from the value, because nothing reads it back - what the type buys is that the TEXT can only come
+from one of them.
+
+A computed string is not a label, and that is a compile error rather than a review finding:
+
+```compile_fail
+use sutura_domain::model::{ColumnName, TableName};
+use sutura_domain::plan::{PlanColumn, PlanKey};
+
+// The failure `telekom/sutura#325`'s F2 reproduced: a public key labelled with a computed
+// string that lands in the internal namespace.
+fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanKey {
+    PlanKey::new(format!("0_leaf_{leaf}"), PlanColumn::new(table, column))
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::model::{ColumnName, DimensionName, TableName};
+use sutura_domain::plan::{PlanColumn, PlanKey, ResultLabel};
+
+fn _parsed(table: TableName, column: ColumnName, dimension: &DimensionName) -> PlanKey {
+    PlanKey::new(ResultLabel::dimension(dimension), PlanColumn::new(table, column))
+}
+```
+
+**The two blocks above hold a CARRIER's signature, and that is not the same as this type being
+closed.** They say `PlanKey::new` will not take a `String`; they say nothing about whether a
+`String` can become a `ResultLabel` first, and
+`PlanKey::new(ResultLabel::from(format!("0_leaf_{n}")), column)` is `telekom/sutura#325`'s F2 one
+conversion further out. Measured rather than reasoned: adding `impl From<String> for ResultLabel`
+and touching no carrier left `just test` at exit 0 with 2658 tests passing and BOTH carrier pairs
+green. So the closure is stated over the type, on the bound every carrier is really reached
+through:
+
+```compile_fail
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+// Text does not become a label, by any route.
+fn _computed(leaf: usize) -> ResultLabel {
+    _labelled(format!("0_leaf_{leaf}"))
+}
+```
+
+And the twin over the same bound, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+fn _parsed() -> ResultLabel {
+    _labelled(ResultLabel::bucket())
+}
+```
+
+**And it does not deserialize, which no gate in this tree holds.**
+`cargo xtask check-serde-parse` is the gate for a derived `Deserialize` writing past a parse, and
+what makes a type its subject is a FALLIBLE constructor - a `-> Result<Self, _>`. The four above
+cannot fail, because nothing is left to reject once the argument is a certified name, so this
+type is outside the gate for being parsed too well. Measured: `#[derive(serde::Deserialize)]`
+here reports `check-serde-parse: ok - 649 struct(s) in 388 file(s), serde routed through parse`
+and `hygiene: ok - 34 gate(s)`. `telekom/sutura#446` carries the general case, which is the
+gate's design question rather than this type's; the pair below is what holds this one:
+
+```compile_fail
+fn _needs<T: serde::de::DeserializeOwned>() {}
+
+// A label read off the wire would be a label nothing parsed.
+fn _off_the_wire() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+And the twin over the same shape, with the serde bound this type does satisfy:
+
+```
+fn _needs<T: serde::Serialize>() {}
+
+fn _into_a_snapshot() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+**It serializes as the bare string it renders**, so the plan goldens are unchanged by this type
+existing: a plan's serialized form is what a snapshot pins, and a wrapper visible in it would be
+a diff about a Rust type rather than about what we decided to execute.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The text this label carries in a result.
+
+```rust
+pub fn bucket() -> Self
+```
+
+The label the truncated time column carries, which is one constant for every plan.
+
+No argument, because there is nothing to choose:
+`TIME_BUCKET_LABEL` is the one spelling, and
+`Definitions::assemble` refuses a dimension that shadows it.
+
+```rust
+pub fn dimension(name: &DimensionName) -> Self
+```
+
+The label a group-by key carries: the dimension's own certified name.
+
+```rust
+pub fn internal(label: InternalLabel) -> Self
+```
+
+A label in the namespace no question can name.
+
+The one way into that half, and it takes the type rather than its text - so the reserved
+spelling still lives in exactly one place.
+
+```rust
+pub fn measure(metric: &MetricName) -> Self
+```
+
+The label the answer's measure carries: the metric's own certified name.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
 ### Module `leg`
 
 One source's share of a federated question, and the only thing the port can be handed.
 
-**The shapes, their closure, and nothing that produces or executes one.** There is no splitter
-and no combiner in this workspace, so no production code constructs a `LegPlan`: what is here
-is the vocabulary a splitter will emit and `sutura-sql` already renders, pinned per dialect
-before anything runs it. `.agents/skills/sutura/query-surface` carries that state, and this
-module says it rather than leaving it to be discovered.
+**The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
+`sutura_app::answer_federated` hands it to an adapter, and
+`FederatedPlan::combine` - a function in this crate -
+assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
+builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+published artefact reaches, and this module says the shape rather than the state.
 `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 
@@ -5409,7 +5688,7 @@ The division a leg cannot express does not compile:
 
 ```compile_fail
 use sutura_domain::measure::ZeroDenominator;
-use sutura_domain::plan::{LegTerm, PlanMeasure, PlanTerm};
+use sutura_domain::plan::{InternalLabel, LegTerm, PlanMeasure, PlanTerm, ResultLabel};
 
 // `LegTerm::new` takes a term, and a ratio is not one.
 fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDenominator) -> LegTerm {
@@ -5419,7 +5698,7 @@ fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDe
             denominator,
             zero_denominator,
         },
-        String::from("ratio"),
+        ResultLabel::internal(InternalLabel::Leaf(0)),
     )
 }
 ```
@@ -5428,12 +5707,12 @@ And the twin, so a rename cannot make that block pass vacuously: the two halves 
 terms, and the division happens above every leg.
 
 ```
-use sutura_domain::plan::{LegTerm, PlanTerm};
+use sutura_domain::plan::{InternalLabel, LegTerm, PlanTerm, ResultLabel};
 
 fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
     vec![
-        LegTerm::new(numerator, String::from("numerator")),
-        LegTerm::new(denominator, String::from("denominator")),
+        LegTerm::new(numerator, ResultLabel::internal(InternalLabel::Leaf(0))),
+        LegTerm::new(denominator, ResultLabel::internal(InternalLabel::Leaf(1))),
     ]
 }
 ```
@@ -5444,8 +5723,10 @@ fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
 pub fn label(&self) -> &str
 ```
 
+The text this term is projected under.
+
 ```rust
-pub const fn new(term: PlanTerm, label: String) -> Self
+pub const fn new(term: PlanTerm, label: ResultLabel) -> Self
 ```
 
 ```rust
@@ -6042,6 +6323,7 @@ somebody else's input.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
+- `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
 
 #### Implements
 
@@ -6190,6 +6472,20 @@ executed, and provenance is read by whoever holds the answer *after* the rows we
 cannot prevent a disclosure and does not attempt to. What keeps a shared source from being served
 unnoticed is the boot refusal in `sutura_config::Settings::refusals` and the cross-check above,
 both of which happen before a listener is bound.
+
+# One answer, one kind of identity - and this half IS a control
+
+`ExecutedAs::uniform` is the verdict, and `UniformlyExecuted` is what carrying it looks like:
+`crate::pinned::PinnedDefinitions::provenance` takes only that, so an answer whose legs decide
+identity two different ways is **unconstructible** rather than merely declined. It is a control
+and the recording beside it is not, for the reason the paragraph above gives - a refusal reaches a
+caller instead of the rows, and a record reaches them after.
+
+Two things it does not reach, both worth having in front of a reader here. It compares the posture
+**variant** and never the value, because an acknowledgement is written per source and two ordinary
+shared legs are therefore two unequal values and one posture. And *same posture* is not *same
+asker*: nothing in this module or in `crate::identity` names WHICH shared identity a source is
+read as.
 
 # Nothing here is `Deserialize`, and that is the same property `crate::identity` has
 
@@ -6623,6 +6919,26 @@ pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
 
 What one source's leg ran as, if this answer has one.
 
+```rust
+pub fn uniform(self) -> Result<UniformlyExecuted, LegsDecideIdentityDifferently>
+```
+
+This record, if every leg in it decides identity the same way.
+
+**The predicate compares the VARIANT and never the value, and that distinction is the whole
+of what makes this shippable.** `SourcePosture` derives `PartialEq` and a shared source
+carries the operator's own acknowledgement, which is resolved per source - so two ordinary
+`shared-service-user` legs whose operators wrote different sentences are two *unequal*
+values and one posture. A `!=` here would refuse the only federating shape that ships.
+`SourcePosture::as_str` is the variant, so the set below has one member for any number of
+shared legs.
+
+What it decides is *same posture*, and what it cannot decide is *same asker*:
+`crate::identity::Presented::SharedServiceUser` carries the acknowledgement witness and no
+identity, and nothing here names WHICH shared identity a source is read as. So two
+`shared-service-user` legs may be two different deployment-held identities and this passes
+them. Stated with the claim, because the stronger reading is the one somebody will make.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -6634,6 +6950,87 @@ pub struct LegAlreadyRecorded
 ```
 
 A second leg was recorded for a source that already had one.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct UniformlyExecuted`
+
+```rust
+pub struct UniformlyExecuted
+```
+
+An execution record whose legs all decide identity the same way.
+
+**This exists so a mixed-posture answer is unconstructible rather than refused twice.**
+`crate::pinned::PinnedDefinitions::provenance` takes one of these, `Provenance::new` is
+private, and `ToolOutcome::Answer` carries a `Provenance` - so an answer combining two postures
+has no way to be built, whatever a call site above it forgets to ask. The refusal in the
+federated answer path is what stops the legs *running*; this is what stops rows *reaching a
+caller* if that call site is ever moved below execution.
+
+The field is private and there is no `Deserialize`, for `SharedIdentityDeclared`'s reason: a
+value that reached this type without passing `ExecutedAs::uniform` would be the one state it
+exists to make unreachable. What it does **not** claim is that the constructors are unreachable
+from another crate - `Self::of` is `pub`, because one leg cannot disagree with itself and the
+mono answer path has no error arm to write.
+
+#### Methods
+
+```rust
+pub fn legs(&self) -> impl Iterator<Item>
+```
+
+Every leg, by source, in source order.
+
+```rust
+pub fn of(source: SourceName, posture: SourcePosture) -> Self
+```
+
+One leg, which is uniform by construction.
+
+The mono answer path's door, and it returns no `Result` deliberately: a single-leg record has
+one posture, so an `Err` arm there would be a refusal nothing can provoke sitting on the path
+every question takes. Two doors, one property - the other is `ExecutedAs::uniform`.
+
+```rust
+pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
+```
+
+What one source's leg ran as, if this answer has one.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct LegsDecideIdentityDifferently`
+
+```rust
+pub struct LegsDecideIdentityDifferently
+```
+
+The legs of one answer would not all decide identity the same way.
+
+Carries the posture LABELS and never a `SourcePosture`, and that is a disclosure decision
+rather than a convenience: the shared variant holds `SharedIdentityDeclared` ->
+`AcknowledgementReason`, both `Serialize`, so a value here would publish the operator's own
+prose to whatever reads the refusal this becomes - a caller, a log, an agent's context. The
+labels come from `SourcePosture::NAMES`' closed set and say the whole of what a reader needs.
+
+#### Methods
+
+```rust
+pub fn into_postures(self) -> BTreeSet<&'static str>
+```
+
+The labels, for a refusal that carries them onward.
+
+```rust
+pub const fn postures(&self) -> &BTreeSet<&'static str>
+```
+
+The posture labels this answer would have combined, in name order.
 
 #### Implements
 
@@ -7129,11 +7526,11 @@ inlines into the parent - and it did NOT inline here: `just api` generated three
 carried a port method returning a type it does not describe. A public module gets documented.
 What a data system answered when it was asked whether the bundle's tables are there.
 
-**A module of its own rather than three types in `warehouse.rs`**, and the seam is a real one:
+**A module of its own rather than part of `warehouse.rs`**, and the seam is a real one:
 nothing here is about a plan, a credential or a row. It is the vocabulary for one question a
 composition root asks once, at boot, before a listener is bound - *does this data system hold the
-tables the bundle names* - and the reason it needs a vocabulary at all is that there are three
-honest answers and only two of them are about the tables.
+tables the bundle names*. Not asking, an absence, and an inventory that could not establish
+an answer must remain distinct from verified presence.
 
 # The asymmetry this exists to close
 
@@ -7206,6 +7603,103 @@ domain is one: a second reason has somewhere to go.
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+#### `struct UnaccountedTables`
+
+```rust
+pub struct UnaccountedTables
+```
+
+A non-empty set of tables a data system was asked about and did not answer for either way.
+
+**The set an answer that fell short of its own inventory leaves behind**, and it is a third set
+rather than a second reading of `AbsentTables` because the two license different sentences: a
+table in that one is one the data system says it does not have, and a table in this one is one
+the data system's own answer did not reach. Collapsing them is the defect this type exists to
+remove - a listing that named no table beside a total claiming several read as *every table in
+the bundle is absent*, which sends an operator to fix a catalog that was never wrong.
+
+Non-empty by the same construction and for the same reason: a boot outcome that names no table
+is one nobody can act on. An empty difference is `TablesPresent::All`, because a table the
+answer DID name is one the answer accounted for whatever its total said.
+
+##### Methods
+
+```rust
+pub fn explained_by(&self, shortfall: NonZeroU64) -> usize
+```
+
+How many of these tables a gap of this size can actually explain.
+
+**Never more than there are, and that clamp is the whole method.** A shortfall is a count of
+tables the data system did not account for ANYWHERE in the dataset, and this set is the part
+of it the bundle happens to name - so the two are independent numbers and the first can be
+the larger. Review reproduced the sentence that comes of pairing them raw: *at most 9 of the
+2 table(s)*, on the very shape this check exists for, because an identified count of zero
+makes the shortfall the dataset's whole table count.
+
+**It lives here rather than in each composition root** for the reason `models_by_table` does:
+two roots each remembering a `min` is the rule held by recall that this repository does not
+accept. A root reads this and renders it.
+
+```rust
+pub fn is_empty(&self) -> bool
+```
+
+Always `false`, and it exists because `clippy::len_without_is_empty` asks for it.
+
+The type is non-empty by construction, so this is a constant with a name rather than a
+question worth asking - which is itself the honest reading of the invariant.
+
+```rust
+pub fn len(&self) -> usize
+```
+
+How many tables the answer did not reach.
+
+Read beside the shortfall by both roots, because the two are different numbers and a sentence
+carrying one of them reads as a claim about the other.
+
+```rust
+pub const fn named(&self) -> &BTreeSet<QualifiedTable>
+```
+
+The tables, for an outcome that names them.
+
+```rust
+pub fn parse(tables: BTreeSet<QualifiedTable>) -> Result<Self, NotUnaccounted>
+```
+
+Parses a set of tables a data system's own answer did not reach.
+
+**The canonical constructor.** An adapter computes the difference between what it asked about
+and what an incomplete or unreadable inventory actually named, and hands the result over.
+
+# Errors
+
+`NotUnaccounted::Nothing` for an empty set.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `enum NotUnaccounted`
+
+```rust
+pub enum NotUnaccounted
+```
+
+Why a set of unaccounted-for tables is not one.
+
+One variant, an enum for `NotAbsent`'s reason: a second reason has somewhere to go.
+
+##### Variants
+
+- `Nothing` - Nothing was named. Say `TablesPresent::All` instead.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 #### `enum TablesPresent`
 
 ```rust
@@ -7222,14 +7716,25 @@ boot, in the one place a deployment is deciding whether to serve at all. An adap
 looked and found everything answers `Self::All`; one that did not look answers the default, and
 a composition root can tell which it got.
 
-**The third outcome is not a variant here, deliberately.** A data system that could not be
-asked at all - a credential with no permission to list, a dataset that is not there, an endpoint
-that did not answer - is an `Err` from the port, not a variant of this enum. Two reasons, and the
-first is the one that decides it: *could not verify* and *this table is absent* must not collapse
-into one message, because an operator told the wrong one fixes the wrong thing, and the adapter's
-own error type is where the reason lives in the detail an operator needs. The second is that a
-variant would need a reason field, and a reason field in a domain enum is either a bounded string
-nobody owns or an erased cause the domain has no vocabulary for.
+**A data system that could not be ASKED is still not a variant here, deliberately.** A credential
+with no permission to list, a dataset that is not there, an endpoint that did not answer - each
+is an `Err` from the port, not a variant of this enum. Two reasons, and the first is the one that
+decides it: *could not verify* and *this table is absent* must not collapse into one message,
+because an operator told the wrong one fixes the wrong thing, and the adapter's own error type is
+where the reason lives in the detail an operator needs. The second is that a variant would need a
+reason field, and a reason field in a domain enum is either a bounded string nobody owns or an
+erased cause the domain has no vocabulary for.
+
+**`Self::Unaccounted` is not that outcome and is a variant for exactly the reasons that keep it
+out.** The data system WAS asked and it DID answer; what it did not do is account for its own
+inventory, which is a property of the answer rather than a failure to get one. So there is no
+foreign cause to carry: the payload is a set of table paths and one count this adapter computed.
+`Self::UnreadableInventory` carries the same set without inventing a count when none was readable.
+And an `Err` would have been the wrong channel twice over - `Warehouse::preflight_was_refused`
+puts everything that is not an authorization failure in the WARNING half, so the shape a
+cross-check exists to catch would have reached a root as *serving anyway*. `docs/adr/0018` and
+`telekom/sutura#275` carry that argument; a refusal is a VALUE here for the same reason
+`ToolOutcome::Refusal` is one on the query path.
 
 **The limit, stated with the claim:** what this reports is that a table EXISTS. It says nothing
 about the columns a model names on it, and nothing about whether the identity that asked can
@@ -7241,6 +7746,8 @@ metrics that have one.
 - `NotAsked` - The adapter did not ask. The port's default, and the honest answer for an adapter that has already answered this question another way - a file engine is given its tables at boot, so a second check would be a check on the set it just built.
 - `All` - The data system was asked and holds every table it was asked about.
 - `AllBut` - The data system was asked and does not hold these.
+- `UnreadableInventory` - The inventory reported a total the adapter could not read and no readable table IDs.
+- `Unaccounted` - The data system was asked, answered, and its answer did not account for every table it said it holds - so whether it holds these is not established either way.
 
 ##### Methods
 
@@ -7252,6 +7759,10 @@ The tables that are not there, if any were named.
 
 `None` for both `Self::NotAsked` and `Self::All`, which is correct for a caller asking
 *what do I refuse over* and is exactly why `Self::was_asked` is a separate question.
+
+**`None` for `Self::Unaccounted` too, and that arm is the whole point of this method having
+one.** A table an answer did not reach is not a table the data system said it does not hold,
+and a caller that read the two as one number is the caller this variant exists to stop.
 
 ```rust
 pub fn of(absent: BTreeSet<QualifiedTable>) -> Self
@@ -7272,6 +7783,12 @@ Whether the adapter looked at all.
 
 Read by a composition root's log line, which says a different thing for a deployment nobody
 verified than for one that was verified clean.
+
+**An exhaustive match and not `!matches!(NotAsked)`, which is a review finding rather than
+style.** The negated form is a DEFAULTED arm: `Self::absent` and `sutura_app::preflight::ask`
+both refuse an additional variant at compile time, and this one would have compiled silently and
+answered *it looked* about a variant nobody had classified. The compiler holds here what the
+two matches beside it already held.
 
 ##### Implements
 
@@ -7434,3 +7951,434 @@ This compares the SHAPE and not the labels, so two results of one width whose co
 differently are compared position by position here and reported as a
 `ContentDisagreement::Columns` there. And a caller reaching only for this one gets no
 multiplicity check, because a positional comparison of equal-height results cannot express one.
+
+### Module `cardinality`
+
+Whether a declared join key is really unique in the table it points at.
+
+A module of its own for `preflight`'s reason - nothing in it is about a plan, a credential or
+a row - and its header carries the measurement that made the check necessary: one violated
+`many_to_one`, two topologies, two numbers, and a refusal from neither.
+What a data system answered when it was asked whether a declared join key is really unique.
+
+# The defect this vocabulary exists for
+
+A relationship declares `many_to_one`, and the whole query path spends that declaration: the
+whole-answer path renders a `JOIN` on the strength of *a dimension row cannot duplicate a fact
+row*, and a federated lookup leg renders `GROUP BY` over the columns it projects on the strength
+of the same sentence. **Neither of them checks it, and the two spend it differently.** Measured
+over the derived corpus in `crates/sutura-app/tests/differential/federated.rs`, with one extra
+row for a customer key the dimension table already had:
+
+| Topology | June 2026, `recurring_revenue`, business only, north |
+| --- | --- |
+| one data system | `29138` - the `JOIN` matched twice and the measure was added twice |
+| two data systems | `22765` - the lookup leg's `GROUP BY` collapsed the pair first |
+
+`29138 - 22765` is that one customer's June revenue, counted a second time. **Neither answer was
+refused**, and which one a deployment gets depends on where the dimension model sits rather than
+on the question. `FederatedFailure::AmbiguousLink`
+covers half the shape and only on the federated side: it fires when the duplicate rows DISAGREE
+in a column the question projects, and the `GROUP BY` has already removed them when they agree.
+
+# Why the check is here rather than on the answer path
+
+A duplicate is invisible inside one answer's statement. What the declaration claims is a property
+of the **target table**, not of any one question, so the place it can be contradicted is the same
+place an anchor is: once, at boot, against the data system that holds the table. Refusing there
+makes both topologies agree - a bundle whose declaration the data contradicts is not validated,
+so neither of them serves - and the refusal names the model, the table and the column, which no
+answer-path guard could.
+
+# What the probe carries back, and what it deliberately does not
+
+Two counts: how many non-null values of the key column the table holds, and how many of them are
+distinct. **No key value ever leaves the data system**, which is why the counts are the shape:
+a boot refusal is written to an operator's log, and a duplicated dimension key printed there is
+source data copied into a sink nobody scoped for it. The counts locate the table; the operator
+queries it.
+
+Nulls are excluded from both counts, and that is a correctness decision rather than a
+convenience: a null key matches nothing on either side of any join, so two null target rows
+duplicate no fact row. Counting them would report a violation that cannot change an answer.
+
+**The links here are `crate::`-prefixed** for the reason `preflight`'s header
+gives: the API reference pages are generated from these comments verbatim.
+
+#### `struct DeclaredKey`
+
+```rust
+pub struct DeclaredKey<'a>
+```
+
+One declared join key, resolved to the table and column a data system can be asked about.
+
+**A newtype that parses, and what it parses away is asking the wrong question.** It is
+constructible only from a `Relationship` whose `JoinType` promises that the TARGET column is
+unique, resolved against the `Definitions` that carry the target model - so a probe over a
+`one_to_many` target, or over a column the model does not declare, is unrepresentable rather than
+refused later. An adapter that holds one of these knows the question is worth asking.
+
+It borrows, because every part of it is already owned by the pinned bundle the boot path is
+holding, and a probe outlives nothing.
+
+##### Methods
+
+```rust
+pub const fn column(&self) -> &'a ColumnName
+```
+
+The column whose values are meant to be distinct.
+
+```rust
+pub const fn model(&self) -> &'a ModelName
+```
+
+The model the operator opens to fix it.
+
+```rust
+pub fn promised_by(relationship: &'a Relationship, definitions: &'a Definitions) -> Result<Self, NoDeclaredKey>
+```
+
+The key one relationship promises is unique, or why it promises none.
+
+**The whole of the join-type decision is here**, so no adapter and no boot path repeats it:
+`JoinType::may_duplicate_rows` is the one question, and both `one_to_one` and `many_to_one`
+answer it the same way - each of them says the target column identifies at most one row.
+`one_to_one` promises the origin column does too, and **this does not check that half**; see
+the module header's limits.
+
+```rust
+pub const fn relationship(&self) -> &'a RelationshipName
+```
+
+The relationship whose declaration this probe would contradict.
+
+```rust
+pub const fn source(&self) -> &'a SourceName
+```
+
+The data system that holds the table, which is the adapter this is asked of.
+
+```rust
+pub const fn table(&self) -> &'a QualifiedTable
+```
+
+The table to count over.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum NoDeclaredKey`
+
+```rust
+pub enum NoDeclaredKey
+```
+
+Why a declared relationship yields no key to probe.
+
+Typed, one variant per branch, because two of the three are *nothing to ask* and one is a bundle
+that would not have loaded - and a caller that collapsed them would report a consistent catalog
+as an unchecked one.
+
+##### Variants
+
+- `MayDuplicateRows` - The join type promises nothing about the target column.
+- `ModelUndefined` - The target model is not in these definitions.
+- `ColumnNotOnModel` - The target model does not declare the column the relationship joins on. Unreachable for `ModelUndefined`'s reason, and reported for it.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct KeyCounts`
+
+```rust
+pub struct KeyCounts
+```
+
+How many non-null key values a table holds, and how many of them are distinct.
+
+**Parsed rather than validated:** neither `distinct > rows` nor rows-with-no-distinct-value is
+producible by one column of one table, so a pair in either shape is a defect in an adapter's
+mapping and not a fact about data. The field pair is private and `parse` is
+the only way in, which is what makes the subtraction in
+`duplicated` safe: `rows >= distinct` holds for every constructible
+value. It is written `saturating_sub` anyway, and the reason is the sink rather than the
+arithmetic - this number is rendered into a boot refusal an operator reads, and a panic reachable
+from a catalog-driven path is the one outcome worse than a wrong figure.
+
+##### Methods
+
+```rust
+pub const fn distinct(&self) -> u64
+```
+
+How many of them are distinct.
+
+```rust
+pub const fn duplicated(&self) -> u64
+```
+
+How many rows are surplus to the keys they carry.
+
+Not *how many keys are duplicated* - one key on three rows contributes two - and the
+difference is worth the sentence, because this number goes into a refusal an operator reads.
+
+```rust
+pub const fn is_unique(&self) -> bool
+```
+
+Does the data hold the declaration up?
+
+```rust
+pub const fn parse(rows: u64, distinct: u64) -> Result<Self, ImpossibleCounts>
+```
+
+Parses the pair a data system answered with.
+
+**Both impossible pairs, not one.** `distinct > rows` is the obvious half; `rows > 0` with no
+distinct value is the half this originally accepted, and accepting it is what let a refusal
+describe a table that cannot exist. An empty column - `0` over `0` - is neither, and is a
+perfectly ordinary answer for a dimension table whose key column is entirely null.
+
+```rust
+pub const fn rows(&self) -> u64
+```
+
+How many non-null key values the table holds.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum ImpossibleCounts`
+
+```rust
+pub enum ImpossibleCounts
+```
+
+Why two counts are not a `KeyCounts`.
+
+**Two variants, because there are two impossible pairs and only one of them was refused at
+first.** Both are arithmetic about one column of one table rather than anything about data, so
+both mean a broken adapter mapping; and a pair that reached `KeyNotUnique` would print a table
+that cannot exist into an operator's log.
+
+##### Variants
+
+- `MoreDistinctThanRows` - More distinct values than values. One column of one table cannot produce this.
+- `NoDistinctValue` - Values, and none of them distinct. A non-empty column has at least one distinct value, so this is exactly as impossible as the pair above and was exactly as constructible: `parse(41, 0)` answered `Ok`, and the `KeyNotUnique` it licensed described a table with forty-one rows under no key at all. Review found it; *newtypes that parse* is the rule it broke.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct KeyNotUnique`
+
+```rust
+pub struct KeyNotUnique
+```
+
+A declared key the data contradicts, and the whole of what a refusal about one says.
+
+**Constructible only from counts that are NOT unique**, so a refusal describing a table that
+holds its declaration up is unrepresentable rather than a branch a caller could take by mistake.
+`found` is the only way in and it returns `None` for the clean case.
+
+**A struct rather than six fields on a `NotValidated` variant**, and boxed there:
+`result_large_err` is deliberately left on in this workspace - *a service whose public surface is
+`ToolOutcome::Refusal` wants to know when the error half of every `Result` grows* - and six
+parsed names inline made that `Result` the widest thing the boot path returns.
+
+**It carries no key value**, which is the module header's decision: this is rendered into an
+operator's log, and a duplicated dimension key printed there is source data copied into a sink
+nobody scoped for it. The counts locate the table; the operator queries it.
+
+##### Methods
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+The column that was meant to identify at most one row.
+
+```rust
+pub const fn counts(&self) -> KeyCounts
+```
+
+What the data system counted.
+
+```rust
+pub fn found(key: &DeclaredKey<'_>, counts: KeyCounts) -> Option<Self>
+```
+
+The violation these counts show, or `None` where they hold the declaration up.
+
+```rust
+pub const fn model(&self) -> &ModelName
+```
+
+The model an operator opens to fix the declaration.
+
+```rust
+pub const fn relationship(&self) -> &RelationshipName
+```
+
+The relationship whose declaration the data contradicts.
+
+```rust
+pub const fn table(&self) -> &QualifiedTable
+```
+
+The table an operator queries to find the duplicates.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `struct KeyNotCounted`
+
+```rust
+pub struct KeyNotCounted
+```
+
+A declared key no data system would count, and the whole of what a refusal about one says.
+
+**The adapter's own error, flattened at the one boundary where it is still typed.** `W::Error` is
+a generic parameter and this crate must not hold one, so the message and its cause chain arrive
+as text - the same lossless-at-that-boundary move
+`NotExecutedReason::Failed` makes for an anchor's
+adapter error, and for its reason. The chain is what carries the data system's own complaint, and
+a permission failure names the grant in it.
+
+**There is deliberately no *refused* / *unreachable* split here**, and that is a measurement
+rather than a shortcut: the port's one predicate for that question,
+`Warehouse::preflight_was_refused`, is
+overridden by exactly one adapter, and that adapter takes this method's default - so a typed
+split would be a control that cannot fire on any adapter that counts. What is done instead is to
+refuse in BOTH cases and print the cause, which is loud for either and honest about neither being
+told apart. Splitting them wants that predicate implemented by an adapter that can tell a `403`
+from a timeout, and that is a slice of its own.
+
+##### Methods
+
+```rust
+pub const fn model(&self) -> &ModelName
+```
+
+The model whose table could not be counted.
+
+```rust
+pub fn of(key: &DeclaredKey<'_>, message: String, chain: Vec<String>) -> Self
+```
+
+The failure one probe met, from the key it was asked about and the adapter's flattened error.
+
+```rust
+pub const fn relationship(&self) -> &RelationshipName
+```
+
+The relationship whose declaration went unchecked.
+
+```rust
+pub const fn source(&self) -> &SourceName
+```
+
+The data system that would not answer, which is where an operator looks.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `enum CountsNotRead`
+
+```rust
+pub enum CountsNotRead
+```
+
+Why a probe's result set is not a pair of counts.
+
+Every variant is a defect in an adapter or in the rendering, never anything about the data: the
+probe projects exactly two aggregates over one table and no group, so one row of two integers is
+the only shape it can have. Typed rather than one message so that whoever reads a boot log knows
+which half of the mapping is wrong.
+
+##### Variants
+
+- `NoColumn` - The result carries no column under the label the probe projects.
+- `NotOneRow` - Two aggregates over no group produce one row.
+- `NotACount` - A count came back as something other than an integer.
+- `NegativeCount` - A count came back negative, which no `COUNT` produces.
+- `Impossible` - The pair is arithmetically impossible.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Error`, `PartialEq`
+
+#### `enum KeyUniqueness`
+
+```rust
+pub enum KeyUniqueness
+```
+
+What a data system said about a declared key.
+
+**`Self::NotAsked` is not `Self::Counted` with a clean pair, and no caller can read it as
+one.** It is `TablesPresent::NotAsked`'s argument
+applied to a second boot question: the port's default has to be *nothing to report*, because an
+adapter with no cheap way to count must not be forced to answer, and the only answers available
+to one that cannot look are nothing-to-report and a lie. A default claiming uniqueness would be
+that lie, told at boot, about the one declaration the whole join path spends.
+
+**The third outcome is an `Err` from the port rather than a variant here**, for the reason
+`TablesPresent` gives: *could not count* and *the data
+contradicts the declaration* must not collapse into one message, and the adapter's own error type
+is where the reason lives in the detail an operator needs.
+
+##### Variants
+
+- `NotAsked` - The adapter did not count. The port's default.
+- `Counted` - The adapter counted, and this is what it found.
+
+##### Methods
+
+```rust
+pub fn read(rows: &RowSet) -> Result<Self, CountsNotRead>
+```
+
+Reads the two counts off a probe's result set.
+
+**One function, in the domain, called by every SQL adapter and by the engine**, so the three
+implementations of the port cannot disagree about which column is which - the same argument
+`labels` makes for the federated legs. It takes a `RowSet` because
+that is what every adapter already produces; nothing here knows what a statement is.
+
+```rust
+pub const fn was_asked(&self) -> bool
+```
+
+Whether the adapter looked at all.
+
+Read where a caller has to tell *nobody counted* from *counted and clean*, which is the whole
+reason the two are different values.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `constant ROWS_LABEL`
+
+The label the row count is projected under.
+
+**A leading digit, which is the same namespace trick
+`InternalLabel` is built on and for the same reason:**
+`crate::model`'s identifier parser refuses a leading digit as a first character, so no
+`ColumnName` a catalog can declare collides with it. Here that matters less than it does for a
+leg - the probe projects nothing but these two - but the two labels are read back by label rather
+than by position, and a label that no column can shadow is what makes reading by label safe.
+
+#### `constant DISTINCT_LABEL`
+
+The label the distinct count is projected under. See `ROWS_LABEL`.

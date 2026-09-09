@@ -15,6 +15,7 @@ use sutura_domain::identity::{
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::Executable;
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyCounts, KeyUniqueness};
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
 
 /// The driver's own complaint, one level below the adapter's.
@@ -63,6 +64,26 @@ pub(crate) struct FixedWarehouse {
     /// takes longer than the credential's remaining life. `Duration::ZERO` for every other fixture,
     /// which sleeps not at all.
     pre_flight_takes: std::time::Duration,
+    /// What this fake says when it is asked whether a declared join key is unique.
+    ///
+    /// Defaults to [`CountsBack::NotAsked`] on every constructor, which is the port's own default -
+    /// so every fixture that predates the check answers exactly as it did before, and only the
+    /// tests that are about the check say otherwise.
+    counts: CountsBack,
+}
+
+/// What a fake answers when the boot path asks whether a declared key is really unique.
+///
+/// Three values because the boot path treats three outcomes differently, and only one of them is a
+/// refusal - `crate::declared_keys` is where that is argued.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CountsBack {
+    /// This fake did not count. The port's default, and what every other fixture answers.
+    NotAsked,
+    /// It counted, and this is the pair.
+    Counted { rows: u64, distinct: u64 },
+    /// It could not count. A data system that is briefly unreachable looks like this.
+    Failed,
 }
 
 impl FixedWarehouse {
@@ -73,6 +94,7 @@ impl FixedWarehouse {
             posture,
             result: None,
             pre_flight_takes: std::time::Duration::ZERO,
+            counts: CountsBack::NotAsked,
         }
     }
 
@@ -83,6 +105,23 @@ impl FixedWarehouse {
             posture,
             result: Some(result),
             pre_flight_takes: std::time::Duration::ZERO,
+            counts: CountsBack::NotAsked,
+        }
+    }
+
+    /// The same, answering `counts` when the boot path asks about a declared key.
+    pub(crate) const fn answering_and_counting(
+        source: SourceName,
+        posture: SourcePosture,
+        result: RowSet,
+        counts: CountsBack,
+    ) -> Self {
+        Self {
+            source,
+            posture,
+            result: Some(result),
+            pre_flight_takes: std::time::Duration::ZERO,
+            counts,
         }
     }
 
@@ -98,6 +137,7 @@ impl FixedWarehouse {
             posture,
             result: Some(result),
             pre_flight_takes,
+            counts: CountsBack::NotAsked,
         }
     }
 
@@ -149,6 +189,20 @@ impl Warehouse for FixedWarehouse {
             .clone()
             .map(AnchorRows::of)
             .ok_or(AdapterFailure::Statement { cause: DriverFailure })
+    }
+
+    /// Whatever this fixture was built to say, without looking at the key it was handed.
+    ///
+    /// A fake over no data system cannot count anything, so what it is for is the boot path's own
+    /// branches: the default, a clean pair, a violated pair, and a data system that could not answer.
+    fn declared_key(&self, _key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
+        match self.counts {
+            CountsBack::NotAsked => Ok(KeyUniqueness::NotAsked),
+            CountsBack::Counted { rows, distinct } => KeyCounts::parse(rows, distinct)
+                .map(KeyUniqueness::Counted)
+                .map_err(|_impossible_pair| AdapterFailure::Statement { cause: DriverFailure }),
+            CountsBack::Failed => Err(AdapterFailure::Statement { cause: DriverFailure }),
+        }
     }
 }
 
@@ -459,6 +513,62 @@ impl CredentialBroker for CountingBroker {
         }
         // The `map_err` arm is unreachable: the map is built from `sources`. Named rather than `_`,
         // because `map_err_ignore` is denied and discarding a cause is what that lint is for.
+        LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
+            .map(|credentials| Minted::Granted { credentials })
+            .map_err(|_uncoverable| BrokerUnreachable)
+    }
+}
+
+/// A broker that grants each source the shared witness that source's OWN operator wrote.
+///
+/// **The fake a two-source shared deployment needs, and the reason is a mechanism rather than
+/// convenience.** `Presented::agrees_with` compares the witness against the posture the adapter was
+/// handed by *equality on the prose*, and every other fake here mints one fixed witness for every
+/// source - which is correct while one acknowledgement is in play and refuses the moment two sources
+/// carry two sentences. `StaticCredentialBroker` is per-source for the same reason.
+///
+/// Built from the postures the registry was given, so a test cannot arrange for the broker and the
+/// adapters to disagree by accident. A source it was not told about gets the deployment's own
+/// identity, which is what `LegCredentials::minted` needs to cover the set it was asked for.
+pub(crate) struct AcknowledgingBroker {
+    /// The WITNESS per source rather than the `Presented` it becomes. `Presented` is deliberately
+    /// not `Clone` - it carries a `Secret` in another variant - so the leg is built inside `mint`,
+    /// which is where a real broker builds one anyway.
+    by_source: BTreeMap<SourceName, SharedIdentityDeclared>,
+}
+
+impl AcknowledgingBroker {
+    /// One entry per source, from that source's own declared posture.
+    ///
+    /// An impersonating source contributes nothing, so this fake stays the *shared* broker it says
+    /// it is and such a source falls through to the fixture's own witness - which is what its leg
+    /// is then refused for by `agrees_with`, not by this.
+    pub(crate) fn over(postures: &[(SourceName, SourcePosture)]) -> Self {
+        let mut by_source = BTreeMap::new();
+        for (source, posture) in postures {
+            if let SourcePosture::SharedServiceUser { ref declared } = *posture {
+                drop(by_source.insert(source.clone(), declared.clone()));
+            }
+        }
+        Self { by_source }
+    }
+}
+
+impl CredentialBroker for AcknowledgingBroker {
+    type Error = BrokerUnreachable;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        let mut presented = BTreeMap::new();
+        for name in sources.iter() {
+            let leg = self
+                .by_source
+                .get(name)
+                .map_or_else(shared_leg, |declared| Presented::SharedServiceUser {
+                    declared: declared.clone(),
+                });
+            drop(presented.insert(name.clone(), leg));
+        }
+        // The `map_err` arm is unreachable: the map is built from `sources`, so it covers it.
         LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
             .map(|credentials| Minted::Granted { credentials })
             .map_err(|_uncoverable| BrokerUnreachable)

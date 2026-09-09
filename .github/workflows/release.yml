@@ -92,7 +92,7 @@ jobs:
   # a commit no branch contains, so CI never validated that tree at all: "main was green"
   # would have shipped something nothing had ever checked.
   gates:
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 60
     permissions:
       contents: read
@@ -184,7 +184,7 @@ jobs:
   # that compiles happens here, under a token that can read the repository and nothing else.
   build:
     needs: [gates]
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 90
     permissions:
       contents: read
@@ -260,7 +260,10 @@ jobs:
   # `needs: [gates]` lets this run beside the four cross builds; `publish` signs the result.
   licence:
     needs: [gates]
-    runs-on: rust-mcp
+    # `ubuntu-latest`: checkout, `cp` and `sha256sum` over a COMMITTED document, per the step
+    # below - nothing is generated and nothing is built. `publish` signs the result and keeps the
+    # Rust runner.
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
@@ -323,7 +326,7 @@ jobs:
   publish:
     needs: [build, licence]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 60
     permissions:
       contents: write      # create the release, upload assets
@@ -354,11 +357,9 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      # NO cache step here, and this time the absence really is deliberate. This job compiles
-      # nothing: its only nix invocation is `nix run .#git-cliff`, which is substituted from
-      # cache.nixos.org rather than built. So the job holding `contents: write` and
-      # `packages: write` is also the one job that never touches the shared build cache - a
-      # property that falls out of the split rather than one that had to be arranged.
+      # No shared build-cache action in this publishing job. Its Nix tools may be substituted
+      # or built on a cache miss, including xtask for provenance collection; that does not give
+      # this job a shared-cache write step alongside its publication permissions.
 
       # Into the workspace root, so `dist/`, `images/` and `facts/` land exactly where the
       # steps below expect them: the same layout a single job would have produced. None of
@@ -898,6 +899,12 @@ jobs:
           set -eu
           tag="${GITHUB_REF_NAME}"
           cat notes.md
+          # The collector already validated the five records and exact subject set. Require its
+          # output to have arrived before creating the draft; dist/* below uploads it unchanged.
+          if [ ! -s dist/sutura-provenance.intoto.jsonl ]; then
+            echo "::error::missing provenance release asset"
+            exit 1
+          fi
 
           state="$(gh release view "$tag" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo none)"
           case "$state" in

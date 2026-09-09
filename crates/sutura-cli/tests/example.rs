@@ -456,7 +456,9 @@ mod tests {
         let pinned = load();
         let warehouse = engine(&pinned);
         let report = sutura_app::verify_anchors(&pinned, &warehouse);
-        settings().bind(|| insta::assert_yaml_snapshot!("example_anchor_report", &report));
+        settings().bind(|| {
+            insta::assert_yaml_snapshot!("example_anchor_report", &report);
+        });
         let mut checked = 0_usize;
         for (metric, check) in report.checks() {
             assert_eq!(

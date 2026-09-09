@@ -329,6 +329,9 @@ fn gated_declarations(path: &str, text: &str) -> Vec<Gated> {
             let one = ChangedFile {
                 path: String::from(path),
                 added: vec![AddedLine::new(at + 1, item)],
+                // A SYNTHETIC file, not a diff: this stands the declaration up so
+                // `super::place` can read it. Nothing was removed because nothing was diffed.
+                removed: Vec::new(),
             };
             match accounted_for(&one, &lines)? {
                 Declares::OutOfLine(candidates) => Some((feature, candidates)),

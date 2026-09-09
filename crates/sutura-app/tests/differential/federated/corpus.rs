@@ -1,11 +1,12 @@
 //! The derived corpus: the shared example bytes, plus the declared edits that make a topology the
 //! quickstart cannot state.
 //!
-//! **One data directory, two catalogs over it, and the two differ in exactly one line** - whether
+//! The baseline has **one data directory, two catalogs over it, differing in exactly one line** - whether
 //! the `customers` model sits on the metric's own data system. That width is
-//! [`the_two_catalogs_differ_in_one_document`], and it is the control on the whole instrument:
+//! [`the_two_catalogs_differ_in_one_document`], and it is the control on the baseline instrument:
 //! without it, a corpus asymmetry would be reported by `super` as a federation defect, which is the
 //! most expensive kind of false positive because the diagnosis names the wrong subsystem.
+//! The refusal-only variants also move products, under distinct stems without mutating the baseline.
 //!
 //! **Derived rather than committed, and that is a scope decision.** Placing the dimension model on a
 //! second source is one deployment's topology, and `examples/single-player` is a single-source
@@ -13,7 +14,7 @@
 //! measure that cannot federate, none of which belongs in a document a reader is told to run.
 //! Editing the shared corpus would also have moved anchors and committed snapshots in three crates.
 //!
-//! So each derivation is one entry in [`CATALOG_CASES`], [`DATA_CASES`] or [`DERIVED_QUESTIONS`]
+//! Each baseline derivation is one entry in [`CATALOG_CASES`], [`DATA_CASES`] or [`DERIVED_QUESTIONS`]
 //! with its reason beside it, and a [`Edit::Rewrite`] whose text has left the shared document
 //! PANICS rather than deriving nothing - a corpus edit upstream fails loudly instead of quietly
 //! emptying this file. The appended fact rows are dated `2026-07-01`, outside every anchor range and
@@ -193,11 +194,23 @@ pub(crate) const DATA_CASES: &[(&str, Edit)] = &[(
     // `include_unmatched` was consulted, losing the measure entirely. The second row's key is
     // present and matches nothing (the corpus's own orphan customer), so the two arrive at one
     // answer group and a defect in either is a wrong number rather than a missing row.
+    //
+    // **The last row's `product_key` 99 is a SAME-SOURCE orphan, and it exists because the shared
+    // join decision was otherwise observed by nothing.** Every other orphan in this corpus is a
+    // REMOTE one - `customer_key` 41, which the derivation puts on the second data system, so the
+    // combiner's `include_unmatched` covers it and the fact leg's own `JOIN` never sees an unmatched
+    // row. Measured: with the leg path taking `EngineJoin::Inner` for its own same-source hops and
+    // the shared definition untouched, the whole suite was 2640 of 2640 passed. `dim_product.csv`
+    // stops at 8, so 99 matches nothing on the source the fact leg reads, and
+    // `two-source-a-same-source-orphan-beside-a-remote-one` groups by a column of that table -
+    // which is what makes LEFT-versus-INNER *inside a leg* a wrong number instead of an
+    // unobservable preference.
     Edit::Appended(
         "2026-07-01,1901,,3,active,1000,false,monthly\n\
          2026-07-01,1902,41,3,active,2000,false,monthly\n\
          2026-07-01,1903,2,3,active,3000,true,monthly\n\
-         2026-07-01,1904,1,4,active,4000,false,annual\n",
+         2026-07-01,1904,1,4,active,4000,false,annual\n\
+         2026-07-01,1905,1,99,active,5000,false,monthly\n",
     ),
 )];
 
@@ -243,6 +256,17 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
         "two-source-a-minimum-re-taken-above-the-legs",
         "metric: smallest_subscription_mrr\ngrain: month\nrange:\n  start: 2026-01-01\n  end: 2026-07-01\ndimensions: [region]\n",
     ),
+    // **A same-source orphan beside a remote one**, which is the only question here whose fact leg
+    // has an unmatched row in its OWN `JOIN`. `product_family` comes off the metric's own data
+    // system and `region` off the second, so the fact leg carries a same-source hop and the lookup
+    // leg the remote one - and subscription 1905's `product_key` matches no product. Under LEFT it
+    // survives with a null family and its 5000 stays in the answer; under INNER the leg drops it and
+    // the two-source side totals less than the one-source side with nothing raising an error. That
+    // is the disagreement `leg::dimension_join` exists to make impossible.
+    (
+        "two-source-a-same-source-orphan-beside-a-remote-one",
+        "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region, product_family]\n",
+    ),
     // A distinct value spanning join keys: refused, not answered.
     (
         "two-source-a-distinct-value-spanning-join-keys",
@@ -257,36 +281,104 @@ pub(crate) struct Derived {
     pub(crate) two_source: PathBuf,
 }
 
-/// Derived once per process, into cargo's own temp directory for this target.
-///
-/// Per PROCESS because the runner gives each test its own: two processes deriving into one
-/// directory would race on files whose bytes are identical, a flake with no defect behind it.
+/// The corpus every question above is answered over: derived once per process, and satisfying every
+/// declaration its catalogs make.
 pub(crate) fn derived() -> &'static Derived {
     static ONCE: OnceLock<Derived> = OnceLock::new();
+    ONCE.get_or_init(|| derive_into("federated-differential"))
+}
+
+/// An owned refusal topology: customers are remote, and products take the supplied source line.
+/// Distinct caller stems keep these variants separate from each other and the shared baseline.
+pub(crate) fn remote_products(stem: &str, source_line: &'static str) -> Derived {
+    let derived = derive_into(stem);
+    apply(
+        &derived.two_source.join("models/products.md"),
+        &Edit::Rewrite {
+            find: "source: local",
+            with: source_line,
+        },
+    );
+    derived
+}
+
+/// **The same corpus with the `many_to_one` between the fact and the dimension VIOLATED**, as one
+/// appended row.
+///
+/// A second row for `customer_key = 2`, identical to the one already there. It is a whole second
+/// derivation rather than an entry in [`DATA_CASES`] for the obvious reason: every other case is
+/// something the differential above answers, and this one is a corpus no deployment may serve.
+///
+/// **Identical rather than differing, which is what makes it the case the guards missed.**
+/// `FederatedFailure::AmbiguousLink` fires when two lookup rows disagree in a column the question
+/// projects; when they agree the lookup leg's own `GROUP BY` has already collapsed them, so the
+/// two-source side answered the number the declaration promises while the one-source side's `JOIN`
+/// added the measure twice. Measured on the tree before the boot check existed: `29138` against
+/// `22765` for `recurring-revenue-business-only` in the north, a difference of exactly that
+/// customer's June business revenue.
+pub(crate) fn violated() -> &'static Derived {
+    static ONCE: OnceLock<Derived> = OnceLock::new();
     ONCE.get_or_init(|| {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("federated-differential-{}", std::process::id()));
-        drop(std::fs::remove_dir_all(&root));
-        let derived = Derived {
-            data: root.join("data"),
-            one_source: root.join("catalog-one-source"),
-            two_source: root.join("catalog-two-source"),
-        };
-        copy_tree(&shared_data_root(), &derived.data);
-        copy_tree(&shared_catalog_root(), &derived.one_source);
-        copy_tree(&shared_catalog_root(), &derived.two_source);
-        for &(at, ref edit) in DATA_CASES {
-            apply(&derived.data.join(at), edit);
-        }
-        for &(at, ref edit) in CATALOG_CASES {
-            apply(&derived.one_source.join(at), edit);
-            apply(&derived.two_source.join(at), edit);
-        }
+        let derived = derive_into("federated-differential-violated");
+        apply(&derived.data.join(A_DUPLICATED_KEY.0), &Edit::Appended(A_DUPLICATED_KEY.1));
+        derived
+    })
+}
+
+/// The row [`violated`] appends, held here so the test that reads it names the same bytes.
+pub(crate) const A_DUPLICATED_KEY: (&str, &str) = ("dim_customer.csv", "2,C0002,business,north\n");
+
+/// **The same corpus with two dimension rows whose join key is ABSENT, and no duplicate anywhere.**
+///
+/// The corpus that decides the probe's null rule. `COUNT(col)` and `COUNT(DISTINCT col)` both skip
+/// nulls, so this table counts 40 over 40 and holds its declaration up - while a probe written with
+/// `COUNT(*)` would count 42 over 40 and refuse a deployment for two rows that can join to nothing.
+/// A null key matches nothing on either side of any join, so it duplicates no fact row; that
+/// sentence is `sutura_domain::warehouse::cardinality`'s, and this is the corpus that measures it
+/// rather than leaving it to four dialects' semantics.
+pub(crate) fn with_null_keys() -> &'static Derived {
+    static ONCE: OnceLock<Derived> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let derived = derive_into("federated-differential-null-keys");
         apply(
-            &derived.two_source.join(ON_A_SECOND_DATA_SYSTEM.at),
-            &ON_A_SECOND_DATA_SYSTEM.edit(),
+            &derived.data.join(NULL_DIMENSION_KEYS.0),
+            &Edit::Appended(NULL_DIMENSION_KEYS.1),
         );
         derived
     })
+}
+
+/// The rows [`with_null_keys`] appends. Two, not one, so counting nulls would produce a difference
+/// rather than merely a larger equal pair.
+pub(crate) const NULL_DIMENSION_KEYS: (&str, &str) = ("dim_customer.csv", ",C9001,consumer,south\n,C9002,consumer,south\n");
+
+/// One data directory and two catalogs over it, derived under `stem`.
+///
+/// Per PROCESS because the runner gives each test its own: two processes deriving into one
+/// directory would race on files whose bytes are identical, a flake with no defect behind it.
+fn derive_into(stem: &str) -> Derived {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{stem}-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&root));
+    let derived = Derived {
+        data: root.join("data"),
+        one_source: root.join("catalog-one-source"),
+        two_source: root.join("catalog-two-source"),
+    };
+    copy_tree(&shared_data_root(), &derived.data);
+    copy_tree(&shared_catalog_root(), &derived.one_source);
+    copy_tree(&shared_catalog_root(), &derived.two_source);
+    for &(at, ref edit) in DATA_CASES {
+        apply(&derived.data.join(at), edit);
+    }
+    for &(at, ref edit) in CATALOG_CASES {
+        apply(&derived.one_source.join(at), edit);
+        apply(&derived.two_source.join(at), edit);
+    }
+    apply(
+        &derived.two_source.join(ON_A_SECOND_DATA_SYSTEM.at),
+        &ON_A_SECOND_DATA_SYSTEM.edit(),
+    );
+    derived
 }
 
 /// Copies a directory of documents, recursively.

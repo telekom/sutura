@@ -21,7 +21,7 @@
 //! `NOT MECHANICALLY SEPARABLE`, and the substitute evidence is the mutation run in the pull
 //! request. Test-only, and its own file for the 1000-line cap.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A synthetic unit directory: what cargo leaves behind for one build script.
 ///
@@ -36,6 +36,27 @@ pub(super) fn unit(profile: &Path, crate_name: &str, hash: &str, ran_in: &str, b
     std::fs::write(dir.join("output"), baked_in_output).expect("the directives file");
     std::fs::create_dir_all(profile.join(".fingerprint").join(format!("{crate_name}-{hash}")))
         .expect("the fingerprint directory");
+}
+
+/// The pinned nightly's layout: `root-output` under `run/`, `out/` its sibling, and the crate
+/// split into its own `build/<crate>/<hash>/` directory that also holds the fingerprints.
+///
+/// This is the second face of ONE build-script run. [`unit`] writes the older layout - the record
+/// beside `out/` - and the sweep identifies `out/` by looking where it actually is, so both faces
+/// are exercised. The purge target is the whole `build/<crate>/` directory.
+pub(super) fn unit_run(profile: &Path, crate_name: &str, hash: &str, ran_in: &str, baked_in_out: &str) -> PathBuf {
+    let dir = profile.join("build").join(crate_name).join(hash);
+    std::fs::create_dir_all(dir.join("run")).expect("the run subdirectory");
+    std::fs::create_dir_all(dir.join("out")).expect("the out directory");
+    std::fs::create_dir_all(dir.join("fingerprint")).expect("the in-unit fingerprint directory");
+    std::fs::write(dir.join("run/root-output"), ran_in).expect("the record");
+    std::fs::write(dir.join("out/embed.rs"), baked_in_out).expect("the generated file");
+    profile.join("build").join(crate_name)
+}
+
+/// Is this new-layout crate directory still present?
+pub(super) fn present_run(crate_dir: &Path) -> bool {
+    crate_dir.try_exists().expect("the new-layout crate directory is readable")
 }
 
 /// Run the real script over `target`, and hand back its output.

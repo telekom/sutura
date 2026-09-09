@@ -24,7 +24,7 @@
 //!
 //! 1. **Every shell-bearing assignment routes through a wrapper.** The wrapper set is DERIVED,
 //!    not listed: a `let` binding whose value reaches `writeShellApplication` is one,
-//!    transitively, so `runs`, `onStable` and `sourced` are wrappers because they reach `linted`.
+//!    transitively, so `runs` and `sourced` are wrappers because they reach `linted`.
 //!    A binding that only looks like one is not.
 //! 2. **The scan is fail-closed at both ends.** An unreadable module, an `imports` entry this
 //!    cannot follow, no wrapper at all, a wrapper NAME bound twice, and a discovery pass that
@@ -35,7 +35,7 @@
 //! 3. **The wrapper's argument set is CLOSED, over EVERY attrset in the call.** #402's seventh
 //!    escape defeated the linter rather than the rule: `checkPhase = "true";` added to `linted`
 //!    removes `bash -n` AND `shellcheck` from every body, and every textual gate stayed green
-//!    because they held the spelling `onStable`/`runs` rather than the emission. A blocklist of
+//!    because they held the spelling `runs`/`sourced` rather than the emission. A blocklist of
 //!    that one attribute would not have closed it either: `doCheck`, `checkInputs` and
 //!    `derivationArgs` each do the same job. Reading only the FIRST balanced attrset did not
 //!    close it either - `{ ... } // { checkPhase = "true"; }` and
@@ -202,7 +202,7 @@ fn unknown_identifier(binding: &Assignment, admitted: &BTreeSet<String>) -> Opti
 /// A wrapper name bound more than once, if there is one.
 ///
 /// **A NAME is the whole of rule 1, so a name that means two things defeats it.** Bind
-/// `onStable = name: body: body;` in a nested `let` and a body assigned through it reads as
+/// `runs = name: body: body;` in a nested `let` and a body assigned through it reads as
 /// routed while reaching no linter - the text scan cannot say which binding a use site resolves
 /// to, and Nix scoping is not modelled here. So a duplicate is refused rather than resolved:
 /// this is a refusal over a shape nobody writes, which is what a ratchet on a hole should be.
@@ -579,10 +579,6 @@ let
     pkgs.writeShellApplication { name = "sutura-${name}"; inherit bashOptions text; extraShellCheckFlags = [ "-x" ]; };
   runs = name: body: "${linted name [ "errexit" ] body}/bin/sutura-${name}";
   sourced = name: body: "source ${linted name [ ] body}/bin/sutura-${name}";
-  onStable = name: body: runs name ''
-    source ${./nix/stable-env.sh}
-    ${body}
-  '';
 in
 {
   env.PLAIN = "not shell";
@@ -590,7 +586,7 @@ in
     echo hello
   '';
   scripts = {
-    fmt.exec = onStable "fmt" ''
+    fmt.exec = runs "fmt" ''
       cargo run -q -p xtask -- fmt
     '';
     secrets.exec = runs "secrets" "betterleaks dir .";
@@ -627,7 +623,7 @@ in
     #[test]
     fn the_wrapper_chain_is_derived_from_the_builder_and_not_listed() {
         let chain = wrappers(&module(GOOD));
-        for expected in ["linted", "runs", "onStable", "sourced"] {
+        for expected in ["linted", "runs", "sourced"] {
             assert!(chain.admitted.contains(expected), "{expected}: {:?}", chain.admitted);
         }
         // A binding that mentions nothing is not a wrapper, and neither is one this gate has no
@@ -726,8 +722,8 @@ in
         );
         let text = GOOD.replace(LET_ANCHOR, &planted);
         assert_eq!(loose_paths(&text), vec![String::from("helper")]);
-        // And the real `let` bindings are not swept up with it: `onStable` carries a `''` literal
-        // and routes through `runs`, so it is discovered AND held.
+        // And the real `let` bindings are not swept up with it: they carry `''` literals and
+        // route through the wrappers, so they are discovered AND held.
         assert_eq!(loose_paths(GOOD), Vec::<String>::new());
     }
 
@@ -809,10 +805,10 @@ in
 
     #[test]
     fn a_wrapper_name_bound_twice_is_a_refusal_rather_than_a_guess() {
-        let read = module(&GOOD.replace("in\n{", "  nested = let onStable = n: b: b; in onStable;\nin\n{"));
+        let read = module(&GOOD.replace("in\n{", "  nested = let runs = n: b: b; in runs;\nin\n{"));
         let chain = wrappers(&read);
         let refusal = super::shadowed(&read, &chain.admitted).expect("a shadowed wrapper refuses");
-        assert!(refusal.contains("`onStable` is bound 2 times"), "{refusal}");
+        assert!(refusal.contains("`runs` is bound 2 times"), "{refusal}");
         let clean = module(GOOD);
         assert!(super::shadowed(&clean, &wrappers(&clean).admitted).is_none());
     }

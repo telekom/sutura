@@ -433,17 +433,30 @@ mod tests {
     }
 
     #[test]
-    fn a_failing_provision_leaves_no_discovery_file_behind() {
+    fn a_failing_provision_leaves_no_claim_of_its_own_and_takes_no_neighbours_with_it() {
         // The claim `abandoned`'s doc rests on - "nothing a harness reads can point at a
         // half-provisioned tier" - was not true: `run_up` never forgot, so a file an earlier
         // successful run published outlived every failure path, naming an ephemeral port the
         // recreated container no longer owns. `run_down`'s killed-`down` arm returned above its
         // `forget` for the same effect.
         //
-        // Asserted on the ORDER and not on the call: the closure sees the file already gone, which
-        // is the property a `forget` bolted onto each early return does not have.
+        // Asserted on the ORDER and not on the call: the closure sees the claim already gone,
+        // which is the property a `forget` bolted onto each early return does not have.
+        //
+        // **And on WHICH entries went.** `github.com/telekom/sutura#317`: this used to withdraw a
+        // nix-native tier's claim over a server that was still running, because the file was the
+        // granularity rather than one provisioner's entries. So the fixture carries a neighbour's
+        // entry - written as the text `nix/tier-endpoints.nix` merges, since a fixture minted
+        // through `publish` would only prove the tool preserves its own writes - and this cell
+        // fails if a `dev-up` that never even reached docker takes it away.
         let root = std::env::temp_dir().join(format!("sutura-forget-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("temp dirs are creatable");
+        let state = root.join(".sutura-dev");
+        std::fs::create_dir_all(&state).expect("temp dirs are creatable");
+        std::fs::write(
+            state.join("endpoints.json"),
+            r#"{"project":"sutura","services":{"keycloak":{"host":"127.0.0.1","port":51999,"provisioner":"nix"}}}"#,
+        )
+        .expect("the fixture is writable");
         let scope = sutura_dev::scope::Scope::from_root(&root).expect("a real directory is a scope");
         let published = sutura_dev::discovery::publish(&scope, &[("clickhouse", String::from("127.0.0.1:60660"))])
             .expect("the temp worktree is writable");
@@ -451,7 +464,9 @@ mod tests {
 
         let mut seen_by_the_tier_change = None;
         let outcome: Result<(), Verdict> = super::tier::with_endpoints_forgotten("dev-up", &scope, || {
-            seen_by_the_tier_change = Some(published.exists());
+            seen_by_the_tier_change = sutura_dev::discovery::Endpoints::discover(&scope)
+                .ok()
+                .map(|found| found.endpoint("clickhouse").is_ok());
             Err(Verdict::Fail)
         });
 
@@ -459,9 +474,18 @@ mod tests {
         assert_eq!(
             seen_by_the_tier_change,
             Some(false),
-            "the file was still readable while the tier was being changed"
+            "this task's own claim was still readable while the tier was being changed"
         );
-        assert!(!published.exists(), "a failed provision left {} behind", published.display());
+        let survivors = sutura_dev::discovery::Endpoints::discover(&scope)
+            .expect("the neighbour's entry keeps the file alive")
+            .services()
+            .map(|(name, _endpoint)| String::from(name))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            survivors,
+            vec![String::from("keycloak")],
+            "a failed dev-up withdrew an entry it did not publish, or kept one it did"
+        );
         drop(std::fs::remove_dir_all(&root));
     }
 
