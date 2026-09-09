@@ -3,6 +3,7 @@
 #![cfg(test)]
 #![cfg(unix)]
 
+use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -88,6 +89,12 @@ fn executable(path: &Path, body: &str) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("make fake executable runnable");
 }
 
+fn fixture_path(bin: &Path) -> OsString {
+    let mut paths = vec![bin.to_owned()];
+    paths.extend(std::env::split_paths(&std::env::var_os("PATH").expect("test PATH")));
+    std::env::join_paths(paths).expect("fixture PATH")
+}
+
 fn read(path: &Path) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
@@ -111,11 +118,10 @@ fn observe(config: Option<&[u8]>, mutate: bool, report: bool) -> Observed {
     }
     executable(&bin.join("jscpd"), JSCPD);
     let ledger = root.join("jscpd.args");
-    let path = std::env::join_paths([bin.as_path(), Path::new("/usr/bin"), Path::new("/bin")]).expect("fixture PATH");
     let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .arg("check-jscpd")
         .current_dir(&root)
-        .env("PATH", path)
+        .env("PATH", fixture_path(&bin))
         .env("SUTURA_JSCPD_LEDGER", &ledger)
         .env("SUTURA_JSCPD_SOURCE", &source)
         .env("SUTURA_JSCPD_MUTATE", if mutate { "yes" } else { "no" })
@@ -199,11 +205,14 @@ fn run_gate_passes_the_same_config_to_the_pinned_jscpd_route() {
     std::fs::write(&run_gate, include_bytes!("../../nix/run-gate.sh")).expect("real run-gate script");
     executable(&bin.join("nix"), NIX);
     let ledger = root.join("nix.args");
-    let path = std::env::join_paths([bin.as_path(), Path::new("/usr/bin"), Path::new("/bin")]).expect("fixture PATH");
-    let output = Command::new("bash")
+    let bash = std::env::split_paths(&std::env::var_os("PATH").expect("test PATH"))
+        .map(|path| path.join("bash"))
+        .find(|path| path.is_file())
+        .expect("bash on the test PATH");
+    let output = Command::new(bash)
         .args(["--noprofile", "--norc", "nix/run-gate.sh", "jscpd"])
         .current_dir(&root)
-        .env("PATH", path)
+        .env("PATH", &bin)
         .env("SUTURA_NIX_LEDGER", &ledger)
         .env_remove("BASH_ENV")
         .output()
