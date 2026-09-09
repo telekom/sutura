@@ -347,11 +347,14 @@ pub enum FederatedFailure {
     Overflow { aggregate: Aggregate },
     /// An aggregate the combiner does not know how to re-aggregate with.
     ///
-    /// Unreachable through a plan [`FederatedPlan::new`] built, which refuses such a federation
-    /// before any leg runs - it asks `reaggregate::reaggregates` the one question that decides it.
-    /// **The limit, restated for the split:** that guarantee is scoped to this module, and this
-    /// module is now two files - `mod.rs` and `reaggregate.rs` - either of which can write the
-    /// struct literal past the constructor. So this stays a refusal rather than becoming a panic.
+    /// The one path [`FederatedPlan::new`] closes is a carried leaf naming an aggregate
+    /// `reaggregate::reaggregates` answers `false` for - it refuses such a federation before any
+    /// leg runs, so no plan that constructor built carries this value. **The limit: nothing else
+    /// closes it, and construction is not restricted to this module.** `FederatedFailure` is `pub`
+    /// and re-exported, and the application's federated execution already writes a sibling
+    /// variant's literal from outside the crate. So any caller can build this value directly; it
+    /// stays a refusal rather than becoming a panic because a value that claims a re-aggregation
+    /// which does not exist would answer wrongly, not because the type seals the variant.
     #[error("the combiner does not re-aggregate with `{aggregate:?}`")]
     UnsupportedAggregate { aggregate: Aggregate },
     /// Materialising the answer crossed the byte budget `docs/adr/0009` applies at the conversion
