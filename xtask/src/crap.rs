@@ -32,8 +32,8 @@
 //!
 //! Coverage instrumentation is LLVM-specific: under the cranelift backend `-C
 //! instrument-coverage` does not exist. The dev shell's cargo is nightly and DEFAULTS to LLVM
-//! (cranelift is opt-in), so the shell's bare cargo can instrument coverage - no stable override
-//! is needed. It still must not inherit a cranelift cargo, which would fail or, worse, produce an
+//! (cranelift is opt-in), so the shell's bare cargo can instrument coverage with no override.
+//! It still must not inherit a cranelift cargo, which would fail or, worse, produce an
 //! LCOV with no counters that would score every function as uncovered and read as a catastrophe
 //! rather than as a broken run. That is a correctness requirement, not a channel preference.
 //!

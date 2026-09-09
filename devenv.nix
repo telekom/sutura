@@ -22,10 +22,10 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
-  # Both compiler pins are resolved by nix/toolchains.nix, the SAME file flake.nix imports -
-  # one code path from a pin to a compiler. Going through `languages.rust.{channel,version}`
-  # instead was tried and silently produced a shell with no cargo on PATH, which is a worse
-  # failure than a loud one.
+  # The single compiler pin is resolved by nix/toolchains.nix, the SAME file flake.nix
+  # imports - one code path from a pin to a compiler. Going through
+  # `languages.rust.{channel,version}` instead was tried and silently produced a shell with
+  # no cargo on PATH, which is a worse failure than a loud one.
   rustPkgs = import inputs.nixpkgs {
     system = pkgs.stdenv.hostPlatform.system;
     overlays = [ (import inputs.rust-overlay) ];

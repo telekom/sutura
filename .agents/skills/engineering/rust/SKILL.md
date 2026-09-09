@@ -298,7 +298,8 @@ correct code gets disabled - which costs more than the rule was worth.
 ## Conventions
 
 - Rust 2024. One version for the workspace; crates inherit with `version.workspace = true`.
-- The compiler pin is `rust-toolchain.toml` and nowhere else - rustup and Nix both read it.
+- The compiler pin is the single pinned nightly in `devco/rust-toolchain-nightly.toml`, which
+  Nix reads; the top-level `rust-toolchain.toml` is the rustup-facing copy rustup reads directly.
 - Ports get **fakes**, not mocked HTTP. A test asserting on source text proves nothing.
 - Adding a dependency: `unused-deps` requires it to be referenced, and `cargo-deny` checks
   its licence and advisories. Both run in the gates.

@@ -556,7 +556,7 @@ unsafe_code = "forbid"
 #   * `private_intra_doc_links`, 67 of them here and several deliberate - a public item pointing at
 #     the private thing that implements it. Denying this one without answering that one is fine;
 #     conflating them is not.
-#   * `redundant_explicit_links`, 3 of them on the nightly pin and 2 on stable - the count is
+#   * `redundant_explicit_links`, 3 of them on the single pinned nightly - the count is
 #     CHANNEL-DEPENDENT, which is itself the reason it is not gated on. A separate lint and a
 #     separate judgement.
 broken_intra_doc_links = "forbid"

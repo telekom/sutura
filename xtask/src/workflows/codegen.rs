@@ -2,11 +2,12 @@
 //!
 //! `CARGO_UNSTABLE_CODEGEN_BACKEND` and `CARGO_PROFILE_DEV_CODEGEN_BACKEND` name Cargo's
 //! codegen backend at build time - cranelift is the one this tree uses - and both are
-//! nightly-only. They are the two variables `nix/stable-env.sh` used to UNSET, for exactly the
-//! reason their absence in CI matters now: the dev shell is nightly-only under
-//! `devco/rust-toolchain-nightly.toml` (the stable/nightly split is gone), and every gate but the
-//! coordinator's single stable check runs on that nightly toolchain, so local gates match CI. There
-//! is no longer a `stable-env.sh` to clean up behind a step, which makes a step that NAMES a backend
+//! nightly-only. There is ONE toolchain now: the dev shell, every gate, every build and every
+//! shipped artifact run the single pinned nightly under `devco/rust-toolchain-nightly.toml`, so
+//! the pinned compiler is the ONLY thing that may choose a backend. A CI step that sets one of
+//! these variables would override that pinned decision for every later compile in its job, and
+//! the diff reads as a plumbing detail unless a reader happens to know the variable - which is
+//! the drift the whole build was just consolidated away from. So a step that NAMES a backend is
 //! the only path left for an unremarked compiler-backend switch to reach CI.
 //!
 //! **The rule is a name refusal over text**, the `cache_scope::retired` substituter's shape: CI
@@ -51,8 +52,9 @@ const CODEGEN_BACKEND: [&str; 2] = ["CARGO_UNSTABLE_CODEGEN_BACKEND", "CARGO_PRO
 ///
 /// Reuses [`sources::ci_sources`] - the one walk of what CI reads - and skips the `nix/*.sh`
 /// half, because the rule deliberately does not cover it: the decision is that a WORKFLOW or
-/// ACTION must not name a backend, and a shared shell script is where `stable-env.sh` used to
-/// unset these rather than where a reviewer reads a job.
+/// ACTION must not name a backend. The pinned nightly toolchain is the only thing that may
+/// choose a backend, and that choice lives in `devco/rust-toolchain-nightly.toml`, not in a job
+/// or in a shared shell script.
 pub(super) fn problems(root: &Path) -> Vec<String> {
     let Some(sources) = sources::ci_sources(root) else {
         return Vec::new();

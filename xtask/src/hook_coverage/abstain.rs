@@ -11,7 +11,7 @@
 //! while three of the four announced their own skip - on a configuration
 //! `.pre-commit-config.yaml` argues for at length for a MISSING TOOL, *"a hook that cannot run
 //! must not be a wall"*. It no longer argues it for a missing toolchain: `nix/run-gate.sh` refuses
-//! a host with neither configured stable tools nor nix, so the eight are eight only where the
+//! a host with neither the dev shell's tools nor nix, so the eight are eight only where the
 //! abstention is a tool's. This paragraph is prose in `.rs` and `check-guidance`'s scope stops at
 //! the file extension, so it is held by review - the registered half is in
 //! `xtask/src/guidance/claims/contradicted.rs`.
@@ -373,10 +373,10 @@ mod tests {
             ]
         );
         assert_eq!(tools("fmt-parity"), vec![vec![String::from("nix")]]);
-        // A hook that only sources the stable environment decides nothing, so its `Passed` is
+        // A hook that only sources the dev environment decides nothing, so its `Passed` is
         // still read as coverage - which is what keeps this from failing a correct tree.
-        assert!(tools("rust-clippy").is_empty(), "a hook that only sources the stable environment names no tools");
-        assert!(tools("hygiene").is_empty(), "a hook that only sources the stable environment names no tools");
+        assert!(tools("rust-clippy").is_empty(), "a hook that only sources the dev environment names no tools");
+        assert!(tools("hygiene").is_empty(), "a hook that only sources the dev environment names no tools");
     }
 
     #[test]

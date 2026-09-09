@@ -22,7 +22,6 @@
 , system
 , crane
 , rust-overlay
-, rustToolchainFile
 , craneLib
 , commonArgs
 , inheritedArtifacts
@@ -240,7 +239,7 @@ let
         crossSystem = { config = target; };
       };
       crossLib = (crane.mkLib crossPkgs).overrideToolchain
-        (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
+        (p: p.rust-bin.fromRustupToolchainFile ../devco/rust-toolchain-nightly.toml);
       args = commonArgs // {
         CARGO_BUILD_TARGET = target;
         CARGO_PROFILE = profile;

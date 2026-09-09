@@ -78,8 +78,7 @@ adding a pin anywhere.
 
 | Concern | Owner |
 | --- | --- |
-| Compiler version, anything shipped | `rust-toolchain.toml`, read by rustup **and** by nix |
-| Compiler version, the local inner loop | `devco/rust-toolchain-nightly.toml` |
+| Compiler version | `devco/rust-toolchain-nightly.toml`, read by nix; the top-level `rust-toolchain.toml` is the rustup-facing copy of the same pin |
 | The dev shell, tool versions, script names | `devenv.nix` |
 | The release build, cross-compilation, the image | `flake.nix` |
 | Anything delivered as a conda or Python package | `pixi.toml` |

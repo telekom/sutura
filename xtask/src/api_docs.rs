@@ -1,8 +1,9 @@
 //! Are the committed API reference pages still what the generator produces?
 //!
 //! `docs/api/*.md` are GENERATED files that are also COMMITTED. Committed because rustdoc JSON
-//! is nightly-only while the docs site is built by a job that has stable and nothing else, so
-//! the pages have to exist as files rather than be produced on the way to publishing.
+//! is nightly-only, so the pages have to exist as files rather than be produced on the way to
+//! publishing - and the whole tree already builds on the single pinned nightly, so generating
+//! them needs nothing beyond that same toolchain.
 //!
 //! A committed generated file rots silently. A doc comment changes, the page does not, and the
 //! stale page reads as current - nothing in the pipeline could tell the difference. This gate

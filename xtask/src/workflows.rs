@@ -339,10 +339,12 @@ fn check_gates(root: &std::path::Path, ordinary: &contexts::OrdinaryCi, flake: &
         return Some(Verdict::Fail);
     }
 
-    // IS THE COMPILER BACKEND CHOSEN IN CI? The dev shell is nightly-only now, and the two
-    // codegen-backend env vars `nix/stable-env.sh` used to UNSET are nightly-only too - so a step
-    // that SETS one is an unremarked backend switch with no cleanup behind it. Refused by name so
-    // a reviewer sees the choice; see the module header for the exact-name list.
+    // IS THE COMPILER BACKEND CHOSEN IN CI? The single pinned nightly chooses it - that is the
+    // whole point of consolidating every build onto `devco/rust-toolchain-nightly.toml` - and the
+    // two codegen-backend env vars are filled only by a developer opting into cranelift in the
+    // dev shell. So a step that SETS one is an unremarked backend switch overriding the pinned
+    // toolchain. Refused by name so a reviewer sees the choice; see the module header for the
+    // exact-name list.
     let codegen = codegen::problems(root);
     if !codegen.is_empty() {
         eprintln!(
