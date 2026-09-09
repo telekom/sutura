@@ -53,13 +53,25 @@ use std::path::Path;
 
 use super::{key_of, steps};
 
-/// Publishers to a store OUTSIDE this repository, refused outright while [`RECORD`] stands.
+/// Publishers to a store OUTSIDE this repository.
 ///
-/// Not in [`WRITERS`]: gating one correctly is no longer enough, because `docs/adr/0026` records
-/// that none runs here at all. Both were in that list until this record existed, and
-/// `cachix/cachix-action` was the entry whose correctly-gated presence hid the store anchor's hole
-/// - see [`STORE_CACHE`].
+/// Not in [`WRITERS`]: gating one correctly is not enough on its own, and
+/// `cachix/cachix-action` was the entry whose correctly-gated presence once hid the store anchor's
+/// hole - see [`STORE_CACHE`]. One of these is now permitted in exactly one file ([`PUBLISH`]) and
+/// the other is refused everywhere.
 const HOSTED: [&str; 2] = ["cachix/cachix-action", "DeterminateSystems/flakehub-cache-action"];
+
+/// The one publisher this repository runs, and the ONE file it may appear in.
+///
+/// `docs/adr/0027` supersedes `0026`: a binary cache is provisioned now, so this publisher is no
+/// longer refused outright. **Naming the FILE and not merely the action is what keeps the permission
+/// narrow.** The publish workflow triggers only on a push to the default branch and takes its
+/// credential from an environment whose policy admits only that branch; the same step added to
+/// `ci.yml` or `cross-link.yml` runs on the pull-request path, where a same-repository pull request
+/// can read secrets - so it stays refused there, which is the whole point of the pairing.
+///
+/// The other entry in [`HOSTED`] has no permitted file and is refused wherever it appears.
+const PUBLISH: (&str, &str) = ("cachix/cachix-action", ".github/workflows/cachix-push.yml");
 
 /// Contexts a workflow cannot observe, and therefore may not decide a step on.
 ///
@@ -193,10 +205,13 @@ fn retired(files: &[(String, String)]) -> Vec<String> {
                     .find(|name| uses.starts_with(**name))
                     .map(|name| String::from(*name))
             }) {
-                out.push(format!(
-                    "{label}:{}  {publisher} publishes to a store outside this repository, and {RECORD} records that none runs here - provisioning one is a good change, so update that record rather than this gate",
-                    step.line
-                ));
+                let here = publisher == PUBLISH.0 && label.ends_with(PUBLISH.1);
+                if !here {
+                    out.push(format!(
+                        "{label}:{}  {publisher} publishes to a store outside this repository. Only `{}` may, and only in `{}`, where the trigger and the environment both admit one branch - see docs/adr/0027",
+                        step.line, PUBLISH.0, PUBLISH.1
+                    ));
+                }
             }
             let Some(gate) = step.gate() else { continue };
             if let Some(context) = UNOBSERVABLE.iter().find(|name| gate.contains(**name)) {
@@ -350,6 +365,31 @@ mod tests {
         vec![(String::from(label), String::from(text))]
     }
 
+    /// The publisher permission is a PAIRING, and the file half is the half that matters: the same
+    /// step on the pull-request path would have a same-repository pull request's secrets in reach.
+    #[test]
+    fn the_publisher_is_permitted_in_one_file_and_refused_in_every_other() {
+        let step = "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n";
+        assert!(
+            super::retired(&owned(".github/workflows/cachix-push.yml", step)).is_empty(),
+            "the publish workflow is the one file it may appear in"
+        );
+        for elsewhere in [
+            ".github/workflows/ci.yml",
+            ".github/workflows/cross-link.yml",
+            ".github/workflows/release.yml",
+        ] {
+            let problems = super::retired(&owned(elsewhere, step));
+            assert!(!problems.is_empty(), "still refused in {elsewhere}");
+        }
+        // The other publisher has no permitted file, so even the publish workflow refuses it.
+        let other = "      - uses: DeterminateSystems/flakehub-cache-action@v1\n";
+        assert!(
+            !super::retired(&owned(".github/workflows/cachix-push.yml", other)).is_empty(),
+            "a publisher with no permitted file is refused wherever it appears"
+        );
+    }
+
     /// The allowance is the whole risk of enabling a binary cache: it has to admit exactly one store
     /// and refuse every neighbouring shape, or it reads as coverage while trusting anything.
     #[test]
@@ -395,6 +435,12 @@ mod tests {
         // THE DELETION, PROVOKED. `docs/adr/0026` removed exactly this step from `ci.yml` and
         // `cross-link.yml`; putting it back is what this must make red. Written verbatim as it
         // stood, pin and all, so the fixture is the thing that was deleted rather than a paraphrase.
+        //
+        // Still red after `docs/adr/0027` provisioned a cache, and that is the point of the pairing:
+        // the publisher is permitted in ONE file, and `ci.yml` is not it. The record this message
+        // names is therefore 0027 - which supersedes 0026 - because 0027 is where the permission and
+        // its one file are decided. The other rules in this module still name 0026, which is what
+        // deleted the wiring they refuse.
         let back = concat!(
             "      - name: Populate the binary cache\n",
             "        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n",
@@ -408,7 +454,7 @@ mod tests {
             problem.starts_with(".github/workflows/ci.yml:1  cachix/cachix-action"),
             "{problem}"
         );
-        assert!(problem.contains(super::RECORD), "{problem}");
+        assert!(problem.contains("docs/adr/0027"), "{problem}");
 
         // The other publisher, and a fork of it: matched on the prefix, so a subpath cannot evade.
         for name in ["DeterminateSystems/flakehub-cache-action", "cachix/cachix-action/sub"] {

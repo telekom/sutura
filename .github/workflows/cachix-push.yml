@@ -64,7 +64,7 @@ jobs:
         with:
           scope: ci
 
-      - uses: cachix/cachix-action@0fc020193b5a1fa30ac646a09fa6318a4cb2cbf9 # v16
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: sutura
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
