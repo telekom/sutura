@@ -202,7 +202,10 @@ mod tests {
         // The falsifier's own shape: it says which file the contradiction is about, and it is
         // silent on every run where no excuse was given - so a passing verdict does not grow a
         // line for a claim nobody made.
-        assert!(contradiction(&red(), &Reverted::Behaviour).is_empty(), "a red run with no excuse contradicts nothing");
+        assert!(
+            contradiction(&red(), &Reverted::Behaviour).is_empty(),
+            "a red run with no excuse contradicts nothing"
+        );
         let lines = contradiction(&red(), &excused_for_tests());
         assert_eq!(lines.len(), 3, "{lines:?}");
         assert!(lines.iter().all(|line| line.contains("CONTRADICTED")), "{lines:?}");
@@ -238,7 +241,10 @@ mod tests {
         assert!(shouted.iter().all(|line| line.contains("CONTRADICTED")), "{shouted:?}");
 
         // And an outcome with nothing to contradict emits nothing at all.
-        assert!(captured(|out| emit_contradiction(&BaseOutcome::Green, &excused, out)).is_empty(), "a green outcome emits nothing to contradict");
+        assert!(
+            captured(|out| emit_contradiction(&BaseOutcome::Green, &excused, out)).is_empty(),
+            "a green outcome emits nothing to contradict"
+        );
     }
 
     #[test]
@@ -258,9 +264,21 @@ mod tests {
         );
         // Nothing else does: a run that is not red made no claim to contradict, and neither does a
         // red one over a revert this module never excused.
-        assert!(contradiction(&BaseOutcome::Green, &excused).is_empty(), "a green run has nothing to contradict");
-        assert!(contradiction(&BaseOutcome::DidNotCompile, &excused).is_empty(), "a did-not-compile run made no claim to contradict");
-        assert!(contradiction(&red(), &Reverted::Behaviour).is_empty(), "an unexplained red run has nothing to contradict");
-        assert!(contradiction(&outside, &Reverted::Behaviour).is_empty(), "an unexplained red run contradicts nothing outside the diff");
+        assert!(
+            contradiction(&BaseOutcome::Green, &excused).is_empty(),
+            "a green run has nothing to contradict"
+        );
+        assert!(
+            contradiction(&BaseOutcome::DidNotCompile, &excused).is_empty(),
+            "a did-not-compile run made no claim to contradict"
+        );
+        assert!(
+            contradiction(&red(), &Reverted::Behaviour).is_empty(),
+            "an unexplained red run has nothing to contradict"
+        );
+        assert!(
+            contradiction(&outside, &Reverted::Behaviour).is_empty(),
+            "an unexplained red run contradicts nothing outside the diff"
+        );
     }
 }

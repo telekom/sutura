@@ -101,15 +101,28 @@ fmt:
     cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
 
-# `--all-features` is load-bearing: crates declare features and make deps optional, so an entry
-# point missing the flag lints and tests nothing behind them. `grep -rln '^\[features\]' --include=Cargo.toml .`
-# is the current set, held by review (this file has no extension, outside `check-guidance`'s scope).
-
-# Lint everything.
+# Lint everything: the three checks the commit hooks gate on, run directly.
+#
+# No tests here - `just test` owns the suite, and a developer should not pay for
+# `cargo nextest` + doctests on every lint.
+#
+# The three commands are the exact scalars of the `rust-fmt`, `rust-clippy` and
+# `structural gates` pre-commit hooks, so a green `just lint` is what a commit's
+# fast checks see - `rust-fmt` and `rust-clippy` run the same lines CI does (one
+# format pass, one `-D warnings` clippy), and `hygiene` is, by `Kind::Hygiene`,
+# the same structural gate list the hook owns.
 lint:
     #!/usr/bin/env bash
     set -euo pipefail
+    # `xtask fmt --check` and NOT `cargo fmt --all`: `--all` reaches path dependencies that are
+    # not workspace members, which means it rewrites the vendored allocator - the one thing
+    # vendoring must never do. This is the check half; `just fmt` replaces it with the fixing half.
+    cargo run -q -p xtask -- fmt --check
+    # `--all-features` is load-bearing: crates declare features and make deps optional, so an
+    # entry point missing the flag lints nothing behind them.
     cargo clippy --workspace --all-targets --all-features -- -D warnings
+    # The cheap structural gates, seconds not minutes.
+    cargo run -q -p xtask -- hygiene
 
 # `--doc` is separate because nextest does not run doctests.
 

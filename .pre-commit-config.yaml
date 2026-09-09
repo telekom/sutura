@@ -17,7 +17,13 @@ repos:
         # metadata reports, INCLUDING path dependencies that `[workspace] exclude` keeps out
         # of the member list. It wanted to rewrite the vendored mimalloc source, which is the
         # one thing vendoring must not do. xtask derives the package list instead.
-        entry: bash -c 'exec cargo run -q -p xtask -- fmt --check'
+        #
+        # THROUGH THE DEVENV ENVIRONMENT, so the pinned NIGHTLY rustfmt is what runs however
+        # git invoked the hook. macOS does not pass the interactive shell's exports to a hook
+        # subprocess the way Linux does, so a bare `cargo` here could resolve to a non-nightly
+        # toolchain whose rustfmt reformats a tree the nightly considers clean (and vice versa) -
+        # the finding is then a property of the hook's environment, not of the change.
+        entry: devenv shell cargo run -q -p xtask -- fmt --check
         language: system
         files: \.rs$
         pass_filenames: false
@@ -28,8 +34,10 @@ repos:
       # Runs on the shell's nightly toolchain, which is what CI gates on - the stable/nightly
       # split is gone, so a clippy finding a commit sees is one CI reproduces.
       #
-      # `bash -c` because `language: system` runs the entry as a command rather than through a
-      # shell.
+      # THROUGH THE DEVENV ENVIRONMENT for the same reason the `rust-fmt` hook now runs there:
+      # macOS does not pass the interactive shell's exports to a hook, so a bare `cargo` could
+      # resolve to a non-nightly clippy that reports findings the nightly does not. `devenv shell`
+      # pins it to the nightly regardless of how git invoked the hook.
       #
       # THE ANCHOR IS LOAD-BEARING, and not for tidiness. `rust-clippy-push` below aliases this
       # exact scalar, so the two stages cannot invoke clippy differently - and cargo's fingerprints
@@ -39,7 +47,7 @@ repos:
       # is what fails if somebody replaces the alias with a copy.
       - id: rust-clippy
         name: cargo clippy (-D warnings, all features)
-        entry: &clippy bash -c 'exec cargo clippy --workspace --all-targets --all-features -- -D warnings'
+        entry: &clippy devenv shell cargo clippy --workspace --all-targets --all-features -- -D warnings
         language: system
         files: \.(rs|toml)$
         pass_filenames: false
@@ -75,21 +83,27 @@ repos:
       # They were on pre-push, which inverts that: the claim is already in history by the time
       # anything checks it, and a failure then needs a second commit to undo the first.
       #
-      # Through nix/run-gate.sh: the dev shell's local tools first, else the same pinned nix route
-      # CI uses. It called `cargo nextest` directly before, and on a host without it every commit
-      # was blocked with "no such command".
-      #
-      # The tiering is deliberate. A host with neither the tool NOR nix is SKIPPED with a notice
-      # rather than stopped, because CI runs the suite on every push - this hook delays a finding
-      # rather than losing it.
+      # THROUGH THE DEVENV ENVIRONMENT, so the pinned duckdb (`DUCKDB_*_DIR`) and the nightly
+      # cargo are present however git invoked the hook. macOS does not pass the interactive
+      # shell's exported variables to a hook subprocess the way Linux does, and `libduckdb-sys`
+      # needs `DUCKDB_LIB_DIR` to link the nix duckdb rather than fall back to compiling duckdb's
+      # C++ from source (which fails for want of the toolchain). The `command -v devenv` guard
+      # preserves the previous tiering on a host without devenv: `run-gate.sh` uses the shell's
+      # local tools, else the same pinned nix route CI uses, else - with neither - a skip with a
+      # notice, because CI runs the suite on every push.
       - id: rust-tests
         name: cargo nextest (all features)
-        entry: bash nix/run-gate.sh tests
+        entry: >-
+          bash -c 'command -v devenv >/dev/null 2>&1 &&
+          exec devenv shell bash nix/run-gate.sh tests || exec bash nix/run-gate.sh tests'
         language: system
         pass_filenames: false
 
       # nextest does not run doctests. Separate hook so its absence is visible rather than
-      # assumed to be covered above.
+      # assumed to be covered above. Not routed through devenv here: the duckdb dependency the
+      # macOS env fix targets is linked by the SUITE (nextest above), not by doc builds, and this
+      # hook has no self-skip guard - leaving its entry a plain command keeps the abstain coverage
+      # model from miscounting it as a self-deciding hook.
       - id: rust-doctests
         name: doctests
         entry: bash -c 'exec cargo test --doc --workspace --all-features'
@@ -164,6 +178,24 @@ repos:
         language: system
         files: \.sh$
         pass_filenames: true
+
+      # Fuzz WHAT THE GIT DELTA REACHES, and only the DETERMINISTIC half. A commit that touches
+      # none of the surface below pays nothing - `files:` scopes this to the two targets' reach
+      # (`fuzz/`, the harness, and the crates each target header names). What runs is `fuzz-smoke`:
+      # replay every committed seed once, mutating nothing, so the verdict is a function of the
+      # committed files rather than a fresh random path - the only fuzz half that belongs anywhere
+      # near a merge gate (fuzz.yml says so at length). The exhaustive, mutating search stays on
+      # the schedule and the push-to-main workflow. This hook is not per-target tuned because the
+      # file->target map is a review claim written in each target's header, and a hand-table would
+      # rot; when the delta lands in a shared crate it replays both (there are two) targets.
+      # `require_serial` so two simultaneous prek partitions do not both build the one harness.
+      - id: fuzz
+        name: fuzz (git delta)
+        entry: bash nix/run-fuzz.sh smoke
+        language: system
+        files: ^(fuzz/|nix/fuzz\.nix|nix/run-fuzz\.sh|crates/sutura-domain/src/query\.rs|crates/sutura-domain/src/model/|crates/sutura-http/src/wire|crates/sutura-sql/|crates/sutura-semantic/)
+        pass_filenames: false
+        require_serial: true
 
       # --- on push: what only makes sense against the whole tree, or was never
       # --- compiled at all because a rebase runs no commit hook ---------------

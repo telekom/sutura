@@ -815,6 +815,9 @@ mod tests {
             "a pull-request workflow nothing calls is outside the walk again: {labels:?}"
         );
         assert!(labels.len() > 2, "the walk read its roots and nothing they call: {labels:?}");
-        assert!(super::release_outputs(ci.closure()).is_empty(), "the walked workflows name no release outputs");
+        assert!(
+            super::release_outputs(ci.closure()).is_empty(),
+            "the walked workflows name no release outputs"
+        );
     }
 }

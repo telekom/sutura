@@ -548,7 +548,10 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{e}"));
         let found = super::unprobed(&super::records(nix), &documented);
-        assert!(found.problems.is_empty(), "no probe problems when every recorded crate is documented");
+        assert!(
+            found.problems.is_empty(),
+            "no probe problems when every recorded crate is documented"
+        );
         assert!(found.probed.is_empty(), "{:?}", found.probed);
     }
 

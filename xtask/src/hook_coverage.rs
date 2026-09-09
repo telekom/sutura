@@ -58,7 +58,7 @@
 //!   every surface covered and `ok`, exit 0 - **character for character** the lines this branch's
 //!   real `ship-check` run printed, with not one hook having executed. It is its own
 //!   [`Coverage::DryRun`] and a FAILED verdict now: a dry run is neither *ran* nor *filtered out*.
-//! * **A hook that decides for itself not to run prints `Passed`.** Eight of the fifteen do.
+//! * **A hook that decides for itself not to run prints `Passed`.** Eight of the seventeen do.
 //!   [`abstain`] carries that, the measurement, and why the notice cannot be the mechanism.
 //!
 //! # What this does NOT reach
@@ -618,6 +618,7 @@ mod tests {
         "detect hardcoded secrets (CI is authoritative)...........................Dry Run\n",
         "GitHub Actions static analysis........................(no files to check)Skipped\n",
         "copy/paste detection (jscpd).............................................Dry Run\n",
+        "fuzz (git delta)...............................(no files to check)Skipped\n",
     );
 
     /// prek 0.4.14's REAL commit-stage output, `--color never`, over a diff of one README on a
@@ -642,6 +643,7 @@ mod tests {
         "detect hardcoded secrets (CI is authoritative).............................Passed\n",
         "GitHub Actions static analysis........................(no files to check)Skipped\n",
         "copy/paste detection (jscpd)..............................................Passed\n",
+        "fuzz (git delta)...............................(no files to check)Skipped\n",
     );
 
     #[test]
@@ -680,7 +682,7 @@ mod tests {
     #[test]
     fn a_hook_that_could_not_have_run_here_is_not_coverage_whatever_its_row_said() {
         // MEASURED: the `shellcheck` entry verbatim with `nix` off PATH prints its notice and
-        // exits 0, so prek prints a pass. Eight of the fifteen declared hooks are written that
+        // exits 0, so prek prints a pass. Eight of the seventeen declared hooks are written that
         // way, three of the four on push - so on a host with no nix the verdict was
         // `pre-push - 4 of 4 declared hook(s) ran` over hooks that announced their own skip.
         let declared = declared();
@@ -749,7 +751,10 @@ mod tests {
             (String::from(super::hooks::COMMIT), String::from("/dev/null")),
             (String::from(super::hooks::PUSH), String::from("/dev/null")),
         ];
-        assert!(super::unmeasured_stages(&declared, &logs).is_empty(), "no declared stage is left unmeasured");
+        assert!(
+            super::unmeasured_stages(&declared, &logs).is_empty(),
+            "no declared stage is left unmeasured"
+        );
         let text = concat!(
             "default_stages: [pre-commit]\n",
             "      - id: a\n",
@@ -779,9 +784,9 @@ mod tests {
         // README so it did not. The counts are a property of the DIFF - which is exactly why a
         // reader cannot infer them and the verdict has to print them.
         let rows = super::rows(REAL_COMMIT_LOG);
-        assert_eq!(rows.len(), 11, "{rows:?}");
+        assert_eq!(rows.len(), 12, "{rows:?}");
         assert_eq!(rows.iter().filter(|row| row.coverage.inspected()).count(), 5);
-        assert_eq!(rows.iter().filter(|row| row.coverage == Coverage::NoMatchingFiles).count(), 6);
+        assert_eq!(rows.iter().filter(|row| row.coverage == Coverage::NoMatchingFiles).count(), 7);
         // Over the DRY-RUN capture of the same diff the four are `DryRun` instead, which is the
         // distinction the row parser has to carry for the verdict to be able to make it.
         let dry = super::rows(COMMIT_LOG);
@@ -832,7 +837,7 @@ mod tests {
             "",
         );
         let rows = super::rows(&silenced);
-        assert_eq!(rows.len(), 10);
+        assert_eq!(rows.len(), 11);
         let per_hook = super::coverage_of(&declared, super::hooks::COMMIT, &rows, &none);
         let hygiene = per_hook.iter().find(|hook| hook.id == "hygiene").expect("the hygiene hook");
         assert_eq!(hygiene.coverage, Coverage::Unreported);
@@ -877,7 +882,10 @@ mod tests {
             .iter()
             .map(|id| String::from(*id))
             .collect();
-        assert!(super::surface_gaps(&rust, &all, &[]).1.is_empty(), "every hook claiming Rust leaves no gap");
+        assert!(
+            super::surface_gaps(&rust, &all, &[]).1.is_empty(),
+            "every hook claiming Rust leaves no gap"
+        );
         // Clippy alone is a gap, and the gap NAMES the four that did not run.
         let (_, partial) = super::surface_gaps(&rust, &[String::from("rust-clippy")], &[]);
         assert_eq!(partial.len(), 1, "{partial:?}");
@@ -899,7 +907,10 @@ mod tests {
     fn a_surface_naming_a_hook_the_config_does_not_declare_fails() {
         // The anti-rot half. Nothing here can read a `files:` regex, so what is held is that the
         // IDs this table leans on still exist - a rename would otherwise empty a claim in silence.
-        assert!(super::unknown_hook_ids(&declared()).is_empty(), "no surface names a hook the config does not declare");
+        assert!(
+            super::unknown_hook_ids(&declared()).is_empty(),
+            "no surface names a hook the config does not declare"
+        );
         let declared = declared();
         let unknown: Vec<String> = GONE
             .iter()
@@ -914,7 +925,10 @@ mod tests {
     fn every_surface_the_real_config_claims_still_exists() {
         // Over the REAL file, because the fixtures above prove the reader and not the tree. This is
         // the assertion that reddens when a hook is renamed in `.pre-commit-config.yaml`.
-        assert!(super::unknown_hook_ids(&declared()).is_empty(), "every real-config hook ID is still declared");
+        assert!(
+            super::unknown_hook_ids(&declared()).is_empty(),
+            "every real-config hook ID is still declared"
+        );
         // And the two rows that claim nothing are exactly the two the header says there are. The
         // day a hook covers one of them this assertion is what says the header stopped being true
         // - which is the direction that matters, because a row claiming a hook that cannot report

@@ -454,11 +454,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // from `sutura_app`'s federated path, but the declaration is the narrower fact and the one
         // that retires the rule if federation is ever taken back out.
         evidence: &[Evidence {
-            path: "crates/sutura-domain/src/plan/federated/mod.rs",
+            path: "crates/sutura-domain/src/plan/federated.rs",
             holds: "pub fn combine(",
         }],
         instead: "`sutura_app`'s federated answer path builds the second leg and \
-                  `crates/sutura-domain/src/plan/federated/mod.rs` declares what groups the \
+                  `crates/sutura-domain/src/plan/federated.rs` declares what groups the \
                   two, so the record's shape is settled rather than provisional. A plan names one \
                   data system per LEG and at most two legs - three or more refuse as \
                   `PlanSpansTooManySources` - and whether the two legs would decide identity the \

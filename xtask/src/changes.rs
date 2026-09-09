@@ -812,6 +812,9 @@ mod tests {
         // resolve against the repo root.
         assert!(status_paths("").is_empty(), "a clean tree yields no status paths");
         assert!(status_paths("\0").is_empty(), "a lone record terminator yields no paths");
-        assert!(status_paths(" M \0").is_empty(), "a record too short to hold a path is dropped");
+        assert!(
+            status_paths(" M \0").is_empty(),
+            "a record too short to hold a path is dropped"
+        );
     }
 }

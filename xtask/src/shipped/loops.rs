@@ -493,12 +493,18 @@ mod tests {
         assert_eq!(super::verdict(&files), Verdict::Fail);
         let unrelated = concat!("inputs:\n", "  minimum-gb:\n", "    default: \"\"\n");
         let files = BTreeMap::from([(String::from(".github/actions/x/action.yml"), String::from(unrelated))]);
-        assert!(super::scan(&files).problems.is_empty(), "an unrelated input key is not an empty-set declaration");
+        assert!(
+            super::scan(&files).problems.is_empty(),
+            "an unrelated input key is not an empty-set declaration"
+        );
         // And a key with NO value is a YAML null, which is how an input block OPENS - reading that
         // as an empty set would fail every correct action in the repository.
         let opening = concat!("inputs:\n", "  binaries:\n", "    description: the set\n");
         let files = BTreeMap::from([(String::from(".github/actions/x/action.yml"), String::from(opening))]);
-        assert!(super::scan(&files).problems.is_empty(), "a YAML null opening an input block is not an empty set");
+        assert!(
+            super::scan(&files).problems.is_empty(),
+            "a YAML null opening an input block is not an empty set"
+        );
     }
 
     #[test]

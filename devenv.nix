@@ -59,6 +59,13 @@ let
   # local gates run on exactly what CI gates on. One toolchain, one target directory.
   rustToolchain = toolchains.nightly;
 
+  # The copy/paste detector, referenced from the flake's own `packages` (exported beside
+  # `pulumi` and `xtask`) rather than resolved here. This is the SAME derivation the flake's
+  # `checks.hygiene` carries on `nativeBuildInputs` and `apps.jscpd` points at, so the dev shell
+  # and CI cannot scan with two engines, and the binary is already in the nix store - the shell
+  # adds a PATH entry and compiles nothing.
+  jscpd = inputs.repo.packages.${pkgs.stdenv.hostPlatform.system}.jscpd;
+
   # A shell body ShellCheck has read, as a store path.
   #
   # `writeShellApplication`'s checkPhase is `bash -n` PLUS ShellCheck, so a body that does not
@@ -197,6 +204,12 @@ in
     # would silently resolve to this derivation while reading as `pkgs.stax`. Naming the
     # attribute is what makes which one is meant visible. See the `stacked-branches` skill.
     stax.package
+
+    # The copy/paste detector, from the flake's `packages` - the same derivation `checks.hygiene`
+    # attests with. Listed here rather than inside the `with pkgs` block because `jscpd` is a
+    # let-binding in this file AND a nixpkgs attribute, and a `with` binding loses to a `let` one -
+    # the same reason `stax` above names its attribute.
+    jscpd
   ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
     # What `-liconv` resolves to on a mac. rustc emits it for every darwin link, the SDK does not
     # carry it under nix, and .cargo/config.toml routes the link through the clang wrapper so that

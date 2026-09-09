@@ -400,7 +400,10 @@ mod tests {
         );
         // A page documenting a link is not making one.
         assert_eq!(targets(&prose("```\n[shown](a.md)\n```\n[real](b.md)\n")), vec!["b.md"]);
-        assert!(targets(&prose("nothing here")).is_empty(), "prose with no link names zero targets");
+        assert!(
+            targets(&prose("nothing here")).is_empty(),
+            "prose with no link names zero targets"
+        );
     }
 
     #[test]

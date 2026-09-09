@@ -666,7 +666,10 @@ mod tests {
         // Pairing on the line would have said one `new` and one `removed` for a function nobody
         // touched, which is the noise that gets a delta gate switched off.
         assert_eq!(statuses(&comparison), vec![("f", Status::Moved)]);
-        assert!(comparison.removed.is_empty(), "no function reads as removed when only its line moved");
+        assert!(
+            comparison.removed.is_empty(),
+            "no function reads as removed when only its line moved"
+        );
     }
 
     #[test]

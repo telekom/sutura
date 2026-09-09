@@ -336,7 +336,10 @@ mod tests {
     #[test]
     fn try_from_is_what_makes_the_same_derive_correct() {
         let attrs = "#[derive(Debug, serde::Deserialize)]\n#[serde(try_from = \"String\")]";
-        assert!(findings(&newtype(attrs)).is_empty(), "a try_from-correct newtype has no findings");
+        assert!(
+            findings(&newtype(attrs)).is_empty(),
+            "a try_from-correct newtype has no findings"
+        );
     }
 
     #[test]
@@ -353,7 +356,10 @@ mod tests {
         // `Query`, `Anchor` and the `Raw*` settings shapes are this class: nothing is checked at
         // construction, so the derive walks past nothing.
         let text = "#[derive(serde::Deserialize)]\npub struct Query {\n    metric: MetricName,\n}\n";
-        assert!(findings(text).is_empty(), "a type with no fallible constructor has no findings");
+        assert!(
+            findings(text).is_empty(),
+            "a type with no fallible constructor has no findings"
+        );
     }
 
     #[test]
@@ -392,7 +398,10 @@ mod tests {
         // as its inner value, so both directions are `String`.
         let text =
             "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Digest(String);\n";
-        assert!(findings(text).is_empty(), "a newtype over the try_from target round-trips cleanly");
+        assert!(
+            findings(text).is_empty(),
+            "a newtype over the try_from target round-trips cleanly"
+        );
     }
 
     #[test]
@@ -439,7 +448,10 @@ mod tests {
         // and a rule that reported them would be reporting the absence of a file it never read.
         let text =
             "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Digest(String);\n";
-        assert!(findings(text).is_empty(), "a try_from naming no declaration is not this rule's");
+        assert!(
+            findings(text).is_empty(),
+            "a try_from naming no declaration is not this rule's"
+        );
     }
 
     #[test]
@@ -465,7 +477,10 @@ mod tests {
         // The confound that makes comment blanking necessary rather than tidy: this repo's
         // doctests declare types, and one of them deriving Deserialize is not a violation.
         let text = "/// ```\n/// #[derive(serde::Deserialize)]\n/// pub struct Digest(String);\n/// impl Digest { pub fn parse(r: &str) -> Result<Self, E> { todo!() } }\n/// ```\npub fn f() {}\n";
-        assert!(findings(text).is_empty(), "a rustdoc-example declaration is not a declaration");
+        assert!(
+            findings(text).is_empty(),
+            "a rustdoc-example declaration is not a declaration"
+        );
     }
 
     #[test]

@@ -521,12 +521,18 @@ mod tests {
 
     #[test]
     fn a_categorical_expect_is_not_caught() {
-        assert!(lints("#[expect(clippy::float_arithmetic, reason = \"by design\")]").is_empty(), "a categorical expect is not a lint to forbid");
+        assert!(
+            lints("#[expect(clippy::float_arithmetic, reason = \"by design\")]").is_empty(),
+            "a categorical expect is not a lint to forbid"
+        );
     }
 
     #[test]
     fn an_allow_is_not_caught() {
-        assert!(lints(&format!("#[allow(clippy::{})]", FORBIDDEN[0])).is_empty(), "an allow is not an expect to forbid");
+        assert!(
+            lints(&format!("#[allow(clippy::{})]", FORBIDDEN[0])).is_empty(),
+            "an allow is not an expect to forbid"
+        );
     }
 
     #[test]
@@ -542,7 +548,10 @@ mod tests {
     #[test]
     fn a_block_comment_naming_the_class_is_not_caught() {
         let code = format!("/* Never: #[expect(clippy::{})] */\nfn f() {{}}\n", FORBIDDEN[0]);
-        assert!(lints(&code).is_empty(), "a block comment naming the class is not a lint to catch");
+        assert!(
+            lints(&code).is_empty(),
+            "a block comment naming the class is not a lint to catch"
+        );
     }
 
     #[test]

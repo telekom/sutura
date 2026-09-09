@@ -416,7 +416,10 @@ mod tests {
     fn a_binary_may_use_a_dynamic_error_crate() {
         // The fixture's `bin-crate` depends on anyhow deliberately: in a binary the error's
         // audience is a human reading stderr, which is the permitted case.
-        assert!(dynamic_error_deps(&metadata()).expect("fixture walks").is_empty(), "the binary fixture resolves to no dynamic error dependencies");
+        assert!(
+            dynamic_error_deps(&metadata()).expect("fixture walks").is_empty(),
+            "the binary fixture resolves to no dynamic error dependencies"
+        );
     }
 
     #[test]
@@ -448,7 +451,10 @@ mod tests {
 
     #[test]
     fn a_private_tuple_field_is_the_point_of_the_pattern() {
-        assert!(pub_field_violations("x.rs", "pub struct Digest(String);\n").is_empty(), "a private tuple field is not a public-field violation");
+        assert!(
+            pub_field_violations("x.rs", "pub struct Digest(String);\n").is_empty(),
+            "a private tuple field is not a public-field violation"
+        );
     }
 
     #[test]
@@ -480,7 +486,10 @@ mod tests {
         // The state machine has to leave the body, or every `pub fn` in the impl below reads
         // as a public field.
         let text = "pub struct Digest {\n    inner: String,\n}\n\nimpl Digest {\n    pub fn as_str(&self) -> &str {\n        &self.inner\n    }\n}\n";
-        assert!(pub_field_violations("x.rs", text).is_empty(), "no method-after-the-body line reads as a public field");
+        assert!(
+            pub_field_violations("x.rs", text).is_empty(),
+            "no method-after-the-body line reads as a public field"
+        );
     }
 
     #[test]
@@ -500,7 +509,10 @@ mod tests {
     #[test]
     fn a_private_struct_is_not_this_rules_business() {
         // Not reachable by a caller, so there is no constructor to walk around.
-        assert!(pub_field_violations("x.rs", "struct Local {\n    pub inner: u8,\n}\n").is_empty(), "a private struct is not reported");
+        assert!(
+            pub_field_violations("x.rs", "struct Local {\n    pub inner: u8,\n}\n").is_empty(),
+            "a private struct is not reported"
+        );
     }
 
     #[test]
@@ -511,13 +523,19 @@ mod tests {
 
     #[test]
     fn a_typed_error_is_not() {
-        assert!(stringly_error_violations("x.rs", "fn f() -> Result<(), InvalidDigest> {}\n").is_empty(), "a typed error is not stringly");
+        assert!(
+            stringly_error_violations("x.rs", "fn f() -> Result<(), InvalidDigest> {}\n").is_empty(),
+            "a typed error is not stringly"
+        );
     }
 
     #[test]
     fn a_string_in_the_ok_position_is_not_an_error_type() {
         // The obvious false positive, and the reason the last argument is what gets read.
-        assert!(stringly_error_violations("x.rs", "fn f() -> Result<String, InvalidDigest> {}\n").is_empty(), "a String in the Ok position is not flagged as an error type");
+        assert!(
+            stringly_error_violations("x.rs", "fn f() -> Result<String, InvalidDigest> {}\n").is_empty(),
+            "a String in the Ok position is not flagged as an error type"
+        );
     }
 
     #[test]
@@ -542,7 +560,10 @@ mod tests {
     fn a_single_parameter_alias_is_not_read_as_an_error_type() {
         // `type Result<T> = std::result::Result<T, MyError>` is idiomatic; `Result<String>`
         // under it means Ok = String, and flagging it would make the gate a nuisance.
-        assert!(result_error_types("fn f() -> Result<String>").is_empty(), "a single-parameter alias states no error type");
+        assert!(
+            result_error_types("fn f() -> Result<String>").is_empty(),
+            "a single-parameter alias states no error type"
+        );
     }
 
     #[test]

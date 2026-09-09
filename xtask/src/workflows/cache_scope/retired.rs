@@ -500,7 +500,10 @@ mod tests {
         // AND THE OTHER DIRECTION, so this cannot pass by refusing everything: the live shape,
         // whose gate names only contexts a workflow can evaluate for itself.
         let live = step_using(STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
-        assert!(super::retired(&owned("ci.yml", &live)).is_empty(), "a live step that gates on its own context is not retired");
+        assert!(
+            super::retired(&owned("ci.yml", &live)).is_empty(),
+            "a live step that gates on its own context is not retired"
+        );
         // A secret in a `with:` VALUE is legitimate and is NOT this rule's business - the bigquery
         // credential is exactly that. Stated as a test because it is the limit, not an oversight.
         let credential = step_using("actions/checkout", "token:", "${{ secrets.GITHUB_TOKEN }}");

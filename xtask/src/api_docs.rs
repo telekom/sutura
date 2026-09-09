@@ -679,7 +679,10 @@ mod tests {
         // Unset is the dev-shell answer: cargo's default `dev` keeps the developer's `target/`
         // warm. The Nix check names `ci`, and it must arrive as a FLAG - `CARGO_PROFILE` is
         // crane's convention and a spawned child sees nothing that turns it into one.
-        assert!(profile_args(None).is_empty(), "the dev-shell default passes no --profile flags");
+        assert!(
+            profile_args(None).is_empty(),
+            "the dev-shell default passes no --profile flags"
+        );
         assert!(
             profile_args(Some("")).is_empty(),
             "an empty value gives cargo a bare --profile"

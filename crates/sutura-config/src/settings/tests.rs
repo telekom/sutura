@@ -484,7 +484,10 @@ fn a_production_deployment_that_answers_every_control_starts() {
     let settings = Settings::load(&Sources::defaults(Environment::Production).with_overlay(production_overlay()))
         .expect("a production posture that answers every control is servable");
     assert!(settings.environment().is_production());
-    assert!(settings.refusals().is_empty(), "a servable production posture refuses nothing");
+    assert!(
+        settings.refusals().is_empty(),
+        "a servable production posture refuses nothing"
+    );
 }
 
 // ----------------------------------------------- the environment-driven split ----

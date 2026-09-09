@@ -849,6 +849,9 @@ mod tests {
     fn a_list_this_parser_cannot_find_reads_as_empty_so_the_gate_can_fail_closed() {
         // `run` turns this into a FAILURE rather than a pass, which is the whole of why the parser
         // is allowed to answer nothing.
-        assert!(shipped_packages("nothing that looks like a binaries list").is_empty(), "an unparseable list yields no shipped packages");
+        assert!(
+            shipped_packages("nothing that looks like a binaries list").is_empty(),
+            "an unparseable list yields no shipped packages"
+        );
     }
 }

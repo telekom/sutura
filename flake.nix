@@ -414,6 +414,13 @@
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
 
+          # The copy/paste detector, as a package as well as an app. This is the SAME derivation
+          # `checks.hygiene` carries on `nativeBuildInputs` and `apps.jscpd` points at, so CI, the
+          # `nix run .#jscpd` route and the dev shell all see one jscpd - the pinned `jscpd-src`
+          # v5.2.0 build from `nix/jscpd.nix`. The devenv module references this attribute so the
+          # local shell cannot resolve a different engine than the sandbox attests with.
+          jscpd = jscpd;
+
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
           # nothing but `nix` on the runner.
           #

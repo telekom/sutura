@@ -467,7 +467,10 @@ text
         generated.push_str(&with_trailing_space());
         assert_eq!(inspect(ANY, &generated), vec![], "generated content is not hand-edited");
         // The same content without the marker is judged normally.
-        assert!(!inspect(ANY, &with_trailing_space()).is_empty(), "content without the marker still inspects as non-empty");
+        assert!(
+            !inspect(ANY, &with_trailing_space()).is_empty(),
+            "content without the marker still inspects as non-empty"
+        );
     }
 
     #[test]

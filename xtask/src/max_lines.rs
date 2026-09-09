@@ -285,7 +285,10 @@ mod tests {
         // cap would fail a clean tree.
         let ignores = Ignores::parse("[silent]\ndevenv.lock\ndocs/generated/*\nvendor/**\n");
         let files = vec![String::from("devenv.lock")];
-        assert!(inert_entries(&ignores, &files, &[]).is_empty(), "no entry is inert against an empty file list");
+        assert!(
+            inert_entries(&ignores, &files, &[]).is_empty(),
+            "no entry is inert against an empty file list"
+        );
         assert!(is_literal("devenv.lock"));
         assert!(!is_literal("docs/generated/*"));
         assert!(!is_literal("vendor/**"));

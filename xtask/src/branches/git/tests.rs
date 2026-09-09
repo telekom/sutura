@@ -33,7 +33,10 @@ fn a_ref_line_splits_into_six_fields() {
 
 #[test]
 fn a_line_with_too_few_fields_is_dropped_rather_than_guessed_at() {
-    assert!(parse_refs("feat/thing\0aaaa111\n").is_empty(), "a too-short ref line is dropped rather than guessed at");
+    assert!(
+        parse_refs("feat/thing\0aaaa111\n").is_empty(),
+        "a too-short ref line is dropped rather than guessed at"
+    );
     assert!(parse_refs("\n\n").is_empty(), "blank lines leave no parsed refs");
 }
 

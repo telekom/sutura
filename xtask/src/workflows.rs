@@ -208,11 +208,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-
     if let Some(verdict) = check_gates(&root, &ordinary, &flake, &references) {
         return verdict;
     }
-
 
     let missing: Vec<&Reference> = references
         .iter()
@@ -254,7 +252,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 /// Every rule that compares what a workflow is ALLOWED to do against what is declared to hold
 /// it. Kept out of `run` so the walker stays a single responsibility per function; returns
 /// `Some(Fail)` with the report already printed the moment any one rule breaks.
-fn check_gates(root: &std::path::Path, ordinary: &contexts::OrdinaryCi, flake: &str, references: &[Reference]) -> Option<Verdict> {
+fn check_gates(
+    root: &std::path::Path,
+    ordinary: &contexts::OrdinaryCi,
+    flake: &str,
+    references: &[Reference],
+) -> Option<Verdict> {
     // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
     // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
     // readers and checked by nothing - and it was false.

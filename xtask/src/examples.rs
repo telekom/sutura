@@ -519,7 +519,10 @@ mod tests {
         assert_eq!(found.reaches.keys().cloned().collect::<BTreeSet<_>>(), set(&["a-variant"]));
         assert_eq!(found.test_files, 1);
         assert_eq!(found.declared, 1, "the second number the verdict states, from the other read");
-        assert!(problems(&set(&["a-variant"]), &found, &whole()).is_empty(), "a variant reached from test code stays clean");
+        assert!(
+            problems(&set(&["a-variant"]), &found, &whole()).is_empty(),
+            "a variant reached from test code stays clean"
+        );
     }
 
     #[test]

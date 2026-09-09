@@ -670,7 +670,10 @@ mod conformance {
     #[test]
     fn a_comment_that_spells_the_binding_is_not_a_literal() {
         let text = "// sutura_conformance::execute_packs! { adapter: duckdb, }\nfn f() {}\n";
-        assert!(super::quoted(text, super::BINDING).is_empty(), "a comment spelling the binding is not a literal");
+        assert!(
+            super::quoted(text, super::BINDING).is_empty(),
+            "a comment spelling the binding is not a literal"
+        );
     }
 
     /// An unbalanced file is an ERROR, and this repository has three recorded instances of a scan

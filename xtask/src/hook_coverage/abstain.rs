@@ -295,7 +295,10 @@ mod tests {
         );
         // A line with no probe yields nothing, so it cannot contribute an empty group that every
         // host satisfies.
-        assert!(super::probes("        exec cargo run -q -p xtask -- crap").is_empty(), "a line with no probe contributes no probes");
+        assert!(
+            super::probes("        exec cargo run -q -p xtask -- crap").is_empty(),
+            "a line with no probe contributes no probes"
+        );
     }
 
     #[test]
@@ -349,7 +352,7 @@ mod tests {
         let declared = crate::hooks::hooks(&text);
         let read = super::over(&root, &declared).expect("the run-gate script");
         assert!(read.unreadable.is_empty(), "{:?}", read.unreadable);
-        // NINE of the sixteen, which is the count the report measured by hand.
+        // NINE of the seventeen, which is the count the report measured by hand.
         assert_eq!(read.deciding, 9, "{} hook(s) decide", read.deciding);
         // And the tools come out per hook, so a tier silently losing its nix fallback is visible.
         let script = std::fs::read_to_string(root.join(super::RUN_GATE)).expect(super::RUN_GATE);
@@ -375,8 +378,14 @@ mod tests {
         assert_eq!(tools("fmt-parity"), vec![vec![String::from("nix")]]);
         // A hook that only sources the dev environment decides nothing, so its `Passed` is
         // still read as coverage - which is what keeps this from failing a correct tree.
-        assert!(tools("rust-clippy").is_empty(), "a hook that only sources the dev environment names no tools");
-        assert!(tools("hygiene").is_empty(), "a hook that only sources the dev environment names no tools");
+        assert!(
+            tools("rust-clippy").is_empty(),
+            "a hook that only sources the dev environment names no tools"
+        );
+        assert!(
+            tools("hygiene").is_empty(),
+            "a hook that only sources the dev environment names no tools"
+        );
     }
 
     #[test]

@@ -368,7 +368,10 @@ mod tests {
         );
         // AND THE ARM THAT STILL FIRES: with every file readable there is no such sentence.
         std::fs::remove_file(workflows.join("unreadable.yml")).expect("the unreadable workflow");
-        assert!(super::workflow_text(&scratch).1.is_empty(), "the unreadable workflow leaves no parsed copies");
+        assert!(
+            super::workflow_text(&scratch).1.is_empty(),
+            "the unreadable workflow leaves no parsed copies"
+        );
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }
 }
