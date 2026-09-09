@@ -91,7 +91,7 @@ runs:
         # builds from, so editing one of those fields invalidates where the derivation did not move.
         # The error direction is "slow and right", and the alternative - reproducing crane's filter
         # outside nix - would be a fidelity claim held by nothing.
-        primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('flake.nix', 'nix/**', '.cargo/config.toml', '**/Cargo.toml') }}
+        primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('flake.nix', 'nix/**', 'devco/rust-toolchain-nightly.toml', '.cargo/config.toml', '**/Cargo.toml') }}
         # TWO TIERS, first match wins. Tier 1 is the same lock generation, so a manifest-only change
         # starts from the newest entry that shares its dependency set. Tier 2 is the previous
         # behaviour verbatim - any generation of this scope - so nothing that reasoned about the
