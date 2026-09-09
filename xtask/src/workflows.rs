@@ -85,6 +85,13 @@ mod sast;
 // binary cache still absent - split off when the same cap bit a second time.
 mod cache_scope;
 
+// DOES A STEP NAME A COMPILER BACKEND? Its own file for `sast`'s reason - this one is against the
+// unexemptable 1000-line cap - and the seam is the question: every other rule here asks whether a
+// reference RESOLVES or what a step is ALLOWED to do; this asks whether CI config NAMES a
+// nightly-only codegen-backend env variable, refused so a backend switch stays reviewable. See its
+// header for the exact-name list and the forms it does not reach.
+mod codegen;
+
 // DOES THE 2/4 CROSS MATRIX STILL SPLIT BY EVENT? A single inline ternary on
 // `jobs.link.strategy.matrix.target` once chose the set with no structural gate reading it - the
 // M1 gap `#477`'s own review found. This module pins that ternary: exact `A && B || C` shape,
@@ -285,6 +292,26 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
+    // IS THE COMPILER BACKEND CHOSEN IN CI? The dev shell is nightly-only now, and the two
+    // codegen-backend env vars `nix/stable-env.sh` used to UNSET are nightly-only too - so a step
+    // that SETS one is an unremarked backend switch with no cleanup behind it. Refused by name so
+    // a reviewer sees the choice; see the module header for the exact-name list.
+    let codegen = codegen::problems(&root);
+    if !codegen.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} codegen-backend env variable rule(s) broken\n",
+            codegen.len()
+        );
+        for problem in &codegen {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A workflow or action must not select the compiler backend itself - the toolchain a");
+        eprintln!("reviewer pinned is what chooses one. See xtask/src/workflows/codegen.rs for the");
+        eprintln!("name list and what it does not reach.");
+        return Verdict::Fail;
+    }
+
     // WHICH SET AN EVENT RUNS. `cross-link.yml`'s matrix literal once chose two aarch64 legs on a
     // pull request and four on `main` with nothing holding it - every gate stayed green on a
     // 4-on-PR regression. `#477`'s own review rated that M1 gap compute-only, not blocking, but
@@ -323,7 +350,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             walked.len(),
             walked.join(", ")
