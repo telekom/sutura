@@ -571,10 +571,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             CONTRADICTED.len(),
             COUNTS.len(),
             HOSTED.len(),
-            // THREE numbers from three places, and printed rather than merely held. The pair used
-            // to be statements and FILES, and review measured what that could not see: truncating
-            // the per-file line walk to two lines left both unmoved with a planted refutation
-            // unseen. `lines` is the one that drops.
+            // THREE numbers from three places, printed for a reader to compare runs with - and
+            // NOT the floor, which is `github.com/telekom/sutura#414`: each is derived by
+            // iterating what a walk returned, so a narrowing moves them with itself. Measured,
+            // `.take(100)` on the per-file line walk printed 80244 of 294744 here at exit 0.
+            // `absences::Sighted::short` is what refuses a short walk now.
             read.stated,
             read.files,
             read.lines,

@@ -25,10 +25,15 @@
 //!   `count_mismatches`' and `version_mismatches`' failure and was live in both;
 //! * **a sighting's globs reach no file** - a scan whose subject is unscanned reports the absence
 //!   held without having read anything, which is the defect this repository has shipped most often;
-//! * **a sighting's walk is TRUNCATED inside a file** - measured: `.enumerate().take(2)` on the line
-//!   walk left every test green with a planted refutation on line 837 unseen, **and neither printed
-//!   number moved**, because a per-FILE count cannot see a per-LINE truncation. [`Reading::lines`]
-//!   is the number that moves, and it is what makes the pair a witness;
+//! * **a sighting's walk is TRUNCATED**, over files or inside one - and a printed number was never
+//!   the thing that caught it. `github.com/telekom/sutura#414`, measured on `036bce03`:
+//!   `.take(100)` on the per-file line walk left `just hygiene` at **exit 0** with 214500 of 294744
+//!   production lines unread and `just test` green at 2831 passed, because the depth floor
+//!   (`lines > files * 4`, i.e. 656) was derived from the very collection the loop narrows; one
+//!   `continue` under the glob filter left 136 of 164 files unscanned, also exit 0, also green.
+//!   Both walks are [`crate::repo::Offered::each`] now - the loop lives inside the witness, whose
+//!   payload is one outcome per subject, and each is PAIRED against a count this module takes
+//!   itself. A short walk is a refusal that names both numbers;
 //! * **a file in scope could not be read** - the same defect one file at a time, which
 //!   `check-docs` and `check-shipped-binaries` each shipped as a silent `continue` above their own
 //!   fail-closed arm;
@@ -79,7 +84,7 @@ use std::path::Path;
 
 use super::claims::flatten;
 use crate::causality::regions;
-use crate::repo::matches_any;
+use crate::repo::{Offered, matches_any};
 use crate::serde_parse::scan::{code_lines, string_literals};
 
 /// What the tree would have to hold for an absence to be false.
@@ -262,25 +267,46 @@ fn prose(rel: &str, text: &str) -> String {
 /// meant to read and reports the answer over the rest - and the guard is safe to make a failure here
 /// because every glob in the table ends `*.rs` or `*.md`, so a PNG is out of SCOPE rather than
 /// unreadable.
-fn statements(root: &Path, files: &[String], absence: &Absence, unread: &mut Vec<String>) -> Vec<(String, usize)> {
+fn statements(
+    root: &Path,
+    files: &[String],
+    absence: &Absence,
+    unread: &mut Vec<String>,
+    short: &mut Vec<String>,
+) -> Vec<(String, usize)> {
     let mut found = Vec::new();
-    for rel in files {
-        if !matches_any(absence.stated_in, rel) {
-            continue;
-        }
+    // The glob filter is inside [`Offered::matching`] and the loop is inside `each`, so this
+    // function holds no sequence and no filter a narrowing could be written beside - see
+    // `crate::repo::accounting`. A truncation inside `each` cannot mint the witness either.
+    let walked = Offered::matching("stating file", files, absence.stated_in).each(|_, rel| {
         let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            unread.push(rel.clone());
-            continue;
+            unread.push(String::from(rel));
+            return;
         };
         let (flat, lines) = flatten(&prose(rel, &text));
         for wording in absence.claimed {
             let mut from = 0_usize;
             while let Some(at) = flat.get(from..).and_then(|rest| rest.find(wording)) {
                 let offset = from.saturating_add(at);
-                found.push((rel.clone(), lines.get(offset).copied().unwrap_or(1)));
+                found.push((String::from(rel), lines.get(offset).copied().unwrap_or(1)));
                 from = offset.saturating_add(wording.len().max(1));
             }
         }
+    });
+    // The PAIR, and both halves matter: `Err` is a walk shorter than the subjects it selected,
+    // and the recount is `matches_any` called from HERE against the same call inside `matching` -
+    // so a narrowing written at either site moves one side alone. Same shape as `pages`' `read`
+    // against `offered`, which is this repository's own reference for it.
+    let owed = files.iter().filter(|rel| matches_any(absence.stated_in, rel)).count();
+    match walked {
+        Ok(ref reached) if reached.subjects() == owed => {}
+        Ok(ref reached) => short.push(format!(
+            "the {} absence's stated_in scan was handed {} of the {owed} file(s) its scope names - \
+             a scan over a subset cannot say the absence is unstated",
+            absence.name,
+            reached.subjects()
+        )),
+        Err(ref why) => short.push(format!("the {} absence's stated_in scan {}", absence.name, why.describe())),
     }
     found
 }
@@ -289,7 +315,9 @@ fn statements(root: &Path, files: &[String], absence: &Absence, unread: &mut Vec
 ///
 /// `files` and `lines` are the halves that matter in a GREEN run: a hit list is empty when the
 /// absence holds, when the walk opened nothing, **and when it opened everything and read the first
-/// two lines of each**. Only `lines` separates the third from the first.
+/// two lines of each**. Neither of them is the FLOOR any more, and that is `#414`: both were
+/// derived by iterating the same collection the walk narrows, so a truncation moved the witness
+/// with itself. What holds the depth now is [`Sighted::short`].
 struct Sighted {
     /// Distinct files that contributed at least one production line.
     files: BTreeSet<String>,
@@ -301,6 +329,13 @@ struct Sighted {
     hits: BTreeSet<(String, usize)>,
     /// Files in scope that could not be read.
     unread: Vec<String>,
+    /// A walk that did not reach every subject it was offered, worded by
+    /// [`crate::repo::Short`] or by this module where the second count is its own.
+    ///
+    /// **This is the arm that makes the numbers above worth printing.** Each entry is a pair of
+    /// counts taken on opposite sides of one walk: the witness's own length against the caller's
+    /// record of what it decided.
+    short: Vec<String>,
 }
 
 /// Look for what would refute the absence, in production code only.
@@ -327,39 +362,100 @@ fn sighted(root: &Path, files: &[String], sighting: &Sighting) -> Sighted {
         lines: 0,
         hits: BTreeSet::new(),
         unread: Vec::new(),
+        short: Vec::new(),
     };
-    for rel in files {
-        if !matches_any(sighting.over, rel) {
-            continue;
-        }
+    let walked = Offered::matching("file", files, sighting.over).each(|_, rel| {
         let (Some(code), Ok(raw)) = (read(rel), std::fs::read_to_string(root.join(rel))) else {
-            found.unread.push(rel.clone());
-            continue;
+            found.unread.push(String::from(rel));
+            return None;
         };
         let tests = regions::scope(rel, &read);
-        let mut production = 0_usize;
-        for (index, line) in code.lines().enumerate() {
-            let number = index.saturating_add(1);
+        // The walk INSIDE the file, accounted the same way the walk over files is: one outcome per
+        // LINE, so `#414`'s first instance - `.take(100)` here, 214500 of 294744 lines gone at
+        // exit 0 - cannot mint a witness. `true` means the line is production and was searched.
+        let stepped = Offered::lines("line", &code).each(|number, line| {
             if tests.covers(number) {
-                continue;
+                return false;
             }
-            // Counted BEFORE the match, so the floor measures the walk rather than its findings.
-            production = production.saturating_add(1);
             if line.contains(sighting.holds) {
-                found.hits.insert((rel.clone(), number));
+                found.hits.insert((String::from(rel), number));
             }
-        }
+            true
+        });
         // The half the blanked image cannot show. A literal is attributed to the line its opening
         // quote sits on, which is the line a reader opens.
         for literal in string_literals(&raw) {
             if !tests.covers(literal.line) && literal.body.contains(sighting.holds) {
-                found.hits.insert((rel.clone(), literal.line));
+                found.hits.insert((String::from(rel), literal.line));
             }
         }
-        if production > 0 {
-            found.files.insert(rel.clone());
-            found.lines = found.lines.saturating_add(production);
+        // SECOND DERIVATION, and it is the reason this is not a tautology: `production` is counted
+        // off the witness's payload, `owed` off `code.lines()` at a different call site. A
+        // truncation on either side moves one of them, and the closure declining a line it was
+        // handed - which no type here can forbid - moves the first alone.
+        let production = match stepped {
+            Ok(ref lines) => lines.outcomes().iter().filter(|counted| **counted).count(),
+            Err(ref why) => {
+                found.short.push(format!("{rel}: the line walk {}", why.describe()));
+                return None;
+            }
+        };
+        let owed = code
+            .lines()
+            .enumerate()
+            .filter(|(index, _)| !tests.covers(index.saturating_add(1)))
+            .count();
+        if production != owed {
+            found.short.push(format!(
+                "{rel}: searched {production} of the {owed} production line(s) this file offers - \
+                 a scan that read less than the file cannot report what the rest of it holds"
+            ));
+            return None;
         }
+        if production > 0 {
+            found.files.insert(String::from(rel));
+        }
+        Some(production)
+    });
+    // The file half of the same pair: `matches_any` from here against the same call inside
+    // `matching`. `#414`'s second instance was one `continue` under that filter - 136 of 164 files
+    // unscanned, gate exit 0, suite green at 2831 - and the filter is not beside the loop any more,
+    // so the narrowing has to be written at one of these two sites and moves one side of this.
+    let owed = files.iter().filter(|rel| matches_any(sighting.over, rel)).count();
+    match walked {
+        Ok(reached) if reached.subjects() != owed => found.short.push(format!(
+            "the `{}` sighting was handed {} of the {owed} file(s) its scope names - a scan over a \
+             subset reports the absence held without having read the rest",
+            sighting.holds,
+            reached.subjects()
+        )),
+        Ok(reached) => {
+            // Summed off the WITNESS's payload rather than off a counter the loop incremented, so
+            // there is no accumulator a narrowed walk simply stops touching.
+            found.lines = reached
+                .outcomes()
+                .iter()
+                .filter_map(|one| *one)
+                .fold(0_usize, usize::saturating_add);
+            // The caller's own record against the witness's length: a subject the closure declined
+            // is neither read nor reported, and this is what makes that a refusal rather than a
+            // smaller number. Reported here because only this function knows both.
+            let dropped = reached.outcomes().iter().filter(|one| one.is_none()).count();
+            if dropped != found.unread.len().saturating_add(found.short.len()) {
+                found.short.push(format!(
+                    "the `{}` sighting was offered {} file(s), accounted for {} and named {} it \
+                     could not read - a file it neither searched nor reported is a subject this \
+                     scan dropped in silence",
+                    sighting.holds,
+                    reached.subjects(),
+                    reached.subjects().saturating_sub(dropped),
+                    found.unread.len()
+                ));
+            }
+        }
+        Err(why) => found
+            .short
+            .push(format!("the `{}` sighting's file walk {}", sighting.holds, why.describe())),
     }
     found
 }
@@ -367,17 +463,20 @@ fn sighted(root: &Path, files: &[String], sighting: &Sighting) -> Sighted {
 /// What the run actually read, so a green line can say so.
 ///
 /// Three numbers from three different places - statements out of prose, distinct files out of the
-/// tree walk, production lines out of the walk INSIDE each file. The third exists because the first
-/// two cannot see a truncated line walk, which is the mutation that survived review.
+/// tree walk, production lines out of the walk INSIDE each file.
+///
+/// **None of the three is a floor, and that correction is `github.com/telekom/sutura#414`.** All
+/// three are derived by iterating what the walks return, so a narrowed walk moves them along with
+/// itself: the depth threshold that used to guard them was satisfied by a walk that read a hundred
+/// lines per file. They are here to be READ by somebody comparing runs. What refuses a short walk
+/// is [`Sighted::short`], a pair of counts taken on opposite sides of it.
 pub(super) struct Reading {
     /// Statements of an absence found.
     pub(super) stated: usize,
     /// Distinct files a sighting opened and read at least one production line of. Distinct rather
-    /// than summed: the old number counted one file once per entry, so it grew with the table and
-    /// could never be a coverage floor.
+    /// than summed: the old number counted one file once per entry, so it grew with the table.
     pub(super) files: usize,
-    /// Production lines searched, across every sighting. **The number a per-file count cannot
-    /// replace** - see [`Sighted`].
+    /// Production lines searched, across every sighting.
     pub(super) lines: usize,
 }
 
@@ -402,7 +501,7 @@ fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<Strin
     }
     for absence in table {
         let mut unread = Vec::new();
-        let stated = statements(root, files, absence, &mut unread);
+        let stated = statements(root, files, absence, &mut unread, &mut problems);
         stated_total = stated_total.saturating_add(stated.len());
         for rel in &unread {
             problems.push(format!(
@@ -423,6 +522,11 @@ fn absences_hold(root: &Path, files: &[String], table: &[Absence]) -> (Vec<Strin
             let found = sighted(root, files, sighting);
             scanned.extend(found.files.iter().cloned());
             lines = lines.saturating_add(found.lines);
+            // FIRST, because every number below it is about a subset while one of these stands.
+            // This is the arm `#414` asked for: a walk shorter than the set it was offered, worded
+            // from two counts taken on opposite sides of it rather than from a floor the
+            // truncation moves too.
+            problems.extend(found.short.iter().cloned());
             for rel in &found.unread {
                 problems.push(format!(
                     "{rel}: in the {} sighting's scope and could not be read - the scan is short by \
@@ -771,16 +875,18 @@ mod tests {
         assert!(!super::ABSENCES.is_empty(), "the shipped table is what this is about");
         let (problems, reading) = absence_problems(&root, &files);
         assert!(problems.is_empty(), "{problems:#?}");
-        // The floors, asserted rather than only printed. `stated` is prose, `files` is the tree
-        // walk, `lines` is the walk INSIDE each file - and only the third moves when the per-file
-        // walk is truncated, which is the mutation that survived review.
+        // The numbers are still asserted non-zero - a scan that opened nothing is a scan whose
+        // empty hit list means nothing - but the DEPTH floor that used to sit here is gone, and
+        // deleting it is the point of `github.com/telekom/sutura#414`. It read
+        // `lines > files * 4`, which is 656 against a real 294744: measured on `036bce03`,
+        // `.take(100)` on the per-file line walk satisfied it at `just hygiene` exit 0 with 214500
+        // of 294744 lines unread and `just test` green at 2831 passed. Both sides came off the
+        // collection the loop narrows, so the floor moved with the mutation. What holds the depth
+        // now is `problems`, one line above: every walk here is `crate::repo::Offered::each`, whose
+        // payload is one outcome per subject, paired against a count this module takes itself - so
+        // a truncated walk is a REFUSAL rather than a smaller number that clears a threshold.
         assert!(reading.stated > 0, "no page states any registered absence");
         assert!(reading.files > 0, "no sighting opened a file");
-        assert!(
-            reading.lines > reading.files.saturating_mul(4),
-            "the line walk reads more than a handful per file, or it is truncated: {} line(s) over {} file(s)",
-            reading.lines,
-            reading.files
-        );
+        assert!(reading.lines > 0, "no sighting searched a production line");
     }
 }
