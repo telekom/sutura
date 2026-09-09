@@ -155,3 +155,27 @@ jobs:
         with:
           arm: 32core-four-jobs-eight-cores
           workload: .#checks.x86_64-linux.clippy
+
+  # ONE FACTOR: the host. The reference's settings, the reference's workload, half the label's cores
+  # if the label means what it says - which this arm is what reads.
+  smaller-host:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+
+      - uses: ./.github/actions/host-probe
+        with:
+          arm: 16core-reference-settings
+          workload: .#checks.x86_64-linux.clippy

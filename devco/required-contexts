@@ -162,6 +162,9 @@ runner-probe.yml:reference
 runner-probe.yml:one-job
 runner-probe.yml:bounded
 
+# The 16-core arm. Measurement for review, on a label nothing else uses.
+runner-probe.yml:smaller-host
+
 # Generated input against the parsers that read untrusted input. BOTH jobs advisory, and the
 # `fuzz` matrix does not report on a pull request at all - `.github/workflows/fuzz.yml` argues why
 # a time-budgeted fuzz run must not gate a merge, and the entry is here so that argument is a

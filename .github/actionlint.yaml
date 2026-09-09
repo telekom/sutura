@@ -25,9 +25,10 @@
 # runs `actionlint` against this file - inside `ci`, the one required context. The refusal is
 # `label "rust-mcp" is unknown. available labels are ...`.
 #
-# `rust-mcp-16core` is absent for the same reason rather than by omission: this list is what is IN
-# USE, so adding a label here is the same decision as putting a job on it. It is added by whatever
-# change first measures it.
+# `rust-mcp-16core` IS in use, and by exactly one thing: the `smaller-host` arm of
+# `.github/workflows/runner-probe.yml`, which exists to measure it. No gate runs on it. Adding a
+# label here is the same decision as putting a job on it, so if that arm goes, so does this line.
 self-hosted-runner:
   labels:
     - rust-mcp-32core
+    - rust-mcp-16core
