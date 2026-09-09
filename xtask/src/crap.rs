@@ -822,8 +822,7 @@ mod tests {
     fn the_pinned_channel_is_read_from_the_toolchain_file() {
         use super::pinned_channel;
         let root = crate::repo::root().expect("repo root");
-        let text =
-            std::fs::read_to_string(root.join("devco/rust-toolchain-nightly.toml")).expect("toolchain");
+        let text = std::fs::read_to_string(root.join("devco/rust-toolchain-nightly.toml")).expect("toolchain");
         let channel = pinned_channel(&text).expect("devco/rust-toolchain-nightly.toml must name a channel");
         // A nightly channel, because the coverage run matches CI's nightly gate. The nightly's
         // default backend is LLVM, so `-C instrument-coverage` is available here - cranelift is

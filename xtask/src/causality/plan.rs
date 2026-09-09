@@ -781,7 +781,10 @@ mod tests {
                 "fn feature_preflight() -> bool { false }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
             ),
             ("xtask/src/shipped.rs", "fn collect() {}\n"),
-            ("xtask/tests/default_features.rs", "#[test]\nfn a_forbidden_feature_at_the_last_root_target() {}\n"),
+            (
+                "xtask/tests/default_features.rs",
+                "#[test]\nfn a_forbidden_feature_at_the_last_root_target() {}\n",
+            ),
             ("xtask/Cargo.toml", &manifest("xtask")),
         ]);
         match plan(&files, &read) {

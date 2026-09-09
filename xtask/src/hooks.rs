@@ -407,9 +407,7 @@ mod tests {
                         } else {
                             // Only the cargo-probing Rust gates reach here: without nix, and with
                             // a broken cargo, they skip with a notice rather than refusing.
-                            output.status.success()
-                                && invoked.is_empty()
-                                && stdout.contains("SKIPPED")
+                            output.status.success() && invoked.is_empty() && stdout.contains("SKIPPED")
                         };
                     if !correct {
                         wrong.push(format!(
