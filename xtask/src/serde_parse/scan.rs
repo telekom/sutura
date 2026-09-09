@@ -7,7 +7,7 @@
 //! **It does not parse Rust, and the direction of every shortcut is the same one.** Comments and
 //! the interiors of multi-line strings are blanked by [`code_lines`] before anything is read, so a
 //! rustdoc example and the gate's own fixtures are invisible; a declaration wrapped in a shape the
-//! walk does not expect reads as [`Shape::Other`] and is skipped rather than misreported. Under-
+//! walk does not expect reads as [`Shape::Other`] for a struct; enum layouts are not inspected. Under-
 //! claiming is the safe failure for a gate: it lets a violation past, where over-claiming fails
 //! correct code and gets the gate disabled.
 
@@ -24,23 +24,32 @@ pub(super) enum Shape {
     Other,
 }
 
-/// One struct declaration, with the attribute run that sits above it.
+/// Declaration kind; only structs have a field shape this gate compares.
+#[derive(Debug)]
+pub(super) enum Kind {
+    /// A struct with its recognised field shape.
+    Struct(Shape),
+    /// An enum, whose layout is outside rules two and three.
+    Enum,
+}
+
+/// One struct or enum declaration, with the attribute run that sits above it.
 #[derive(Debug)]
 pub(super) struct Declared {
     /// The type's name.
     pub(super) name: String,
-    /// 1-based line of the `struct` keyword.
+    /// 1-based line of the declaration keyword.
     pub(super) line: usize,
     /// Every attribute line above the declaration, joined with spaces, from the RAW text.
     pub(super) attrs: String,
-    /// What its fields look like.
-    pub(super) shape: Shape,
+    /// Whether field-shape rules apply, and what they can compare.
+    pub(super) kind: Kind,
 }
 
-/// Every struct declared in `code`, with the attribute run above each read from `raw`.
+/// Every struct or enum declared in `code`, with its attribute run read from `raw`.
 ///
-/// Two views of the same file on purpose. `code` decides WHERE a declaration is, so a struct
-/// inside a doc comment or a test fixture is not one; `raw` supplies the attribute TEXT, because
+/// Two views of the same file on purpose. `code` decides WHERE a declaration is, excluding text
+/// inside a doc comment or a test fixture; `raw` supplies the attribute TEXT, because
 /// blanking a string literal would take `try_from = "String"` with it.
 pub(super) fn declarations(code: &[String], raw: &[&str]) -> Vec<Declared> {
     let mut out = Vec::new();
@@ -57,16 +66,16 @@ pub(super) fn declarations(code: &[String], raw: &[&str]) -> Vec<Declared> {
             continue;
         }
         // A blank line or a comment between the attributes and the declaration keeps the run:
-        // `#[derive(..)]` above a doc comment above the struct is one declaration, not two.
+        // `#[derive(..)]` above a doc comment above the type is one declaration, not two.
         if trimmed.is_empty() || trimmed.starts_with("//") {
             continue;
         }
-        if let Some(name) = struct_name(trimmed) {
+        if let Some((name, kind)) = declaration_at(code, index) {
             out.push(Declared {
                 name: String::from(name),
                 line: index.saturating_add(1),
                 attrs: attrs.clone(),
-                shape: shape_of(code, index),
+                kind,
             });
         }
         attrs.clear();
@@ -85,10 +94,16 @@ fn closed(line: &str) -> usize {
     line.chars().filter(|c| *c == ')' || *c == ']').count()
 }
 
-/// The name in `struct Name ..`, with any visibility stripped first.
-fn struct_name(trimmed: &str) -> Option<&str> {
-    let rest = without_visibility(trimmed).strip_prefix("struct ")?;
-    Some(identifier_at(rest)).filter(|name| !name.is_empty())
+/// A declaration's leading name and kind, with visibility stripped first.
+fn declaration_at(code: &[String], at: usize) -> Option<(&str, Kind)> {
+    let text = without_visibility(code.get(at)?.trim());
+    let (rest, kind) = if let Some(rest) = text.strip_prefix("struct ") {
+        (rest, Kind::Struct(shape_of(code, at)))
+    } else {
+        (text.strip_prefix("enum ")?, Kind::Enum)
+    };
+    let name = identifier_at(rest);
+    (!name.is_empty()).then_some((name, kind))
 }
 
 /// The leading identifier of `text`, which is empty when it does not start with one.

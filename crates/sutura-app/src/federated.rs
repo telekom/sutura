@@ -6,12 +6,20 @@
 //! crate module also keeps the one decision only federation makes - an adapter may run a leg
 //! ([`Warehouse::EXECUTES_LEGS`]) or the question is refused before anything is minted - in one
 //! place.
+//!
+//! **This path is reachable from a published artefact now**, because `sutura-exec-datafusion`
+//! declares that constant and is non-optional in both shipped binaries. What that does NOT make it
+//! is two-identity: every adapter a release links declares
+//! `ImpersonationCapability::NoPlaceForASubject`, so both legs of a shipped two-source answer run
+//! under one operating-system identity and [`ExecutedAs::and`] records the same shared posture
+//! twice. Single-player federation.
 
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{Executable, FederatedFailure, FederatedPlan, LegPlan};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
+use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::{RowSet, Warehouse};
 
 use crate::{Answered, Answering, ServiceError, Warehouses, exceeds_row_cap, now_in_unix_seconds};
@@ -49,8 +57,9 @@ pub(crate) type LegResult<W, B> = Result<RowSet, LegError<<W as Warehouse>::Erro
 /// Reached only from [`Compiled::Federated`]. Every data system the plan reads must be open AND be
 /// able to execute a leg (`Warehouse::EXECUTES_LEGS`), or the answer is refused as
 /// [`RefusalReason::FederationNotExecutable`]. That check here, rather than in an adapter, is what
-/// keeps a shipped binary - whose adapters declare `false` - refusing a two-source question
-/// cleanly instead of letting a typed leg refusal surface as a retryable 503.
+/// keeps a build whose adapter declares `false` refusing a two-source question cleanly instead of
+/// letting a typed leg refusal surface as a retryable 503 - which is still every build linking
+/// `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
 ///
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH
@@ -69,13 +78,12 @@ where
     B: CredentialBroker,
 {
     // The capability gate comes FIRST, and that ordering is pinned by an HTTP test: on a build whose
-    // adapters cannot run a leg (`EXECUTES_LEGS = false`), a two-source question is refused as
+    // adapter cannot run a leg (`EXECUTES_LEGS = false`), a two-source question is refused as
     // `FederationNotExecutable` no matter which sources it names - a build that cannot federate at all
     // says so deterministically, rather than first reporting one of its sources as closed. Only a
     // build that CAN execute a leg then falls through to the per-source availability check. Decided
-    // here rather than in an adapter: a shipped binary's adapters declare `false`, so this refuses
-    // cleanly before minting or running anything, instead of surfacing a typed leg refusal as a
-    // retryable 503.
+    // here rather than in an adapter, so a build that cannot federate refuses before minting or
+    // running anything instead of surfacing a typed leg refusal as a retryable 503.
     if !W::EXECUTES_LEGS {
         return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
             reason: RefusalReason::FederationNotExecutable,
@@ -90,21 +98,16 @@ where
     let Some(lookup_warehouse) = warehouses.get(plan.lookup().source()) else {
         return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
     };
-    // Execution records for BOTH legs, so provenance names both identities. `FederatedPlan::new`
-    // refuses same-source legs, so the two records belong to distinct sources and `and` cannot
-    // collide; the Err arm of `and` is kept (rather than an expect) because the compile cannot know
-    // that, and nothing can answer for a splitter invariant that changed.
-    let Some(fact_record) = warehouses.executed_on(plan.fact().source()) else {
-        return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
-    };
-    let Some(lookup_record) = warehouses.executed_on(plan.lookup().source()) else {
-        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
-    };
-    let Some(lookup_posture) = lookup_record.posture(plan.lookup().source()).cloned() else {
-        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
-    };
-    let executed_as = match fact_record.and(plan.lookup().source().clone(), lookup_posture) {
-        Ok(executed_as) => executed_as,
+    // Execution records for BOTH legs, so provenance names both identities. Read off the two
+    // adapters this answer would run on rather than off a settings tree, for the reason
+    // `Warehouse::posture` gives. `FederatedPlan::new` refuses same-source legs, so the two records
+    // belong to distinct sources and `and` cannot collide; the Err arm of `and` is kept (rather than
+    // an expect) because the compile cannot know that, and nothing can answer for a splitter
+    // invariant that changed.
+    let record = match ExecutedAs::of(plan.fact().source().clone(), fact_warehouse.posture().clone())
+        .and(plan.lookup().source().clone(), lookup_warehouse.posture().clone())
+    {
+        Ok(record) => record,
         Err(_collision) => {
             // The splitter refuses same-source legs, so a collision is a splitter invariant that
             // changed and nothing can answer for it.
@@ -118,6 +121,26 @@ where
                     label: String::from(metric),
                 },
             });
+        }
+    };
+    // **The one verdict only a two-leg answer needs, and it is HERE - above the mint and above
+    // either leg - on purpose.** One answer is one asker: rows a shared identity was permitted to
+    // see, added to rows the asking subject was permitted to see, make a total no identity is
+    // entitled to, carrying a certified metric name and valid provenance. Refused before a
+    // credential exists, so nothing is minted and nothing is read; the `UniformlyExecuted` this
+    // returns is then the only thing `pinned.provenance` accepts, which is what stops the rows
+    // reaching a caller if this line is ever moved below execution.
+    //
+    // The refusal carries the posture LABELS. It must never carry a `SourcePosture`: the shared
+    // variant holds the operator's acknowledgement prose and both types are `Serialize`.
+    let executed_as = match record.uniform() {
+        Ok(uniform) => uniform,
+        Err(differently) => {
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+                reason: RefusalReason::LegsDecideIdentityDifferently {
+                    postures: differently.into_postures(),
+                },
+            }));
         }
     };
 
@@ -275,28 +298,24 @@ mod tests {
     /// tests feed it, so this test is about the ORCHESTRATOR (mint once, run both, record both) and
     /// leans on the combiner suite for the arithmetic.
     fn federated_plan() -> sutura_domain::plan::FederatedPlan {
-        use sutura_domain::catalog::TIME_BUCKET_LABEL;
         use sutura_domain::measure::{AggregatedColumn, Measure, Term};
         use sutura_domain::model::Aggregate;
-        use sutura_domain::model::{ColumnName, TableName};
-        use sutura_domain::plan::{AnswerKey, InternalLabel, LegPlan, PlanBucket, PlanColumn, PlanKey, StatementTables};
+        use sutura_domain::model::{ColumnName, DimensionName, TableName};
+        use sutura_domain::plan::{
+            AnswerKey, InternalLabel, LegPlan, PlanBucket, PlanColumn, PlanKey, ResultLabel, StatementTables,
+        };
 
         let fact_source = SourceName::parse("facts").expect("a test source");
         let lookup_source = SourceName::parse("geo").expect("a test source");
         let table = TableName::parse("fct_subscription_monthly").expect("a test table");
         let column = |n: &str| ColumnName::parse(n).expect("a test column");
         let tablecol = |n: &str| PlanColumn::new(table.clone(), column(n));
-        let key = |n: &str| PlanKey::new(String::from(n), tablecol(n));
+        let dimension = |n: &str| DimensionName::parse(n).expect("a test dimension");
+        let key = |n: &str| PlanKey::new(ResultLabel::dimension(&dimension(n)), tablecol(n));
         // The link column, under the reserved label both legs project it as. The splitter names it
         // from `InternalLabel` and this fake does too, so the shape stays the shape it emits.
-        let link = || PlanKey::new(InternalLabel::Link.label(), tablecol("customer_key"));
-        let bucket = |c: &str| {
-            PlanBucket::new(
-                String::from(TIME_BUCKET_LABEL),
-                Grain::Month,
-                PlanColumn::new(table.clone(), column(c)),
-            )
-        };
+        let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link), tablecol("customer_key"));
+        let bucket = |c: &str| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table.clone(), column(c)));
 
         let fact = LegPlan::Fact {
             source: fact_source,
@@ -319,15 +338,15 @@ mod tests {
         let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))));
         sutura_domain::plan::FederatedPlan::new(
             metric(),
-            String::from("revenue"),
+            ResultLabel::measure(&metric()),
             bucket("month"),
             fact,
             lookup,
             true,
             sutura_domain::federation::Federation::of(&sum),
             vec![
-                AnswerKey::fact(String::from("product_family")),
-                AnswerKey::lookup(String::from("region")),
+                AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
+                AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
             ],
         )
         .expect("a valid two-leg plan")
@@ -500,10 +519,121 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_whose_legs_would_run_under_two_postures_is_refused_before_minting() {
+        // **The refusal this whole change is, and the assertion that matters is the mint count.**
+        // Two leg-executing adapters, one `shared-service-user` and one `impersonation-at-source`,
+        // so combining them would add rows one identity was permitted to see to rows another
+        // identity was permitted to see - a total neither is entitled to, under a certified metric
+        // name and with valid provenance. Refused above the mint, so no credential exists and
+        // neither leg runs.
+        //
+        // A registration rather than a new fake: `LegsWarehouse::answering` already takes a posture
+        // per instance, which is the whole of what a mixed deployment is.
+        let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+            SourceName::parse("facts").expect("a test source"),
+            shared(),
+            federated_fact_rows(),
+        ))
+        .and(crate::tests_support::LegsWarehouse::answering(
+            SourceName::parse("geo").expect("a test source"),
+            sutura_domain::source::SourcePosture::ImpersonationAtSource,
+            federated_lookup_rows(),
+        ))
+        .expect("two sources, one registry");
+
+        let broker = crate::tests_support::CountingBroker::default();
+        let plan = federated_plan();
+        let outcome = answer_federated(&bundle(), &plan, &asked_by_a_person(), &broker, &warehouses, FEDERATED_BUDGET)
+            .expect("a refusal is an Ok")
+            .into_outcome();
+        let ToolOutcome::Refusal {
+            reason: RefusalReason::LegsDecideIdentityDifferently { postures },
+        } = outcome
+        else {
+            panic!("two postures in one answer is refused, not {outcome:?}");
+        };
+        assert_eq!(
+            postures.iter().copied().collect::<Vec<&str>>(),
+            vec!["impersonation-at-source", "shared-service-user"],
+            "the refusal names both postures, by label"
+        );
+        assert_eq!(
+            broker.asked(),
+            0,
+            "the verdict is above the mint, so no credential is minted for an answer that will not be given"
+        );
+        // And the operator's acknowledgement prose never leaves the deployment. `Debug` is the
+        // rendering that reaches a log by accident; the serialized body is asserted in
+        // `sutura_domain::query`, which has a format parser.
+        let rendered = format!("{:?}", RefusalReason::LegsDecideIdentityDifferently { postures });
+        assert!(!rendered.contains("a directory of CSVs"), "{rendered}");
+    }
+
+    #[test]
+    fn two_shared_sources_with_different_acknowledgements_are_still_answered() {
+        // **The strand guard, at the orchestrator.** `SourcePosture` derives `PartialEq` and the
+        // acknowledgement is resolved per source, so a predicate comparing VALUES would refuse this
+        // - and this is the only federating shape that ships today, since every adapter a release
+        // links declares it has nowhere for a subject to arrive. The domain's own cell asserts the
+        // same property one layer down; this one asserts that the answer path still answers.
+        let acknowledged = |text: &str| sutura_domain::source::SourcePosture::SharedServiceUser {
+            declared: sutura_domain::source::SharedIdentityDeclared::of(
+                sutura_domain::source::AcknowledgementReason::parse(text).expect("a test reason is a reason"),
+            ),
+        };
+        let facts = SourceName::parse("facts").expect("a test source");
+        let geo = SourceName::parse("geo").expect("a test source");
+        let postures = [
+            (facts.clone(), acknowledged("a directory of CSVs this deployment owns")),
+            (geo.clone(), acknowledged("a reference dataset every team reads")),
+        ];
+        let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+            facts,
+            postures[0].1.clone(),
+            federated_fact_rows(),
+        ))
+        .and(crate::tests_support::LegsWarehouse::answering(
+            geo,
+            postures[1].1.clone(),
+            federated_lookup_rows(),
+        ))
+        .expect("two sources, one registry");
+
+        // Per-source witnesses, because `Presented::agrees_with` compares the acknowledgement prose
+        // by equality - so a broker minting ONE witness for both sources is refused here by that
+        // guard rather than by the one under test, which is exactly the confusion this fake removes.
+        let broker = crate::tests_support::AcknowledgingBroker::over(&postures);
+        let plan = federated_plan();
+        let outcome = answer_federated(&bundle(), &plan, &asked_by_a_person(), &broker, &warehouses, FEDERATED_BUDGET)
+            .expect("two shared legs are answered")
+            .into_outcome();
+        let ToolOutcome::Answer { provenance, .. } = outcome else {
+            panic!("two shared legs are one posture, so this is answered, not {outcome:?}");
+        };
+        assert_eq!(
+            provenance
+                .executed_as()
+                .legs()
+                .map(|(_, posture)| posture.as_str())
+                .collect::<Vec<&str>>(),
+            vec!["shared-service-user", "shared-service-user"],
+            "both legs record the same posture, with two different acknowledgements behind them"
+        );
+    }
+
+    #[test]
     fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
-        // The shipped binary's adapters declare `EXECUTES_LEGS = false`, and this is what `answer` does
-        // on that build: it refuses cleanly BEFORE minting or running a leg, rather than surfacing a
-        // typed leg refusal as a retryable 503.
+        // What `answer` does on a build whose adapter declares `EXECUTES_LEGS = false`: it refuses
+        // cleanly BEFORE minting or running a leg, rather than surfacing a typed leg refusal as a
+        // retryable 503. `FixedWarehouse` below takes the port's default, which is what puts this
+        // test on that branch.
+        //
+        // **Not the shipped binary any more, and the correction matters here of all places.**
+        // `sutura-exec-datafusion` declares the constant and is non-optional in both published
+        // binaries, so a release ANSWERS a two-source question - see
+        // `crates/sutura-serve/tests/served.rs`. This cell is about the gate, not about the shipped
+        // set: what still reaches it is `sutura-exec-bigquery`, any adapter taking the default, and
+        // this fake.
         let fact_source = SourceName::parse("facts").expect("facts");
         let lookup_source = SourceName::parse("geo").expect("geo");
         let shared = shared();

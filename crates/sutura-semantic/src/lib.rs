@@ -30,9 +30,11 @@
 //! call.
 pub(crate) mod plan;
 mod resolve;
+use crate::plan::PlanError;
 pub use crate::resolve::BundleInconsistent;
 use crate::resolve::ResolveError;
 use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::plan::FederatedPlanError;
 use sutura_domain::plan::QueryPlan as DomainPlan;
 pub use sutura_domain::plan::{FederatedPlan, QueryPlan};
 pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin};
@@ -74,6 +76,32 @@ impl Compiled {
         }
     }
 }
+/// Why compiling failed, which is never why a question was refused.
+///
+/// **Two arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question the
+/// deployment declines comes back as [`Compiled::Refused`]; what reaches this type is our own side
+/// being wrong. Those are the two ways that can happen: the pinned bundle names something it does not
+/// hold, and the splitter built a two-source plan that
+/// [`FederatedPlan::new`](sutura_domain::plan::FederatedPlan::new) then rejected. The second used to
+/// be flattened into [`RefusalReason::FederationNotExecutable`], which is what a build whose adapter
+/// type does not declare `Warehouse::EXECUTES_LEGS` is told - so a wiring defect and a statement
+/// about the build's own capability arrived as one value, and a caller could not tell which it had.
+///
+/// **The limit, next to the claim:** nothing provokes [`NotAssembled`](CompileFailure::NotAssembled)
+/// today. Every `FederatedPlanError` variant is structurally unreachable from the splitter as it
+/// stands - `crate::plan::PlanError` enumerates why, one variant at a time - so what this arm buys is
+/// that a future edit which makes one reachable surfaces as a failure rather than as a refusal a
+/// caller would retry.
+#[derive(Debug, thiserror::Error)]
+pub enum CompileFailure {
+    /// The pinned bundle names a model or a relationship it does not hold.
+    #[error(transparent)]
+    Bundle(#[from] BundleInconsistent),
+    /// A two-source plan this workspace compiled and could not then assemble.
+    #[error("this deployment compiled a two-source question it could not assemble")]
+    NotAssembled(#[from] FederatedPlanError),
+}
+
 /// Resolves and plans. It does not render.
 ///
 /// **The dialect used to be an argument here, and that was a parameter that could lie.** Compiling
@@ -86,17 +114,43 @@ impl Compiled {
 /// crate, called by the adapter that speaks that dialect. Whoever wants SQL asks for it, and
 /// linking this crate no longer links a SQL generator.
 ///
-/// The error type is [`BundleInconsistent`] rather than an enum, because after the split that is the
-/// only way this can fail. A refused question is not a failure and comes back as [`Compiled`].
-pub fn compile(query: &Query, pinned: &PinnedDefinitions) -> Result<Compiled, BundleInconsistent> {
+/// The error type is [`CompileFailure`] and a refused question is not one of its arms: a refusal is
+/// an answer and comes back as [`Compiled`].
+///
+/// **A broken bundle is no longer the only way this can fail**, which is the change
+/// `telekom/sutura#338` asked for and the one thing about it a test can hold:
+///
+/// ```compile_fail
+/// use sutura_domain::pinned::PinnedDefinitions;
+/// use sutura_domain::query::Query;
+/// use sutura_semantic::{BundleInconsistent, compile};
+///
+/// fn _only_a_broken_bundle(query: &Query, pinned: &PinnedDefinitions) -> Option<BundleInconsistent> {
+///     compile(query, pinned).err()
+/// }
+/// ```
+///
+/// And the twin, so a rename cannot make that block pass vacuously:
+///
+/// ```
+/// use sutura_domain::pinned::PinnedDefinitions;
+/// use sutura_domain::query::Query;
+/// use sutura_semantic::{CompileFailure, compile};
+///
+/// fn _either_way(query: &Query, pinned: &PinnedDefinitions) -> Option<CompileFailure> {
+///     compile(query, pinned).err()
+/// }
+/// ```
+pub fn compile(query: &Query, pinned: &PinnedDefinitions) -> Result<Compiled, CompileFailure> {
     let resolution = match resolve::resolve(query, pinned) {
         Ok(resolution) => resolution,
         Err(ResolveError::Refused(reason)) => return Ok(Compiled::Refused { reason }),
-        Err(ResolveError::Bundle(cause)) => return Err(cause),
+        Err(ResolveError::Bundle(cause)) => return Err(cause.into()),
     };
     match plan::plan(&resolution) {
         Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
-        Err(reason) => Ok(Compiled::Refused { reason }),
+        Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
+        Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
     }
 }

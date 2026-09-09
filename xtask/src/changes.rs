@@ -368,14 +368,18 @@ pub(crate) fn run_classify(args: &[String]) -> Verdict {
 /// Paths whose owning package is not a workspace member, so `cargo check -p` cannot take it.
 ///
 /// A path dependency inside the repository has a real `Cargo.toml` with a real package name,
-/// so `owning_package` finds it - but `[workspace] exclude` keeps it out of the member list and
-/// `cargo check -p libmimalloc-sys` then fails with "did not match any packages". That is what
-/// broke the commit hook the moment mimalloc was vendored.
+/// so `owning_package` finds it - but it is not in the root workspace's member list, and
+/// `cargo check -p <name>` then fails with "did not match any packages". That is what
+/// broke the commit hook twice: the vendored allocator is `[workspace] exclude`d, and the fuzz
+/// crate is a workspace of its own (its `Cargo.toml` carries an empty `[workspace]` table
+/// rather than an exclusion, but the outcome for this question is the same - it resolves with
+/// its own lock and its own `#![no_main]` harness, and the root workspace's `cargo check`
+/// cannot name it).
 ///
 /// Skipped rather than treated as an orphan: an orphan widens to checking everything, which is
 /// right when the workspace layout surprised us and wrong here, where the answer is simply that
-/// third-party source is not ours to compile-check.
-const NON_MEMBER_PATHS: &[&str] = &["vendor/"];
+/// a non-member's sources are not compiled by the root workspace's checks.
+const NON_MEMBER_PATHS: &[&str] = &["vendor/", "fuzz/"];
 
 /// Is this path outside every workspace member?
 ///
@@ -469,7 +473,7 @@ pub(crate) fn run_changed_packages(args: &[String]) -> Verdict {
     }
 
     if skipped > 0 {
-        println!("xtask changed-packages: skipped {skipped} vendored file(s); not workspace members");
+        println!("xtask changed-packages: skipped {skipped} file(s) outside every workspace member");
     }
 
     // A .rs file no package owns means the workspace layout changed under us. Widen rather
@@ -806,8 +810,11 @@ mod tests {
         // `git status` on a clean tree prints nothing at all. A record too short to hold a path
         // is dropped rather than turned into an empty string, which `packages_for` would then
         // resolve against the repo root.
-        assert!(status_paths("").is_empty());
-        assert!(status_paths("\0").is_empty());
-        assert!(status_paths(" M \0").is_empty());
+        assert!(status_paths("").is_empty(), "a clean tree yields no status paths");
+        assert!(status_paths("\0").is_empty(), "a lone record terminator yields no paths");
+        assert!(
+            status_paths(" M \0").is_empty(),
+            "a record too short to hold a path is dropped"
+        );
     }
 }

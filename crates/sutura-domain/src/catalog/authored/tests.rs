@@ -75,10 +75,7 @@ fn every_invisible_range_is_refused_at_both_ends_and_no_neighbour_of_one_is() {
         let raw = format!("nor{offending}th");
         assert_eq!(
             DimensionValue::parse(&raw),
-            Err(InvalidDimensionValue::InvisibleCharacter {
-                value: raw.clone(),
-                code
-            }),
+            Err(InvalidDimensionValue::InvisibleCharacter { value: raw, code }),
             "{code:#06x}"
         );
         // The premise the whole refusal rests on: general category `Cf`, so the control-character

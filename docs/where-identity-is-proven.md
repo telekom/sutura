@@ -40,6 +40,11 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     verdict permanent. And *CI invokes it* reads a **command** rather than a substring, because a
     task named inside an `echo` was resolving as an invocation.
 
+    **`Where it runs` is a closed vocabulary too:** `in process`, `a GitHub environment`, or
+    `nowhere`, with explanatory text after the token. A synonym such as `not anywhere yet` is
+    refused rather than silently changing which verdicts the row permits. This closes a spelling
+    bypass, not the truth of the row: an accepted token falsely claiming a run site still passes.
+
     **What none of it reaches, said next to it.** What is read is an *invocation* in a workflow, a
     local composite action or the shared `nix/` shell - never a green run. A wired job that always
     skips reads the same as one that passes, and a hand-run is invisible to both. So *`unrun` has
@@ -49,8 +54,25 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     **And the one that is REVIEW's alone, named rather than left to be discovered.** Nothing checks
     that the task a `Reached by` cell names is the task that runs *this* venue. Measured: pointing
     the two-keys row at `` `nix run .#actionlint` `` - a real, CI-invoked, entirely unrelated lint -
-    passes at exit 0. What the gate holds is that a venue's state is consistent with what CI runs;
-    that a row describes the thing it names is read by a person.
+    AND changing its matrix cell and section from `unrun` to `wired` passes at exit 0. Repointing
+    alone is refused by the `unrun` ratchet. What the gate holds is that a venue's state is
+    consistent with a named invocation; that the invocation belongs to this venue, and that an
+    accepted run-site token is true, remain review's. An invented run site plus an unrelated
+    invocation can still publish a false leg-2 `yes`; this change does not close that gap.
+
+    **Invocation reading has syntax limits too.** Workflow and action sources contribute their
+    `run:` bodies, not ordinary YAML names or descriptions; shared shell scripts are read whole.
+    The indentation reader is not a YAML parser: a `run:`-shaped line inside a prose block scalar
+    can still be collected. Heredoc content beginning with a task can invent an invocation; an
+    apostrophe in unquoted prose can instead hide one. Neither is evidence of shell execution.
+
+    **And *the two columns of a row are read together* buys less than it sounds like, measured.**
+    `Where it runs` has no external anchor either - it is prose on this page, editable in the same
+    diff as the cell it guards. Overstating the row-grant claim took three edits before that rule
+    and takes **two** after it: change a `Where it runs` cell from *nowhere yet* to *a GitHub
+    environment, on demand*, then change the verdict. `check-venues` exits 0 on the pair with a
+    byte-identical summary. The rule raises the cost of the overstatement; it does not make it
+    impossible, and only a run named beside a `yes` does that.
 
 ## The venues
 
@@ -61,7 +83,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
 | **A real dataset under two keys** | a GitHub environment, on demand | two more service-account keys, and a row access policy per principal | `just bigquery-two-principals` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
-| **A real token exchange, and two grants** | nowhere yet | a workload-identity pool and two subjects with different access | not built |
+| **A real token exchange, and two grants** | nowhere yet - the leg exists and nothing can point it at a subject | a subject assertion per principal that nothing mints, and a hop to a service account that nothing implements - **the pool itself is already provisioned** | `just bigquery-exchanged-identity` |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -108,7 +130,8 @@ everything *around* it, and shrinks to the one job only it can do.
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no | **only here** | no |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | redundant - the same endpoint, and the standing test is the shared-key leg | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **only here** |
+| Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **unrun** - the standing test is here and nothing has run it |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - one key is one identity | no - two keys is two credentials nobody asked for | no | **unrun** - the standing test is here and nothing has run it |
 | **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **wired** - the only venue that could; `bigquery-acceptance` reaches it now and no run of it has been observed | no | redundant |
 
@@ -364,18 +387,85 @@ of this page.
 
 ## A real token exchange, and two grants
 
-Not built. `sutura_exec_bigquery::WorkloadIdentityBroker` decides correctly against a fake exchange,
+`just bigquery-exchanged-identity`, against the `bq-test` environment's workload-identity provider.
+`crates/sutura-exec-bigquery/tests/exchanged_identity.rs` is the standing test and its header is the
+long form of everything below.
+
+### What only this venue can answer, and the word for its state today
+
+**Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data
+system resolves to a DIFFERENT principal.** That is the half the two-keys venue above cannot reach at
+any cost, because a key on disk is not an asking subject - and it is the half that separates
+impersonation from credential selection. The unrun test
+`each_principal_is_who_this_source_says_it_is_executing_as` is written to exchange a subject's own
+assertion through the composition `sutura-serve` ships and read `SESSION_USER()` back through the
+adapter, asserting the account each leg became;
+`the_deployments_own_identity_is_neither_principal` is the control, the same read under the
+credential the transport itself holds, without which an exchange that did nothing at all would pass.
+
+**The state is `unrun`**, and that is the token rather than a caveat: no run has answered the claim
+the cell's column states, and nothing in CI reaches it. It may not be cited for anything.
+
+**One leg HAS run, and it is not that one.** On 2026-09-06,
+`the_deployments_own_identity_is_neither_principal` passed against the acceptance project from a
+developer machine - so `SESSION_USER()` is a statement this endpoint accepts, its answer really is one
+row of one text cell, and the adapter reads it. That makes the observable measured rather than
+plausible and settles nothing about impersonation: the leg runs under the credential the transport
+already holds. It also does not move this cell, twice over - a hand-run is invisible to
+`check-venues` by construction, and the claim in this column is about an EXCHANGE, which that leg
+performs none of.
+
+### Why nothing reaches it, which is a finding rather than a schedule
+
+**The pool is not what is missing, and an earlier version of this section implied it was.** The
+stack provisions a `WorkloadIdentityPool` and an OIDC provider, and the audience they export is the
+`SUTURA_BQ_WORKLOAD_AUDIENCE` this cell reads. Two other things are missing, and they are the ones
+below.
+
+**Two subject assertions do not exist, and cannot be derived from the CI workload identity with what
+this adapter ships.** A plain RFC 8693 exchange yields exactly one identity per subject token -
+whoever the token's `sub` is - so two principals need two subject tokens, and one CI job holds one
+workload identity and can mint one `sub`. `SUTURA_BQ_PRINCIPAL_A_ASSERTION` and
+`SUTURA_BQ_PRINCIPAL_B_ASSERTION` are what the cell is pointed at, they are not in the environment,
+and the cell fails on their absence rather than skipping.
+
+**And the shipped exchange cannot answer a service account's own identifier at all.**
+`wire::StsOverHttp` posts one token-exchange request and returns what comes back, which for a
+workload-identity pool is a FEDERATED credential: Google resolves it to a pool subject, not to a
+service account. Becoming a service account from one is a second call this adapter does not make. So
+against the stack as provisioned this cell would come back red, naming that - which is why *a
+federated pool subject* is one of its four verdicts rather than falling in with *neither principal*.
+**A red run naming the missing hop is the outcome this cell is built to produce**, and it is worth
+more than the row above staying `not built` while the sentence sat in prose.
+
+### What a green run here still would NOT establish
+
+1. **Anything about rows.** No row access policy is involved and none is asserted on. Whether the
+   data system then filters correctly for that identity is the vendor's guarantee, and the row-grant
+   claim stays with the two-keys venue.
+2. **Anything about another source.** `BigQuery`'s adapter is the only one declaring
+   `PerSubjectCredential`; the in-process engines execute under one identity.
+3. **That a browser-facing caller's token reaches the exchange.** That is the transport's half, and
+   the mock-issuer venue's `the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified` is
+   where it is answered.
+4. **That any deployment answered anybody.** This cell drives the composition directly; no served
+   binary is involved, so `AGENTS.md`'s position is unchanged by any run of it.
+
+### The half that is still nowhere
+
+`sutura_exec_bigquery::WorkloadIdentityBroker` decides correctly against a fake exchange,
 `StsOverHttp` serializes the documented request, and the mock-issuer venue above now shows that broker
 reached **through the transport** with the caller's own verified token as the `subject_token`. What has
 never happened is an exchange against a real endpoint, and no answer any deployment has produced was
 evaluated under an asker.
 
-Two things would make it a venue, and **one of them is now provisioned**: two identities whose access
-at the data system genuinely differs exist, and the two-keys venue above is what they became. What is
-left is the exchange itself - a workload-identity pool to exchange against, and a caller whose own
-verified token is what a broker turns into one of those two identities. So *two subjects read two row
-sets* is still a claim rather than a hope, and the reason has narrowed from *no differing access* to *no
-subject bound to either grant*. Until that exists, `AGENTS.md` keeps the shipped position:
+Two identities whose access at the data system genuinely differs exist - the two-keys venue above is
+what they became - and a pool to exchange against exists. What is missing is a caller whose own
+verified token a broker turns into one of those two identities, which is the same gap the cell above
+fails on: no subject is bound to either grant. So *two subjects read two row sets* is still a claim
+rather than a hope, and the reason has narrowed twice - from *no differing access*, to *no subject
+bound to either grant*, to *the shipped exchange resolves to a pool subject and the hop to a service
+account is not built*. Until that exists, `AGENTS.md` keeps the shipped position:
 
 > no source a deployment SERVES executes as the asking subject.
 
@@ -385,5 +475,7 @@ A venue that cannot state its limit is how *verified* drifts. So:
 
 - A new venue arrives as a row in the table above **with its exclusions written**, in the same change.
 - A test moving from one venue to another moves its row, rather than gaining a second one.
+- `Where it runs` must use the closed vocabulary; the gate holds its meaning, not whether the
+  claimed run site is true or its named task belongs to that venue.
 - `just validate` runs every venue that needs no network. The other three do not, and each says so where
   it is invoked.

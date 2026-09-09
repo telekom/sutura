@@ -1,11 +1,13 @@
 //! The fakes and the oracle: the stand-ins that let the whole surface be tested with no data system.
 //!
-//! In `tests/support/mod.rs` rather than `tests/support.rs` so cargo does not build it as a test
-//! target of its own. The oracle lives one file further in, in [`oracle`], and that split is a gate
+//! Declared by `golden.rs` with `#[path = "support/support.rs"] mod support;` and living in a
+//! self-named `tests/support/support.rs` rather than `tests/support.rs` at the root, so cargo does
+//! not build it as a test target of its own. The oracle lives one file further in, in [`oracle`],
+//! and that split is a gate
 //! rather than a preference: a hand-written catalog is a list of literals, so it grows with the
 //! corpus, and `cargo xtask max-lines` fails at a thousand lines.
 //!
-//! **Nothing here is a registered adapter, and that line is the point.** `tests/adapters/mod.rs` holds
+//! **Nothing here is a registered adapter, and that line is the point.** `tests/adapters/adapters.rs` holds
 //! the registry and the two registration traits: an entry there is something somebody could deploy.
 //! What is here cannot be deployed and is not meant to be:
 //!

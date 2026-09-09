@@ -1394,11 +1394,10 @@ example of this record's own warning about a job red for a configuration reason.
 
 ### And two limits this cell does not close, named so they are not read as closed
 
-**`check-venues` reads ONE credential path.** It takes the job's `GOOGLE_APPLICATION_CREDENTIALS`,
-so *written under `$RUNNER_TEMP` and removed* and *the file is a second copy of the secret* are held
-for the CI key and by review for the two principal keys placed beside it. Deriving the credential set
-from the job is the fix, and the split it was waiting on has landed: `xtask/src/venues/acceptance.rs`
-is 672 lines now, with the five properties in `acceptance/properties.rs` (#323).
+**The single-credential limit is superseded by the twelfth amendment.**
+`acceptance/properties.rs` now derives recognised `$RUNNER_TEMP` destinations from lines naming
+configured secrets and requires each file in an `rm` argument list. Indirect copies, `cd`-relative
+writes and whether a conditional cleanup actually executes remain outside that scan.
 
 **Nothing checks that the two nextest filters are complements.** `binary(two_principals)` and
 `not binary(two_principals)` appear in two `just` recipes and two flake apps, and no gate reads a
@@ -1432,3 +1431,37 @@ the typed policy is that module's own suite plus two cells per leg asserting tha
 `null`, and an integer and its own text, are refused **by the content comparison** - the diagnosis
 named in the expected panic, not merely that some panic fired. The next `bigquery-acceptance` run is
 what would restate the number with *exactly* meaning what it says.
+
+## Twelfth amendment, 2026-09-07: the first of the tenth amendment's two limits is closed
+
+**Status of the amendment: accepted; it closes a limit this record named, and carries no new run.**
+
+The tenth amendment states that `check-venues` reads ONE credential path, so *written under
+`$RUNNER_TEMP` and removed* and *this file is a second copy of the secret* are held for the CI key
+and **by review** for the two principal keys placed beside it. That sentence was true when it was
+written and is not now: telekom/sutura#389 derives the credential set from the job, which is the fix
+this record named. `properties::credential_placement` reads recognised redirects into `$RUNNER_TEMP`
+from a line that spells a secret, and each such file has to be deleted by name; `shape::removes` reads an
+`rm`'s ARGUMENT LIST, because one `rm` over three paths contains the whole-string form of none of
+them but the first - so the form it replaces would also have failed a job that removes three
+correctly.
+
+**Measured on this job, tree restored after each:** the two principals' writes added under
+`$RUNNER_TEMP` and left out of the cleanup, `cargo xtask check-venues` names both files and
+`just hygiene` exits 1; with one `rm` naming all three, the leg's own path LAST, it exits 0. The
+pre-change pair that both exited 0 was the additional writes with and without separate ordinary
+cleanup commands, while retaining the original primary cleanup. The combined cleanup with the
+primary path last instead exited 1 before this change: it was a false refusal of a correct job.
+
+**Review narrowed the shell spelling claim.** Plain and braced `RUNNER_TEMP` expansions, with the
+whole word or directory double-quoted, now resolve to the same path in both the primary-write and
+additional-copy checks. A single-quoted variable is literal and earns no placement or cleanup.
+Cleanup arguments end at the command boundary: a trailing comment or later `echo` removes nothing,
+while an `rm` behind a compound-command keyword is still read. This recognises commands; it does
+not establish that a condition lets them execute.
+
+**What is still review's, narrower than the sentence it replaces:** a copy made by a command that
+does not spell the secret's name - a `cp` of the key file, a `base64 -d` of it - a `cd`-relative write
+or other shell-built path, and a removal whose condition never fires. The second limit that
+amendment names, the two nextest filters, is
+untouched and is telekom/sutura#430.

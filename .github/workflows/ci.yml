@@ -187,11 +187,11 @@ jobs:
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
     # promotion PR whose tip happens to be a release commit is still gated.
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
     # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
-    # `magic-nix-cache` has anything to restore - spends most of an hour compiling before a
+    # the store cache has anything to restore - spends most of an hour compiling before a
     # single test runs, and 60 killed exactly that run mid-`Tests`. Warm runs are far quicker;
     # the cap has to survive the cold one that fills the cache for the rest.
     timeout-minutes: 120
@@ -241,12 +241,25 @@ jobs:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
           # absent: with it, a pull request could add a substituter and a trusted key and have
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
-          # goes here, where the workflow diff shows it.
+          # goes HERE, where the workflow diff shows it - never read from flake.nix.
+          #
+          # ONE store outside this repository is trusted, and both halves are COMMITTED rather than
+          # held in a secret or a variable: a committed value is one a reviewer sees and one
+          # `cargo xtask check-workflows` can compare against, while a variable swaps with no diff
+          # and nothing notices. The gate permits exactly this pair in exactly this spelling - an
+          # added store, a different key, that key on another host, or this store passed as
+          # `--extra-substituters` are all still refused. Nix's signature check bounds the trust.
+          # The WRITE credential is the only secret; it is an *environment* secret and it lives in
+          # `cachix-push.yml`, so no job on this path can reach it. Residual limit: a value
+          # assembled from pieces, or one arriving via another action's input, passes unseen.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
-      # Carries /nix/store between runs. Without it every run recompiles from scratch.
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
 
       - name: Toolchain in use
         run: |
@@ -300,6 +313,48 @@ jobs:
           else
             nix run .#xtask -- classify
           fi
+
+      # >>> ONE INVOCATION, SO THE SCHEDULER CAN FILL THE HOST. <<<
+      #
+      # The nine checks below were nine SEQUENTIAL `nix build` calls, which hands nix one root at a
+      # time - and nix starts only as many builds as there are runnable derivations, so a single root
+      # over a crane closure is one heavy cargo derivation behind a wide fan of fetches. Measured by
+      # `runner-probe.yml` on a 32-core host: the best job configuration still left the host **77%
+      # idle on average** while peaking above 90%. `max-jobs` was never the constraint - the number
+      # of roots was.
+      #
+      # THIS STEP IS A PREFETCH, NOT A VERDICT, and that is what keeps per-step attribution. Each
+      # check below still runs its own `nix build`, still owns its own log, and still fails its own
+      # step by name - it just finds its result already in the local store. So a reader who sees
+      # `Clippy` red still gets clippy's output, which is exactly what merging the steps into one
+      # invocation would have cost.
+      #
+      # `continue-on-error` is therefore correct rather than a way to hide a red: the authoritative
+      # verdicts are the steps that follow, and if a derivation fails here the step that owns it
+      # fails immediately afterwards with its own attributed output. `--keep-going` is what makes
+      # that true - without it the first failure would abandon the other eight and this step would
+      # slow the job it exists to speed up.
+      - name: Realise all checks in one graph and report host utilisation
+        continue-on-error: true
+        # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
+        # across the merged graph and writes cpus/memory/model + the nix max-jobs/cores pair in
+        # force + mean/peak CPU-busy to the job summary, so a later analysis can see whether the
+        # host was saturated or idle while the checks ran. ~0 cost side effect.
+        uses: ./.github/actions/measure-host
+        with:
+          label: merged check graph (9 roots)
+          run: |-
+            set -eu
+            nix build -L --keep-going \
+              .#checks.x86_64-linux.hygiene \
+              .#checks.x86_64-linux.reuse \
+              .#checks.x86_64-linux.fmt \
+              .#checks.x86_64-linux.clippy \
+              .#checks.x86_64-linux.nextest \
+              .#checks.x86_64-linux.keycloak-tier \
+              .#checks.x86_64-linux.postgres-tier \
+              .#checks.x86_64-linux.doctest \
+              .#checks.x86_64-linux.api-docs
 
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
@@ -555,16 +610,21 @@ jobs:
           retention-days: 30
 
       # The pages under docs/api/ are GENERATED from the library crates' doc comments and
-      # COMMITTED, because rustdoc JSON is nightly-only and the docs job has stable and nothing
-      # else. A committed generated file rots silently, so this regenerates them and
-      # byte-compares: a doc comment that changed without a regeneration fails here instead of
-      # publishing a stale page as current. Locally the same gate is
-      # `cargo xtask check-api-docs`, and the fix it asks for is `just api`.
+      # COMMITTED. rustdoc JSON (`--output-format json`) is nightly-only, so this is its own
+      # flake output rather than a fold into an ordinary check: the output packages its own
+      # rustdoc JSON generator and its own interpreter, run with `--all-features`. A committed
+      # generated file rots silently, so this regenerates them and byte-compares: a doc
+      # comment that changed without a regeneration fails here instead of publishing a stale
+      # page as current. Locally the same gate is `cargo xtask check-api-docs`, and the fix
+      # it asks for is `just api`.
       #
-      # THE ONLY NIGHTLY STEP in this workflow, deliberately. `--output-format json` is an
-      # unstable rustdoc option, so the stable toolchain everything else here uses rejects `-Z`
-      # outright. That is why it is its own flake output rather than folded into a check above:
-      # the output brings its own nightly toolchain and its own interpreter for the generator.
+      # rustdoc JSON is unstable nightly-only, which is the whole reason this step is a flake
+      # output of its own rather than one of the checks above: the generator needs a nightly
+      # that can accept `--output-format json`. That is no longer "the only nightly step" in
+      # the way an older comment claimed - the stable/nightly split is gone, and every build,
+      # every gate and every shipped artifact here runs the SAME single pinned nightly from
+      # devco/rust-toolchain-nightly.toml. The step stays separate for the packaging of the
+      # generator and interpreter, not because the rest of the tree is stable.
       #
       # `api` is set by classify for a library crate's sources, for the generator, for the
       # committed pages, and for the manifests - the pages are generated with `--all-features`,
@@ -615,8 +675,26 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         env:
           BASE: ${{ steps.base.outputs.base }}
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
+          if [ "$EVENT" = pull_request ]; then
+            # Ordinary CI keeps its merge checkout; causality measures only the topic's diff.
+            merge_head=$(git rev-parse HEAD)
+            read -r base_tip merged_pr extra <<< "$(git show -s --format=%P HEAD)"
+            if [ -z "$PR_HEAD" ] || [ "$merged_pr" != "$PR_HEAD" ] || [ -n "$extra" ]; then
+              echo "causality requires the checked-out merge's second parent to be the event's PR head" >&2
+              exit 1
+            fi
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "causality refuses to switch a checkout with tracked changes" >&2
+              exit 1
+            fi
+            BASE=$(git merge-base "$base_tip" "$PR_HEAD")
+            trap 'git checkout --detach "$merge_head" || exit 1' EXIT
+            git checkout --detach "$PR_HEAD"
+          fi
           if [ -z "$BASE" ]; then
             echo "no usable base ref; causality not checked"
             exit 0
@@ -676,6 +754,9 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix run .#default-feature-tests
 
+      - uses: ./.github/actions/nix-store-cache-report
+        if: always()
+
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
   #
@@ -725,7 +806,10 @@ jobs:
       github.event_name == 'pull_request' &&
       needs.ci.outputs.crap_delta == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: rust-mcp
+    # `ubuntu-latest`, AND IT COMPILES NOTHING - `gh` and `jq` are its whole toolchain and both
+    # ship on the hosted runner, which the step below already says. Measured at 9-10 s per run,
+    # so what the Rust runner bought here was a large machine holding a comment.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       # Posting or editing the one comment. Nothing else is granted: `contents` is absent because
@@ -808,7 +892,7 @@ jobs:
   bigquery-acceptance:
     needs: [ci]
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
     timeout-minutes: 60
@@ -834,8 +918,12 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: bq
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #
@@ -980,17 +1068,19 @@ jobs:
     needs: [ci]
     # Same `== 'true'` test the main-only steps use, against the classification `ci` published.
     #
-    # THE EVENT, NOT THE REF, and the difference is four runners per queue entry. This job IS the
-    # pull-request link check, so it now says so. What it said before was two exclusions -
-    # a negative ref list - which named the refs a run was known to arrive on and let through
-    # anything else. A `merge_group` run arrives
-    # on `refs/heads/gh-readonly-queue/<base>/pr-<N>-<sha>`, which is neither, so every queued
-    # entry would have built all four targets a SECOND time, over the pull request's own commits
-    # rebased onto the base - possibly batched with the entries ahead of them, which is a tree the
-    # merge itself will produce and not one a link check is the gate for. Positive on the
-    # event rather than negative on a list of refs: a ref shape nobody has seen yet cannot make it
-    # wrong, and the condition now states the intent instead of enumerating its exceptions.
-    if: needs.ci.outputs.build == 'true' && github.event_name == 'pull_request'
+    # THE EVENT, NOT THE REF. A merge-queue entry arrives on
+    # `refs/heads/gh-readonly-queue/<base>/pr-<N>-<sha>` and would build the full set a SECOND
+    # time, over the pull request's own commits rebased onto the base - a tree the merge itself
+    # will produce, not one a link check gates. So the condition names the events this job serves
+    # instead of the refs it does not: a ref shape nobody has seen cannot make it wrong.
+    #
+    # THE TWO EVENTS, AND THE MATRIX DIFFERS BY THEM. `pull_request` runs the aarch64 pair (the
+    # cross surface the native job never compiles); a push runs ALL FOUR targets - the all-4 link
+    # gate AND the binary-cache-priming run every PR restores from. The `push` branch is safe:
+    # `ci.yml`'s `on.push` is `branches: [main]`. `cross-link.yml` reads the caller's
+    # `github.event_name` (a called workflow's `github` context reflects the CALLER's event, not
+    # `workflow_call`) to select the same two-vs-four split.
+    if: needs.ci.outputs.build == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push')
     # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
     # omitting it leaves this workflow's own `contents: read`, which is what the job declared.
     uses: ./.github/workflows/cross-link.yml

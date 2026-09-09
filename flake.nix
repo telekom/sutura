@@ -10,8 +10,9 @@
 #      Dockerfile gives you the same *recipe*, not the same *result* - `apt-get install`
 #      resolves differently next Tuesday.
 #   2. One toolchain definition, not two. The dev shell and the release build both read
-#      `rust-toolchain.toml`. With a Dockerfile alongside a devenv you have two places to
-#      bump a compiler and one of them will be forgotten.
+#      `devco/rust-toolchain-nightly.toml` (the single pinned nightly). With a Dockerfile
+#      alongside a devenv you have two places to bump a compiler and one of them will be
+#      forgotten.
 #   3. Cross-compilation without a cross-toolchain per developer. `nix build
 #      .#sutura-aarch64-unknown-linux-gnu` works from an x86_64 host with no local setup,
 #      which is what makes shipping both Linux architectures cheap rather than a project.
@@ -34,19 +35,17 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    jscpd-src.url = "github:kucherenko/jscpd/v5.2.0";
+    jscpd-src.flake = false;
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
-
-        # The compiler pin is rust-toolchain.toml and nowhere else. Read as data so this
-        # file cannot disagree with the dev shell or with a bare rustup fallback.
-        rustToolchainFile = ./rust-toolchain.toml;
 
         # The source root as a string, so the filter below can match a REPO-RELATIVE path.
         # `./.` is the flake source, and in every build that is a store path - which is the
@@ -56,7 +55,8 @@
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
           # Keep the toolchain file: crane's source filter drops non-Cargo files, and
-          # without it the pin is invisible to the build.
+          # without it the pin is invisible to the build. The single pin is
+          # devco/rust-toolchain-nightly.toml.
           #
           # Keep `vendor/` WHOLESALE, and this is load-bearing rather than tidy: the vendored
           # allocator is a path dependency, so cargo has to read its manifests to resolve the
@@ -139,7 +139,7 @@
           # of our crates (clippy's is ~40 s warm here) plus the four unfiltered ones.
           filter = path: type:
             let rel = pkgs.lib.removePrefix (srcRoot + "/") (toString path); in
-            (builtins.match "rust-toolchain\\.toml" rel != null)
+            (builtins.match "devco/rust-toolchain-nightly\\.toml" rel != null)
             || (builtins.match "vendor(/.*)?" rel != null)
             || (builtins.match "crates/[^/]+/tests(/.*)?" rel != null)
             || (builtins.match "crates/[^/]+/src(/.*)?" rel != null)
@@ -196,37 +196,33 @@
           filter = _path: _type: true;
         };
 
-        # The same pin as a package, for the tools that need `cargo` on PATH rather than a
-        # crane derivation around it.
-        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile rustToolchainFile;
-
-        # The NIGHTLY pin as a PACKAGE, never a crane toolchain: the only read of it here, and only
-        # ever for the `cargo rustdoc` child that emits the JSON. See `checks.api-docs` below.
-        nightlyToolchain = (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly;
+        # The single pinned toolchain as a package, for the tools that need `cargo` on PATH
+        # rather than a crane derivation around it: an app's wrapper, the api-docs child, the
+        # dev shell. One toolchain, nightly, exactly what every gate and every build use.
+        toolchain = (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly;
 
         # The pinned cargo, for the one workflow that has to touch Cargo.lock.
-        cargoWrapper = pkgs.writeShellApplication {
-          name = "sutura-cargo";
-          text = ''
-            export PATH="${rustToolchain}/bin:$PATH"
-            exec cargo "$@"
-          '';
-        };
+        cargoWrapper = import ./nix/cargo-wrapper.nix { inherit pkgs toolchain; };
 
         # WRITES the committed API pages, and `checks.api-docs` below is the gate that fails when
         # they fall behind - the two must agree byte for byte, which is why one file defines the
         # writer and the check names it as the fix. In `nix/api-docs.nix` because this file was at
         # the 1000-line limit `cargo xtask max-lines` enforces; that module's header carries the
         # rest, including why the seam is here rather than at the checks.
-        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs nightlyToolchain duckdb; };
+        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs toolchain duckdb; };
+        fuzzRunner = import ./nix/fuzz.nix { inherit pkgs toolchain; };
 
-
+        # The one crane lib, over the one pinned nightly toolchain: the native build, the cross
+        # builds, every gate and every shipped artifact all run the same compiler.
         craneLibFor = sys:
           (crane.mkLib pkgs).overrideToolchain
-            (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
+            (p: p.rust-bin.fromRustupToolchainFile ./devco/rust-toolchain-nightly.toml);
 
         # Native build: what `nix build` and `nix flake check` use.
         craneLib = craneLibFor system;
+
+        # The copy/paste detector (issue #474); body in nix/jscpd.nix.
+        jscpd = import ./nix/jscpd.nix { inherit pkgs craneLib inheritedArtifacts; src = jscpd-src; };
 
         # The data system the local Warehouse adapter links against, resolved by the SAME file
         # devenv.nix imports so the dev shell and CI cannot link two different libduckdbs. It also
@@ -316,7 +312,26 @@
         # `release` stays for the shipped binary and the cross artifacts - the only place an
         # optimised build is worth paying for.
         ciArgs = commonArgs // { CARGO_PROFILE = "ci"; };
-        ciArtifacts = craneLib.buildDepsOnly ciArgs;
+        # `doCheck = true` STATED and not defaulted, which `cargo xtask check-warm-start` requires
+        # of every `buildDepsOnly`: that pass is a SECOND codegen of the whole closure, and here it
+        # is earned - `checks.nextest` builds a test binary per crate, so the dev-dependency
+        # artifacts it caches are ones that check would otherwise compile itself. `nix/jscpd.nix`
+        # carries the measurement for the other answer, where nothing consumes them.
+        # `--all-features` MATCHES WHAT THE CONSUMERS ASK FOR, and that is the whole point: `clippy`,
+        # `nextest` and `doctest` each pass `--all-features`, while this dependency build did not - so
+        # every feature-gated dependency fell outside the shared artifacts and was recompiled by each
+        # consumer. Measured before this line existed: `checks.nextest` recompiled 67 third-party
+        # crates every run while `clippy` recompiled none. The cost is a larger artifact, which is a
+        # real trade against a cache that is already over its allocation - so this is the change to
+        # re-measure first if the hit rate moves the wrong way.
+        ciArtifacts = craneLib.buildDepsOnly (
+          ciArgs
+          // {
+            doCheck = true;
+            cargoExtraArgs = "--workspace --all-features";
+          }
+        );
+
 
         # ARTIFACTS BUILT IN ANOTHER DERIVATION, AND THE ONE THING THAT MAKES THEM SAFE TO INHERIT,
         # as a single attrset - so a consumer cannot take the artifacts without the regeneration.
@@ -341,40 +356,33 @@
           preBuild = builtins.readFile ./nix/purge-baked-out-dirs.sh;
         };
 
-        # What a BARE cargo needs before it can build this workspace, as shell lines: the linker
-        # and the libraries an app inherits from nothing, plus the warm start that lets it reuse
-        # the dependency closure the checks already built. In `nix/cargo-env.nix` because this
-        # file was at the 1000-line limit; that module's header carries the reasoning, and it is
-        # where to look when an app fails at the linker or recompiles the world.
-        #
-        # `cargoVendorDir` is crane's own vendor directory for `ciArgs`, so the app resolves out
-        # of the SAME registry the artifacts were built against - which is the half of the warm
-        # start that is easy to omit and silently useless without.
+        # What a BARE cargo needs to build this workspace (the linker, the libraries an app
+        # inherits from nothing, and the warm start that reuses the dependency closure). In
+        # `nix/cargo-env.nix` because this file was at the 1000-line limit; that module's header
+        # carries the reasoning. `cargoVendorDir` is crane's vendor dir for `ciArgs`, so an app
+        # resolves out of the SAME registry the artifacts were built against.
         inherit (import ./nix/cargo-env.nix {
           inherit pkgs duckdb;
           cargoArtifacts = ciArtifacts;
           cargoVendorDir = craneLib.vendorCargoDeps ciArgs;
         }) cargoLinkEnv cargoWarmStart;
 
-        # The allocator's C as a derivation per target, and the opt level that HAS to match what
-        # cc-rs computes for the cargo profile it is linked into. In `nix/mimalloc.nix` because
-        # this file was at the 1000-line limit; of the three seams taken out of here that module
-        # is the cleanest - it reads neither crane, nor the flake inputs, nor the source filter.
+        # The allocator's C as a derivation per target, and the opt level that MUST match what
+        # cc-rs computes for the cargo profile it is linked into. In `nix/mimalloc.nix` (the
+        # cleanest seam - reads neither crane, the flake inputs, nor the source filter).
         inherit (import ./nix/mimalloc.nix { inherit pkgs; }) mimallocFor optLevelFor;
 
         # WHAT A RELEASE PUBLISHES: the shipped binaries, the cross matrix over them, and the
-        # images. In `nix/shipped.nix` because this file was fourteen lines under the 1000-line
-        # limit `cargo xtask max-lines` enforces and #111 adds a SECOND shipped executable; that
-        # module's header carries the reasoning, including why `binaries` is a LIST rather than a
-        # `--package` written into each derivation - which is how the HTTP surface, leg 1, the
-        # rate limiter and the generated interface description came to ship in no artefact at all.
+        # images. In `nix/shipped.nix` - it was fourteen lines under this cap when taken out,
+        # and #111 adds a SECOND shipped executable; that module's header carries the reasoning,
+        # incl. why `binaries` is a LIST rather than a `--package` per derivation.
         #
         # `apps.<name>`, the `packages = ` block below and the `checks = {` block after it all
         # stay HERE, because `xtask/src/pins.rs` and `xtask/src/workflows.rs` scan this file for
         # them textually and both fail closed on finding none. A module holds what a package or a
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
-          inherit pkgs nixpkgs system crane rust-overlay rustToolchainFile craneLib commonArgs
+          inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
             inheritedArtifacts auditable mimallocFor optLevelFor;
           inherit (commonArgs) version;
         };
@@ -382,7 +390,7 @@
         inherit (shipped) binaries crossPackages imageTargets;
 
       in
-      {
+      rec {
         # WHAT `nix build .#<name>` OFFERS, and every name in it but `xtask` comes from
         # `nix/shipped.nix`'s `binaries` list rather than from a line here:
         #
@@ -405,6 +413,13 @@
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
+
+          # The copy/paste detector, as a package as well as an app. This is the SAME derivation
+          # `checks.hygiene` carries on `nativeBuildInputs` and `apps.jscpd` points at, so CI, the
+          # `nix run .#jscpd` route and the dev shell all see one jscpd - the pinned `jscpd-src`
+          # v5.2.0 build from `nix/jscpd.nix`. The devenv module references this attribute so the
+          # local shell cannot resolve a different engine than the sandbox attests with.
+          jscpd = jscpd;
 
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
           # nothing but `nix` on the runner.
@@ -460,14 +475,20 @@
             INSTA_UPDATE = "no";
           }) // {
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
-            # the postgres corpus and differential cells run HERE (in the single stable test pass)
-            # rather than in a separate `nix develop` job. `ciArtifacts` - the expensive dependent
+            # the postgres corpus and differential cells run HERE (in this single sandboxed test
+            # pass) rather than in a separate `nix develop` job. `ciArtifacts` - the expensive
+            # dependent
             # closure - is untouched, so its cache key does not move; only this cheap derivation
             # gains the server. The same `nix/postgres-tier.nix` script `just test` runs starts
             # and stops it, so the two places cannot drift. `SUTURA_DEV_REQUIRE_TIER` makes a tier
             # that quietly failed to provision a RED run rather than a loud skip.
-            nativeCheckInputs = [ postgresTier.tier ];
-            preCheck = "${postgresTier.tier}/bin/sutura-postgres-tier start";
+            nativeCheckInputs = [ postgresTier.tier pkgs.git ];
+            # `start`, then the credential it published: the adapter refuses rather than
+            # defaulting one (`github.com/telekom/sutura#455`), so this sandbox has to carry the
+            # three `SUTURA_POSTGRES_TIER_*` exports into `checkPhase` the way `nix/with-tier.sh`
+            # carries them into `just test`. `runHook preCheck` evaluates this in the phase's own
+            # shell, so an `export` here reaches the tests.
+            preCheck = "${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\"";
             postCheck = "${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
@@ -493,14 +514,14 @@
           one-binary = shipped.artifactChecks.one-binary;
           shipped-features = shipped.artifactChecks.shipped-features;
 
-          # pixi exists because nix does not run on every host we develop on - so a few tools
-          # are pinned twice, and a second pin is a second source of truth unless something
-          # checks it. nix is the authority; this fails if pixi.lock disagrees.
+          # A few tools are pinned twice because nix does not run everywhere. `check-pins` fails
+          # if pixi.lock disagrees; nix is the authority.
 
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
-          doctest = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
+          doctest = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts checks.nextest // {
             pnameSuffix = "-doctest";
+            src = wholeTree;
             doCheck = false;
             buildPhaseCargoCommand = "cargo test --doc --workspace --all-features --profile \"$CARGO_PROFILE\"";
           });
@@ -510,10 +531,8 @@
             inherit (commonArgs) pname version;
           };
 
-          # The structural gates, as a flake check so CI needs only `nix` - devenv is a
-          # DEV-SHELL tool, and installing it in CI just to reach these would add a
-          # dependency the pipeline does not otherwise need. It runs the same xtask binary
-          # a developer runs, so the two cannot drift.
+          # The structural gates, as a flake check so CI needs only `nix` (devenv is a dev-shell
+          # tool); it runs the same xtask binary a developer runs, so the two cannot drift.
           #
           # `wholeTree` and not the filtered source: these gates judge every file in the
           # repo - workflows, Nix files, docs - and crane's filter keeps only Cargo inputs.
@@ -538,6 +557,8 @@
             src = wholeTree;
             pnameSuffix = "-hygiene";
             doCheck = false;
+            # `check-jscpd` shells to `jscpd`; same expression as `apps.jscpd` (issue #474).
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ jscpd ];
             buildPhaseCargoCommand = ''
               cargo run -q --profile "$CARGO_PROFILE" -p xtask -- hygiene
             '';
@@ -563,19 +584,15 @@
           # crates' doc comments, and this FAILS when they fall behind: it regenerates them into a
           # temporary directory and byte-compares. The fix it names is `just api`.
           #
-          # THE SHARED STABLE `ci` CLOSURE, like every other check here, because nightly is needed
-          # only to EMIT THE JSON and `xtask/src/api_docs.rs` reaches it by SHELLING OUT - that
-          # module's header carries the argument. It replaced a nightly `crane.mkLib` with a second
-          # full DataFusion/Arrow/DuckDB `buildDepsOnly` at `release`, and is also why CI read
-          # `devco/rust-toolchain-nightly.toml` on every push while AGENTS.md said it never did.
-          # Three things keep the channels apart: `ciArtifacts`, as `hygiene` and `crap` use it, so
-          # `nix-store -q --references` names ONE `sutura-deps` across seven consumers; nightly as
-          # a command PREFIX with its own `CARGO_TARGET_DIR`, because alternating compilers in one
-          # target directory invalidates every artifact in it; and `SUTURA_API_DOCS_PROFILE`, since
-          # cargo's default `dev` optimises every dependency and build script at `opt-level = 3`.
-          # NAMED IN THE COMMAND both times - see above `hygiene`; a spawned child is the
-          # worse half, as crane does not even export `CARGO_PROFILE`. `wholeTree` for `hygiene`'s
-          # reason, and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
+          # It shares the ONE nightly `ci` closure with every other check here: the whole tree is
+          # built from the single pinned nightly, so rustdoc's unstable `--output-format json`
+          # needs no second toolchain - the child that EMITS the JSON runs the same `toolchain`
+          # the closure was built from. `xtask/src/api_docs.rs` reaches it by SHELLING OUT, which
+          # is why the profile is NAMED IN THE COMMAND below - see `hygiene`; a spawned child is
+          # the worse half, as crane does not even export `CARGO_PROFILE`.
+          # `SUTURA_API_DOCS_PROFILE` matters because cargo's default `dev` optimises every
+          # dependency and build script at `opt-level = 3`. `wholeTree` for `hygiene`'s reason,
+          # and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
           # PRIVATE phases became 2m10 cold, floored by 482 rustdoc units - 291 of them `rmeta`.
           # Those two were 484 and 293 and are now what `cargo rustdoc -p <lib> --all-features
           # --profile ci -Z unstable-options --unit-graph` reports, summed over the ten documented
@@ -591,11 +608,13 @@
               cargo build -q --profile "$CARGO_PROFILE" -p xtask
               # Read, not assumed, and resolved BEFORE the prefix below overrides it for the child.
               xtask="''${CARGO_TARGET_DIR:-target}/$CARGO_PROFILE/xtask"
-              # The binary directly: `cargo run` would have to BE the nightly cargo for the child
-              # to inherit nightly, and then nightly would compile `xtask`.
-              CARGO="${nightlyToolchain}/bin/cargo" \
-              PATH="${nightlyToolchain}/bin:$PATH" \
-              CARGO_TARGET_DIR="$TMPDIR/api-docs-rustdoc" \
+              # The binary directly: `cargo run` would have to BE the toolchain's own cargo for
+              # the child to inherit it, and then that cargo would compile `xtask`.
+              # The child shares the derivation's own target dir: the derivation is already the
+              # single toolchain, so ciArtifacts decompressed here is reused instead of
+              # rebuilding the 482 rustdoc units (291 rmeta) each run.
+              CARGO="${toolchain}/bin/cargo" \
+              PATH="${toolchain}/bin:$PATH" \
               SUTURA_API_DOCS_PROFILE="$CARGO_PROFILE" \
                 "$xtask" check-api-docs
             '';
@@ -608,13 +627,10 @@
           # vendored dependency set, a compiler and two tools already in the store. So it can be
           # sandboxed, and being sandboxed is what makes it reproducible.
           #
-          # THE SHARED `cargoArtifacts`, and the reasoning is the opposite of what it looks like.
-          # The coverage build cannot reuse them at all: `-C instrument-coverage` changes the rustc
-          # invocation, so every dependency it needs is compiled fresh whatever is passed. What the
-          # shared attribute buys is that no SECOND dependency derivation is created. `api-docs`
-          # used to need one, being on a different channel, at the cost of a full extra workspace
-          # build; it does not any more, so every check here names one closure. Here the artifacts
-          # only make `cargo run -p xtask` cheap, and clippy and nextest already built them.
+          # THE SHARED `cargoArtifacts`, and the reasoning is the opposite of what it looks like:
+          # the coverage build cannot reuse them at all (`-C instrument-coverage` changes the
+          # rustc invocation), so what the shared attribute buys is no SECOND dependency
+          # derivation; here they only make `cargo run -p xtask` cheap, and clippy/nextest built them.
           #
           # The instrumented compile itself is the scope: `sutura-domain`, whose dependency set is
           # serde and thiserror. 11 s cold, measured. `SCOPE` in xtask/src/crap.rs carries the
@@ -660,7 +676,7 @@
         apps.deny = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-deny" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
             exec cargo deny check "$@"
           '');
         };
@@ -702,7 +718,7 @@
           program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
             # cargo-nextest as well: the gate shells out to `cargo nextest`, and without it
             # the run fails with "no such command" rather than a verdict.
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:
@@ -740,12 +756,12 @@
         apps.bigquery-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-acceptance" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'not binary(two_principals)' "$@"
+              --run-ignored only -E 'not binary(two_principals) and not binary(exchanged_identity)' "$@"
           '');
         };
         # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth
@@ -762,12 +778,26 @@
         apps.bigquery-two-principals = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-two-principals" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
               --run-ignored only -E 'binary(two_principals)' "$@"
+          '');
+        };
+
+        # `nix run .#bigquery-exchanged-identity` - the exchanged-identity cell, issue #376: the only
+        # leg holding no principal's key. **No workflow invokes it**, and its own header says why.
+        apps.bigquery-exchanged-identity = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-exchanged-identity" ''
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
+              --run-ignored only -E 'binary(exchanged_identity)' "$@"
           '');
         };
 
@@ -799,7 +829,7 @@
         apps.default-features = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-default-features" ''
-            export PATH="${rustToolchain}/bin:$PATH"
+            export PATH="${toolchain}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
@@ -817,7 +847,7 @@
         apps.default-feature-tests = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-default-feature-tests" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
@@ -838,26 +868,18 @@
         apps.crap = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-crap" ''
-            export PATH="${rustToolchain}/bin:${crap.cargoCrap}/bin:${crap.llvmCov}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${crap.cargoCrap}/bin:${crap.llvmCov}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             exec cargo run -q --profile ci -p xtask -- crap "$@"
           '');
         };
 
-        # Tools CI runs, from the LOCKED nixpkgs.
-        #
-        # These were `nix run nixpkgs#<tool>`, which resolves through the flake registry to
-        # whatever nixpkgs-unstable points at when the job runs - an unreviewed, mutable input
-        # executing in jobs that hold a write token. It also contradicted this file's whole
-        # premise. As apps they come from `flake.lock` like everything else.
-        # The workflow and shell linters, from the LOCKED nixpkgs. CI reached these through
-        # `nix run .#pixi -- run zizmor`, which took the VERSION from pixi.lock - so nix pinned
-        # the compiler and pixi pinned the linters, and nothing checked that the two agreed.
-        # One authority, and no second pin to keep in step: these three are deliberately
-        # NOT in pixi.toml. Their version decides what they REPORT, so naming them twice
-        # would mean two pins plus a synchroniser to keep them honest - which is what was
-        # tried first. `cargo xtask check-pins` enforces the split instead.
+        # Tools CI runs, from the LOCKED nixpkgs, and the three linters below made the rule: CI
+        # reached them as `nix run nixpkgs#<tool>` and as `nix run .#pixi -- run zizmor`, so an
+        # unreviewed mutable input, or a second pin nothing synchronised, decided what jobs holding
+        # a write token reported. One authority per tool whose version decides its verdict - none
+        # is in pixi.toml, and `cargo xtask check-pins` fails a tool named in both.
         apps.zizmor = {
           type = "app";
           program = "${pkgs.zizmor}/bin/zizmor";
@@ -874,6 +896,12 @@
         apps.betterleaks = {
           type = "app";
           program = "${pkgs.betterleaks}/bin/betterleaks";
+        };
+
+        # The copy/paste detector (issue #474); not in pixi.toml (`cargo xtask check-pins`).
+        apps.jscpd = {
+          type = "app";
+          program = "${jscpd}/bin/jscpd";
         };
 
         # The two supply-chain tools the release path runs, from the LOCKED nixpkgs for the
@@ -971,6 +999,13 @@
         apps.pixi = {
           type = "app";
           program = "${pkgs.pixi}/bin/pixi";
+        };
+
+        # `just fuzz` and `just fuzz-smoke`. `nix/fuzz.nix` carries why it is an app rather than a
+        # check; `fuzz/` carries what each target covers and what it does not.
+        apps.fuzz = {
+          type = "app";
+          program = "${fuzzRunner}/bin/sutura-fuzz";
         };
 
         # The Pulumi CLI, nix-pinned. CI adds `nix build .#pulumi`'s bin to PATH so the test-infra

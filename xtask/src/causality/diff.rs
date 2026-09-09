@@ -19,6 +19,37 @@ pub(crate) struct ChangedFile {
     pub(crate) path: String,
     /// The lines this diff added, in file order.
     pub(crate) added: Vec<AddedLine>,
+    /// The lines this diff REMOVED, in file order.
+    ///
+    /// **Additions alone cannot say what a REVERT restores**, which is why this exists at all:
+    /// `super::reverted` asks whether putting a file back at base could change anything the
+    /// measured tests execute, and a change that only DELETES lines - a wrong early return taken
+    /// out of a production function - adds nothing at all. Reading additions only would have read
+    /// that as *this file changed no program*, which is the one direction that arm may not be
+    /// wrong in.
+    pub(crate) removed: Vec<RemovedLine>,
+}
+
+/// One removed line: the text the diff took out, and the PRE-image line it sat on.
+///
+/// **THE NUMBER IS THE PRE-IMAGE'S, because that is the only image the line exists in.** An earlier
+/// version carried a POST-image anchor beside the gap and asked `super::reverted` to check its
+/// neighbourhood; review falsified that end to end. A pure deletion between two `#[cfg(test)]`
+/// declarations has both surviving neighbours inside test regions while the line it removed was
+/// production code that is simply GONE from the post-image - so the excuse was not imprecise, it
+/// was false, and false in the direction that suppresses a FAILED. Measured on a two-package
+/// workspace whose `check(5)` flips from false to true when the deleted `use` is restored:
+/// `FAILED` exit 1 became `INCONCLUSIVE` exit 3.
+///
+/// The old-side numbers are in the hunk header the parser already reads, so the exact question -
+/// *was this line inside a test region of the tree it was deleted from* - is answerable and
+/// nothing has to be approximated. `super::reverted` reads the BASE image to ask it.
+#[derive(Debug)]
+pub(crate) struct RemovedLine {
+    /// The 1-based line this text occupied in the PRE-image - the tree the revert restores.
+    pub(crate) before: usize,
+    /// The removed text, without the diff's leading `-`.
+    pub(crate) text: String,
 }
 
 /// Added lines per changed file, from `git diff`, each carrying its post-image line number.
@@ -51,34 +82,50 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
     let mut files: Vec<ChangedFile> = Vec::new();
     let mut current: Option<ChangedFile> = None;
     let mut next_line = 0_usize;
+    // The OLD-side counter, advanced by context and by removals and not by additions - the mirror
+    // of `next_line`, and what gives a removed line the only number it really has.
+    let mut old_line = 0_usize;
+    // INSIDE A HUNK, `---` IS CONTENT AND NOT A HEADER, and reading it as one silently DROPPED a
+    // removed line - a `--` SQL comment at column 0 of a raw string is the shape, in a repository
+    // whose subject is generated SQL. A file whose only change vanished that way parsed to an
+    // EMPTY change set, which `super::reverted` read as *nothing changed*. Headers occur only
+    // before a file's first `@@`, so that is where they are read.
+    let mut in_hunk = false;
 
     for line in text.lines() {
         if line.starts_with("diff --git ") {
             if let Some(done) = current.take() {
                 files.push(done);
             }
+            in_hunk = false;
             continue;
         }
-        if let Some(rest) = line.strip_prefix("+++ b/") {
+        // Guarded by `in_hunk` for the same reason: an ADDED line spelling `++ b/x` arrives here
+        // as `+++ b/x` and would otherwise open a file entry of its own.
+        if let Some(rest) = (!in_hunk).then(|| line.strip_prefix("+++ b/")).flatten() {
             if let Some(done) = current.take() {
                 files.push(done);
             }
             current = Some(ChangedFile {
                 path: String::from(rest),
                 added: Vec::new(),
+                removed: Vec::new(),
             });
             continue;
         }
-        if let Some(start) = hunk_start(line) {
-            next_line = start;
+        if let Some((old_start, new_start)) = hunk_bounds(line) {
+            old_line = old_start;
+            next_line = new_start;
+            in_hunk = true;
             continue;
         }
         let Some(file) = current.as_mut() else {
             continue;
         };
-        // `---`/`+++` are headers, `\ No newline at end of file` is a note; neither is a line of
-        // either image.
-        if line.starts_with("---") || line.starts_with("+++") || line.starts_with('\\') {
+        // `---`/`+++` are headers only OUTSIDE a hunk; inside one they are ordinary content that
+        // happens to begin with the marker. `\ No newline at end of file` is a note either way,
+        // and no image line can be taken for it, because an image line begins with its own marker.
+        if (!in_hunk && (line.starts_with("---") || line.starts_with("+++"))) || line.starts_with('\\') {
             continue;
         }
         if let Some(added) = line.strip_prefix('+') {
@@ -86,10 +133,19 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
             next_line += 1;
             continue;
         }
-        if !line.starts_with('-') {
-            // Context, blank or not, occupies a line of the new image too.
-            next_line += 1;
+        if let Some(removed) = line.strip_prefix('-') {
+            // Only the OLD counter advances: a removed line occupies a line of the pre-image and
+            // none of the post-image.
+            file.removed.push(RemovedLine {
+                before: old_line,
+                text: String::from(removed),
+            });
+            old_line += 1;
+            continue;
         }
+        // Context, blank or not, occupies a line of BOTH images.
+        next_line += 1;
+        old_line += 1;
     }
     if let Some(done) = current.take() {
         files.push(done);
@@ -97,12 +153,17 @@ fn parse_diff(text: &str) -> Vec<ChangedFile> {
     files
 }
 
-/// The new-side starting line of a hunk header, `@@ -a,b +c,d @@`.
-fn hunk_start(line: &str) -> Option<usize> {
+/// The old-side and new-side starting lines of a hunk header, `@@ -a,b +c,d @@`.
+///
+/// BOTH, because a removed line and an added one are numbered in different images, and only the
+/// header says where each run begins.
+fn hunk_bounds(line: &str) -> Option<(usize, usize)> {
     let rest = line.strip_prefix("@@ ")?;
-    let plus = rest.split_whitespace().find_map(|field| field.strip_prefix('+'))?;
-    let count = plus.split_once(',').map_or(plus, |(start, _)| start);
-    count.parse().ok()
+    let start = |marker: char| -> Option<usize> {
+        let field = rest.split_whitespace().find_map(|part| part.strip_prefix(marker))?;
+        field.split_once(',').map_or(field, |(at, _)| at).parse().ok()
+    };
+    Some((start('-')?, start('+')?))
 }
 
 #[cfg(test)]
@@ -162,6 +223,96 @@ mod tests {
             .unwrap_or_default();
         // Line 8 is context, so the replacement lands on 9 - not on 8, and not on 10.
         assert_eq!(numbers, vec![9]);
+    }
+
+    #[test]
+    fn a_removed_line_carries_its_pre_image_number_and_an_added_one_its_post_image_number() {
+        // WHY THE REMOVALS ARE READ AT ALL: `super::super::reverted` asks whether a revert can
+        // reach the tests in scope, and reading only the additions would see NOTHING in the first
+        // hunk - so a wrong line taken out of a production function would read as a file that
+        // changed no program.
+        //
+        // THE TWO SIDES ARE NUMBERED IN DIFFERENT IMAGES and the second hunk is where that shows:
+        // three context lines walk BOTH counters, then two removals walk only the old one and two
+        // additions only the new one. A removed line's number is the line it sat on in the tree
+        // the revert restores, which is the only tree it exists in.
+        let diff = concat!(
+            "diff --git a/crates/x/src/a.rs b/crates/x/src/a.rs\n",
+            "--- a/crates/x/src/a.rs\n",
+            "+++ b/crates/x/src/a.rs\n",
+            "@@ -12 +11,0 @@ fn guard() {\n",
+            "-    if wrong { return Err(e); }\n",
+            "@@ -40,5 +39,5 @@ mod tests {\n",
+            " let kept = 1;\n",
+            " let also_kept = 2;\n",
+            " let still_kept = 3;\n",
+            "-    assert!(old);\n",
+            "-    assert!(also_old);\n",
+            "+    assert_eq!(fresh, 1);\n",
+            "+    assert_eq!(fresh, 2);\n",
+        );
+        let files = parse_diff(diff);
+        let file = files.first().expect("one changed file");
+        let before: Vec<usize> = file.removed.iter().map(|line| line.before).collect();
+        // 12 for the first - its own pre-image line, not the 11 the gap left behind. Then 43 and
+        // 44: the header says 40 and three context lines walked the old counter to 43.
+        assert_eq!(before, vec![12, 43, 44]);
+        assert_eq!(
+            file.removed.first().map(|line| line.text.trim()),
+            Some("if wrong { return Err(e); }")
+        );
+        // The additions carry post-image numbers, walked by context and by themselves only.
+        let numbers: Vec<usize> = file.added.iter().map(|line| line.number).collect();
+        assert_eq!(numbers, vec![42, 43]);
+    }
+
+    #[test]
+    fn an_added_line_that_looks_like_a_file_header_opens_no_second_file() {
+        // The mirror of the removal case below, and the half that had no test until review said
+        // so: an added line spelling `++ b/x` reaches the parser as `+++ b/x`, so reading a file
+        // header inside a hunk would split one changed file into two and lose the line.
+        let diff = concat!(
+            "diff --git a/crates/x/src/render.rs b/crates/x/src/render.rs\n",
+            "--- a/crates/x/src/render.rs\n",
+            "+++ b/crates/x/src/render.rs\n",
+            "@@ -7,0 +8 @@ fn patch() {\n",
+            "+++ b/not-a-header.rs\n",
+        );
+        let files = parse_diff(diff);
+        assert_eq!(files.len(), 1, "{files:?}");
+        let file = files.first().expect("one changed file");
+        assert_eq!(file.path, "crates/x/src/render.rs");
+        assert_eq!(
+            file.added.iter().map(|line| line.text.as_str()).collect::<Vec<&str>>(),
+            vec!["++ b/not-a-header.rs"],
+            "the addition is content, not a second file header"
+        );
+    }
+
+    #[test]
+    fn a_removed_line_that_begins_like_a_header_is_content_and_not_dropped() {
+        // THE SILENT DROP. `---` opens a file header OUTSIDE a hunk and is ordinary content inside
+        // one, and reading it as a header everywhere deleted the line from the parsed change set.
+        // A `--` SQL comment at column 0 of a raw string is that shape, in a repository whose
+        // subject is generated SQL - and a file whose WHOLE change was such a line then arrived at
+        // `super::super::reverted` with an empty change set, which read as *nothing changed*.
+        let diff = concat!(
+            "diff --git a/crates/x/src/render.rs b/crates/x/src/render.rs\n",
+            "--- a/crates/x/src/render.rs\n",
+            "+++ b/crates/x/src/render.rs\n",
+            "@@ -12 +11,0 @@ fn statement() {\n",
+            "--- restricted to the caller's own rows\n",
+        );
+        let files = parse_diff(diff);
+        assert_eq!(files.len(), 1, "{files:?}");
+        let file = files.first().expect("one changed file");
+        assert_eq!(
+            file.removed.iter().map(|line| line.text.as_str()).collect::<Vec<&str>>(),
+            vec!["-- restricted to the caller's own rows"],
+            "the removal is content, not a second `---` header"
+        );
+        // And the real headers are still headers: one file entry, not three.
+        assert_eq!(file.path, "crates/x/src/render.rs");
     }
 
     #[test]

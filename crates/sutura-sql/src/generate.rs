@@ -584,9 +584,13 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
 /// path and not the other.
 ///
-/// **Nothing calls this from a binary.** There is no splitter, so no [`LegPlan`] is constructed
-/// outside a test; what pins it is the golden family under `crates/sutura-app/tests/golden`, one
-/// statement per shape per dialect, parse-checked in the dialect it was generated for.
+/// **Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
+/// to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
+/// `sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
+/// that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+/// which builds a logical plan instead. So what pins this is the golden family under
+/// `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
+/// dialect it was generated for - and none of those four is what a release executes.
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
     // the same order for whatever reads the rows back.
@@ -688,7 +692,7 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
 mod tests {
     use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
     use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
-    use sutura_domain::plan::{PlanBucket, PlanColumn};
+    use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
 
     use polyglot_sql::builder;
 
@@ -697,7 +701,7 @@ mod tests {
 
     fn bucket(grain: Grain) -> PlanBucket {
         PlanBucket::new(
-            String::from("period"),
+            ResultLabel::bucket(),
             grain,
             PlanColumn::new(
                 TableName::parse("orders").expect("a test table is a table"),

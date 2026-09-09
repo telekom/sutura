@@ -14,24 +14,10 @@
 # What counts as provoked, so an entry is not added for something already covered: a
 # `RefusalReason::<Variant>` in test code under `crates/`, or a committed snapshot naming it. A file
 # naming EVERY variant is a census and counts for none of them - which is not a technicality: the
-# rendered prompt in `crates/sutura-cli/tests/snapshots/example_prompt.snap` lists all seventeen
+# rendered prompt in `crates/sutura-cli/tests/snapshots/example_prompt.snap` lists all eighteen
 # refusal guides by name, and without that rule it alone would make the whole enum look covered.
 #
 # The gate is a RATCHET in both directions. An entry for a variant that IS provoked now fails, and
 # so does one naming a variant the enum no longer has - the same shape as `deny.toml`'s
 # `unused-allowed-license = "deny"`. So closing a gap means deleting a line here, and the gate says
 # which line.
-
-# The two below have one cause between them: `sutura-semantic` has no test module of its own, and the
-# refusals it alone produces need a catalog SHAPE that no example directory and no golden fake
-# declares. They are not hard to provoke - they are hard to provoke without either a third
-# registered source in the golden matrix, which would move several hundred snapshots, or a
-# hand-built `PinnedDefinitions` fixture in a crate that has never had one.
-#
-# There were three. `MeasureDoesNotFederate` left the list with `crates/sutura-app/tests/differential/
-# federated.rs`, which derives a second catalog over the example corpus and puts the dimension model
-# on a second data system - so the SHAPE is derived from documents rather than constructed, which is
-# the route the two below can take as well.
-
-PlanSpansTooManySources 2026-09-02 needs a plan spanning THREE data systems, and no catalog here declares a third - `crates/sutura-app/tests/support/oracle/refusals.rs` says so in its own documentation, where the two-source fake it sits beside was built for this refusal and then outgrew it once exactly two sources became a split rather than a decline. Ends with a third source in the golden `catalogs` registry, or with a `sutura-semantic` unit test that builds a three-source bundle directly.
-FederationLinkAmbiguous 2026-09-02 needs two REMOTE dimensions reached through two different relationships on one source, so that the combiner has two candidate join columns and no way to choose. Every example model reaches at most one remote dimension, so the shape has to be constructed rather than asked for. Ends with a fake catalog declaring the two-relationship shape, which is a smaller change than the entry above and belongs in the same branch as it.

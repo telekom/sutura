@@ -15,7 +15,7 @@ tied to one is unproven: say so, and adding the missing check beats adding a sen
 | A new failure mode | A `RefusalReason` variant inside `ToolOutcome`, never an `Err` | Two exhaustive matches with no wildcard arm, one per transport, so it fails to compile in both. The crates cannot see each other, so their vocabularies are kept equal by a *derivation* - the code is the variant name in snake_case, read off the domain type's own `Serialize` - not by a comparison an adapter may not make |
 | A new tool, route or operation | It names a `Capability`, that capability names a scope, and both transports describe the same set | Five exhaustive matches plus `RouteNotGoverned`. `both_transports_describe_the_same_tools` runs **once per transport against the one declaration** - two tests over one source, not a comparison between adapters. Adding a capability changes the DEPLOYED contract: an authorization server is configured with the scope by hand, which is why ids and scopes are pinned by value and are separate literals, so a tool rename cannot rename a scope |
 | Reading from the catalog at request time | Descriptive content only - nothing that selects, widens or parameterizes what executes | `load()` has no `RequestContext` to pass it; dimension validation reads the definitions the process pinned at boot, and there is no per-request view over them to read instead |
-| A second execution leg | One answer has one asker, and no leg runs as a third identity: each runs as the asker **or** under that source's acknowledged shared identity, and the answer records which. *"Every leg runs as the same subject"* was the wording here and was overstated - a source serving everyone as one identity does not run as the asker, and making the labels agree would not have made the identities agree | Recording, credentials and the refusal are all built; see `../identity/SKILL.md`. **Not the promise:** no test asserts two subjects get different ROWS - that needs a live dataset with row-level security and two real grants |
+| A second execution leg | One answer has one asker, and no leg runs as a third identity: each runs as the asker **or** under that source's acknowledged shared identity, and the answer records which - and **every leg decides identity the SAME way, or the question is refused** as `LegsDecideIdentityDifferently`. *"Every leg runs as the same subject"* was the wording here and was overstated - a source serving everyone as one identity does not run as the asker, and making the labels agree would not have made the identities agree | Recording, credentials and the refusal are all built; see `../identity/SKILL.md`. On a PUBLISHED build the recording is two entries of the same shared posture, because the only leg-executing adapter a release links is `NoPlaceForASubject`. **Not the promise:** no test asserts two subjects get different ROWS - that needs a live dataset with row-level security and two real grants |
 | A new knowledge kind | The prompt stays the only consumer | Three exhaustive matches plus a `const` assertion on the walk's seed |
 | A **second consumer** of a knowledge kind | Same | **Nothing mechanical.** `Query` having no field a phrase fits in is what makes the glossary descriptive, so reading a note elsewhere is an architecture decision - flag it in the handoff |
 | Anything that stores or forwards rows | - | **Nothing mechanical.** A human review question, not an agent's to certify: flag it in the handoff |
@@ -65,6 +65,56 @@ Generalise it: a fifth dialect cannot compile without answering the exhaustive d
 identifier case, path depth and bucket shape, and each of those exists because **a parse check was
 measured blind to it.**
 
+## Federation, and the four things a two-source answer is not
+
+**Federation is wired, and this section replaces the *built and not wired* row below it.** That row
+said *nothing published answers a two-source question* and was cited as an invariant, so it is
+rewritten here rather than deleted - what it was protecting is the list of limits, not the sentence.
+`sutura-exec-datafusion` declares `EXECUTES_LEGS` and is
+non-optional in both shipped binaries, so a `sutura-serve` with one `files` entry per data system
+answers a two-source question - measured on the composed binary by
+`a_served_deployment_answers_a_question_spanning_two_sources`
+(`crates/sutura-serve/tests/served.rs`), which pins the grouped figures, their sum against the
+certified ungrouped one, and both legs' recorded postures. Above it,
+`crates/sutura-app/tests/differential/federated.rs` compares the real splitter plus two real
+executions plus the combiner against the same questions answered whole by one engine, in TWO
+passes - two `DuckDB` databases and two instances of the shipped engine - over null and orphan
+join keys, remote filters, the whole reduction table above the legs, a zero denominator in one
+subgroup, and the `MeasureDoesNotFederate` refusal.
+**Four limits, and the first two are the ones that get overstated:**
+(1) **not two identities** - every adapter a release links is `NoPlaceForASubject` and
+`deliverable_by` refuses `impersonation-at-source` against it in both composition roots, so every
+`files` source is `shared-service-user` and both legs of a shipped answer run under one
+operating-system identity. **Which is also why the mixed-posture refusal fires for nothing today:**
+`ExecutedAs::uniform` refuses an answer whose legs decide identity two different ways, and no
+published build can reach a source of each kind - the only `PerSubjectCredential` adapter is
+`sutura-exec-bigquery`, which leaves `EXECUTES_LEGS` at its default and is therefore refused as
+`FederationNotExecutable` before the postures are compared. It is the guard for #112's
+heterogeneous registry, landed first; (2) **no golden reaches the engine's leg path** - it emits no SQL, so
+`tests/golden/legs.rs` pins rendered legs for four dialects and none of them is what a release
+executes, and the conformance cell plus the differential are the whole of that path's evidence;
+(3) **one KIND per deployment** - `Warehouses<W>` is generic in one `W` and `one_kind` refuses a
+mixed catalog at startup, so *two sources* means two entries of the same kind; (4) `sutura-cli`
+still opens one adapter for one source and refuses a multi-source catalog, pointing at the served
+surface.
+
+**A fifth, about the refusal rather than the answer, and it is `telekom/sutura#338`.**
+`FederationNotExecutable` means one thing now - this build's adapter type does not declare
+`EXECUTES_LEGS` - and it used to mean two, because a two-source plan the splitter built and
+`FederatedPlan::new` then rejected was flattened into it as well. That one leaves as
+`sutura_semantic::CompileFailure::NotAssembled`, so a caller can tell *this build cannot run a leg*
+from *sutura failed to assemble a plan it had already decided on*. **Nothing holds that split.** It
+was an `invariants` row on #432 and was deleted rather than demoted, which is that table's own rule:
+flattening `federated_plan`'s `map_err` back into the refusal leaves the whole suite green - 2658
+tests, exit 0, measured. The `compile_fail` pair on `compile` holds the error TYPE, which is a weaker
+claim - the signature can stand while the value goes back to being a refusal, which is exactly what
+that mutation does. Nothing provokes the arm either: every `FederatedPlanError` variant is
+unreachable from the splitter as it stands, so the differential above is the venue an edit making
+one reachable would redden, and it does - deleting the link key from the lookup leg turns two of its
+cells red naming the assembly, measured on the same head. A gate would cost making the refusal
+vocabulary unrepresentable, which duplicates most of `RefusalReason`; until someone pays that, this
+is prose.
+
 ## Built and not wired - do not cite as an invariant
 
 Exists, is tested, has no caller from any binary. Three invariant rows once stated this as enforced;
@@ -74,19 +124,10 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   computation, the document shape has no key for it, and `compile` has no production caller. **The
   gap that is not wiring:** no shipped binary could execute an authored expression even with the load
   path in place - the engine generates no SQL, and the renderer-backed adapter is a dev-dependency.
-  Wiring the load alone would move a refusal from load time to query time.
-- **Federation is wired above the port and not below it.** Splitter, leg plans, rendering, goldens
-  and the orchestrating call all exist and run; what gates it is a defaulted-`false`
-  `EXECUTES_LEGS`, which only the dev-only DuckDB vehicle sets true. So the shipped binary refuses a
-  two-source question rather than letting a typed leg refusal surface as a retryable `503`.
-  **The composed path IS measured now** - `crates/sutura-app/tests/differential/federated.rs` derives
-  a second catalog over the example corpus, puts the dimension model on a second `DuckDB`, and
-  compares the real splitter plus two real executions plus the combiner against the same questions
-  answered whole by one `DataFusion`: typed content and ordered equality, over null and orphan join
-  keys, remote filters, the whole reduction table above the legs, a zero denominator in one subgroup,
-  and the `MeasureDoesNotFederate` refusal. What keeps this row here is therefore the DEFAULT, not
-  the absence of evidence: no shipped adapter sets `EXECUTES_LEGS`, so nothing published answers a
-  two-source question, and both legs in that file run under one operating-system identity.
+  Wiring the load alone would move a refusal from load time to query time. **The engine executing a
+  leg does not narrow this**, and the reason is the same fact read the other way: that path builds a
+  logical plan and renders nothing, so there is still no statement for an authored expression to be
+  part of.
 - **The DataHub catalog adapter decides a whole metric, and nothing reads or serves it.**
   `sutura-catalog-datahub` provides `Structure`, `Descriptions` and `Relationships` unconditionally
   and declares the metric kinds as **declared-and-empty may-provide** kinds
@@ -131,15 +172,18 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   deadline and asks the by-urn one exactly once. **The version of that cell before this was red for
   exactly this reason** and had been reported as measured: it wrote, paged once, and only passed on a
   re-run whose index was already warm.
-- **DataHub tier parallelism holds for the CONTAINERS and not for DISCOVERY** - project name from a
-  path digest, ephemeral published ports, named volumes, all gated - but
-  `.sutura-dev/endpoints.json` has two writers and **one of them still rewrites it wholesale**.
-  `xtask dev-up` serialises the whole document from the docker services it read, so a live nix
-  postmaster is absent from the file it leaves - measured 2026-09-03. The reverse direction is gone
-  (`nix/tier-endpoints.nix` merges per service), and the consequence for the SUITE is gone for the
-  Postgres tier alone: `just test` reads that state as *unclaimed* and republishes the entry, which
-  `checks.postgres-tier` holds. What nothing gates is the wholesale write itself, so any other nix
-  tier's entry - `just keycloak-tier`'s - is still dropped by a `dev-up` and stays dropped.
+- **DataHub tier parallelism holds for the CONTAINERS, and DISCOVERY caught up.**
+  `.sutura-dev/endpoints.json` has two writers, and both used to take a whole-document view of a
+  file they only partly own: `xtask dev-up` serialised the document from the docker services it
+  read, so a live nix postmaster was absent from the file it left (measured 2026-09-03), and
+  `dev-down` removed the file. Both write per ENTRY now (`github.com/telekom/sutura#317`), the last
+  entry out takes the file with it, and `Provisioner` hangs off `Endpoint` rather than off
+  `Endpoints` - one document-level field could only ever be the last writer's opinion about somebody
+  else's service. Held by `dev/src/discovery.rs`'s own cells over a foreign entry this crate did not
+  mint, and by `xtask::compose`'s `a_failing_provision_leaves_no_claim_of_its_own...`, which drives
+  `with_endpoints_forgotten`. **The limit:** nothing compares the Rust writer with
+  `nix/tier-endpoints.nix`'s `jq` - the two agree on a shape by review, and a THIRD writer would
+  be held by neither.
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**
   Everything above the wire is decided and tested against a fake; the wire exists behind a
   default-off feature; a real dataset has accepted the whole corpus and reproduced its anchors, green
@@ -148,22 +192,5 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   rather than off a manifest. The `data_systems:` golden axis therefore gains no entry - that
   registry's rule is that a cell which cannot execute reads as coverage. The DIALECT axis does have
   one.
-- **The listing's `totalItems` cross-check is decoded and decided on by nothing.** `HeldTables`
-  carries a `ListingTotal` up the transport port, and a real listing populates it - measured in the
-  `bigquery-acceptance` job, 2026-09-04. **No shipped path reads it:** `preflight` compares the ids
-  and ignores the total, so a document carrying no entries beside a non-zero total still refuses a
-  deployment with *every table is absent* rather than naming the shape change. `docs/adr/0018` argues
-  why refusing is not obviously the safe direction - an `Err` out of `preflight` **is** the warning
-  half - so this stays here until that decision is taken, tracked as `telekom/sutura#275`. Read the
-  record as *the input now arrives*, never as *a shape change is told apart*. A test pins the
-  non-decision; **no gate does**, which is this register's own limit.
-  **What the total is compared against is readable table IDS, not entries, and that was a review
-  finding rather than a design:** counting entries read a document whose `tableReference` the service
-  renamed as `Accounted` over zero ids - clean, while the pre-flight reported every table absent -
-  because there is no `deny_unknown_fields` on a service-defined document. An id `usable_table_id`
-  rejects still counts, or an ordinary dataset reads short. **Three things the value still cannot
-  tell apart:** a service that re-spelled the count as well (`Unreported`/`Unreadable`), a dataset
-  every id of which this crate drops (`Accounted` beside no ids, by design), and, where the identified
-  count is non-zero, a shape change from a create-or-delete race.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.

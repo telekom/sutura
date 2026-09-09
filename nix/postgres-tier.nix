@@ -71,7 +71,7 @@ rec {
   # worktree, which is where the harness looks.
   tier = pkgs.writeShellApplication {
     name = "sutura-postgres-tier";
-    runtimeInputs = [ pkgs.postgresql_18 endpoints.script ];
+    runtimeInputs = [ pkgs.postgresql_18 endpoints.script pkgs.coreutils ];
     text = ''
       set -o errexit -o nounset
 
@@ -85,6 +85,24 @@ rec {
         key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
         pg="''${TMPDIR:-/tmp}/sutura-pg-$key"
       fi
+      # THE CREDENTIAL, and where it lives is the whole of why the client can stop defaulting one.
+      #
+      # `github.com/telekom/sutura#455`: the adapter's `local_config` used to substitute
+      # `sutura`/`sutura`/`sutura` when `SUTURA_DEV_*` was unset, in a `pub fn` whose `host` and
+      # `port` are parameters - so the *only local containers can reach this* argument the compose
+      # file makes did not cover it, and nothing in the tree ever SET those variables. It refuses
+      # now, which means the provisioner has to publish what it provisioned.
+      #
+      # The role and database NAMES are chosen here and published; only the password is generated,
+      # per worktree, and it is generated rather than derived from the worktree path because a
+      # derivation is a value anybody who knows the path can compute.
+      #
+      # It sits BESIDE the data directory rather than inside it - `initdb` refuses a non-empty
+      # target - and `stop` removes both, so a fresh cluster can never pair with a stale password.
+      # Nothing tracked by git ever holds it: this repository is public.
+      user=sutura
+      db=sutura
+      cred="$pg.cred"
       port=5432
       # Two single quotes at RUNTIME, so the nix indented string never holds two adjacent apostrophes
       # (nix would strip them); `listen_addresses` empty means no TCP at all.
@@ -148,16 +166,30 @@ rec {
         if ! pg_ctl -D "$pg" status >/dev/null 2>&1; then
           pg_ctl -D "$pg" -o "-p $port" -l "$pg/server.log" start
         fi
+        # A password for THIS worktree, once. 24 bytes of `/dev/urandom` as hex, so the value is
+        # `[0-9a-f]` only - which is why interpolating it into the SQL below cannot inject: there
+        # is no apostrophe in the alphabet. `umask` in a subshell, so the file is 0600 and the
+        # mask does not leak into the rest of `start`.
+        if [ ! -s "$cred" ]; then
+          ( umask 077; od -An -v -tx1 -N24 < /dev/urandom | tr -d ' \n' > "$cred" )
+        fi
+        password="$(cat "$cred")"
+        # CREATE or ALTER, rather than create-if-missing: the file is the authority, so a cluster
+        # that outlived its credential file - or a wreck cleared out from under one - is brought
+        # back into agreement instead of authenticating against a password nothing published.
         if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
-          "SELECT 1 FROM pg_roles WHERE rolname='sutura'" | grep -q 1; then
+          "SELECT 1 FROM pg_roles WHERE rolname='$user'" | grep -q 1; then
           psql -h "$pg" -p "$port" -U postgres -d postgres \
-            -v ON_ERROR_STOP=1 -c "CREATE ROLE sutura LOGIN PASSWORD 'sutura'"
+            -v ON_ERROR_STOP=1 -c "CREATE ROLE \"$user\" LOGIN PASSWORD '$password'"
+        else
+          psql -h "$pg" -p "$port" -U postgres -d postgres \
+            -v ON_ERROR_STOP=1 -c "ALTER ROLE \"$user\" WITH PASSWORD '$password'"
         fi
         if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
-          "SELECT 1 FROM pg_database WHERE datname='sutura'" | grep -q 1; then
+          "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1; then
           psql -h "$pg" -p "$port" -U postgres -d postgres \
             -v ON_ERROR_STOP=1 \
-            -c "CREATE DATABASE sutura OWNER sutura TEMPLATE template0 LOCALE 'C' ENCODING 'UTF8'"
+            -c "CREATE DATABASE \"$db\" OWNER \"$user\" TEMPLATE template0 LOCALE 'C' ENCODING 'UTF8'"
         fi
         # The harness reads `<root>/.sutura-dev/endpoints.json` and treats the host as the socket
         # dir. MERGED rather than written whole: a second nix tier's entry lives in the same file.
@@ -204,6 +236,38 @@ rec {
         # keeps both its entry and its data, because removing a live postmaster's directory is a
         # worse failure than the one being fixed.
         rm -rf "''${pg:?the tier data directory is unset}"
+        # And the credential goes with the cluster it belongs to. Leaving it behind is how a fresh
+        # cluster comes up carrying a password an earlier run published, which is the same class of
+        # stale claim `endpoints.json` above is about.
+        rm -f "''${cred:?the tier credential file is unset}"
+      }
+
+      # WHAT THE CLIENT NEEDS AND CANNOT GUESS, as three `export` lines for a caller to `eval`.
+      #
+      # This is the supply half of `github.com/telekom/sutura#455`. The adapter's
+      # `FixtureCredential::from_env` refuses, naming the variable, when any of these is unset -
+      # there is no fallback left - so the thing that PROVISIONED the server is the thing that says
+      # how to log in, exactly as `nix/with-tier.sh` already treats `SUTURA_DEV_REQUIRE_TIER`.
+      #
+      # `SUTURA_POSTGRES_TIER_*` and not `SUTURA_DEV_*`: those two names are the compose fixture
+      # credential's, `compose.services.yaml` gives them defaults of its own, and NO postgres service
+      # exists in that file at all. The shared name was the only coupling, and it made an unrelated
+      # tier's argument look like it covered this one.
+      #
+      # An absent file is a refusal and not an empty answer: a caller that eval'd nothing would run
+      # the suite against a client that then refuses, which is a worse diagnostic than this one.
+      credentials() {
+        if [ ! -s "$cred" ]; then
+          echo "postgres tier: no credential is published for this worktree, so the suite's" >&2
+          echo "               postgres cells would refuse rather than connect." >&2
+          echo "               \`just postgres-tier start\` publishes one (\`just test\` does it" >&2
+          echo "               for you). A server started by an older tier has none: stop it and" >&2
+          echo "               start it again." >&2
+          exit 1
+        fi
+        printf 'export SUTURA_POSTGRES_TIER_USER=%s\n' "$user"
+        printf 'export SUTURA_POSTGRES_TIER_PASSWORD=%s\n' "$(cat "$cred")"
+        printf 'export SUTURA_POSTGRES_TIER_DB=%s\n' "$db"
       }
 
       # Is a server up, and up in the way THE SUITE will see it? Nothing is changed, and the answer
@@ -232,7 +296,8 @@ rec {
         start) start ;;
         stop) stop ;;
         status) status ;;
-        *) echo "usage: $0 start|stop|status" >&2; exit 2 ;;
+        credentials) credentials ;;
+        *) echo "usage: $0 start|stop|status|credentials" >&2; exit 2 ;;
       esac
     '';
   };
@@ -268,8 +333,11 @@ rec {
       cd "$tree"
 
       endpoints=.sutura-dev/endpoints.json
-      # The tier derives this itself; the check needs it to reach the postmaster's own pid file.
+      # The tier derives these itself; the check needs them to reach the postmaster's own pid file
+      # and to assert that a teardown takes the credential with the cluster.
       pg="$NIX_BUILD_TOP/.sutura-dev/pg"
+      cred="$pg.cred"
+      port=5432
 
       tier_state() {
         state=0
@@ -309,6 +377,42 @@ rec {
         exit 1
       fi
 
+      # --- THE CREDENTIAL IS PUBLISHED, AND IT IS NOT THE OLD CONSTANT ---
+      # `github.com/telekom/sutura#455`. `FixtureCredential::from_env` refuses, naming the variable,
+      # when any of these three is unset - so the tier publishing them is what keeps the suite able
+      # to reach this server at all, and nothing else in the tree drives that subcommand.
+      published="$(sutura-postgres-tier credentials)"
+      for variable in SUTURA_POSTGRES_TIER_USER SUTURA_POSTGRES_TIER_PASSWORD SUTURA_POSTGRES_TIER_DB; do
+        if ! printf '%s\n' "$published" | grep -q "^export $variable=."; then
+          echo "credentials published no non-empty $variable:" >&2
+          printf '%s\n' "$published" >&2
+          exit 1
+        fi
+      done
+      # The point of the change, asserted rather than described: the password is generated, so it is
+      # not the `sutura` every reader of the old `pub fn` could have typed.
+      secret="$(printf '%s\n' "$published" | sed -n 's/^export SUTURA_POSTGRES_TIER_PASSWORD=//p')"
+      if [ "$secret" = sutura ]; then
+        echo "the published password is still the constant this tier exists to stop sharing" >&2
+        exit 1
+      fi
+      # It has to be the ROLE's password too, or the client and the server agree only by accident.
+      # A TCP-less server admits a unix-socket client by `trust`, so `psql` alone cannot show this -
+      # `PASSWORD` in `pg_authid` is a scram verifier, and `scram-sha-256$...` over the published
+      # value is what says the two halves match. Asked of the server rather than of the file.
+      if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
+        "SELECT 1 FROM pg_authid WHERE rolname = 'sutura' AND rolpassword IS NOT NULL" | grep -q 1; then
+        echo "the role carries no password, so what credentials publishes is a value nothing set" >&2
+        exit 1
+      fi
+      # ONE value per worktree, not one per invocation: a second `start` must not re-credential a
+      # server the suite is already connected to.
+      sutura-postgres-tier start
+      if [ "$(sutura-postgres-tier credentials)" != "$published" ]; then
+        echo "a second start republished a different credential, so a running suite's would go stale" >&2
+        exit 1
+      fi
+
       # The divergence, made on purpose: withdraw the claim and leave the postmaster running. That
       # is the state #298 was filed in, and `pg_ctl status` on its own called it up.
       sutura-tier-endpoint withdraw "$tree" postgres
@@ -332,6 +436,31 @@ rec {
       expect_state 0 "the wrapper republished the entry and left the server alone"
       expect_entry true "the wrapper republished the entry the suite reads"
 
+      # --- the YESYES ARM: an entry at a DIFFERENT socket is still state 3, and the wrapper
+      # must republish it, never skip it ---
+      # The withdraw arm above leaves NO entry; this one leaves a WRONG one, so state 3 comes from
+      # an address mismatch while something still publishes. The old `0 | 3) alive=yes` form read
+      # "a postmaster is alive" as *already up* without checking the address, so this arm was
+      # skipped and the stale address survived; routing 3 to republish repairs it. RED on that
+      # form, GREEN on the fix.
+      sutura-tier-endpoint publish "$tree" postgres "$pg.other" "$port"
+      expect_entry true "a stale entry naming another socket is still published"
+      expect_state 3 "a postmaster whose entry names another address is unclaimed, not up"
+      ( . ${./with-tier.sh}
+        sutura_tier_up
+        printf '%s' "$SUTURA_DEV_REQUIRE_TIER" > "$NIX_BUILD_TOP/required-mismatch"
+      )
+      if [ "$(cat "$NIX_BUILD_TOP/required-mismatch")" != 1 ]; then
+        echo "the wrapper did not export SUTURA_DEV_REQUIRE_TIER over a mismatched-address tier" >&2
+        exit 1
+      fi
+      if [ "$(jq -r '.services.postgres.host' "$endpoints")" != "$pg" ]; then
+        echo "the wrapper did not republish the entry onto the live socket dir" >&2
+        exit 1
+      fi
+      expect_state 0 "the wrapper republished the entry onto the address the server is on"
+      expect_entry true "the stale-address entry was repaired"
+
       # A tier that is up AND published is left alone too - the same rule, its ordinary arm.
       ( . ${./with-tier.sh}; sutura_tier_up )
       expect_state 0 "an already-published tier survives the wrapper"
@@ -348,6 +477,29 @@ rec {
         echo "stop left the data directory behind: $pg" >&2
         exit 1
       fi
+      # AND THE CREDENTIAL WENT WITH IT, so `credentials` REFUSES rather than answering for a server
+      # that is gone. The same argument the withdrawal above makes: a stale claim is worse than none,
+      # and here the stale claim would be a password a fresh cluster never set.
+      if [ -e "$cred" ]; then
+        echo "stop left the credential behind: $cred" >&2
+        exit 1
+      fi
+      refused=0
+      sutura-postgres-tier credentials >/dev/null 2>&1 || refused=$?
+      if [ "$refused" = 0 ]; then
+        echo "credentials answered for a worktree where nothing is provisioned" >&2
+        exit 1
+      fi
+      # A FRESH cluster gets a FRESH password. Held here because the file and the data directory are
+      # removed by the same `stop`, and a reader could reasonably expect the credential to be stable
+      # across a teardown - it is not, and a test is how that stays true.
+      sutura-postgres-tier start
+      if [ "$(sutura-postgres-tier credentials)" = "$published" ]; then
+        echo "a re-provisioned tier republished the credential of the cluster that was torn down" >&2
+        exit 1
+      fi
+      sutura-postgres-tier stop
+      expect_state 1 "the re-provisioned tier tears down like any other"
 
       # --- a directory left by a killed run heals, at EVERY point initdb can be killed at ---
       # `github.com/telekom/sutura#377`. Two fixtures, because a structural check cannot tell them
@@ -410,6 +562,13 @@ rec {
       # than the wedge this file set out to fix, so it gets a line rather than a position.
       if [ ! -e "$pg" ]; then
         echo "a failed stop deleted the live server's data directory" >&2
+        exit 1
+      fi
+      # And its CREDENTIAL, held by line order for the same reason and given the same line: the
+      # `rm -f` sits after that `exit 1`, and a reorder would leave a live server the suite is
+      # connected to with no way for a later `credentials` to answer for it.
+      if [ ! -e "$cred" ]; then
+        echo "a failed stop deleted the live server's credential" >&2
         exit 1
       fi
 

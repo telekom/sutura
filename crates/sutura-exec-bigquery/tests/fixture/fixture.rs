@@ -6,10 +6,10 @@
 //! the table a developer supplies, the name no dataset holds, and the one plan every leg asks - so
 //! what is left beside the assertions is the assertions.
 //!
-//! **In `tests/fixture/mod.rs` and declared by `acceptance.rs` alone**, which is the difference
-//! from `tests/support/mod.rs`: that one is shared with the corpus leg, so `dead_code = "deny"`
-//! means nothing target-specific can live in it. Everything here is target-specific, which is
-//! exactly why it is not there.
+//! Declared by `acceptance.rs` with `#[path = "fixture/fixture.rs"] mod fixture;` and living in a
+//! self-named `tests/fixture/fixture.rs`, which is the difference from `tests/support/mod.rs`: that
+//! one is shared with the corpus leg, so `dead_code = "deny"` means nothing target-specific can live
+//! in it. Everything here is target-specific, which is exactly why it is not there.
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::model::{
@@ -17,7 +17,8 @@ use sutura_domain::model::{
 };
 use sutura_domain::plan::federated::InternalLabel;
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, StatementTables,
+    PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel,
+    StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 
@@ -128,7 +129,11 @@ pub(crate) fn absent_table() -> QualifiedTable {
 /// unbounded form, so every real plan carries them and the generator refuses one with no
 /// predicate.
 pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
-    labelled_plan(table, String::from("period"), String::from("total_amount"))
+    labelled_plan(
+        table,
+        ResultLabel::bucket(),
+        ResultLabel::measure(&MetricName::parse("total_amount").expect("a metric name parses")),
+    )
 }
 
 /// The same plan, with its two projected labels taken from the internal federation namespace.
@@ -140,14 +145,19 @@ pub(crate) fn plan(table: &QualifiedTable) -> QueryPlan {
 /// is the question, and `sutura_sql::generate`'s `aliased` puts the label in exactly that one
 /// position: `GROUP BY` and `ORDER BY` carry the expression.
 ///
-/// A whole-answer plan rather than a leg, deliberately: no published adapter executes a leg
-/// (`EXECUTES_LEGS` is defaulted-`false`), and the alias is rendered by the same `aliased` either
-/// way - so this asks the service the alias question without pretending to execute federation.
+/// A whole-answer plan rather than a leg, deliberately: this adapter takes the default and declares
+/// no `EXECUTES_LEGS`, so it is never handed one - and since `telekom/sutura#441` the adapter that
+/// IS handed one renders no SQL at all. The alias is rendered by the same `aliased` either way, so
+/// this asks the service the alias question without pretending to execute federation.
 pub(crate) fn plan_in_the_internal_namespace(table: &QualifiedTable) -> QueryPlan {
-    labelled_plan(table, InternalLabel::Link.label(), InternalLabel::Leaf(0).label())
+    labelled_plan(
+        table,
+        ResultLabel::internal(InternalLabel::Link),
+        ResultLabel::internal(InternalLabel::Leaf(0)),
+    )
 }
 
-fn labelled_plan(table: &QualifiedTable, bucket_label: String, measure_label: String) -> QueryPlan {
+fn labelled_plan(table: &QualifiedTable, bucket_label: ResultLabel, measure_label: ResultLabel) -> QueryPlan {
     // Every column is qualified by the table's BARE name, because `FROM a.b.c` gives the reference
     // an implicit alias of `c`. That is a claim about GoogleSQL that no local test can check, and
     // `the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers` is what checks it.

@@ -31,24 +31,30 @@
 # and the next crate that bakes a path is caught without editing this file. The mismatch ALONE is
 # true of every build script in a relocated `target/` - purging on that would rebuild the closure
 # and lose the reuse these checks exist on - so a directory is purged only when what it generated
-# names it. Measured over the current closure: **1 of 138** build script output directories,
+# names it. The original failure investigation measured **1 of 138** build script output directories,
 # `utoipa-swagger-ui`, found in 1.8 s. The cost per consumer is that one build script rerun plus
 # one crate; nothing downstream of it is a dependency, so nothing else recompiles.
 #
-# WHAT IT DOES NOT COVER, and the third of these is narrower than this paragraph used to admit.
+# WHAT IT DOES NOT COVER.
 # A generated file naming some OTHER absolute directory - the source root, a sibling crate's
 # `OUT_DIR` - is invisible here, and so is a path written into a compiled artifact rather than into
-# the bytes of the output directory. And the search is `$unitDir/out` alone, so `$unitDir/output` -
-# cargo's record of the `cargo::` directives the build script PRINTED, a sibling of `out/` rather
-# than a file in it - is not read at all: an absolute `$OUT_DIR` in a `rustc-link-search` or a
-# `rustc-env` there survives the unpack unregenerated. Widening to it is not free and the cost is
-# UNMEASURED: a build script that publishes its own output directory as a link path names it in
-# `output` as a matter of course, so purging on that record reaches every such crate, and HOW MANY
-# of the closure's 138 that is has not been counted. Stated rather than taken, because an
-# unmeasured widening of a purge is the more expensive of the two mistakes - and the limit is
-# ASSERTED rather than merely written down: this script's test builds four synthetic unit
-# directories, one per branch of the decision below, and the `output`-only one is the case it
-# proves SURVIVES. All three shapes fail the same loud way this did.
+# the bytes of the output directory. The search also excludes the sibling `$unitDir/output`, but
+# retained directive bytes are not necessarily the values Cargo gives rustc. Cargo 1.98 reads the
+# previous `OUT_DIR` from `root-output` and replaces that literal with the current directory in
+# parsed `cargo:` and `cargo::` directive values; see `prev_build_output` and `BuildOutput::parse`:
+# https://github.com/rust-lang/cargo/blob/rust-1.98.0/src/cargo/core/compiler/custom_build.rs
+# An independent offline probe on aarch64-darwin moved a target and changed only its consumer:
+# both forms of `rustc-env` and native `rustc-link-search` reached rustc with the new directory,
+# both generated-file byte checks passed, and the build script still had run only once. The saved
+# `root-output` and `output` bytes stayed unchanged, naming the now-absent old directory. This is
+# not proof of native-library linking, differently spelled paths or other Cargo versions.
+#
+# Read-only scans on 2026-09-08 covered all 100 / 106 records in two warmed targets. In each target,
+# searching `output` too added 12 matching records across five crates to the two generated-content matches;
+# broad text matches also included logs and metadata, not just compiler directives. The first
+# baseline / widened scan took 3.24 / 3.36 s: detection cost, NOT the cost of rebuilding those crates.
+# No widening is justified by the tested literal directives. The existing four-unit actual-script
+# fixture proves the `output`-only unit SURVIVES; it tests this detector, not Cargo's relocation.
 #
 # NO TOP-LEVEL `set`: this text is INLINED, into every artifact-inheriting derivation's `preBuild`
 # and into `cargoWarmStart`, which every warm-start app expands, so a `set -e` here would change
@@ -77,7 +83,16 @@ suturaPurgeBakedOutDirs() (
   while IFS= read -r record; do
     if [ -z "$record" ]; then continue; fi
 
-    unitDir="${record%/root-output}"
+    recordDir="${record%/*}"
+    # `root-output` and `out/` are the two faces of one build-script run. The pinned nightly keeps
+    # the record under a `run/` subdirectory with `out/` as its SIBLING under `build/<crate>/<hash>/`;
+    # an older cargo wrote `root-output` beside `out/` at `build/<crate>-<hash>/`. `outDir` is the
+    # directory of generated content either way, found by looking where `out/` actually is.
+    if [ -d "$recordDir/out" ]; then
+        unitDir="$recordDir"
+    else
+        unitDir="${recordDir%/*}"
+    fi
     outDir="$unitDir/out"
     if [ ! -d "$outDir" ]; then continue; fi
 
@@ -87,16 +102,30 @@ suturaPurgeBakedOutDirs() (
     # Moved - but only content that hard-coded the old directory is unusable.
     if ! grep -qrF -- "$ranIn" "$outDir"; then continue; fi
 
-    unit="${unitDir##*/}"
-    crate="${unit%-*}"
-    if [ -z "$crate" ] || [ "$crate" = "$unit" ]; then continue; fi
+    # The crate dir and the two purge globs also follow the layout that put `out/` where it is.
+    ownerDir="${unitDir%/*}"
+    case "${ownerDir##*/}" in
+      build)
+        # Old layout: `build/<crate>-<hash>/` - the unit dir is named after the crate.
+        crate="${unitDir##*/}"
+        crate="${crate%-*}"
+        if [ -z "$crate" ] || [ "$crate" = "${unitDir##*/}" ]; then continue; fi
+        profileDir="${ownerDir%/*}"
+        purge="$ownerDir/${crate:?}-* $profileDir/.fingerprint/$crate-*"
+        ;;
+      *)
+        # New layout: `build/<crate>/<hash>/` - the whole crate dir holds out/, run/ AND its
+        # fingerprints, so dropping it is the same "the build script must rerun" purge as above.
+        crate="${ownerDir##*/}"
+        purge="$ownerDir"
+        ;;
+    esac
 
-    buildDir="${unitDir%/*}"
-    profileDir="${buildDir%/*}"
     printf 'purge-baked-out-dirs: %s baked %s into what it generated\n' "$crate" "$ranIn"
     # Both unit directories and every fingerprint for the crate: the build script has to RERUN
     # (that is what rewrites the path) and the library has to be recompiled against what it wrote.
-    rm -rf -- "${buildDir:?}/$crate"-* "${profileDir:?}/.fingerprint/$crate"-*
+    # shellcheck disable=SC2086
+    rm -rf -- $purge
     purged=$((purged + 1))
   done <<<"$records"
 

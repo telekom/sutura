@@ -53,26 +53,20 @@
 //! This is the `just bigquery-acceptance` precedent and not a preference, and the fact that decided
 //! it is worth writing down because it affects more than this test.
 //!
-//! **`.sutura-dev/endpoints.json` has two writers and ONE of them still erases the other.**
-//! `xtask dev-up` goes through `sutura_dev::discovery::publish`, which serialises the whole
-//! document from the docker services it just provisioned, so it drops any entry it did not write.
-//! The direction this paragraph was first written about is gone: every nix-native tier writes
-//! through `nix/tier-endpoints.nix` now, which merges a single service key, so
-//! `sutura-postgres-tier start` no longer leaves `postgres` as the file's only entry and a
-//! docker-tier service is no longer absent for the whole of `just test`.
+//! **The seam that decided it is repaired, and the venue stays.** `.sutura-dev/endpoints.json` has
+//! two writers, and both used to take a whole-document view of a file they only partly own:
+//! `sutura_dev::discovery::publish` serialised the document from the docker services it had just
+//! provisioned, so it dropped any entry it did not write, and `forget` removed the file. Both
+//! directions are gone - every nix-native tier merges through `nix/tier-endpoints.nix`, and
+//! `publish`/`forget` now touch only what this provisioner published
+//! (`github.com/telekom/sutura#317`). The question that blocked the second half is answered by a
+//! type: `Provisioner` hangs off `Endpoint`, because one document-level field cannot say what
+//! provisioned a service once two provisioners contribute to one file.
 //!
-//! What stands is `dev-up`'s own wholesale write, and it is a defect in the seam rather than in
-//! this test. It is **not** fixed here: merging on that side raises a question this change has no
-//! business answering, namely what the file's single `provisioner` field means once two
-//! provisioners contribute to it. Its consequence for the SUITE is gone for one tier only -
-//! `nix/with-tier.sh` reads a Postgres server that is running with nothing publishing it as its own
-//! state and republishes the entry (`github.com/telekom/sutura#298`), which `checks.postgres-tier`
-//! holds - and nothing does that for `clickhouse`, which nobody notices only because nothing reads
-//! it yet.
-//!
-//! `just test` sets `SUTURA_DEV_REQUIRE_TIER=1`, so a fail-closed cell over a service `dev-up`
-//! dropped is not merely inconvenient there: it is unconditionally red, because the tier it asks
-//! about cannot be visible.
+//! So a fail-closed cell is no longer unconditionally red over a service some other provisioner's
+//! `start` erased. What keeps this test behind a named task is the venue and nothing else: `just
+//! test` sets `SUTURA_DEV_REQUIRE_TIER=1`, the `DataHub` profile is off by default because it costs
+//! three JVMs and a migration job, and the nix sandbox has no docker socket at all.
 //!
 //! So the venue gets a named task, `just datahub-acceptance`, which brings the profile up and runs
 //! this with the fail-closed direction set. **An `#[ignore]`d test is not evidence in the default

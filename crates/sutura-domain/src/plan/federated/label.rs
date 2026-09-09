@@ -64,10 +64,15 @@ pub fn labels(federation: &Federation) -> Vec<InternalLabel> {
 /// documented restriction is on a **declared column** and not on a quoted alias.
 ///
 /// **The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
-/// Neither has an execution venue for a LEG - the whole federated path is gated by a
-/// defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle sets - so what stands
-/// for them is a quoted-identifier argument rather than a run. Read the row above for what each one
-/// is worth.
+/// Neither has an execution venue for a LEG - each leaves `EXECUTES_LEGS` at its default `false` -
+/// so what stands for them is a quoted-identifier argument rather than a run. Read the row above
+/// for what each one is worth.
+///
+/// **The reason that sentence changed rather than the claim:** it used to say *the whole federated
+/// path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle
+/// sets*, which stopped being true when the engine declared the constant and a published build
+/// began answering two sources. The limit for these two dialects is unaffected - it never rested on
+/// the path being gated, only on neither having a venue.
 ///
 /// **Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
 /// range is a wiring defect the combiner reports as a missing column, not a label this type could
@@ -85,16 +90,18 @@ pub fn labels(federation: &Federation) -> Vec<InternalLabel> {
 /// nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
 /// is the property the test asserts, and the thing to re-establish if this spelling ever changes.
 ///
-/// **And the two halves are held by different KINDS of thing, which is the asymmetry to know about.**
-/// This half is a type. The public half is not: [`PlanKey`](crate::plan::PlanKey) and
-/// [`LegTerm`](crate::plan::LegTerm) carry their labels as `String`, so what keeps a public label out
-/// of this namespace is that `sutura_semantic::plan::federated_plan` derives every one of them from a
-/// `DimensionName`, a `MetricName` or `TIME_BUCKET_LABEL` - a derivation held by review, and by no
-/// test: the test above asks the four name parsers to refuse these spellings, which is a property of
-/// `parse_identifier`, not of any plan. A computed public label landing on `0_leaf_{n}` would be
-/// refused by `distinct_columns` as `DuplicateLabels`, so the failure direction is a refusal rather
-/// than a wrong number - which is why the `String`s are still here. `telekom/sutura#337` is the
-/// typed-label remedy that would make the comparison impossible rather than unnecessary.
+/// **Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
+/// [`InternalLabel`]; the public half is [`ResultLabel`](crate::plan::ResultLabel), whose only
+/// constructors take a `DimensionName`, a `MetricName`, [`InternalLabel`] or nothing at all - so a
+/// computed string is not a label a plan can carry, and the derivation
+/// `sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
+/// instead. What that changes about the paragraph above: the two namespaces are still disjoint
+/// *because* of the leading digit, and what the types add is that no producer can put a value in
+/// both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
+/// something already parsed, never WHICH of the four constructors produced it - so a value built by
+/// [`ResultLabel::internal`](crate::plan::ResultLabel::internal) is accepted anywhere a label is
+/// taken, the bucket's position included. Nothing here reads the provenance back, because nothing
+/// needs to: the disjointness is the leading digit.
 ///
 /// **Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
 /// is 63 characters because that is the tightest among the data systems targeted, and it is a

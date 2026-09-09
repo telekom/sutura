@@ -23,7 +23,25 @@
 //! reported. A caller that fabricated that text would get an endpoint it made up - but that is
 //! lying about docker's output, which is a different and much louder thing than reading a constant,
 //! and no test can do it by accident.
-
+//!
+//! # Why the WRITER only ever touches its own entries
+//!
+//! `github.com/telekom/sutura#317`. This file has two writers - [`publish`] here, and
+//! `nix/tier-endpoints.nix` for every nix-native tier - and [`publish`] used to serialise the whole
+//! document from the docker services it had just read. So a `dev-up` after `just keycloak-tier`
+//! dropped the entry that tier had merged, and the server it named went on running unnamed: a
+//! truthful file about half a tier, which this repository treats as worse than a crash.
+//!
+//! So a provisioner reads and writes **only its own entry**. [`publish`] merges, [`forget`]
+//! withdraws what THIS provisioner published and leaves the rest, and the last entry out takes the
+//! file with it - byte for byte what `nix/tier-endpoints.nix` does on the other side, because the
+//! file's EXISTENCE is what discovery reads as *something is provisioned here*.
+//!
+//! That needs the document to say which provisioner an entry came from, and **that is why
+//! [`Provisioner`] hangs off [`Endpoint`] rather than off [`Endpoints`]**: one field on the
+//! document cannot answer the question once two provisioners contribute to it, and a field that
+//! answers *nix* for a docker entry is exactly the confident wrong answer being removed. The
+//! decision `#317` asked for, as a type rather than a paragraph.
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -32,12 +50,66 @@ use crate::scope::Scope;
 /// The file, inside the worktree's state directory, that provisioning writes and a harness reads.
 const FILE: &str = "endpoints.json";
 
+/// The discovery document, as JSON, with the keys neither writer is allowed to interpret still on
+/// it. Both writers merge into one file, so a whole-document value is what a merge reads and writes.
+type Document = serde_json::Map<String, serde_json::Value>;
+
 /// The address a caller connects to.
 ///
 /// `0.0.0.0` and `::` are BIND addresses and are not connectable on every host, so [`publish`]
 /// rewrites either to loopback. A test that got `0.0.0.0` back would fail intermittently and for a
 /// reason nobody would look for here.
 const LOOPBACK: &str = "127.0.0.1";
+
+/// What brought one service up.
+///
+/// **A property of the ENTRY, not of the document.** `.sutura-dev/endpoints.json` has two writers -
+/// `xtask dev-up` through [`publish`], and `nix/tier-endpoints.nix` for every nix-native tier - and
+/// both merge into one file, so *what provisioned this* has as many answers as the file has
+/// entries. A single document-level field could only be the last writer's opinion about somebody
+/// else's service.
+///
+/// It is an enum and not a string because the one caller that matters is [`forget`], which asks *is
+/// this entry mine to withdraw*. A `&str` comparison there is a decision to destroy another
+/// provisioner's state spelled as a typo away from wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Provisioner {
+    /// `xtask dev-up`: a compose project, an ephemeral host port read back off docker.
+    Docker,
+    /// A nix-native tier (`nix/postgres-tier.nix`, `nix/keycloak-tier.nix`), merged by
+    /// `nix/tier-endpoints.nix`.
+    Nix,
+}
+
+impl std::fmt::Display for Provisioner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match *self {
+            Self::Docker => DOCKER,
+            Self::Nix => NIX,
+        })
+    }
+}
+
+/// How [`Provisioner::Docker`] is spelled in the file. `nix/tier-endpoints.nix` writes [`NIX`].
+const DOCKER: &str = "docker";
+
+/// How [`Provisioner::Nix`] is spelled in the file, by `nix/tier-endpoints.nix`.
+const NIX: &str = "nix";
+
+/// The provisioner this crate publishes as. Not a parameter: nothing in Rust provisions a nix
+/// tier, so a `Provisioner` argument on [`publish`] or [`forget`] would be a way to withdraw
+/// somebody else's entry and nothing more.
+const OURS: Provisioner = Provisioner::Docker;
+
+/// The written spelling, read back. `None` for anything else, which the reader refuses rather than
+/// guesses: an entry whose provisioner cannot be named is one [`forget`] cannot decide about.
+fn provisioner_of(named: &str) -> Option<Provisioner> {
+    match named {
+        DOCKER => Some(Provisioner::Docker),
+        NIX => Some(Provisioner::Nix),
+        _ => None,
+    }
+}
 
 /// Where one provisioned service is listening, on this host, right now.
 ///
@@ -68,6 +140,9 @@ pub struct Endpoint {
     host: String,
     /// The host port docker allocated.
     port: u16,
+    /// What brought this service up. Carried per entry because the document has two writers - see
+    /// [`Provisioner`].
+    provisioner: Provisioner,
 }
 
 impl Endpoint {
@@ -82,6 +157,16 @@ impl Endpoint {
     pub const fn port(&self) -> u16 {
         self.port
     }
+
+    /// What brought THIS service up.
+    ///
+    /// Per entry, because the document has two writers and they merge into one file. A reader that
+    /// wants to know whether it is looking at the docker tier asks the service it is about to
+    /// connect to, which is the only question the file can answer once both have contributed.
+    #[must_use]
+    pub const fn provisioner(&self) -> Provisioner {
+        self.provisioner
+    }
 }
 
 impl std::fmt::Display for Endpoint {
@@ -95,10 +180,6 @@ impl std::fmt::Display for Endpoint {
 pub struct Endpoints {
     /// The compose project these came from. Carried so a harness can say which worktree answered.
     project: String,
-    /// What wrote the file - `docker` (`xtask dev-up`) or `nix` (`nix/postgres-tier.nix`, in the
-    /// sandbox or the dev shell). A fact in
-    /// the file rather than an inference, so a reader need not guess docker from the project name.
-    provisioner: Option<String>,
     /// Service name to endpoint. Ordered, so output and any digest over it are stable.
     services: BTreeMap<String, Endpoint>,
 }
@@ -126,15 +207,6 @@ impl Endpoints {
     #[must_use]
     pub fn project(&self) -> &str {
         &self.project
-    }
-
-    /// What provisioned this tier, where the file says.
-    ///
-    /// `docker` for `xtask dev-up`, `nix` for `nix/postgres-tier.nix`. `None` when an older file (or
-    /// a hand-written one) carried no marker - a reader must not assume docker from the absence.
-    #[must_use]
-    pub fn provisioner(&self) -> Option<&str> {
-        self.provisioner.as_deref()
     }
 
     /// Where `service` is listening.
@@ -218,6 +290,13 @@ pub enum Malformed {
     /// The docker tier connects on loopback, the nix tier on a socket path. Anything else would
     /// let a discovery file hand a harness an arbitrary host, so it is refused rather than trusted.
     HostNeitherLoopbackNorSocket,
+    /// An entry no provisioner can be attributed to.
+    ///
+    /// Refused rather than defaulted, and the reason is [`forget`]: a provisioner withdraws its own
+    /// entries and leaves every other one alone, so an entry it cannot attribute is one it would
+    /// have to guess about - and both guesses are wrong. Leaving it would strand a claim over a
+    /// dead server; taking it would delete a live tier's address.
+    ServiceProvisioner,
 }
 
 impl std::fmt::Display for DiscoveryError {
@@ -229,9 +308,15 @@ impl std::fmt::Display for DiscoveryError {
                 path.display()
             ),
             Self::Unreadable { ref path, .. } => write!(f, "could not read {}", path.display()),
-            Self::Malformed { ref path, what } => {
-                write!(f, "{} is not a discovery file ({what:?})", path.display())
-            }
+            // The remedy is part of the message because nothing heals this any more - see
+            // [`forget`]'s limit. `remove_file` used to, and both `just dev-up` and `just dev-down`
+            // now refuse ahead of touching the file, so a reader with no remedy is stuck.
+            Self::Malformed { ref path, what } => write!(
+                f,
+                "{} is not a discovery file ({what:?}); no task repairs it - delete it, then \
+                 `just dev-up` and each nix tier's own `start` republish what they provisioned",
+                path.display()
+            ),
             Self::UnknownService { ref service, ref known } => {
                 write!(f, "`{service}` was not provisioned; this worktree has {}", known.join(", "))
             }
@@ -270,55 +355,165 @@ pub fn path_for(scope: &Scope) -> PathBuf {
 ///
 /// It returns the PATH and not an [`Endpoints`], deliberately. Even the writer reads its own work
 /// back through [`Endpoints::discover`], so there is exactly one door and no second shape of it.
+///
+/// **It MERGES.** Every entry it writes is marked [`Provisioner::Docker`] and every other entry in
+/// the document is left byte for byte as it was, keys this writer does not understand included -
+/// `github.com/telekom/sutura#317`. `project` is the one exception, because it is a fact about the
+/// worktree rather than about a provisioner and both writers run in one tree - and it is the ONLY
+/// document-level key either writer sets, which is the shape `#317` argued for. A `root` key was
+/// written here and read nowhere, so it went with the same reasoning.
 pub fn publish(scope: &Scope, reported: &[(&str, String)]) -> Result<PathBuf, DiscoveryError> {
-    let mut services = serde_json::Map::new();
+    let path = path_for(scope);
+    let mut document = read_document(&path)?;
+    let mut services = take_services(&mut document);
+
     for &(service, ref line) in reported {
         let endpoint = mint(service, line)?;
         services.insert(
             String::from(service),
-            serde_json::json!({ "host": endpoint.host, "port": endpoint.port }),
+            serde_json::json!({
+                "host": endpoint.host,
+                "port": endpoint.port,
+                "provisioner": OURS.to_string(),
+            }),
         );
     }
 
-    let document = serde_json::json!({
-        "project": scope.project(),
-        "provisioner": "docker",
-        "root": scope.root().to_string_lossy(),
-        "services": serde_json::Value::Object(services),
-    });
+    // `project` is a fact about the WORKTREE rather than about a provisioner, so this one is
+    // entitled to set it; every other key the document carries is left exactly as it was, because
+    // a key this writer does not understand belongs to whoever wrote it.
+    document.insert(String::from("project"), serde_json::Value::String(scope.project()));
+    document.insert(String::from("services"), serde_json::Value::Object(services));
 
-    let path = path_for(scope);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|cause| DiscoveryError::Unwritable {
-            path: path.clone(),
-            cause,
-        })?;
-    }
-    let Ok(mut text) = serde_json::to_string_pretty(&document) else {
-        return Err(DiscoveryError::Unwritable {
-            path,
-            cause: std::io::Error::other("the discovery document did not serialize"),
-        });
-    };
-    text.push('\n');
-    std::fs::write(&path, text).map_err(|cause| DiscoveryError::Unwritable {
-        path: path.clone(),
-        cause,
-    })?;
+    write_document(&path, &document)?;
     Ok(path)
 }
 
-/// Remove this worktree's discovery file, if there is one.
+/// Withdraw every entry THIS provisioner published, and remove the file if nothing is left.
 ///
 /// Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
 /// stale file is the one way discovery could hand back a wrong answer instead of an error.
+///
+/// **It used to `remove_file`, and that was the other half of `github.com/telekom/sutura#317`.** A
+/// nix-native tier merges its entry into this same document, so removing the file withdrew a claim
+/// over a server that was still running - `just dev-down` did it deliberately, and every failing
+/// path through `with_endpoints_forgotten` did it by accident. Fail-closed is the right posture
+/// about *our* entries and is somebody else's data when applied to theirs.
+///
+/// The last entry out still takes the file with it, because the file's EXISTENCE is what discovery
+/// reads as *something is provisioned here* - the rule `nix/tier-endpoints.nix`'s `withdraw` holds
+/// on the other side.
+///
+/// A document this module cannot read is **refused rather than removed**: it publishes nothing a
+/// harness can use either way, and destroying state that cannot be attributed is the failure this
+/// function was changed to stop.
+///
+/// **The limit that widened with it, stated with the claim.** The `remove_file` this replaced
+/// healed an unreadable document by deleting it. Attribution needs the document parsed first, so
+/// ANY [`Malformed`] variant - not merely one about an entry - now refuses both `just dev-up` and
+/// `just dev-down` before either touches the tier, and nothing repairs the file automatically. That
+/// is the trade taken deliberately: state that cannot be attributed is not destroyed, and the price
+/// is a manual delete, which is why [`DiscoveryError`]'s message names it.
 pub fn forget(scope: &Scope) -> Result<(), DiscoveryError> {
     let path = path_for(scope);
-    match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(cause) => Err(DiscoveryError::Unwritable { path, cause }),
+    if !path.exists() {
+        return Ok(());
     }
+    // Parsed rather than edited blind, so an entry is attributed before it is withdrawn.
+    let surviving: Vec<String> = Endpoints::discover(scope)?
+        .services()
+        .filter(|&(_name, endpoint)| endpoint.provisioner() != OURS)
+        .map(|(name, _endpoint)| String::from(name))
+        .collect();
+
+    if surviving.is_empty() {
+        return match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(cause) => Err(DiscoveryError::Unwritable { path, cause }),
+        };
+    }
+
+    let mut document = read_document(&path)?;
+    let mut services = take_services(&mut document);
+    services.retain(|name, _entry| surviving.iter().any(|kept| kept == name));
+    document.insert(String::from("services"), serde_json::Value::Object(services));
+    write_document(&path, &document)
+}
+
+/// Lift the `services` object OUT of the document, ready to be merged into and put back.
+///
+/// `remove` rather than `get(..).cloned()`, which is a clone to escape the borrow checker and the
+/// one `AGENTS.md` names: both callers own the map, mutate it and insert it again, so nothing
+/// needed a second copy of it. An entry that is not an object is the same case as no entry at all -
+/// [`parse`] has already refused every document a reader could reach, so this arm is only for the
+/// empty document [`read_document`] returns when there is no file.
+fn take_services(document: &mut Document) -> Document {
+    match document.remove("services") {
+        Some(serde_json::Value::Object(services)) => services,
+        _ignored => Document::new(),
+    }
+}
+
+/// The document as it stands, or an empty object where there is no file yet.
+///
+/// It goes through [`parse`] first and throws the result away, deliberately: a merge into a
+/// document this module cannot read would write back a shape it did not understand, and the entry
+/// that vanished would be the other provisioner's.
+fn read_document(path: &Path) -> Result<Document, DiscoveryError> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Document::new());
+        }
+        Err(cause) => {
+            return Err(DiscoveryError::Unreadable {
+                path: path.to_path_buf(),
+                cause,
+            });
+        }
+    };
+    parse(path, &text)?;
+    serde_json::from_str(&text).map_err(|_ignored| DiscoveryError::Malformed {
+        path: path.to_path_buf(),
+        what: Malformed::NotJson,
+    })
+}
+
+/// Write the document where a reader can be part-way through the old one.
+///
+/// A temporary file in the same directory and a rename, for the reason `nix/tier-endpoints.nix`
+/// gives for its own `mv`: a harness can be reading while a tier is starting, and half a JSON
+/// document is a malformed-file error attributed to whatever ran next.
+///
+/// **The stage path carries the writer**, so the two writers of one file cannot stage over each
+/// other: this one writes `endpoints.json.docker.new`, `nix/tier-endpoints.nix` writes
+/// `endpoints.json.new`. Sharing it - which is what a plain `.new` did - is one process renaming
+/// the other's half-written bytes onto the real file, or renaming a path the other has already
+/// renamed away and getting a not-found for it.
+///
+/// **The limit, stated with the claim: a suffix is not a lock.** Two concurrent runs of THIS writer
+/// still share one stage path, and the final rename is last-writer-wins across writers either way,
+/// so a `just dev-up` racing a nix tier's `start` can still lose an entry - only now it loses it to
+/// a merge that read the file a moment too early rather than to a torn write. `nix/with-tier.sh`
+/// is documented as not a lock and this does not make it one.
+fn write_document(path: &Path, document: &Document) -> Result<(), DiscoveryError> {
+    let unwritable = |cause: std::io::Error| DiscoveryError::Unwritable {
+        path: path.to_path_buf(),
+        cause,
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(unwritable)?;
+    }
+    let Ok(mut text) = serde_json::to_string_pretty(document) else {
+        return Err(unwritable(std::io::Error::other("the discovery document did not serialize")));
+    };
+    text.push('\n');
+    // `{OURS}` and not the literal `docker`: the stage path is owned by the provisioner this
+    // crate publishes as, so a rename of that constant renames the file it stages through.
+    let staged = path.with_extension(format!("json.{OURS}.new"));
+    std::fs::write(&staged, text).map_err(unwritable)?;
+    std::fs::rename(&staged, path).map_err(unwritable)
 }
 
 /// The one place a host port becomes an [`Endpoint`].
@@ -347,7 +542,11 @@ fn mint(service: &str, reported: &str) -> Result<Endpoint, DiscoveryError> {
         "" | "0.0.0.0" | "::" | "*" => String::from(LOOPBACK),
         connectable => String::from(connectable),
     };
-    Ok(Endpoint { host, port })
+    Ok(Endpoint {
+        host,
+        port,
+        provisioner: OURS,
+    })
 }
 
 /// The discovery file, read back into the type.
@@ -362,10 +561,12 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
         .get("project")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| bad(Malformed::NoProject))?;
-    let provisioner = document
-        .get("provisioner")
-        .and_then(serde_json::Value::as_str)
-        .map(String::from);
+    // The document-level field this module no longer writes, kept as the fallback for an entry
+    // that predates the per-entry one. Both writers always set it - `docker` here, `nix` in
+    // `nix/tier-endpoints.nix` - so a file from before `github.com/telekom/sutura#317` attributes
+    // correctly and a dev shell mid-transition is not wedged by a document it wrote itself. An
+    // entry with NEITHER is refused; see `Malformed::ServiceProvisioner`.
+    let document_wide = document.get("provisioner").and_then(serde_json::Value::as_str);
     let entries = document
         .get("services")
         .and_then(serde_json::Value::as_object)
@@ -387,18 +588,24 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
             .and_then(|n| u16::try_from(n).ok())
             .filter(|&n| n != 0)
             .ok_or_else(|| bad(Malformed::ServiceEntry))?;
+        let provisioner = value
+            .get("provisioner")
+            .and_then(serde_json::Value::as_str)
+            .or(document_wide)
+            .and_then(provisioner_of)
+            .ok_or_else(|| bad(Malformed::ServiceProvisioner))?;
         services.insert(
             name.clone(),
             Endpoint {
                 host: String::from(host),
                 port,
+                provisioner,
             },
         );
     }
 
     Ok(Endpoints {
         project: String::from(project),
-        provisioner,
         services,
     })
 }
@@ -407,7 +614,7 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{DiscoveryError, Endpoints, Malformed, mint, parse, publish};
+    use super::{DiscoveryError, Endpoints, Malformed, Provisioner, mint, parse, publish};
     use crate::scope::Scope;
 
     /// A real directory to hang a scope off, because `Scope::from_root` canonicalises.
@@ -545,6 +752,18 @@ mod tests {
                 r#"{"project":"p","services":{"pg":{"host":"db.internal","port":5432}}}"#,
                 Malformed::HostNeitherLoopbackNorSocket,
             ),
+            (
+                // An entry no provisioner can be attributed to. `forget` would have to guess
+                // whether to withdraw it, and both guesses destroy or strand something.
+                r#"{"project":"p","services":{"pg":{"host":"127.0.0.1","port":5432}}}"#,
+                Malformed::ServiceProvisioner,
+            ),
+            (
+                // A named provisioner this reader does not know is the same answer, not a
+                // default: `Provisioner` is the closed set `forget` decides over.
+                r#"{"project":"p","provisioner":"podman","services":{"pg":{"host":"127.0.0.1","port":5432}}}"#,
+                Malformed::ServiceProvisioner,
+            ),
         ];
         for (text, expected) in cases {
             match parse(path, text) {
@@ -557,7 +776,7 @@ mod tests {
     #[test]
     fn a_socket_directory_host_is_kept_as_an_address_the_driver_treats_as_unix() {
         let path = Path::new("/somewhere/endpoints.json");
-        let text = r#"{"project":"p","services":{"pg":{"host":"/build/sutura-pg","port":5432}}}"#;
+        let text = r#"{"project":"p","services":{"pg":{"host":"/build/sutura-pg","port":5432,"provisioner":"nix"}}}"#;
         let parsed = parse(path, text).expect("a socket-directory host is valid");
         let endpoint = parsed.endpoint("pg").expect("decodes");
         assert_eq!(endpoint.host(), "/build/sutura-pg");
@@ -575,6 +794,144 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    /// What `nix/tier-endpoints.nix` leaves in the file when a nix-native tier merges its entry.
+    ///
+    /// Written as TEXT, byte-shaped like the other writer's `jq` output, because the point of these
+    /// two tests is a document this crate did not produce. Minting one through `publish` would
+    /// prove the merge preserves something `publish` had just written.
+    fn a_nix_tier_has_published(scope: &Scope, service: &str) {
+        let path = super::path_for(scope);
+        std::fs::create_dir_all(path.parent().expect("the state dir has a parent")).expect("creatable");
+        let document = format!(
+            r#"{{"project":"sutura","services":{{"{service}":{{"host":"/tmp/sutura-pg-1","port":5432,"provisioner":"nix"}}}}}}"#
+        );
+        std::fs::write(&path, document).expect("the fixture is writable");
+    }
+
+    #[test]
+    fn a_second_provisioners_entry_survives_a_publish() {
+        // `github.com/telekom/sutura#317`. `publish` serialised the whole document from the docker
+        // services it had just read, so a `dev-up` after `just keycloak-tier` dropped the entry
+        // that tier had merged - and the server it named went on running unnamed, which is a
+        // truthful file about half a tier rather than a failure anybody sees.
+        let dir = temp_worktree("merge");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+        a_nix_tier_has_published(&scope, "postgres");
+
+        publish(&scope, &[("clickhouse", String::from("0.0.0.0:60660"))]).expect("writes");
+
+        let found = Endpoints::discover(&scope).expect("reads back");
+        let neighbour = found.endpoint("postgres").expect("the nix tier's entry survived a dev-up");
+        assert_eq!(neighbour.provisioner(), Provisioner::Nix);
+        assert_eq!(neighbour.host(), "/tmp/sutura-pg-1", "and survived unaltered");
+        let ours = found.endpoint("clickhouse").expect("published");
+        assert_eq!(ours.provisioner(), Provisioner::Docker);
+        assert_eq!(ours.port(), 60660);
+        // The worktree's own facts ARE this writer's to set: both provisioners run in one tree.
+        assert_eq!(found.project(), scope.project());
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn the_other_writers_stage_path_is_not_this_ones() {
+        // The temp path arrived WITH the merge and collided with the other writer's: both spelled
+        // `endpoints.json.new`, so a `just dev-up` racing a nix tier's `start` had one process
+        // rename the other's half-written bytes onto the real file - or rename a path already
+        // renamed away and get a not-found for it.
+        //
+        // Asserted as *the neighbour's stage file is still there afterwards* rather than on a
+        // constant, because a constant this test copies would be the same literal twice. The
+        // mutation that reddens it is the one line it is about: put `json.new` back as the staged
+        // extension and the stray file is overwritten and then renamed away.
+        //
+        // A suffix is not a lock and this cell does not claim one - it holds that the two writers
+        // do not stage through one path, which is the half a suffix can hold.
+        let dir = temp_worktree("stage");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+        a_nix_tier_has_published(&scope, "postgres");
+        let theirs = super::path_for(&scope).with_extension("json.new");
+        std::fs::write(&theirs, "{ half a document").expect("the fixture is writable");
+
+        publish(&scope, &[("clickhouse", String::from("0.0.0.0:60665"))]).expect("writes");
+
+        assert_eq!(
+            std::fs::read_to_string(&theirs).ok().as_deref(),
+            Some("{ half a document"),
+            "this writer staged through the other writer's temp path"
+        );
+        assert!(
+            Endpoints::discover(&scope).is_ok(),
+            "and the other writer's stage file is not a document a reader can reach"
+        );
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn teardown_withdraws_this_provisioners_entries_and_leaves_every_other_one() {
+        // The other half of #317: `forget` was a `remove_file`, so `dev-down` - and every failing
+        // path through `xtask::compose::tier::with_endpoints_forgotten` - withdrew a claim over a
+        // nix tier that was still running. Fail-closed is the right posture about OUR entries and
+        // is somebody else's data when applied to theirs.
+        let dir = temp_worktree("withdraw");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+        a_nix_tier_has_published(&scope, "postgres");
+        publish(&scope, &[("clickhouse", String::from("0.0.0.0:60661"))]).expect("writes");
+
+        super::forget(&scope).expect("withdraws");
+
+        let found = Endpoints::discover(&scope).expect("the file is still there for the nix tier");
+        assert_eq!(
+            found.services().map(|(name, _)| name).collect::<Vec<_>>(),
+            vec!["postgres"],
+            "teardown took an entry it did not publish, or left one it did"
+        );
+
+        // And the LAST entry out still takes the file with it, because the file's existence is what
+        // discovery reads as "something is provisioned here" - so a nix-only document is untouched
+        // by our teardown, and a docker-only one disappears.
+        publish(&scope, &[("clickhouse", String::from("0.0.0.0:60662"))]).expect("writes");
+        super::forget(&scope).expect("withdraws");
+        assert!(super::path_for(&scope).is_file(), "the nix entry kept the file alive");
+        std::fs::remove_file(super::path_for(&scope)).expect("the fixture is removable");
+        publish(&scope, &[("clickhouse", String::from("0.0.0.0:60663"))]).expect("writes");
+        super::forget(&scope).expect("withdraws");
+        assert!(matches!(
+            Endpoints::discover(&scope),
+            Err(DiscoveryError::NotProvisioned { .. })
+        ));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_document_from_before_the_per_entry_marker_is_attributed_and_not_stranded() {
+        // The migration, held rather than hoped for. A file written by the code this replaces
+        // carries ONE document-level `provisioner` and no per-entry one; if that read as
+        // unattributable, `forget` would refuse and every `dev-up` in a dev shell that had already
+        // published would be wedged by a document it wrote itself.
+        let dir = temp_worktree("legacy");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+        let path = super::path_for(&scope);
+        std::fs::create_dir_all(path.parent().expect("the state dir has a parent")).expect("creatable");
+        std::fs::write(
+            &path,
+            r#"{"project":"p","provisioner":"docker","services":{"clickhouse":{"host":"127.0.0.1","port":60664}}}"#,
+        )
+        .expect("the fixture is writable");
+
+        let found = Endpoints::discover(&scope).expect("reads back");
+        assert_eq!(
+            found.endpoint("clickhouse").expect("provisioned").provisioner(),
+            Provisioner::Docker,
+            "an entry written before the per-entry marker must still be attributable"
+        );
+        super::forget(&scope).expect("withdraws");
+        assert!(matches!(
+            Endpoints::discover(&scope),
+            Err(DiscoveryError::NotProvisioned { .. })
+        ));
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 

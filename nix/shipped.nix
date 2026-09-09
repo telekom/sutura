@@ -22,7 +22,6 @@
 , system
 , crane
 , rust-overlay
-, rustToolchainFile
 , craneLib
 , commonArgs
 , inheritedArtifacts
@@ -193,11 +192,26 @@ let
         SUTURA_MIMALLOC_LIB_DIR = "${mimallocFor { targetPkgs = pkgs; optLevel = optLevelFor profile; isMusl = false; }}/lib";
       };
     in
-    craneLib.buildPackage (args // inheritedArtifacts (craneLib.buildDepsOnly args) // {
+    # `doCheck = false` ON THE DEPS DERIVATION, stated rather than defaulted because
+    # `cargo xtask check-warm-start` requires every `buildDepsOnly` to say which it is. crane
+    # defaults it to `true`, and that default runs `cargo test --no-run` over the whole closure
+    # after `cargo check` and `cargo build` - a second codegen of every dependency, to cache
+    # dev-dependency artifacts. NOTHING here consumes them: the consumer below sets
+    # `doCheck = false` two dozen lines down, because the tests are their own check in
+    # `flake.nix`. Measured on `nix/jscpd.nix`, the same shape: 231 `Compiling` lines to 137.
+    #
+    # AND THE NOTE BELOW ABOUT STAYING BYTE-IDENTICAL TO WHAT THE CHECKS SHARE IS ALREADY SPENT,
+    # which is why this is free rather than a trade. Measured: this file's deps derivation is
+    # `sutura-deps-0.1.0.drv` at `h802qsgq…` and `checks.clippy`'s is `lwb1zx31…`. The `ci`
+    # profile split them when it landed, so `release` has had a dependency build of its own since
+    # then and nothing is being un-shared here.
+    craneLib.buildPackage (args // inheritedArtifacts (craneLib.buildDepsOnly (args // { doCheck = false; })) // {
       # NAMED AFTER THE EXECUTABLE, so a build log and a store path say which of the two shipped
       # binaries this is. `commonArgs.pname` is `sutura` for the workspace, and with two shipped
       # binaries that made both derivations `sutura-0.1.0`. On the final attrset and never on
-      # `args`: `buildDepsOnly` above must stay byte-identical to what the checks share.
+      # `args`, so the deps derivation stays as unscoped as it can be - see the measurement
+      # above for what sharing with the checks is still available and what the `ci` profile
+      # already ended.
       pname = binary.bin;
       # ONE package. Without this, crane builds the whole workspace and the result held
       # three binaries - `sutura`, `sutura-dev` and `xtask` - which made two stated
@@ -205,8 +219,8 @@ let
       # compile-time `CARGO` reference pulled the whole cargo store path into the runtime
       # closure. It also broke reproducibility, because that path differs between builds.
       #
-      # On the attrset and not on `args`: `buildDepsOnly` above must stay unscoped, or
-      # the shared dependency build stops being shared with the checks.
+      # On the attrset and not on `args`: a per-package deps build is a deps build per
+      # package, which is the duplication this whole file is arranged to avoid.
       cargoExtraArgs = "--package ${binary.package}${featureArg features}";
       # Tests run as their own check in `flake.nix`, sharing the same artifacts.
       doCheck = false;
@@ -225,7 +239,7 @@ let
         crossSystem = { config = target; };
       };
       crossLib = (crane.mkLib crossPkgs).overrideToolchain
-        (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
+        (p: p.rust-bin.fromRustupToolchainFile ../devco/rust-toolchain-nightly.toml);
       args = commonArgs // {
         CARGO_BUILD_TARGET = target;
         CARGO_PROFILE = profile;

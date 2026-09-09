@@ -55,6 +55,14 @@ use crate::repo;
 /// makes them usable. What they share is the seam, which is why they share a gate.
 mod pairing;
 
+/// Every dependency-only build states whether it compiles test targets.
+///
+/// Its own module for [`pairing`]'s reason - a different claim over the same scan. That one holds
+/// every taking of the artifacts against the sweep; this one holds every PRODUCER of them against
+/// crane's silent `doCheck` default, which is the difference between a closure compiled once and
+/// one compiled twice. It shares this gate because it shares the seam and the file listing.
+mod deps_targets;
+
 /// The HARNESS for asserting what the sweep REMOVES, over a filesystem rather than off its source.
 ///
 /// Test-only: nothing in production calls it, and nothing else in this repository runs the script
@@ -177,8 +185,29 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // directory and the profile say WHERE the closure is and HOW it was built, and the sweep says
     // that nothing in it still names a build root it no longer sits in.
     match pairing::holds(&root) {
-        Ok(swept) => {
-            println!("xtask check-warm-start: ok - {}", swept.verdict());
+        Ok(swept) => println!("xtask check-warm-start: ok - {}", swept.verdict()),
+        Err(why) => {
+            eprintln!("xtask check-warm-start: {why}");
+            return Verdict::Fail;
+        }
+    }
+    // AND THE PRODUCER SIDE of the same closure: crane's `doCheck` defaults to `true` on a
+    // dependency-only build, which codegens the whole closure a second time for `cargo test
+    // --no-run`. Nothing goes red when that is nobody's, so the decision has to be written down.
+    let files = match pairing::code_of_every_nix_file(&root) {
+        Ok(files) => files,
+        Err(why) => {
+            eprintln!("xtask check-warm-start: {why}");
+            return Verdict::Fail;
+        }
+    };
+    match deps_targets::holds(&files) {
+        Ok(decided) => {
+            println!(
+                "xtask check-warm-start: ok - {} dependency-only build(s) state whether they compile test targets: {}",
+                decided.len(),
+                decided.join("; ")
+            );
             Verdict::Pass
         }
         Err(why) => {
@@ -540,6 +569,24 @@ fn profiled_consumers(text: &str) -> Result<Consumers, String> {
 mod tests {
     use crate::Verdict;
 
+    /// EVERY dependency-only build IN THIS TREE states whether it compiles test targets.
+    ///
+    /// Over the live tree and not a fixture, and that is deliberate: [`super::deps_targets`]'s own
+    /// tests hold the reader against synthetic text, which proves the parser and nothing about the
+    /// repository. This one is the claim - and it is the half that goes RED when either nix site
+    /// loses its `doCheck`, which is what makes the change it holds mechanically separable rather
+    /// than a comment somebody has to keep.
+    #[test]
+    fn every_dependency_only_build_in_this_tree_states_whether_it_builds_test_targets() {
+        let root = crate::repo::root().expect("the repo root");
+        let files = super::pairing::code_of_every_nix_file(&root).expect("every nix file's code");
+        let decided = super::deps_targets::holds(&files).expect("every `buildDepsOnly` decided");
+        // A floor, because an empty `Ok` would satisfy the line above: crane builds this
+        // workspace's closure through one of these and `nix/jscpd.nix` builds jscpd's through
+        // another, so fewer than two is a scan that stopped finding them.
+        assert!(decided.len() >= 2, "only found {decided:?}");
+    }
+
     /// The nix side, with the two decoys a real file has: a comment that names the path in prose,
     /// and a second variable assigned beside the one that matters.
     const NIX: &str = concat!(
@@ -817,7 +864,7 @@ mod tests {
         // `just lint-workflows` shellchecks it clean and `just hygiene` - `pairing` included -
         // reports `ok - 32 gate(s)` over a tree where nothing is purged. This reddens on it,
         // `left: (true, true)`, because the unit and its fingerprint are still there.
-        use super::sweep::{present, sweep, unit};
+        use super::sweep::{present, present_run, sweep, unit, unit_run};
 
         let target = std::env::temp_dir().join(format!("sutura-sweep-{}", std::process::id()));
         drop(std::fs::remove_dir_all(&target));
@@ -858,8 +905,26 @@ mod tests {
             &format!("cargo:rustc-link-search=native={elsewhere}"),
         );
 
+        // 5. THE PINNED NIGHTLY's LAYOUT: `root-output` under `run/`, `out/` its sibling, under
+        //    `build/<crate>/<hash>/`. The reader that looked for `out/` BESIDE the record found
+        //    nothing there, skipped every record and printed `0 regenerated here` - the false
+        //    negative that left this baked-out `embed.rs` in the freshly pinned nightly's CI, which
+        //    then failed the HEAD-precondition compile with `#[folder = "..."] does not exist`.
+        //    The fix identifies `out/` by where it actually is and drops the whole crate dir.
+        let nightly_dir = unit_run(
+            &profile,
+            "nightly",
+            "eeee",
+            elsewhere,
+            &format!("#[folder = \"{elsewhere}\"]"),
+        );
+
         let said = sweep(&target);
 
+        assert!(
+            !present_run(&nightly_dir),
+            "the pinned-nightly unit is purged so the build script reruns and rewrites the path: {said}"
+        );
         assert_eq!(
             present(&profile, "moved", "aaaa"),
             (false, false),
@@ -880,7 +945,7 @@ mod tests {
             (true, true),
             "the `output` file is the STATED LIMIT: {said}"
         );
-        assert!(said.contains("1 inherited build script output(s) regenerated here"), "{said}");
+        assert!(said.contains("2 inherited build script output(s) regenerated here"), "{said}");
         drop(std::fs::remove_dir_all(&target));
     }
 }
