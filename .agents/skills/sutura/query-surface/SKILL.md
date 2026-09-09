@@ -181,7 +181,10 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   `Endpoints` - one document-level field could only ever be the last writer's opinion about somebody
   else's service. Held by `dev/src/discovery.rs`'s own cells over a foreign entry this crate did not
   mint, and by `xtask::compose`'s `a_failing_provision_leaves_no_claim_of_its_own...`, which drives
-  `with_endpoints_forgotten`. **The limit:** nothing compares the Rust writer with
+  `with_endpoints_forgotten`. A dropped entry is survivable either way: both nix tiers derive
+  `status` from the records and keep a process-only guard for `start`, so the next `start`
+  republishes over the server already running - held by `checks.postgres-tier` and
+  `checks.keycloak-tier`. **The limit:** nothing compares the Rust writer with
   `nix/tier-endpoints.nix`'s `jq` - the two agree on a shape by review, and a THIRD writer would
   be held by neither.
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**
