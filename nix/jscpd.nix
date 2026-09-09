@@ -53,12 +53,39 @@ let
     buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
   };
 in
-craneLib.buildPackage (commonArgs // inheritedArtifacts (craneLib.buildDepsOnly commonArgs) // {
-  doCheck = false;
-  meta = {
-    description = "Copy/paste detector - native Rust engine over 220+ formats (issue #474)";
-    homepage = "https://jscpd.dev";
-    license = pkgs.lib.licenses.mit;
-    mainProgram = "jscpd";
-  };
-})
+# `doCheck = false` ON THE DEPS DERIVATION, AND THE MEASUREMENT IS WHY. crane defaults it to
+# `true` there so that dev-dependencies get cached, and that default costs a THIRD cargo pass:
+# `cargo check`, then `cargo build`, then `cargo test --no-run`. Counted off this derivation's
+# own build log, before and after, on the same host and the same pinned source:
+#
+# |             | cargo passes | `Compiling` | `Checking` |
+# | ----------- | ------------ | ----------- | ---------- |
+# | crane's default | check --all-targets, build, test --no-run | 231 | 73 |
+# | `doCheck = false` | check, build | **137** | 73 |
+#
+# So the test pass was a second codegen of the entire 94-crate build closure, and NOTHING in this
+# repository can use it: the consumer below sets `doCheck = false`, so `jscpd`'s own tests never
+# build and never run here. `Checking` does not move - dropping `--all-targets` from the check
+# pass changes nothing measurable, and saying so is cheaper than someone re-deriving it. CI's
+# `Structural gates` step reported 229 on linux against 231 here, so the shape holds on both.
+#
+# LIMIT, NEXT TO THE CLAIM: this removes compilation, not wall clock that can be claimed. The
+# `ci` job's measured run-to-run spread is 772-1343 s, so a saving of this size is inside the
+# noise; the honest witness is the `Compiling` count in the build log, never the duration.
+#
+# HELD BY `cargo xtask check-warm-start`, not by this comment: an inline `buildDepsOnly` - one
+# whose artifacts are constructed inside the very expression that consumes them, as here - must
+# AGREE with that consumer on `doCheck`, so removing either half of this pairing is refused.
+craneLib.buildPackage (
+  commonArgs
+  // inheritedArtifacts (craneLib.buildDepsOnly (commonArgs // { doCheck = false; }))
+  // {
+    doCheck = false;
+    meta = {
+      description = "Copy/paste detector - native Rust engine over 220+ formats (issue #474)";
+      homepage = "https://jscpd.dev";
+      license = pkgs.lib.licenses.mit;
+      mainProgram = "jscpd";
+    };
+  }
+)
