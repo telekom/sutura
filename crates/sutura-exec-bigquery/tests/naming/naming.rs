@@ -7,11 +7,12 @@
 //! `std::env` read in [`run_token`] - which is why it is testable without a project, and why the
 //! deterministic tests in `corpus.rs` can hold it.
 //!
-//! In `tests/naming/mod.rs` rather than `tests/naming.rs` so cargo does not build it as a test
-//! target of its own - the reason `tests/support/mod.rs` gives. Unlike `support`, only the corpus
-//! leg declares it: `dead_code` is `deny` in the workspace lint table, and `tests/acceptance.rs`
-//! names its one table from the developer's own environment rather than deriving it, so an item
-//! here would be dead in that target.
+//! Declared by `corpus.rs` with `#[path = "naming/naming.rs"] mod naming;` and living in a
+//! self-named `tests/naming/naming.rs` rather than `tests/naming.rs` at the root, so cargo does not
+//! build it as a test target of its own - the reason `tests/support/mod.rs` gives. Unlike `support`,
+//! only the corpus leg declares it: `dead_code` is `deny` in the workspace lint table, and
+//! `tests/acceptance.rs` names its one table from the developer's own environment rather than
+//! deriving it, so an item here would be dead in that target.
 //!
 //! **Every `#[test]` over this module stays in `corpus.rs`.** `.agents/skills/sutura/gates` states
 //! the reason as a rule: `just causality` reverts a file that added no test and keeps one that did,

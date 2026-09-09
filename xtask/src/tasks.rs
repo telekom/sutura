@@ -19,7 +19,7 @@
 //! recipe, so widening the compile without widening the sentence fails, and so does pointing at a
 //! task that does not exist or is not actually a workspace check.
 //!
-//! Three rules, over the `justfile` and nothing else:
+//! The justfile's scope and citation rules:
 //!
 //! * **states its scope** - a recipe whose cargo VERIFICATION line narrows to named packages
 //!   prints every one of those names.
@@ -36,13 +36,20 @@
 //! verification line found at all, or no citation found at all - each means the SCAN broke rather
 //! than the file being clean. `scan_broke` holds those, separately from the rules, because they are
 //! properties of THIS justfile and not of the policy.
+//!
+//! Literal nextest filter pairs also agree with their same-name inline apps in `flake.nix`.
+//! Reuses the recipe reader and Nix block reader; it does not evaluate either language. Only
+//! direct `cargo nextest run` commands and a single quoted `-E` argument are admitted. Internal
+//! expression bytes must match, not merely have equivalent meaning. This holds no call graph,
+//! forwarded arguments, environment, package, ignored-test mode or live identity behavior.
 
 use std::collections::BTreeSet;
 
 use crate::Verdict;
 use crate::repo;
+use crate::workflows;
 
-/// The one file this reads. The task names a developer types live here.
+/// The task names a developer types live here.
 const JUSTFILE: &str = "justfile";
 
 /// The recipe names in this repo's justfile, or `None` when it could not be read.
@@ -353,6 +360,140 @@ fn problems(text: &str) -> Vec<String> {
     out
 }
 
+/// Direct commands only: a comment or echo quoting a command is not an invocation.
+fn nextest_lines(body: &str) -> Vec<String> {
+    let joined = body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace("\\\n", " ");
+    joined
+        .lines()
+        .map(|line| line.trim().trim_start_matches('@'))
+        .map(|line| line.strip_prefix("exec ").unwrap_or(line))
+        .filter(|line| {
+            line.strip_prefix("cargo nextest run")
+                .is_some_and(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
+        })
+        .map(String::from)
+        .collect()
+}
+
+/// This is a literal argument contract, not a shell parser or nextest expression evaluator.
+fn selector(commands: &[String]) -> Result<&str, &'static str> {
+    let [command] = commands else {
+        return Err("expected exactly one direct nextest command");
+    };
+    let (before, after) = command.split_once(" -E ").ok_or("missing literal -E selector")?;
+    if before.contains(['\'', '"', '#', ';', '|', '&', '$', '`', '\\']) {
+        return Err("selector follows unsupported shell syntax");
+    }
+    let after = after.trim_start();
+    let quote = after
+        .chars()
+        .next()
+        .filter(|c| *c == '\'' || *c == '"')
+        .ok_or("selector is not quoted")?;
+    let (expression, tail) = after
+        .strip_prefix(quote)
+        .and_then(|rest| rest.split_once(quote))
+        .ok_or("selector quote does not close")?;
+    if expression.trim().is_empty() || (quote == '"' && expression.contains(['$', '`', '\\'])) {
+        return Err("selector is empty or expanded rather than literal");
+    }
+    if !tail.is_empty() && !tail.starts_with(char::is_whitespace) {
+        return Err("selector is concatenated with another shell word");
+    }
+    let tail = tail
+        .match_indices('#')
+        .filter_map(|(index, _)| tail.get(..index))
+        .find(|prefix| prefix.is_empty() || prefix.ends_with([' ', '\t']))
+        .unwrap_or(tail);
+    let tail = tail.trim().strip_suffix("\"$@\"").unwrap_or(tail).trim();
+    if tail.contains(['\'', '"', ';', '|', '&', '$', '`', '\\']) {
+        return Err("selector is followed by unsupported shell syntax");
+    }
+    if tail
+        .split_whitespace()
+        .any(|word| word.starts_with("-E") || word.starts_with("--filter-expr"))
+    {
+        return Err("duplicate selector");
+    }
+    Ok(expression)
+}
+
+/// An inline app name and its direct nextest commands.
+type AppCommands = (String, Vec<String>);
+
+/// Discover declarations through the existing code projection, then retain their raw bodies.
+fn app_commands(flake: &str) -> Vec<AppCommands> {
+    workflows::code_lines(flake)
+        .into_iter()
+        .filter_map(|line| {
+            let header = line.code.trim();
+            let (name, value) = header.strip_prefix("apps.")?.split_once('=')?;
+            let name = name.trim();
+            if name.is_empty()
+                || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                || !value.trim_start().starts_with('{')
+            {
+                return None;
+            }
+            let commands = workflows::block_source(flake, header).map_or_else(Vec::new, |body| nextest_lines(&body));
+            Some((String::from(name), commands))
+        })
+        .collect()
+}
+
+fn filter_pairs(just: &str, flake: &str) -> (usize, Vec<String>) {
+    let recipes = recipes(just);
+    let local: Vec<_> = recipes
+        .iter()
+        .map(|r| (r.name.as_str(), nextest_lines(&r.body.join("\n"))))
+        .collect();
+    let apps = app_commands(flake);
+    let filtered = |commands: &[String]| commands.iter().any(|line| line.split_whitespace().any(|word| word == "-E"));
+    let mut names = BTreeSet::new();
+    for (name, commands) in &local {
+        if filtered(commands)
+            || (!commands.is_empty() && apps.iter().any(|(app, body)| app.as_str() == *name && !body.is_empty()))
+        {
+            names.insert(*name);
+        }
+    }
+    for (name, commands) in &apps {
+        if filtered(commands) {
+            names.insert(name.as_str());
+        }
+    }
+    let mut problems = Vec::new();
+    if names.is_empty() {
+        problems.push(String::from(
+            "filter parity: no literal nextest pairs found - the scan is broken",
+        ));
+    }
+    for name in names.iter().copied() {
+        let recipes: Vec<_> = local.iter().filter(|entry| entry.0 == name).collect();
+        let app: Vec<_> = apps.iter().filter(|entry| entry.0 == name).collect();
+        let ([recipe], [app]) = (recipes.as_slice(), app.as_slice()) else {
+            problems.push(format!(
+                "filter parity `{name}`: expected one recipe and one inline app, found {} and {}",
+                recipes.len(),
+                app.len()
+            ));
+            continue;
+        };
+        match (selector(&recipe.1), selector(&app.1)) {
+            (Ok(local), Ok(nix)) if local == nix => {}
+            (Ok(local), Ok(nix)) => problems.push(format!("filter differs for `{name}`: justfile `{local}`, flake.nix `{nix}`")),
+            (local, nix) => problems.push(format!("filter parity `{name}`: justfile {local:?}, flake.nix {nix:?}")),
+        }
+    }
+    (names.len(), problems)
+}
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-scope: could not determine the repo root");
@@ -367,13 +508,22 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
+    let flake = match std::fs::read_to_string(root.join("flake.nix")) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("xtask check-scope: could not read flake.nix for filter parity: {error}");
+            return Verdict::Fail;
+        }
+    };
 
     let mut found = scan_broke(&text);
     found.extend(problems(&text));
+    let (pairs, filters) = filter_pairs(&text, &flake);
+    found.extend(filters);
     if found.is_empty() {
         let recipes = recipes(&text);
         println!(
-            "xtask check-scope: ok - {} recipe(s), {} citation(s)",
+            "xtask check-scope: ok - {} recipe(s), {} citation(s), {pairs} literal nextest filter pair(s)",
             recipes.len(),
             citations(&text).len()
         );

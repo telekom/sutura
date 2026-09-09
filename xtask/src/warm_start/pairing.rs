@@ -176,6 +176,32 @@ impl Swept {
     }
 }
 
+/// One nix file as a SIBLING claim needs it: where it lives, and what the evaluator sees.
+///
+/// A named pair rather than a tuple, for the reason [`Scan`]'s neighbours give: `(String, String)`
+/// says nothing about which string is the path. Not [`NixFile`] either - that type carries `raw`
+/// as well, and a claim that only reads code should not be handed the view where a comment still
+/// counts as text.
+pub(super) struct NixCode {
+    pub(super) rel: String,
+    pub(super) code: String,
+}
+
+/// The CODE view of every `.nix` file in the tree, for a sibling claim over the same scan.
+///
+/// Here and not in [`super::deps_targets`] because [`nix_files`] is the only enumeration this
+/// gate owns and `repo::all_files` has an exact-count door on its callers: one scan, two claims,
+/// no second caller.
+pub(super) fn code_of_every_nix_file(root: &Path) -> Result<Vec<NixCode>, String> {
+    Ok(nix_files(root)?
+        .into_iter()
+        .map(|file| NixCode {
+            rel: file.rel,
+            code: file.code,
+        })
+        .collect())
+}
+
 /// Every `.nix` file in the tree, or a failure naming what it could not enumerate.
 fn nix_files(root: &Path) -> Result<Vec<NixFile>, String> {
     let (_root, listing) = repo::all_files()
@@ -579,6 +605,29 @@ pub(super) fn holds(root: &Path) -> Result<Swept, String> {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+
+    /// The sibling accessor reaches the same tree this gate's own scan does.
+    ///
+    /// Here rather than in [`super::super::deps_targets`], and the reason is the harness rather
+    /// than tidiness: `test-causality` keeps a file that adds a `#[test]` and reverts one that
+    /// does not, so the accessor and the claim built on it have to be red-able from the same
+    /// side of that line - otherwise reverting THIS file leaves a kept test calling a function
+    /// that no longer exists, and a build failure is not the same evidence as a red test.
+    #[test]
+    fn the_shared_scan_reaches_the_flake() {
+        let root = crate::repo::root().expect("the repo root");
+        let files = super::code_of_every_nix_file(&root).expect("every nix file's code");
+        assert!(
+            files.iter().any(|file| file.rel == "flake.nix"),
+            "the scan reached {} file(s) and flake.nix was not among them",
+            files.len()
+        );
+        // And the code view carries CODE, not an empty string: the sibling's whole judgement is
+        // made out of this field, so a scan that reached the file and handed over nothing would
+        // pass it silently.
+        let flake = files.iter().find(|file| file.rel == "flake.nix").expect("flake.nix");
+        assert!(flake.code.contains("buildDepsOnly"), "flake.nix's code view is empty");
+    }
 
     /// The one line of the sweep script this gate reads, for whichever variable it resolves.
     ///

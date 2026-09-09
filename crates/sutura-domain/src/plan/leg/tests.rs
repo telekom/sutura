@@ -12,8 +12,11 @@ use super::{Executable, LegPlan, LegTerm};
 use crate::calendar::{Date, TimeRange};
 use crate::federation::{Above, Carried, Federation};
 use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
-use crate::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
-use crate::plan::{PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, StatementTables};
+use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
+use crate::plan::{
+    InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, ResultLabel,
+    StatementTables,
+};
 use crate::warehouse::ParamValue;
 
 fn source() -> SourceName {
@@ -45,14 +48,17 @@ fn range() -> TimeRange {
 
 fn bucket() -> PlanBucket {
     PlanBucket::new(
-        String::from("period"),
+        ResultLabel::bucket(),
         Grain::Month,
         column("fct_subscription_monthly", "month"),
     )
 }
 
 fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
-    PlanKey::new(String::from(label), column(table_name, column_name))
+    PlanKey::new(
+        ResultLabel::dimension(&DimensionName::parse(label).expect("a test dimension is a dimension")),
+        column(table_name, column_name),
+    )
 }
 
 fn fact(terms: Vec<LegTerm>) -> LegPlan {
@@ -121,7 +127,7 @@ fn carried_terms(measure: &Measure) -> Vec<LegTerm> {
                 // reached here would be building the distinct-key leg wrongly.
                 Carried::Keys { .. } => panic!("a pulled-up column is a key, not a term"),
             };
-            LegTerm::new(term, format!("term_{index}"))
+            LegTerm::new(term, ResultLabel::internal(InternalLabel::Leaf(index)))
         })
         .collect()
 }
@@ -148,8 +154,8 @@ fn a_lookup_leg_has_no_measure_and_no_bucket() {
     assert_eq!(source.as_str(), "crm");
     assert_eq!(table.to_string(), "dim_customer");
     assert_eq!(keys.len(), 2);
-    assert!(filters.is_empty());
-    assert!(params.is_empty());
+    assert_eq!(filters.as_slice(), []);
+    assert_eq!(params.as_slice(), []);
     // And the labels it projects are its keys and nothing else: no bucket label, no measure label.
     assert_eq!(
         lookup().result_labels(),
@@ -253,7 +259,7 @@ fn term_of(carried: Option<&Carried>) -> LegTerm {
             aggregate: pushed.push(),
             column: column_of(column),
         },
-        String::from("numerator"),
+        ResultLabel::internal(InternalLabel::Leaf(0)),
     )
 }
 
@@ -290,8 +296,8 @@ fn an_aggregate_leg_projects_a_decomposed_average_as_two_terms_undivided() {
         vec![
             String::from("customer_key"),
             String::from("period"),
-            String::from("term_0"),
-            String::from("term_1"),
+            InternalLabel::Leaf(0).label(),
+            InternalLabel::Leaf(1).label(),
         ]
     );
 }
@@ -337,7 +343,7 @@ fn every_leg_names_exactly_one_data_system() {
     assert_eq!(Executable::from(&aggregate).source().as_str(), "local");
     assert_eq!(Executable::from(&dimension).source().as_str(), "crm");
     assert_eq!(Executable::from(&aggregate).params().len(), 1);
-    assert!(Executable::from(&dimension).params().is_empty());
+    assert_eq!(Executable::from(&dimension).params(), []);
     assert_eq!(
         Executable::from(&dimension).result_labels(),
         dimension.result_labels(),

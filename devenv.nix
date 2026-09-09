@@ -6,8 +6,8 @@
 # `nix` alone rather than on devenv as well. What keeps the two honest is not a shared
 # shell but a shared implementation: the gate scripts below and the `hygiene` flake check
 # invoke the SAME xtask binary, and fmt/clippy/tests run the same cargo subcommands against
-# the same `rust-toolchain.toml` pin. A gate can therefore be added in one place only by
-# forgetting the other, which is a visible diff, not a silent divergence.
+# the same nightly pin (`devco/rust-toolchain-nightly.toml`). A gate can therefore be added
+# in one place only by forgetting the other, which is a visible diff, not a silent divergence.
 #
 # WHERE THINGS ARE FETCHED FROM
 #
@@ -22,10 +22,10 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
-  # Both compiler pins are resolved by nix/toolchains.nix, the SAME file flake.nix imports -
-  # one code path from a pin to a compiler. Going through `languages.rust.{channel,version}`
-  # instead was tried and silently produced a shell with no cargo on PATH, which is a worse
-  # failure than a loud one.
+  # The single compiler pin is resolved by nix/toolchains.nix, the SAME file flake.nix
+  # imports - one code path from a pin to a compiler. Going through
+  # `languages.rust.{channel,version}` instead was tried and silently produced a shell with
+  # no cargo on PATH, which is a worse failure than a loud one.
   rustPkgs = import inputs.nixpkgs {
     system = pkgs.stdenv.hostPlatform.system;
     overlays = [ (import inputs.rust-overlay) ];
@@ -54,18 +54,17 @@ let
   # skip them, which keeps one provisioner for both the sandbox and the developer's shell.
   postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
 
-  # NIGHTLY is what the interactive shell gets, because cranelift is nightly-only and it is
-  # the reason the inner loop is fast. STABLE is what the gates get - see `stableBin` below.
+  # The ONE toolchain, nightly, for both the interactive shell and the gates. The stable/
+  # nightly split is gone (issue #468 dissolves): CI gates on the same nightly pin now, so
+  # local gates run on exactly what CI gates on. One toolchain, one target directory.
   rustToolchain = toolchains.nightly;
 
-  # The stable toolchain's bin directory, prepended by every gate script.
-  #
-  # This split is deliberate and the alternative was worse. Clippy's lint set differs between
-  # channels, and this repo enables the whole `restriction` category with `-D warnings`: a
-  # nightly clippy reports lints stable has never heard of, so running the gates on nightly
-  # means local failures CI does not have and local passes CI rejects. Build fast on nightly,
-  # gate on exactly what CI gates on.
-  stableBin = "${toolchains.stable}/bin";
+  # The copy/paste detector, referenced from the flake's own `packages` (exported beside
+  # `pulumi` and `xtask`) rather than resolved here. This is the SAME derivation the flake's
+  # `checks.hygiene` carries on `nativeBuildInputs` and `apps.jscpd` points at, so the dev shell
+  # and CI cannot scan with two engines, and the binary is already in the nix store - the shell
+  # adds a PATH entry and compiles nothing.
+  jscpd = inputs.repo.packages.${pkgs.stdenv.hostPlatform.system}.jscpd;
 
   # A shell body ShellCheck has read, as a store path.
   #
@@ -145,38 +144,22 @@ let
   # otherwise take the stronger claim.
   sourced = name: body: "source ${linted name [ ] body}/bin/sutura-${name}";
 
-  # The same, for a gate: on stable, in its own target directory. `nix/stable-env.sh` stays a real
-  # shell file so the justfile can source the SAME one - "run this the way CI runs it" is
-  # defined once - and the `source=/dev/null` directive is because it is reached here by store
-  # path, which ShellCheck cannot follow and reports SC1091 for. That file is linted where it
-  # lives, by the `*.sh` glob in `nix/lint-workflows.sh`.
-  onStable = name: body: runs name ''
-    # shellcheck source=/dev/null
-    source ${./nix/stable-env.sh}
-    ${body}
-  '';
 in
 {
 
-  # Cranelift, enabled rather than described. Cargo.toml told developers to set
-  # `profile.dev.codegen-backend` themselves, which could not work: the profile key needs the
-  # `-Zcodegen-backend` unstable flag, and the toolchain it documented was stable.
-  #
-  # Environment rather than .cargo/config.toml because that file is committed and read by CI
-  # too - an `[unstable]` table there would fail every stable build. These variables exist
-  # only inside this shell.
-  # Required by nix/stable-env.sh for local Rust gates. Nix checks/apps supply their own pinned
-  # toolchain instead; an absent local setting must not fall back to the interactive nightly.
-  env.SUTURA_STABLE_BIN = stableBin;
+  # The dev shell's bare cargo is the nightly toolchain, defaulting to the LLVM codegen
+  # backend. The gates run on it, and the crap gate's `cargo-llvm-cov` needs LLVM's
+  # `-C instrument-coverage` - so cranelift is deliberately NOT the shell default. Cranelift
+  # stays available in the pinned nightly for opt-in use: set the two vars per shell (or in
+  # devenv.local.nix) when the fast inner loop is worth it. Env, not .cargo/config.toml,
+  # because that file is committed and read by CI too - an `[unstable]` table there would
+  # break every CI build.
 
   # Build-time and run-time paths to libduckdb, from nix/duckdb.nix. Spelled out there, once,
   # including why the run-time one is separate and what breaks without it.
   env.DUCKDB_LIB_DIR = duckdb.env.DUCKDB_LIB_DIR;
   env.DUCKDB_INCLUDE_DIR = duckdb.env.DUCKDB_INCLUDE_DIR;
   env.LD_LIBRARY_PATH = duckdb.env.LD_LIBRARY_PATH;
-
-  env.CARGO_UNSTABLE_CODEGEN_BACKEND = "true";
-  env.CARGO_PROFILE_DEV_CODEGEN_BACKEND = "cranelift";
 
   # The standard library source, from the shell's own toolchain (nix/toolchains.nix). Both
   # are pinned together: rust-analyzer is in the same nightly's bin and rust-src in the same
@@ -187,9 +170,9 @@ in
   # Every one of these was verified present in nixpkgs before being listed: a name that
   # does not resolve fails the WHOLE shell evaluation, not just that package.
   packages = [
-    # The pinned NIGHTLY toolchain: rustc, cargo, clippy, rustfmt and the components named
+    # The ONE pinned NIGHTLY toolchain: rustc, cargo, clippy, rustfmt and the components named
     # in devco/rust-toolchain-nightly.toml, cranelift among them. First in the list so it wins any
-    # PATH collision - the gates override it back to stable per-command.
+    # PATH collision - this is what the gates run on too.
     rustToolchain
 
     # The data system the local Warehouse adapter links against, and its CLI, which is handy for
@@ -221,6 +204,12 @@ in
     # would silently resolve to this derivation while reading as `pkgs.stax`. Naming the
     # attribute is what makes which one is meant visible. See the `stacked-branches` skill.
     stax.package
+
+    # The copy/paste detector, from the flake's `packages` - the same derivation `checks.hygiene`
+    # attests with. Listed here rather than inside the `with pkgs` block because `jscpd` is a
+    # let-binding in this file AND a nixpkgs attribute, and a `with` binding loses to a `let` one -
+    # the same reason `stax` above names its attribute.
+    jscpd
   ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
     # What `-liconv` resolves to on a mac. rustc emits it for every darwin link, the SDK does not
     # carry it under nix, and .cargo/config.toml routes the link through the clang wrapper so that
@@ -362,7 +351,7 @@ in
     # xtask/src/fmt.rs. The justfile and the commit hook were fixed for this; these two scripts
     # were missed, so `xtask fmt --check` passing did not prove `devenv shell gates` passed.
     # `cargo xtask check-guidance` now fails on the `--all` form so neither can come back.
-    fmt.exec = onStable "fmt" ''
+    fmt.exec = runs "fmt" ''
       set -e
       cargo run -q -p xtask -- fmt
       cargo run -q -p xtask -- text-hygiene --fix
@@ -371,13 +360,13 @@ in
     # dependencies optional, so an entry point missing the flag lints and tests nothing behind
     # them. `grep -rln '^\[features\]' --include=Cargo.toml .` is the current set.
     # `cargo run -q -p xtask -- check-guidance` holds the retired claim, and this file IS in scope.
-    lint.exec = onStable "lint" "cargo clippy --workspace --all-targets --all-features -- -D warnings";
-    test.exec = onStable "test" "cargo nextest run --workspace --all-features";
-    boundaries.exec = onStable "boundaries" "cargo run -q -p xtask -- check-boundaries";
-    max-lines.exec = onStable "max-lines" "cargo run -q -p xtask -- max-lines";
-    line-endings.exec = onStable "line-endings" "cargo run -q -p xtask -- line-endings";
-    check-skills.exec = onStable "check-skills" "cargo run -q -p xtask -- check-skills";
-    check-guidance.exec = onStable "check-guidance" "cargo run -q -p xtask -- check-guidance";
+    lint.exec = runs "lint" "cargo clippy --workspace --all-targets --all-features -- -D warnings";
+    test.exec = runs "test" "cargo nextest run --workspace --all-features";
+    boundaries.exec = runs "boundaries" "cargo run -q -p xtask -- check-boundaries";
+    max-lines.exec = runs "max-lines" "cargo run -q -p xtask -- max-lines";
+    line-endings.exec = runs "line-endings" "cargo run -q -p xtask -- line-endings";
+    check-skills.exec = runs "check-skills" "cargo run -q -p xtask -- check-skills";
+    check-guidance.exec = runs "check-guidance" "cargo run -q -p xtask -- check-guidance";
 
     # THE EMISSION, and the one gate that cannot be a flake check: it reads a DERIVATION, so it
     # needs a store `linted` has been built into, and the hygiene sweep runs inside a nix
@@ -388,22 +377,20 @@ in
     # The witness is a body of its own rather than one of the real ones, and that is sound because
     # `linted` is ONE function: `check-devenv-shell` refuses a second application of
     # `writeShellApplication`, so the checkPhase this body got is the checkPhase every body got.
-    devenv-linter.exec = onStable "devenv-linter" ''
+    devenv-linter.exec = runs "devenv-linter" ''
       cargo run -q -p xtask -- check-devenv-linter "${linted "linter-witness" [ ] "echo linter-witness\n"}"
     '';
     # The whole worktree, not just staged changes: `secrets` is for a sweep, the hook is
     # for a commit.
     secrets.exec = runs "secrets" "betterleaks dir . --config devco/gitleaks.toml --redact --verbose";
-    check-docs.exec = onStable "check-docs" "cargo run -q -p xtask -- check-docs";
-    unused-deps.exec = onStable "unused-deps" "cargo run -q -p xtask -- unused-deps";
+    check-docs.exec = runs "check-docs" "cargo run -q -p xtask -- check-docs";
+    unused-deps.exec = runs "unused-deps" "cargo run -q -p xtask -- unused-deps";
 
-    # The CRAP gate. `onStable` because coverage instrumentation is LLVM-specific and the shell's
-    # bare cargo is a cranelift nightly where `-C instrument-coverage` does not exist - so this is
-    # not the channel-consistency argument the lints have, it is that the instrumentation is
-    # absent. The task hardens its own environment as well, since a gate whose failure mode is a
-    # silently empty report must not depend on a `source` line somebody could forget.
-    crap.exec = onStable "crap" "cargo run -q -p xtask -- crap";
-    check-crap.exec = onStable "check-crap" "cargo run -q -p xtask -- check-crap";
+    # The CRAP gate. Coverage instrumentation is LLVM-specific: `cargo-llvm-cov` needs
+    # `-C instrument-coverage`, which is why the shell's bare cargo defaults to the LLVM
+    # backend. cranelift stays opt-in, so this works on the shell toolchain directly.
+    crap.exec = runs "crap" "cargo run -q -p xtask -- crap";
+    check-crap.exec = runs "check-crap" "cargo run -q -p xtask -- check-crap";
 
     # The site. `docs` renders to site/ (gitignored); `docs-serve` watches and reloads.
     #
@@ -417,7 +404,7 @@ in
 
     # The cheap structural gates, grouped so CI can run them FIRST: a 1200-line file or a
     # dead dependency should fail in seconds, not after clippy and the test suite.
-    hygiene.exec = onStable "hygiene" ''
+    hygiene.exec = runs "hygiene" ''
       set -e
       cargo run -q -p xtask -- hygiene
     '';
@@ -444,7 +431,7 @@ in
     #
     # `-o pipefail` is not decoration: both prek runs go through `tee`, and without it the
     # pipeline's status is `tee`'s and a red hook run would read as green.
-    ship-check.exec = onStable "ship-check" ''
+    ship-check.exec = runs "ship-check" ''
       set -euo pipefail
       base="''${SHIP_CHECK_BASE_REF:-origin/main}"
 
@@ -535,7 +522,7 @@ in
 
     # Spelled out rather than calling `hygiene`, so this list does not depend on another
     # script being on PATH first. Cheapest first: fail before paying for clippy.
-    gates.exec = onStable "gates" ''
+    gates.exec = runs "gates" ''
       set -e
       cargo run -q -p xtask -- hygiene
       cargo run -q -p xtask -- fmt --check

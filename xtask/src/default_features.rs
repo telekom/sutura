@@ -27,7 +27,7 @@
 //! existed, what CI had for this lane was the four `cross` link builds for the COMPILE half - and
 //! they are `needs: [ci]`, so a `ci` failure skips them, which is exactly how the branch above
 //! reached review - and nothing at all for the LINT half. An app rather than a check for the reason
-//! the paragraph above gives. `tests::both_lanes_still_invoke_this_gate` is what holds the
+//! the paragraph above gives. [`tests::both_lanes_still_invoke_this_gate`] is what holds the
 //! wiring, in both venues, by reading the step rather than the file.
 //!
 //! **The profile is DERIVED from the target directory and not passed as a flag** -
@@ -384,6 +384,9 @@ fn version_identifiers(text: &str, prerelease: bool) -> bool {
     })
 }
 
+/// Cargo's marker for a package whose subtree was already printed.
+const REPEAT: &str = " (*)";
+
 struct FeatureRow<'a> {
     package: &'a str,
     features: &'a str,
@@ -391,7 +394,14 @@ struct FeatureRow<'a> {
 
 /// Cargo's controlled package/feature columns, with an optional source locator.
 /// No arbitrary suffix or malformed row may disappear while another row supplies the subject.
+///
+/// Deduplicated output marks a repeat with a trailing ` (*)` and elides its subtree. Only that exact
+/// suffix is accepted, so every other unexpected trailing text is still a malformed row: the marker is
+/// stripped rather than parsed. Eliding a repeat costs the walk nothing, because Cargo prints a
+/// package's first occurrence in full - so every package's feature set is still read at least once,
+/// which is all `inspect_features` asks of it.
 fn feature_row(line: &str) -> Option<FeatureRow<'_>> {
+    let line = line.strip_suffix(REPEAT).unwrap_or(line);
     let (identity, features) = line.split_once('|')?;
     let (package, rest) = identity.split_once(' ')?;
     let (version, source) = rest
@@ -469,7 +479,6 @@ fn feature_preflight(root: &Path, packages: &[String]) -> Result<(), String> {
                     "none",
                     "--format",
                     "{p}|{f}",
-                    "--no-dedupe",
                     "--color",
                     "never",
                 ])
@@ -641,6 +650,43 @@ mod tests {
         }
     }
 
+    /// Deduplicated output is what the walk reads now that `--no-dedupe` is gone, so the repeat
+    /// marker has to be accepted - and *only* that marker, or the refusal of a malformed row would
+    /// have been widened into accepting arbitrary trailing text.
+    #[test]
+    fn only_cargos_exact_repeat_marker_survives_the_row_parser() {
+        for row in [
+            "sutura-domain v0.1.0| (*)",
+            "sutura-domain v0.1.0|default,agreement (*)",
+            "other v1.2.3 (https://example.com/s#c)|default (*)",
+        ] {
+            let parsed = feature_row(row).unwrap_or_else(|| panic!("a repeat row is a row: {row}"));
+            assert!(!parsed.features.contains('*'), "the marker is stripped, not parsed: {row}");
+        }
+        for row in [
+            "sutura-domain v0.1.0|(*)",
+            "sutura-domain v0.1.0| (**)",
+            "sutura-domain v0.1.0| (*) trailing",
+            "sutura-domain v0.1.0 (*)|",
+            "sutura-domain v1.0|default (*)",
+        ] {
+            assert!(feature_row(row).is_none(), "not Cargo's marker, so still malformed: {row}");
+        }
+    }
+
+    /// The elision a repeat marker stands for must not hide the enrolled subject: Cargo prints a
+    /// package's FIRST occurrence in full, so one complete row is enough for the agreement refusal.
+    #[test]
+    fn a_deduplicated_walk_still_refuses_agreement_on_the_first_occurrence() {
+        let deduped = "root v0.1.0|\nsutura-domain v0.1.0|default,agreement\nsutura-domain v0.1.0|default,agreement (*)\n";
+        assert_eq!(
+            inspect_features(deduped, "root"),
+            Err("sutura-domain/agreement is enabled in normal target dependencies")
+        );
+        let repeat_only = "root v0.1.0|\nsutura-domain v0.1.0| (*)\n";
+        assert_eq!(inspect_features(repeat_only, "root"), Ok(()));
+    }
+
     #[test]
     fn every_domain_row_is_inspected_and_feature_names_are_exact_tokens() {
         let clean = "root v0.1.0|\nsutura-domain v0.1.0|\nsutura-domain-extra v0.1.0|agreement\nsutura-domain v0.1.0|agreement-extra,default\n";
@@ -803,6 +849,9 @@ mod tests {
     fn a_list_this_parser_cannot_find_reads_as_empty_so_the_gate_can_fail_closed() {
         // `run` turns this into a FAILURE rather than a pass, which is the whole of why the parser
         // is allowed to answer nothing.
-        assert!(shipped_packages("nothing that looks like a binaries list").is_empty());
+        assert!(
+            shipped_packages("nothing that looks like a binaries list").is_empty(),
+            "an unparseable list yields no shipped packages"
+        );
     }
 }

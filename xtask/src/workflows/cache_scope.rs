@@ -4,8 +4,7 @@
 //! and from nowhere else, so an entry a pull request writes is readable by exactly one pull request
 //! and is then deleted by `cache-prune.yml` when it closes. Measured on 2026-09-08: 6,393 active
 //! entries, roughly 97% of them under `refs/pull/<n>/merge`. The shape ordinary CI is allowed is
-//! therefore restore on every event, save only from a push to `main` - which is the asymmetry
-//! `ci.yml`'s hosted populate step already applies, one layer up.
+//! therefore restore on every event, save only from a push to `main`.
 //!
 //! **Why it is a gate and not a sentence in a header.** Before this, the claim lived in prose and
 //! was held by nothing: `check-workflows` read flake references, `zizmor` reads security shapes,
@@ -32,27 +31,41 @@
 //! * Whether the entry FITS is not a question about text at all. GitHub refuses a single cache
 //!   entry over 10 GB and nothing here can weigh a store, so the run reports its own size instead -
 //!   see the summary step in `.github/actions/nix-store-cache`.
+//!
+//! # And the carrier that was DELETED - one module over
+//!
+//! `docs/adr/0026` retired a third-party binary cache that was wired into `ci.yml` and
+//! `cross-link.yml` and gated on repository secrets and variables that have never existed here, so
+//! its populate step was `completed/skipped` on every `main` push it ran on - silently, and green.
+//! Holding that deletion is [`retired`]'s job, not this one's: the question there is *is a recorded
+//! absence still absent*, and it counts, gates and anchors nothing. See its header for the three
+//! refusals, the overstated sentence one of them shipped with, and the route that still passes.
+
+use std::path::Path;
 
 use super::reach::Closure;
+
+// IS THE RECORDED ABSENCE STILL ABSENT? A different question from this file's - nothing there
+// counts, gates or anchors a cache write - and its own file because the unexemptable 1000-line cap
+// forced the split when its flag-form refusal landed. It reads this module's step reader, so
+// it reaches `key_of` and `steps` as a child, which needs no widening of either.
+mod retired;
 
 /// The main-push condition, token for token.
 ///
 /// Pinned rather than matched loosely, for `crate::workflows::step`'s reason: a `contains` check
 /// passes on `github.event_name != 'push'` and on an inverted ternary. Extra `&&` conjuncts are
-/// accepted - `ci.yml`'s hosted populate step adds `vars.NIX_CACHE_NAME != ''` and is still
-/// strictly narrower - and a `||` anywhere in the remainder is refused, because it can widen.
+/// accepted, because `A && B && C` is strictly narrower than `A && B` for any `C` (`!cancelled()`
+/// is the plausible one), and a `||` anywhere in the remainder is refused because it can widen.
+/// The conjunct that USED to be here - `vars.NIX_CACHE_NAME != ''` on the retired populate step -
+/// is now refused a layer up by [`UNOBSERVABLE`]: narrower is not the same as observable.
 const MAIN_PUSH: &str = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 
 /// Actions that write a cache, and are therefore only allowed behind [`MAIN_PUSH`].
 ///
 /// Matched on the `owner/repo` prefix so a version pin, a subpath (`actions/cache/save`) or a
 /// trailing comment does not evade it.
-const WRITERS: [&str; 4] = [
-    "nix-community/cache-nix-action",
-    "actions/cache",
-    "cachix/cachix-action",
-    "DeterminateSystems/flakehub-cache-action",
-];
+const WRITERS: [&str; 2] = ["nix-community/cache-nix-action", "actions/cache"];
 
 /// The one that carries `/nix/store`, and therefore the one the anchor below counts.
 ///
@@ -60,7 +73,10 @@ const WRITERS: [&str; 4] = [
 /// anchor first counted every gated writer, and `ci.yml`'s two `cachix/cachix-action` steps - gated
 /// correctly, and inert while unprovisioned - satisfied it on their own. Deleting the store cache
 /// outright then left the gate GREEN, which is the shape this tree calls a floor counted off the
-/// same derivation as its own loop. Measured by provocation, not reasoned.
+/// same derivation as its own loop. Measured by provocation, not reasoned. Those two steps are
+/// deleted now and [`HOSTED`] refuses their return, so the tree can no longer show it either -
+/// which is why `a_gated_writer_that_is_not_the_store_cache_does_not_satisfy_the_anchor` holds it
+/// on `actions/cache` in a fixture instead.
 const STORE_CACHE: &str = "nix-community/cache-nix-action";
 
 /// The local composite action that carries `/nix/store`, matched as `uses:` on its callers.
@@ -84,13 +100,18 @@ const STORE_ACTION: &str = "./.github/actions/nix-store-cache";
 /// does, this list is the thing to change, with the input named beside it.
 const NO_RESTORE_ONLY: [&str; 1] = ["DeterminateSystems/magic-nix-cache-action"];
 
-/// The restore-only rule over ordinary CI, as a list of violations.
+/// Every cache rule this module holds: the restore-only shape over ordinary CI, plus the retired
+/// hosted cache held as an absence over the whole `.github` tree.
 ///
-/// Over the whole closure rather than one file name, for `super::reach`'s reason: a hard line cap
-/// moves steps between files, and a refusal that names a file stops covering the step that left it.
-pub(super) fn problems(closure: &Closure) -> Vec<String> {
+/// The closure half is over the whole closure rather than one file name, for `super::reach`'s
+/// reason: a hard line cap moves steps between files, and a refusal that names a file stops
+/// covering the step that left it. [`retired`]'s half is deliberately WIDER than the closure - see
+/// that module.
+pub(super) fn problems(root: &Path, closure: &Closure) -> Vec<String> {
     let files: Vec<(&str, &str)> = closure.inspected().iter().map(|file| (file.label(), file.text())).collect();
-    judge(&files)
+    let mut out = judge(&files);
+    out.extend(retired::problems(root));
+    out
 }
 
 /// The same rules over labelled text, so the ANCHOR can be tested.
@@ -280,7 +301,7 @@ fn steps(text: &str) -> Vec<Step<'_>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::{MAIN_PUSH, narrower_than_main_push, steps};
 
     /// A step naming `action`, gated by `gate` written as `key`.
@@ -304,7 +325,7 @@ mod tests {
 
     #[test]
     fn a_step_gated_on_the_main_push_is_the_only_accepted_shape() {
-        for accepted in [MAIN_PUSH.to_owned(), format!("{MAIN_PUSH} && vars.NIX_CACHE_NAME != ''")] {
+        for accepted in [MAIN_PUSH.to_owned(), format!("{MAIN_PUSH} && !cancelled()")] {
             assert!(narrower_than_main_push(&accepted), "{accepted}");
         }
         // Each of these is a `pull_request` path that can save, and each was reachable by editing
@@ -370,28 +391,30 @@ mod tests {
     }
 
     /// One step naming `action` with `key: gate` under `with:`, at a job's indentation.
-    fn step_using(action: &str, key: &str, gate: &str) -> String {
+    pub(super) fn step_using(action: &str, key: &str, gate: &str) -> String {
         format!("      - uses: {action}@bbbb # v1\n        with:\n          {key} {gate}\n")
     }
 
     #[test]
-    fn a_gated_hosted_cache_does_not_satisfy_the_store_anchor() {
+    fn a_gated_writer_that_is_not_the_store_cache_does_not_satisfy_the_anchor() {
         // THE HOLE THIS GATE WAS FIRST WRITTEN WITH, FOUND BY PROVOCATION AND NOW HELD BY A TEST.
-        // `ci.yml` gates two `cachix/cachix-action` steps correctly, and a floor written over every
+        // `ci.yml` gated two `cachix/cachix-action` steps correctly, and a floor written over every
         // writer counted them - so deleting the store cache outright left the gate green. That is a
-        // floor counted off the same derivation as its own loop, and no provocation on the real
-        // tree can show it, because the real tree has both.
-        let hosted = step_using("cachix/cachix-action", "if:", &format!("${{{{ {MAIN_PUSH} }}}}"));
-        let found = super::judge(&[("ci.yml", &hosted)]);
+        // floor counted off the same derivation as its own loop. It was unprovable on the tree then
+        // because the tree had both; it is unprovable now because `docs/adr/0026` deleted the
+        // hosted steps and `HOSTED` refuses their return. So the fixture uses `actions/cache`, which
+        // is still an accepted writer and is still not the store cache.
+        let other = step_using("actions/cache", "if:", &format!("${{{{ {MAIN_PUSH} }}}}"));
+        let found = super::judge(&[("ci.yml", &other)]);
         assert_eq!(found.len(), 1, "{found:#?}");
         assert!(
             found.first().is_some_and(|problem| problem.contains(super::STORE_CACHE)),
-            "a correctly gated hosted cache is not a store cache: {found:#?}"
+            "a correctly gated writer is not a store cache: {found:#?}"
         );
 
         // The same file plus a gated store cache is the shape this repository has, and it passes.
         let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
-        let both = format!("{hosted}\n{store}");
+        let both = format!("{other}\n{store}");
         let clean = super::judge(&[("ci.yml", &both)]);
         assert!(clean.is_empty(), "{clean:#?}");
     }
@@ -473,7 +496,7 @@ mod tests {
         // what fails when somebody adds a cache write to a pull-request path.
         let Some(root) = crate::repo::root() else { return };
         let ordinary = crate::workflows::contexts::OrdinaryCi::read(&root);
-        let found = super::problems(ordinary.closure());
+        let found = super::problems(&root, ordinary.closure());
         assert!(found.is_empty(), "{found:#?}");
     }
 

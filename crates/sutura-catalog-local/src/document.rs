@@ -782,7 +782,7 @@ colums: [amount_cents]
             .expect("a minimal metric is a metric")
             .into_domain(Description::default())
             .expect("no dimensions to duplicate");
-        assert!(metric.required_filters().is_empty());
+        assert!(metric.required_filters().is_empty(), "a minimal metric demands no filter");
     }
 
     /// A dimension declared twice is refused, **by the domain and not by this adapter**.

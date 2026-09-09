@@ -11,6 +11,14 @@
 //! plain comment rather than a doc comment, are both stated at `DescribeCatalogArgs` - `schemars`
 //! puts a root doc comment into the schema's `description`, which is text a MODEL reads.
 
+#![expect(
+    clippy::empty_enums,
+    reason = "serde::Deserialize lowers the brace-form unit struct DescribeCatalogArgs to an empty \
+              internal enum; that enum is a deserialization artifact of the derive, never constructed \
+              by this crate. It cannot be suppressed on the struct itself (a derive artifact sits \
+              outside the item's attributes), so it is scoped to the one module that derives it"
+)]
+
 use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::Grain;
 use sutura_domain::pinned::PinnedDefinitions;

@@ -692,7 +692,7 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
 mod tests {
     use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
     use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
-    use sutura_domain::plan::{PlanBucket, PlanColumn};
+    use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
 
     use polyglot_sql::builder;
 
@@ -701,7 +701,7 @@ mod tests {
 
     fn bucket(grain: Grain) -> PlanBucket {
         PlanBucket::new(
-            String::from("period"),
+            ResultLabel::bucket(),
             grain,
             PlanColumn::new(
                 TableName::parse("orders").expect("a test table is a table"),

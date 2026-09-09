@@ -187,7 +187,7 @@ jobs:
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
     # promotion PR whose tip happens to be a release commit is still gated.
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
     # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
@@ -241,31 +241,25 @@ jobs:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
           # absent: with it, a pull request could add a substituter and a trusted key and have
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
-          # goes here, where the workflow diff shows it. The read-only binary-cache backstop is
-          # added HERE (never from flake.nix); its secret-driven lines interpolate to nothing
-          # while unprovisioned, so no store a pull request does not control is ever trusted.
+          # goes HERE, where the workflow diff shows it - never read from flake.nix.
+          #
+          # ONE store outside this repository is trusted, and both halves are COMMITTED rather than
+          # held in a secret or a variable: a committed value is one a reviewer sees and one
+          # `cargo xtask check-workflows` can compare against, while a variable swaps with no diff
+          # and nothing notices. The gate permits exactly this pair in exactly this spelling - an
+          # added store, a different key, that key on another host, or this store passed as
+          # `--extra-substituters` are all still refused. Nix's signature check bounds the trust.
+          # The WRITE credential is the only secret; it is an *environment* secret and it lives in
+          # `cachix-push.yml`, so no job on this path can reach it. Residual limit: a value
+          # assembled from pieces, or one arriving via another action's input, passes unseen.
           extra_nix_config: |
             fallback = true
-            ${{ secrets.NIX_CACHE_SUBSTITUTER != '' && format('substituters = {0}', secrets.NIX_CACHE_SUBSTITUTER) || '' }}
-            ${{ secrets.NIX_CACHE_PUBLIC_KEY != '' && format('trusted-public-keys = {0}', secrets.NIX_CACHE_PUBLIC_KEY) || '' }}
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
-          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
-
-      # MAIN POPULATES THE BINARY CACHE every pull request substitutes from: it signs the native
-      # closure into a GLOBAL, non-ref-scoped cache so a PR's cold leg restores instead of compile
-      # (the Actions cache is ref-scoped and dies with its PR). Gated on the event AND the cache
-      # name; the token rides the action input (`secrets` is not visible to an `if`) and an empty
-      # token means configure-push-nothing, keeping an unprovisioned repo inert. The NIX_CACHE_NAME
-      # variable and NIX_CACHE_AUTH_TOKEN secret are the owner's to create.
-      - name: Populate the binary cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.NIX_CACHE_NAME != ''
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        with:
-          name: ${{ vars.NIX_CACHE_NAME }}
-          authToken: ${{ secrets.NIX_CACHE_AUTH_TOKEN }}
 
       - name: Toolchain in use
         run: |
@@ -319,6 +313,48 @@ jobs:
           else
             nix run .#xtask -- classify
           fi
+
+      # >>> ONE INVOCATION, SO THE SCHEDULER CAN FILL THE HOST. <<<
+      #
+      # The nine checks below were nine SEQUENTIAL `nix build` calls, which hands nix one root at a
+      # time - and nix starts only as many builds as there are runnable derivations, so a single root
+      # over a crane closure is one heavy cargo derivation behind a wide fan of fetches. Measured by
+      # `runner-probe.yml` on a 32-core host: the best job configuration still left the host **77%
+      # idle on average** while peaking above 90%. `max-jobs` was never the constraint - the number
+      # of roots was.
+      #
+      # THIS STEP IS A PREFETCH, NOT A VERDICT, and that is what keeps per-step attribution. Each
+      # check below still runs its own `nix build`, still owns its own log, and still fails its own
+      # step by name - it just finds its result already in the local store. So a reader who sees
+      # `Clippy` red still gets clippy's output, which is exactly what merging the steps into one
+      # invocation would have cost.
+      #
+      # `continue-on-error` is therefore correct rather than a way to hide a red: the authoritative
+      # verdicts are the steps that follow, and if a derivation fails here the step that owns it
+      # fails immediately afterwards with its own attributed output. `--keep-going` is what makes
+      # that true - without it the first failure would abandon the other eight and this step would
+      # slow the job it exists to speed up.
+      - name: Realise all checks in one graph and report host utilisation
+        continue-on-error: true
+        # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
+        # across the merged graph and writes cpus/memory/model + the nix max-jobs/cores pair in
+        # force + mean/peak CPU-busy to the job summary, so a later analysis can see whether the
+        # host was saturated or idle while the checks ran. ~0 cost side effect.
+        uses: ./.github/actions/measure-host
+        with:
+          label: merged check graph (9 roots)
+          run: |-
+            set -eu
+            nix build -L --keep-going \
+              .#checks.x86_64-linux.hygiene \
+              .#checks.x86_64-linux.reuse \
+              .#checks.x86_64-linux.fmt \
+              .#checks.x86_64-linux.clippy \
+              .#checks.x86_64-linux.nextest \
+              .#checks.x86_64-linux.keycloak-tier \
+              .#checks.x86_64-linux.postgres-tier \
+              .#checks.x86_64-linux.doctest \
+              .#checks.x86_64-linux.api-docs
 
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
@@ -574,16 +610,21 @@ jobs:
           retention-days: 30
 
       # The pages under docs/api/ are GENERATED from the library crates' doc comments and
-      # COMMITTED, because rustdoc JSON is nightly-only and the docs job has stable and nothing
-      # else. A committed generated file rots silently, so this regenerates them and
-      # byte-compares: a doc comment that changed without a regeneration fails here instead of
-      # publishing a stale page as current. Locally the same gate is
-      # `cargo xtask check-api-docs`, and the fix it asks for is `just api`.
+      # COMMITTED. rustdoc JSON (`--output-format json`) is nightly-only, so this is its own
+      # flake output rather than a fold into an ordinary check: the output packages its own
+      # rustdoc JSON generator and its own interpreter, run with `--all-features`. A committed
+      # generated file rots silently, so this regenerates them and byte-compares: a doc
+      # comment that changed without a regeneration fails here instead of publishing a stale
+      # page as current. Locally the same gate is `cargo xtask check-api-docs`, and the fix
+      # it asks for is `just api`.
       #
-      # THE ONLY NIGHTLY STEP in this workflow, deliberately. `--output-format json` is an
-      # unstable rustdoc option, so the stable toolchain everything else here uses rejects `-Z`
-      # outright. That is why it is its own flake output rather than folded into a check above:
-      # the output brings its own nightly toolchain and its own interpreter for the generator.
+      # rustdoc JSON is unstable nightly-only, which is the whole reason this step is a flake
+      # output of its own rather than one of the checks above: the generator needs a nightly
+      # that can accept `--output-format json`. That is no longer "the only nightly step" in
+      # the way an older comment claimed - the stable/nightly split is gone, and every build,
+      # every gate and every shipped artifact here runs the SAME single pinned nightly from
+      # devco/rust-toolchain-nightly.toml. The step stays separate for the packaging of the
+      # generator and interpreter, not because the rest of the tree is stable.
       #
       # `api` is set by classify for a library crate's sources, for the generator, for the
       # committed pages, and for the manifests - the pages are generated with `--all-features`,
@@ -765,7 +806,10 @@ jobs:
       github.event_name == 'pull_request' &&
       needs.ci.outputs.crap_delta == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: rust-mcp
+    # `ubuntu-latest`, AND IT COMPILES NOTHING - `gh` and `jq` are its whole toolchain and both
+    # ship on the hosted runner, which the step below already says. Measured at 9-10 s per run,
+    # so what the Rust runner bought here was a large machine holding a comment.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       # Posting or editing the one comment. Nothing else is granted: `contents` is absent because
@@ -848,7 +892,7 @@ jobs:
   bigquery-acceptance:
     needs: [ci]
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
     timeout-minutes: 60
@@ -874,11 +918,12 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: bq
-          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #

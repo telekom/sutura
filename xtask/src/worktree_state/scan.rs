@@ -750,7 +750,10 @@ log="$root/x"
 /// let dir = std::env::temp_dir().join("whatever");
 fn nothing() {}
 "#;
-        assert!(takings("dev/src/discovery.rs", Language::Rust, text).is_empty());
+        assert!(
+            takings("dev/src/discovery.rs", Language::Rust, text).is_empty(),
+            "the commented doctest path is prose, not a taking"
+        );
         assert_eq!(offered(Language::Rust, text), 0);
     }
 
@@ -810,7 +813,10 @@ fn go() {
         // either - which a `contains` would have got wrong, and which the workspace's own literal
         // lexer gets right.
         let text = "fn go() {\n    let fixture = \"let p = \\\"/tmp/s/x.json\\\";\";\n}\n";
-        assert!(takings("xtask/src/examples.rs", Language::Rust, text).is_empty());
+        assert!(
+            takings("xtask/src/examples.rs", Language::Rust, text).is_empty(),
+            "the escaped inner path is not a real taking"
+        );
         assert_eq!(offered(Language::Rust, text), 0);
     }
 
@@ -855,7 +861,10 @@ scratch="$TMPDIR/sutura-$$"
 # log="/tmp/shipcheck.log"
 echo hi
 "#;
-        assert!(takings("nix/run-gate.sh", Language::Shell, text).is_empty());
+        assert!(
+            takings("nix/run-gate.sh", Language::Shell, text).is_empty(),
+            "the commented-out shell line is not a taking"
+        );
         assert_eq!(offered(Language::Shell, text), 0);
     }
 

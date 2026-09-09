@@ -1,10 +1,10 @@
 # The pinned cargo wrapper used by the lockfile workflow.
-{ pkgs, rustToolchain }:
+{ pkgs, toolchain }:
 
 pkgs.writeShellApplication {
   name = "sutura-cargo";
   text = ''
-    export PATH="${rustToolchain}/bin:$PATH"
+    export PATH="${toolchain}/bin:$PATH"
     exec cargo "$@"
   '';
 }

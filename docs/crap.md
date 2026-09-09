@@ -246,25 +246,24 @@ not mid-branch.
 The dev shell echoes both versions on entry. `cargo xtask check-crap` fails if the version
 `nix/crap.nix` pins is not the version this page states.
 
-## Coverage runs on stable, and the gate makes itself so
+## Coverage runs on the nightly toolchain's LLVM backend, and the gate makes itself so
 
-The dev shell's bare `cargo` is a nightly with the cranelift codegen backend, because that is
-what makes the inner loop fast. Coverage cannot use it: `-C instrument-coverage` is LLVM-specific
-and does not exist under cranelift. This is not the channel-consistency argument the lints have -
-it is that the instrumentation is absent.
+The dev shell's bare `cargo` is the nightly toolchain and DEFAULTS to the LLVM codegen backend
+(cranelift is opt-in), which is what CI gates on too. Coverage uses it: `-C instrument-coverage`
+is LLVM-specific and would not exist under cranelift, but the default backend supports it - so a
+run matches CI without any channel override. It must still not inherit a cranelift cargo.
 
 In this repo cranelift arrives as two environment variables,
-`CARGO_UNSTABLE_CODEGEN_BACKEND` and `CARGO_PROFILE_DEV_CODEGEN_BACKEND`, which
-`nix/stable-env.sh` unsets. There is no `RUSTFLAGS` and no `CARGO_TARGET_*_RUSTFLAGS` anywhere in
-the dev shell, and the per-target tables in `.cargo/config.toml` carry linker and target-feature
-flags only.
+`CARGO_UNSTABLE_CODEGEN_BACKEND` and `CARGO_PROFILE_DEV_CODEGEN_BACKEND`, opt-in in the dev
+shell. There is no `RUSTFLAGS` and no `CARGO_TARGET_*_RUSTFLAGS` anywhere in the dev shell, and
+the per-target tables in `.cargo/config.toml` carry linker and target-feature flags only.
 
-`cargo xtask crap` does not rely on its caller having sourced that file. It unsets the two
+`cargo xtask crap` does not rely on its caller having exported anything. It unsets the two
 variables itself, strips the cranelift flag out of any rustflags variable that carries one while
 keeping the linker and library flags beside it, pins `RUSTUP_TOOLCHAIN` to the channel in
-`rust-toolchain.toml`, and gives the instrumented profile its own target directory under
-`target/crap`. A gate whose failure mode is a silently empty report must not depend on a `source`
-line somebody could forget.
+`devco/rust-toolchain-nightly.toml` for a bare-rustup host, and gives the instrumented profile
+its own target directory under `target/crap`. A gate whose failure mode is a silently empty
+report must not depend on a `source` line somebody could forget.
 
 ## Reading the current state
 

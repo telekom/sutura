@@ -74,7 +74,8 @@ concurrency:
 
 jobs:
   score:
-    # `ubuntu-latest` AND NOT `rust-mcp`, and it is the only job here that is not self-hosted.
+    # `ubuntu-latest` AND NOT the larger Rust runner, and it is the only job on a hosted runner
+    # because a THIRD PARTY requires it - the others there were moved because they build nothing.
     # This is the fix for a publication that reported success three times and landed nothing.
     # `api.scorecard.dev` verifies the PRODUCING WORKFLOW before it accepts a score, and one of
     # its rules is an allowlist of runner labels. Measured from run 34174327175 on 2026-09-08:

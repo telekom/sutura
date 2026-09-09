@@ -769,7 +769,10 @@ mod tests {
         let found = of_file("pub fn corpus() -> &'static str {\n    \"../../examples/x\"\n}\n");
         assert!(!found.nothing_runs());
         assert_eq!(found.runs(), 0);
-        assert!(found.unresolved().is_empty());
+        assert!(
+            found.unresolved().is_empty(),
+            "no declarations are unresolved in a file that declares no tests"
+        );
     }
 
     /// What one added line, at line 1 of a file whose post-image is `text`, makes of that file.

@@ -60,10 +60,8 @@ pub(crate) fn declared_block(text: &str, header: &str) -> Option<BTreeSet<String
 /// The RAW source of one output block, header line to closing line.
 ///
 /// Raw and not the code projection, because the question its caller asks - does this block name
-/// `sutura-<service>-tier` - is about a store path inside a string literal, which the projection
-/// blanks out. `#[cfg(test)]` because `crate::compose::file`, the gate that asks, is a unit test:
-/// a field nothing reads in the binary is dead code the compiler is right to refuse.
-#[cfg(test)]
+/// `sutura-<service>-tier` or a literal nextest selector - is about a value inside a string
+/// literal, which the projection blanks out. Check-scope reads this same span at run time.
 pub(crate) fn block_source(text: &str, header: &str) -> Option<String> {
     scan_block(text, header).map(|(_, source)| source)
 }

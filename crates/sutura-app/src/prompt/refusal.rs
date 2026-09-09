@@ -163,6 +163,17 @@ const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
              sits on the second data system, or report it to a person.",
 };
 
+const LEGS_DECIDE_IDENTITY_DIFFERENTLY: Guide = Guide {
+    reason: "LegsDecideIdentityDifferently",
+    meaning: "the question spans two data systems that decide who is asking differently, so one \
+              answer would add rows read under one identity to rows read under another - a total \
+              neither identity is entitled to",
+    remedy: "Ask the same metric without the dimension that sits on the second data system, and \
+             the mono-source question on each is still answered. Retrying changes nothing, and \
+             this is not an outage: it is a fact about how the two data systems are declared. If \
+             every dimension you need crosses them, say so to the person you are acting for.",
+};
+
 const SOURCE_UNAVAILABLE: Guide = Guide {
     reason: "SourceUnavailable",
     meaning: "the data system that metric lives in is not one this deployment opened",
@@ -208,6 +219,11 @@ pub(super) const GUIDES: &[&Guide] = &[
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &MEASURE_DOES_NOT_FEDERATE,
+    // With the federation family rather than with the two an agent cannot act on, because it IS
+    // actionable and the move is the same one: drop the dimension that pulls in the second data
+    // system. An agent reading it here has just read that a refusal about the two-source shape is
+    // not one to retry.
+    &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
     // Actionable, and the reason it sits after the source-count refusals rather than with the
     // narrowing ones: the move is to drop a JOIN rather than to narrow anything, and an agent
     // reaching it has already read that a refusal about the plan's shape is not one to retry
@@ -247,6 +263,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
+        RefusalReason::LegsDecideIdentityDifferently { .. } => &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
     }
 }
 

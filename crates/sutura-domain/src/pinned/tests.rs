@@ -18,7 +18,7 @@ use crate::definitions::DefinitionDigest;
 use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
-use crate::source::{ExecutedAs, SourcePosture};
+use crate::source::{SourcePosture, UniformlyExecuted};
 
 fn metric_name(raw: &str) -> MetricName {
     MetricName::parse(raw).expect("a test metric name is a name")
@@ -301,7 +301,7 @@ fn a_matched_anchor_passes_the_verdict_and_the_bundle_is_untouched() {
     // saying which posture ran - see `PinnedDefinitions::provenance`. One leg, because the test
     // bundle reads one source.
     let ran_as = || {
-        ExecutedAs::of(
+        UniformlyExecuted::of(
             SourceName::parse("local").expect("a test source is a source"),
             SourcePosture::ImpersonationAtSource,
         )

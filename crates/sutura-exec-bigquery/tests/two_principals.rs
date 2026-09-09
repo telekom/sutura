@@ -89,6 +89,7 @@
 // `cfg(test)` around the whole file - the house pattern, because clippy honours
 // `allow-expect-in-tests` only inside a `#[cfg(test)]` item.
 #[cfg(test)]
+#[path = "support/support.rs"]
 mod support;
 
 #[cfg(test)]
@@ -98,11 +99,12 @@ mod tests {
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::identity::Presented;
     use sutura_domain::model::{
-        Aggregate, ColumnName, DatasetName, Grain, MetricName, QualifiedTable, SourceName, TableName, TableQualifier,
+        Aggregate, ColumnName, DatasetName, DimensionName, Grain, MetricName, QualifiedTable, SourceName, TableName,
+        TableQualifier,
     };
     use sutura_domain::plan::{
         Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
-        QueryPlan, StatementTables,
+        QueryPlan, ResultLabel, StatementTables,
     };
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::{ParamValue, RowSet, Value, Warehouse as _};
@@ -331,15 +333,18 @@ mod tests {
             source(),
             MetricName::parse(MEASURE_LABEL).expect("a metric name parses"),
             StatementTables::only(table.clone()),
-            PlanBucket::new(String::from("period"), Grain::Month, column("day")),
-            vec![PlanKey::new(String::from(GRANT_LABEL), column(group_column))],
+            PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("day")),
+            vec![PlanKey::new(
+                ResultLabel::dimension(&DimensionName::parse(GRANT_LABEL).expect("a dimension name parses")),
+                column(group_column),
+            )],
             PlanMeasure::Simple {
                 term: PlanTerm::Aggregate {
                     aggregate: Aggregate::Sum,
                     column: column("amount"),
                 },
             },
-            String::from(MEASURE_LABEL),
+            ResultLabel::measure(&MetricName::parse(MEASURE_LABEL).expect("a metric name parses")),
             vec![
                 PlanFilter::new(
                     PredicateOrigin::Definition,

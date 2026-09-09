@@ -14,53 +14,6 @@ use super::{Contradicted, Evidence};
 
 pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
-        name: "formatter commit hook uses the shell's nightly",
-        wordings: &["On the shell's nightly: the `fmt`, `check-changed` and doctest commit hooks"],
-        evidence: &[Evidence {
-            path: ".pre-commit-config.yaml",
-            holds: "entry: bash -c 'source nix/stable-env.sh; exec cargo run -q -p xtask -- fmt --check'",
-        }],
-        instead: "The formatter hook sources `nix/stable-env.sh` before dispatch. \
-                  Local Rust gates require the configured stable toolchain; this trusts the \
-                  configured environment, not arbitrary wrappers or compiler overrides",
-        only: &[],
-        except: &[],
-    },
-    Contradicted {
-        // The SIBLING of the entry above, found by reviewing that one: the same change that made
-        // the formatter hook require configured stable tools also made `run-gate.sh` REFUSE a host
-        // with neither that configuration nor nix - and the two hook comments that described the
-        // old unconditional tiering were not carried. Registered rather than only reworded,
-        // because a rewording that lands in one file and not its sibling is the whole reason this
-        // table exists.
-        //
-        // **What is NOT registered, and why, because a reader will find it.** The posture epigram
-        // itself is quoted in `nix/with-tier.sh`, `xtask/src/hook_coverage/abstain.rs` and one
-        // library doc comment, each about a DIFFERENT tiering that this change did not touch - the
-        // Postgres tier's `command -v` arm, and the hooks that self-skip on a missing tool. Those
-        // read as attributions and are corrected in place; forbidding the epigram outright would
-        // fail prose that is still true of the mechanism it describes.
-        name: "a Rust commit hook tiers down to a notice on any host",
-        wordings: &[
-            "falls back to nix and then to a notice",
-            "falls back to `nix run .#crap` and then to a notice",
-        ],
-        // The rule it retired against, in the script that decides. Not the hook file: this claim
-        // is about what `run-gate.sh` DOES, and evidence read out of the page being checked would
-        // make the entry circular.
-        evidence: &[Evidence {
-            path: "nix/run-gate.sh",
-            holds: "with neither route, the helper refuses rather than skips",
-        }],
-        instead: "`nix/run-gate.sh` requires either configured local stable tools or Nix for the \
-                  `tests`, `supply-chain` and `crap` arms, and `nix/stable-env.sh` terminates the \
-                  caller when it has neither - so those hooks DO wall a host with no route, deliberately, \
-                  because a silent skip of the suite is worse than a stopped commit. What is left of the \
-                  notice is one host: a configured toolchain missing the optional tool with no Nix beside it",
-        only: &[],
-        except: &[],
-    },
-    Contradicted {
         name: "additional named credential writes are held only by review",
         wordings: &["for the CI key and by review for the two principal keys placed beside it"],
         evidence: &[Evidence {
@@ -461,35 +414,57 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         except: &[],
     },
     Contradicted {
-        // `github.com/telekom/sutura#370` row A. The wording sat on the doc comment of the very
-        // method the federated answer path calls, and `just api` republished it at
-        // `docs/api/sutura-domain.md`, which `mkdocs.yml` puts in the nav. **It was TRUE when it
-        // was written**, so nothing here could have caught it going false - that direction is
-        // `absences`, one module over. This is the other one: a ratchet, so the pre-federation
-        // wording cannot be reinstated by anyone reading the method rather than its caller.
-        name: "nothing constructs a second leg",
-        // ONE wording, and the other half of the same sentence is deliberately not here: `there is
-        // no combiner` is also how the BigQuery adapter's refusal says a LEG arrived with nothing
-        // above it to group it - a different claim, and correct. Registering it would fail correct
-        // prose, which is the pair `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids`
-        // refuses. What survives is the clause that carries the workspace-wide claim.
+        // `github.com/telekom/sutura#370` row A, widened by issue 113. The first wording sat on the
+        // doc comment of the very method the federated answer path calls, and `just api` republished
+        // it at `docs/api/sutura-domain.md`, which `mkdocs.yml` puts in the nav. **Every wording here
+        // was TRUE when it was written**, so nothing here could have caught them going false - that
+        // direction is `absences`, one module over. This is the other one: a ratchet, so no spelling
+        // of the pre-federation belief can be reinstated by whoever reads one file and not its caller.
+        //
+        // RENAMED from "nothing constructs a second leg", which was the label version of the same
+        // defect this table exists for: the entry always held one CLAIM - that a question is not
+        // answered across two data systems - and a name naming one of its sentences is how a sibling
+        // wording gets filed as a second entry nobody adds.
+        name: "this deployment does not answer across two data systems",
+        // The other half of the leg sentence is deliberately not here: `there is no combiner` is also
+        // how the BigQuery adapter's refusal says a LEG arrived with nothing above it to group it - a
+        // different claim, and correct. Registering it would fail correct prose, which is the pair
+        // `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids` refuses. What survives is the
+        // clause that carries the workspace-wide claim.
         //
         // **The sibling sentences are NOT fixed by this entry, and saying so is the point.** The
         // same absence is written in several more `.rs` doc comments, which this table's scope
         // never reaches - `github.com/telekom/sutura#404` measures each one and says which
         // production line refutes it. They are filed rather than folded in here because one file
         // is an adapter another change owns and one is a record that would need an amendment.
-        wordings: &["Nothing constructs a second leg"],
+        wordings: &[
+            "Nothing constructs a second leg",
+            // Issue 113, and the SAME claim rather than a second one: the plan-stage rule went out
+            // with the splitter, and this is the sentence that outlived it on a published page and
+            // in a record. `docs/concepts.md` was corrected and its two siblings were missed, which
+            // is this table's founding cause verbatim. The lineage aside is registered in both its
+            // spellings, because the shorter one also opens a sentence that goes on to explain
+            // federation - and that one is correct.
+            "The plan names exactly one source, so a question that would need two identities is \
+             refused before anything runs",
+            "a plan resolves to one source, a measure reads",
+            "plan resolves to exactly one source, a measure reads",
+        ],
         // The combiner's declaration, which is what the sentence says does not exist. It is called
         // from `sutura_app`'s federated path, but the declaration is the narrower fact and the one
         // that retires the rule if federation is ever taken back out.
         evidence: &[Evidence {
-            path: "crates/sutura-domain/src/plan/federated/mod.rs",
+            path: "crates/sutura-domain/src/plan/federated.rs",
             holds: "pub fn combine(",
         }],
         instead: "`sutura_app`'s federated answer path builds the second leg and \
-                  `crates/sutura-domain/src/plan/federated/mod.rs` declares what groups the \
-                  two, so the record's shape is settled rather than provisional",
+                  `crates/sutura-domain/src/plan/federated.rs` declares what groups the \
+                  two, so the record's shape is settled rather than provisional. A plan names one \
+                  data system per LEG and at most two legs - three or more refuse as \
+                  `PlanSpansTooManySources` - and whether the two legs would decide identity the \
+                  same way is not a plan-stage fact at all, since a posture belongs to an opened \
+                  adapter; that is refused above the credential mint. `docs/concepts.md` carries \
+                  the corrected wording and its limits",
         only: &[],
         except: &[],
     },

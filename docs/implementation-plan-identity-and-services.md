@@ -161,11 +161,25 @@ re-key that lands early does not refuse where it should, which is a wrong answer
 `feat/two-source-execution` is also a prerequisite, because until two sources can be answered at all
 the old refusal is still the correct behaviour and removing it would strand every federated question.
 
-**Touches.** `crates/sutura-semantic` for the plan-stage check, `crates/sutura-domain` for the refusal
-variant's fields, `crates/sutura-app/src/prompt.rs` for the guide, and the goldens and prompt snapshots
-that carry the current refusal.
+**Landed, and NOT at the plan stage - which is the correction this section needed.** A posture is a
+property of an *opened adapter* (`Warehouse::posture`, held in `Warehouses<W>` in `sutura-app`);
+`crates/sutura-semantic` depends on `sutura-domain` and `thiserror` alone, the word `posture` appears
+nowhere under its `src/`, and the only other place the fact exists is the settings tree - which
+`crates/sutura-domain/src/source.rs` forbids for a provenance-bearing decision. For the plan stage to
+see it, `sutura-semantic` would have to depend on the adapter registry, and nothing depends on an
+adapter. So the property is a `sutura-domain` type and the call site is
+`crates/sutura-app/src/federated.rs`.
 
-**Adds.** The re-keyed check, and three things that MOVE with it rather than after it:
+**Touches.** `crates/sutura-domain` for the type and the refusal variant's fields,
+`crates/sutura-app/src/federated.rs` for the call site, three exhaustive matches (both transports plus
+`sutura_app::prompt::refusal::guide_for`) and the prompt snapshots that list every guide.
+
+**Adds.** `ExecutedAs::uniform`, returning a `UniformlyExecuted` that
+`PinnedDefinitions::provenance` is narrowed to take - so a mixed-posture **answer is unconstructible**
+rather than merely refused - plus `RefusalReason::LegsDecideIdentityDifferently`, carrying the posture
+LABELS and never a `SourcePosture` (that type reaches an operator's acknowledgement prose, and both
+derive `Serialize`). The verdict is asked in `answer_federated` above `broker.mint`, so the legs never
+run and no credential is minted. And three things that MOVED with it rather than after it:
 
 - **The prompt guide for that refusal becomes wrong and is rewritten in the same diff.**
   `PLAN_SPANS_TWO_SOURCES` in `crates/sutura-app/src/prompt.rs` tells an agent that crossing two data
@@ -181,17 +195,30 @@ that carry the current refusal.
   whole review round was about.
 
 **Tests.**
-- `a_plan_over_two_sources_under_one_asker_is_answered` - the behaviour that changes, red before.
-- `a_plan_whose_legs_would_run_as_two_identities_is_refused` - the property that was always meant,
-  which needs a fixture where two sources resolve to two different askers.
-- `the_refusal_names_the_identities_rather_than_the_sources` - asserted on the typed fields, because
-  the variant is the contract and a message that still says "sources" would be the old check wearing a
-  new name.
-- `the_prompt_guide_for_that_refusal_no_longer_says_two_systems_cannot_be_crossed` - the guide and the
-  refusal move together or an agent is misled by one of them.
+- `a_federated_answer_mints_once_runs_both_legs_and_records_both_identities` - two sources under one
+  asker are answered, pinned rather than incidental.
+- `an_answer_whose_legs_would_run_under_two_postures_is_refused_before_minting` - the call site, with
+  the broker's mint count asserted at **zero**.
+- `an_answer_whose_legs_would_run_under_two_postures_is_unconstructible` - the type half, beside a
+  `compile_fail` doctest on `provenance` with its compiling twin.
+- `two_shared_sources_with_different_acknowledgements_are_still_one_posture`, and its orchestrator
+  twin - the strand guard. `SourcePosture` derives `PartialEq` and the acknowledgement resolves per
+  source, so a predicate comparing VALUES would refuse the only federating shape that ships. Compare
+  the variant.
+- `a_mixed_posture_refusal_carries_the_labels_and_no_acknowledgement_text` - on `Debug` and on the
+  serialized body.
 
-**Done when** two sources under one asker answer, two identities in one plan refuse, the refusal names
-what it now keys on, and no record or guide left in the tree still describes the retired rule as live.
+**`a_plan_whose_legs_would_run_as_two_identities_is_refused` stood here and cannot be written
+honestly.** *Two identities* is not decidable from any type in this tree: `Presented::SharedServiceUser`
+carries the acknowledgement witness and no identity, and nothing names WHICH shared identity a source
+is read as - so two `shared-service-user` legs may be two deployment-held identities and are answered.
+What is decidable is *same posture*, which is what the tests above assert and what the refusal is named
+for. Retiring the name rather than renaming it is left to whoever owns this page; it is recorded here
+so the gap is not read as an omission.
+
+**Done when** two sources under one asker answer, two legs deciding identity differently refuse, the
+refusal names what it now keys on, and no record or guide left in the tree still describes the retired
+rule as live.
 
 ## The compose tier
 
@@ -965,7 +992,7 @@ economise.
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
    | `check-worktree-state` | the Rust under `crates/`, `xtask/` and `dev/`, and the shell under `nix/*.sh` - for every acquisition of a machine-shared filesystem root, and whether anything keys the path it builds |
    | `check-conformance-bindings` | the Rust and the manifests under `crates/` - the golden matrix's `data_systems` registry against the crates holding a conformance binding |
-   | `check-refusal-coverage` | the Rust and snapshots under `crates/`, `devco/refusals-unprovoked-allow`, and `devco/startup-refusals-unprovoked-allow` |
+   | `check-refusal-coverage` | the Rust and snapshots under `crates/`, and one allow file per enrolled enum (`devco/refusals-unprovoked-allow`, `devco/startup-refusals-unprovoked-allow`, `devco/validation-refusals-unprovoked-allow` - an absent one means no exceptions). The enrolled set is a DECLARED list of three enums in `xtask/src/refusals.rs`, not every refusal-shaped enum in the tree |
    | `check-feature-remedies` | the string literals under `crates/*/src/` and each crate's own `Cargo.toml` |
    | `check-expect-thresholds` | every tracked `*.rs` |
    | `check-examples` | the directories under `examples/`, and the Rust that reaches for one |

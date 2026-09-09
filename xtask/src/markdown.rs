@@ -387,15 +387,21 @@ mod tests {
 
     #[test]
     fn an_unclosed_destination_is_not_a_link_rather_than_a_destination_to_end_of_line() {
-        assert!(dests("see [x](a.md\n").is_empty());
-        assert!(dests("see [x](a(b.md\n").is_empty());
+        assert!(dests("see [x](a.md\n").is_empty(), "an unclosed destination is not a link");
+        assert!(
+            dests("see [x](a(b.md\n").is_empty(),
+            "an unclosed braced destination is not a link"
+        );
         // And the line after it is still read.
         assert_eq!(dests("see [x](a.md\n[b](c.md)\n"), ["2:c.md"]);
     }
 
     #[test]
     fn a_destination_inside_a_fence_is_not_a_link() {
-        assert!(dests("```\n[shown](a.md)\n```\n").is_empty());
+        assert!(
+            dests("```\n[shown](a.md)\n```\n").is_empty(),
+            "a destination inside a fence is not a link"
+        );
         assert_eq!(dests("```\n[shown](a.md)\n```\n[real](b.md)\n"), ["4:b.md"]);
     }
 
@@ -467,7 +473,10 @@ mod tests {
         assert_eq!(lines(page).last().map(String::as_str), Some("[real](plan.md)"));
         // A tilde run does not close a backtick block, and the reverse.
         assert_eq!(lines("```\n~~~\n```\n[real](plan.md)\n").len(), 4);
-        assert!(lines("~~~\n```\n~~~\n[real](plan.md)\n")[1].is_empty());
+        assert!(
+            lines("~~~\n```\n~~~\n[real](plan.md)\n")[1].is_empty(),
+            "the middle line between unrelated fences stays empty"
+        );
         // A longer closing run is allowed; a shorter one is not.
         assert_eq!(lines("```\ncode\n`````\n[real](plan.md)\n")[3], "[real](plan.md)");
     }

@@ -508,7 +508,7 @@ mod tests {
         assert_eq!(witness.discovered(), 2);
         assert_eq!(witness.inspected(), 2);
         assert_eq!(witness.files(), anchors().len());
-        assert!(witness.shared().is_empty());
+        assert!(witness.shared().is_empty(), "no shared takings were witnessed");
         assert_eq!(witness.by_holder(), vec![("process", 1), ("worktree", 1)]);
     }
 
@@ -560,7 +560,7 @@ mod tests {
     fn a_clean_scan_that_read_every_anchor_is_the_only_pass() {
         let one = vec![(taking(1), Keyed::Process)];
         let witness = Inspected::of(&anchors(), (9, 9), 1, one).expect("the counts agree");
-        assert!(witness.missed().is_empty());
+        assert!(witness.missed().is_empty(), "no takings were missed");
         assert_eq!(super::decide(&witness), super::Decision::Clean);
     }
 

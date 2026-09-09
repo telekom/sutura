@@ -1,9 +1,9 @@
 //! Whether a hook COULD have inspected the diff on this host, derived from the shell that decides.
 //!
-//! **The finding this exists for: nine of the sixteen declared hooks print `Passed` after deciding
+//! **The finding this exists for: eight of the fifteen declared hooks print `Passed` after deciding
 //! not to run.** `shellcheck` and `zizmor` are
 //! `command -v nix >/dev/null 2>&1 && exec ... || echo "... skipped ..."`; `betterleaks` is the same
-//! on its own tool; `rust-tests`, `rust-crap`, `secret-sweep`, `cargo-deny` and `fmt-parity` route
+//! on its own tool; `rust-tests`, `rust-crap`, `secret-sweep` and `cargo-deny` route
 //! through `nix/run-gate.sh`, whose tier 3 prints `run-gate: SKIPPED ...` and falls off the end of
 //! the `case` with status 0. Measured with the `shellcheck` entry verbatim and `nix` off `PATH`: the
 //! notice printed, exit status 0. prek reads that as `Passed`, [`super::Coverage::Ran`] read that as
@@ -11,7 +11,7 @@
 //! while three of the four announced their own skip - on a configuration
 //! `.pre-commit-config.yaml` argues for at length for a MISSING TOOL, *"a hook that cannot run
 //! must not be a wall"*. It no longer argues it for a missing toolchain: `nix/run-gate.sh` refuses
-//! a host with neither configured stable tools nor nix, so the eight are eight only where the
+//! a host with neither the dev shell's tools nor nix, so the eight are eight only where the
 //! abstention is a tool's. This paragraph is prose in `.rs` and `check-guidance`'s scope stops at
 //! the file extension, so it is held by review - the registered half is in
 //! `xtask/src/guidance/claims/contradicted.rs`.
@@ -295,7 +295,10 @@ mod tests {
         );
         // A line with no probe yields nothing, so it cannot contribute an empty group that every
         // host satisfies.
-        assert!(super::probes("        exec cargo run -q -p xtask -- crap").is_empty());
+        assert!(
+            super::probes("        exec cargo run -q -p xtask -- crap").is_empty(),
+            "a line with no probe contributes no probes"
+        );
     }
 
     #[test]
@@ -349,8 +352,9 @@ mod tests {
         let declared = crate::hooks::hooks(&text);
         let read = super::over(&root, &declared).expect("the run-gate script");
         assert!(read.unreadable.is_empty(), "{:?}", read.unreadable);
-        // NINE of the sixteen, which is the count the report measured by hand.
-        assert_eq!(read.deciding, 9, "{} hook(s) decide", read.deciding);
+        // EIGHT of the fifteen, which is the count the report measured by hand (the retired
+        // `fmt-parity` hook was the ninth).
+        assert_eq!(read.deciding, 8, "{} hook(s) decide", read.deciding);
         // And the tools come out per hook, so a tier silently losing its nix fallback is visible.
         let script = std::fs::read_to_string(root.join(super::RUN_GATE)).expect(super::RUN_GATE);
         let tools = |id: &str| -> Vec<super::Group> {
@@ -372,11 +376,16 @@ mod tests {
                 vec![String::from("nix")],
             ]
         );
-        assert_eq!(tools("fmt-parity"), vec![vec![String::from("nix")]]);
-        // A hook that only sources the stable environment decides nothing, so its `Passed` is
+        // A hook that only sources the dev environment decides nothing, so its `Passed` is
         // still read as coverage - which is what keeps this from failing a correct tree.
-        assert!(tools("rust-clippy").is_empty());
-        assert!(tools("hygiene").is_empty());
+        assert!(
+            tools("rust-clippy").is_empty(),
+            "a hook that only sources the dev environment names no tools"
+        );
+        assert!(
+            tools("hygiene").is_empty(),
+            "a hook that only sources the dev environment names no tools"
+        );
     }
 
     #[test]

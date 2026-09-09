@@ -10,8 +10,9 @@
 #      Dockerfile gives you the same *recipe*, not the same *result* - `apt-get install`
 #      resolves differently next Tuesday.
 #   2. One toolchain definition, not two. The dev shell and the release build both read
-#      `rust-toolchain.toml`. With a Dockerfile alongside a devenv you have two places to
-#      bump a compiler and one of them will be forgotten.
+#      `devco/rust-toolchain-nightly.toml` (the single pinned nightly). With a Dockerfile
+#      alongside a devenv you have two places to bump a compiler and one of them will be
+#      forgotten.
 #   3. Cross-compilation without a cross-toolchain per developer. `nix build
 #      .#sutura-aarch64-unknown-linux-gnu` works from an x86_64 host with no local setup,
 #      which is what makes shipping both Linux architectures cheap rather than a project.
@@ -46,10 +47,6 @@
           overlays = [ (import rust-overlay) ];
         };
 
-        # The compiler pin is rust-toolchain.toml and nowhere else. Read as data so this
-        # file cannot disagree with the dev shell or with a bare rustup fallback.
-        rustToolchainFile = ./rust-toolchain.toml;
-
         # The source root as a string, so the filter below can match a REPO-RELATIVE path.
         # `./.` is the flake source, and in every build that is a store path - which is the
         # whole reason the filter cannot match on the absolute one. See the filter's header.
@@ -58,7 +55,8 @@
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
           # Keep the toolchain file: crane's source filter drops non-Cargo files, and
-          # without it the pin is invisible to the build.
+          # without it the pin is invisible to the build. The single pin is
+          # devco/rust-toolchain-nightly.toml.
           #
           # Keep `vendor/` WHOLESALE, and this is load-bearing rather than tidy: the vendored
           # allocator is a path dependency, so cargo has to read its manifests to resolve the
@@ -141,7 +139,7 @@
           # of our crates (clippy's is ~40 s warm here) plus the four unfiltered ones.
           filter = path: type:
             let rel = pkgs.lib.removePrefix (srcRoot + "/") (toString path); in
-            (builtins.match "rust-toolchain\\.toml" rel != null)
+            (builtins.match "devco/rust-toolchain-nightly\\.toml" rel != null)
             || (builtins.match "vendor(/.*)?" rel != null)
             || (builtins.match "crates/[^/]+/tests(/.*)?" rel != null)
             || (builtins.match "crates/[^/]+/src(/.*)?" rel != null)
@@ -198,29 +196,27 @@
           filter = _path: _type: true;
         };
 
-        # The same pin as a package, for the tools that need `cargo` on PATH rather than a
-        # crane derivation around it.
-        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile rustToolchainFile;
-
-        # The NIGHTLY pin as a PACKAGE, never a crane toolchain: the only read of it here, and only
-        # ever for the `cargo rustdoc` child that emits the JSON. See `checks.api-docs` below.
-        nightlyToolchain = (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly;
+        # The single pinned toolchain as a package, for the tools that need `cargo` on PATH
+        # rather than a crane derivation around it: an app's wrapper, the api-docs child, the
+        # dev shell. One toolchain, nightly, exactly what every gate and every build use.
+        toolchain = (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly;
 
         # The pinned cargo, for the one workflow that has to touch Cargo.lock.
-        cargoWrapper = import ./nix/cargo-wrapper.nix { inherit pkgs rustToolchain; };
+        cargoWrapper = import ./nix/cargo-wrapper.nix { inherit pkgs toolchain; };
 
         # WRITES the committed API pages, and `checks.api-docs` below is the gate that fails when
         # they fall behind - the two must agree byte for byte, which is why one file defines the
         # writer and the check names it as the fix. In `nix/api-docs.nix` because this file was at
         # the 1000-line limit `cargo xtask max-lines` enforces; that module's header carries the
         # rest, including why the seam is here rather than at the checks.
-        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs nightlyToolchain duckdb; };
-        fuzzRunner = import ./nix/fuzz.nix { inherit pkgs nightlyToolchain; };
+        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs toolchain duckdb; };
+        fuzzRunner = import ./nix/fuzz.nix { inherit pkgs toolchain; };
 
-
+        # The one crane lib, over the one pinned nightly toolchain: the native build, the cross
+        # builds, every gate and every shipped artifact all run the same compiler.
         craneLibFor = sys:
           (crane.mkLib pkgs).overrideToolchain
-            (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
+            (p: p.rust-bin.fromRustupToolchainFile ./devco/rust-toolchain-nightly.toml);
 
         # Native build: what `nix build` and `nix flake check` use.
         craneLib = craneLibFor system;
@@ -316,7 +312,26 @@
         # `release` stays for the shipped binary and the cross artifacts - the only place an
         # optimised build is worth paying for.
         ciArgs = commonArgs // { CARGO_PROFILE = "ci"; };
-        ciArtifacts = craneLib.buildDepsOnly ciArgs;
+        # `doCheck = true` STATED and not defaulted, which `cargo xtask check-warm-start` requires
+        # of every `buildDepsOnly`: that pass is a SECOND codegen of the whole closure, and here it
+        # is earned - `checks.nextest` builds a test binary per crate, so the dev-dependency
+        # artifacts it caches are ones that check would otherwise compile itself. `nix/jscpd.nix`
+        # carries the measurement for the other answer, where nothing consumes them.
+        # `--all-features` MATCHES WHAT THE CONSUMERS ASK FOR, and that is the whole point: `clippy`,
+        # `nextest` and `doctest` each pass `--all-features`, while this dependency build did not - so
+        # every feature-gated dependency fell outside the shared artifacts and was recompiled by each
+        # consumer. Measured before this line existed: `checks.nextest` recompiled 67 third-party
+        # crates every run while `clippy` recompiled none. The cost is a larger artifact, which is a
+        # real trade against a cache that is already over its allocation - so this is the change to
+        # re-measure first if the hit rate moves the wrong way.
+        ciArtifacts = craneLib.buildDepsOnly (
+          ciArgs
+          // {
+            doCheck = true;
+            cargoExtraArgs = "--workspace --all-features";
+          }
+        );
+
 
         # ARTIFACTS BUILT IN ANOTHER DERIVATION, AND THE ONE THING THAT MAKES THEM SAFE TO INHERIT,
         # as a single attrset - so a consumer cannot take the artifacts without the regeneration.
@@ -367,7 +382,7 @@
         # them textually and both fail closed on finding none. A module holds what a package or a
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
-          inherit pkgs nixpkgs system crane rust-overlay rustToolchainFile craneLib commonArgs
+          inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
             inheritedArtifacts auditable mimallocFor optLevelFor;
           inherit (commonArgs) version;
         };
@@ -398,6 +413,13 @@
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
+
+          # The copy/paste detector, as a package as well as an app. This is the SAME derivation
+          # `checks.hygiene` carries on `nativeBuildInputs` and `apps.jscpd` points at, so CI, the
+          # `nix run .#jscpd` route and the dev shell all see one jscpd - the pinned `jscpd-src`
+          # v5.2.0 build from `nix/jscpd.nix`. The devenv module references this attribute so the
+          # local shell cannot resolve a different engine than the sandbox attests with.
+          jscpd = jscpd;
 
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
           # nothing but `nix` on the runner.
@@ -453,8 +475,9 @@
             INSTA_UPDATE = "no";
           }) // {
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
-            # the postgres corpus and differential cells run HERE (in the single stable test pass)
-            # rather than in a separate `nix develop` job. `ciArtifacts` - the expensive dependent
+            # the postgres corpus and differential cells run HERE (in this single sandboxed test
+            # pass) rather than in a separate `nix develop` job. `ciArtifacts` - the expensive
+            # dependent
             # closure - is untouched, so its cache key does not move; only this cheap derivation
             # gains the server. The same `nix/postgres-tier.nix` script `just test` runs starts
             # and stops it, so the two places cannot drift. `SUTURA_DEV_REQUIRE_TIER` makes a tier
@@ -561,19 +584,15 @@
           # crates' doc comments, and this FAILS when they fall behind: it regenerates them into a
           # temporary directory and byte-compares. The fix it names is `just api`.
           #
-          # THE SHARED STABLE `ci` CLOSURE, like every other check here, because nightly is needed
-          # only to EMIT THE JSON and `xtask/src/api_docs.rs` reaches it by SHELLING OUT - that
-          # module's header carries the argument. It replaced a nightly `crane.mkLib` with a second
-          # full DataFusion/Arrow/DuckDB `buildDepsOnly` at `release`, and is also why CI read
-          # `devco/rust-toolchain-nightly.toml` on every push while AGENTS.md said it never did.
-          # Three things keep the channels apart: `ciArtifacts`, as `hygiene` and `crap` use it, so
-          # `nix-store -q --references` names ONE `sutura-deps` across seven consumers; nightly as
-          # a command PREFIX with its own `CARGO_TARGET_DIR`, because alternating compilers in one
-          # target directory invalidates every artifact in it; and `SUTURA_API_DOCS_PROFILE`, since
-          # cargo's default `dev` optimises every dependency and build script at `opt-level = 3`.
-          # NAMED IN THE COMMAND both times - see above `hygiene`; a spawned child is the
-          # worse half, as crane does not even export `CARGO_PROFILE`. `wholeTree` for `hygiene`'s
-          # reason, and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
+          # It shares the ONE nightly `ci` closure with every other check here: the whole tree is
+          # built from the single pinned nightly, so rustdoc's unstable `--output-format json`
+          # needs no second toolchain - the child that EMITS the JSON runs the same `toolchain`
+          # the closure was built from. `xtask/src/api_docs.rs` reaches it by SHELLING OUT, which
+          # is why the profile is NAMED IN THE COMMAND below - see `hygiene`; a spawned child is
+          # the worse half, as crane does not even export `CARGO_PROFILE`.
+          # `SUTURA_API_DOCS_PROFILE` matters because cargo's default `dev` optimises every
+          # dependency and build script at `opt-level = 3`. `wholeTree` for `hygiene`'s reason,
+          # and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
           # PRIVATE phases became 2m10 cold, floored by 482 rustdoc units - 291 of them `rmeta`.
           # Those two were 484 and 293 and are now what `cargo rustdoc -p <lib> --all-features
           # --profile ci -Z unstable-options --unit-graph` reports, summed over the ten documented
@@ -589,11 +608,13 @@
               cargo build -q --profile "$CARGO_PROFILE" -p xtask
               # Read, not assumed, and resolved BEFORE the prefix below overrides it for the child.
               xtask="''${CARGO_TARGET_DIR:-target}/$CARGO_PROFILE/xtask"
-              # The binary directly: `cargo run` would have to BE the nightly cargo for the child
-              # to inherit nightly, and then nightly would compile `xtask`.
-              CARGO="${nightlyToolchain}/bin/cargo" \
-              PATH="${nightlyToolchain}/bin:$PATH" \
-              CARGO_TARGET_DIR="$TMPDIR/api-docs-rustdoc" \
+              # The binary directly: `cargo run` would have to BE the toolchain's own cargo for
+              # the child to inherit it, and then that cargo would compile `xtask`.
+              # The child shares the derivation's own target dir: the derivation is already the
+              # single toolchain, so ciArtifacts decompressed here is reused instead of
+              # rebuilding the 482 rustdoc units (291 rmeta) each run.
+              CARGO="${toolchain}/bin/cargo" \
+              PATH="${toolchain}/bin:$PATH" \
               SUTURA_API_DOCS_PROFILE="$CARGO_PROFILE" \
                 "$xtask" check-api-docs
             '';
@@ -655,7 +676,7 @@
         apps.deny = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-deny" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
             exec cargo deny check "$@"
           '');
         };
@@ -697,7 +718,7 @@
           program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
             # cargo-nextest as well: the gate shells out to `cargo nextest`, and without it
             # the run fails with "no such command" rather than a verdict.
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:
@@ -735,7 +756,7 @@
         apps.bigquery-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-acceptance" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
@@ -757,7 +778,7 @@
         apps.bigquery-two-principals = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-two-principals" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
@@ -771,7 +792,7 @@
         apps.bigquery-exchanged-identity = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-exchanged-identity" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
@@ -808,7 +829,7 @@
         apps.default-features = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-default-features" ''
-            export PATH="${rustToolchain}/bin:$PATH"
+            export PATH="${toolchain}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
@@ -826,7 +847,7 @@
         apps.default-feature-tests = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-default-feature-tests" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
@@ -847,7 +868,7 @@
         apps.crap = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-crap" ''
-            export PATH="${rustToolchain}/bin:${crap.cargoCrap}/bin:${crap.llvmCov}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${crap.cargoCrap}/bin:${crap.llvmCov}/bin:${pkgs.cargo-nextest}/bin:$PATH"
 
             ${cargoLinkEnv}
             exec cargo run -q --profile ci -p xtask -- crap "$@"

@@ -98,10 +98,9 @@ you find out on the pull request instead of before it. On a network with no dire
 [Building without direct internet egress](https://github.com/telekom/sutura/blob/main/docs/enterprise-mirrors.md)
 first: nothing that fetches is hardcoded, and every location is read from the environment.
 
-**The dev shell's bare `cargo` is nightly**, because the cranelift backend is what makes the inner
-loop fast. Every gate that lints, tests or ships is stable. So a bare `cargo clippy` reports lints
-stable has never heard of, and **you cannot conclude your branch is red from one** - run `just
-lint`, which sources `nix/stable-env.sh` and adds `-D warnings`. That trap and its siblings are in
+**The dev shell's bare `cargo` is the nightly toolchain**, the same one every gate and CI use now
+- the stable/nightly split is gone, so a bare `cargo clippy` reports the lints CI sees. Run
+`just lint` anyway, because it also adds `-D warnings`. The trap and its siblings are in
 [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
 
 ## Using AI-generated code
@@ -219,6 +218,10 @@ than it looks are all in
 `git-cliff`. A branch behind `main` is **rebased**, never merged: a merge commit from `main` into a
 topic branch comes back as a rebase request in review.
 
+That history requirement is not authorization to rewrite a published branch. Obtain explicit
+authorization before rebasing or restacking any published branch and force-pushing its replacement,
+even if you alone own it (`AGENTS.md`). Without it, ask; do not merge `main` as a workaround.
+
 **We prefer stacked pull requests, and we recommend [`stax`](https://github.com/cesarferreira/stax)
 (`st`) for them.** A chain of dependent changes ships as one reviewable pull request per link, not
 one branch that grows until nobody can review it. `stax` is in the dev shell at a pinned version
@@ -241,7 +244,7 @@ Two rules, and both exist because the mistakes are the expensive kind:
   that wrong picture, and `st stack submit` will plan a *duplicate* PR for a branch that already has
   one. Always `st ss --dry-run` before submitting a stack you did not create with `st`.
 - **Never hand-`git rebase` a branch that belongs to a stack.** Restacking rewrites history by
-  design, so ask before force-pushing a branch somebody else has.
+  design; published branches need the explicit authorization above.
 
 Run `just ship-check` **per branch** rather than once for the stack, since each pull request is
 reviewed alone and so has to be green alone, and land bottom-up. Each link can sit in its own

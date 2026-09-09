@@ -136,8 +136,12 @@ pub(crate) fn classify_base(
     if succeeded {
         return match (moved, reverted) {
             (Moved::Wholly(names), _) => BaseOutcome::GreenAfterAMove { moved: names.clone() },
+            // The witness is spent HERE, and the limit is worth the line: what it held is that
+            // every reverted file earned an excuse, which is the decision. From this point on the
+            // list is a message, and a narrowing of the message prints fewer lines than the
+            // decision covered - visible, and not the classification `#414` was about.
             (_, Reverted::Nothing(excused)) => BaseOutcome::GreenOverAnUnreachableRevert {
-                excused: excused.clone(),
+                excused: excused.outcomes().to_vec(),
             },
             (Moved::Nothing | Moved::Partly(_), Reverted::Behaviour) => BaseOutcome::Green,
         };

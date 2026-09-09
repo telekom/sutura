@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(rows.permitted.len(), 1);
         assert!(rows.permitted["58"].contains("2026-08-28"), "the date is part of the reason");
         assert!(rows.permitted["58"].contains("duckdb"));
-        assert!(rows.malformed.is_empty());
+        assert!(rows.malformed.is_empty(), "no malformed rows from a well-formed allowlist");
     }
 
     #[test]
@@ -653,8 +653,8 @@ mod tests {
         // turn a correct tree red, or the gate is one somebody disables.
         let majors = family_majors("[[package]]\nname = \"arrow\"\nversion = \"59.2.0\"\n");
         let found = assess(&majors, &allowed("59 2026-08-28 the engine's major\n").permitted);
-        assert!(found.inert.is_empty());
-        assert!(found.unexplained.is_empty());
+        assert!(found.inert.is_empty(), "no allowlist row is inert when it names the engine");
+        assert!(found.unexplained.is_empty(), "the matched major needs no explanation");
     }
 
     #[test]
@@ -662,8 +662,8 @@ mod tests {
         // One major is the state this workspace wants, not an exception to anything.
         let majors = family_majors("[[package]]\nname = \"arrow\"\nversion = \"59.2.0\"\n");
         let found = assess(&majors, &allowed("").permitted);
-        assert!(found.unexplained.is_empty());
-        assert!(found.inert.is_empty());
+        assert!(found.unexplained.is_empty(), "one major needs no row to be explained");
+        assert!(found.inert.is_empty(), "an empty allowlist has no inert rows");
     }
 
     #[test]
@@ -679,8 +679,8 @@ mod tests {
     fn a_split_every_row_explains_is_clean_in_both_directions() {
         let rows = allowed("58 2026-08-28 the adapter\n59 2026-08-28 the engine\n");
         let found = assess(&family_majors(split_lock()), &rows.permitted);
-        assert!(found.unexplained.is_empty());
-        assert!(found.inert.is_empty());
+        assert!(found.unexplained.is_empty(), "every row explains the major it names");
+        assert!(found.inert.is_empty(), "no allowlist row is inert on the split");
     }
 
     #[test]

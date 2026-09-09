@@ -47,6 +47,7 @@ mod one_bound;
 mod pins;
 mod refusals;
 mod registry;
+mod release_provenance;
 mod repo;
 mod rust_source;
 mod serde_parse;
@@ -193,7 +194,7 @@ const TASKS: &[Task] = &[
         // same kind of check - and this one is about the ERROR principle rather than the newtype
         // one. Name coverage is narrower than proving a test actually provokes the refusal.
         name: "check-refusal-coverage",
-        description: "every RefusalReason and NotFitToServe variant is named, or separately excused with a date and reason",
+        description: "every variant of the 3 ENROLLED refusal enums is named, or separately excused with a date and reason",
         kind: Kind::Hygiene(Reads::Code),
         run: refusals::run,
     },
@@ -322,7 +323,7 @@ const TASKS: &[Task] = &[
         // owns the `justfile`; this one owns `.pre-commit-config.yaml`, where the tiering
         // decision lives and where deleting one block silently un-tiers it.
         name: "check-hook-tiers",
-        description: "the push stage compiles, with the commit stage's own invocation",
+        description: "the pre-push stage runs only the security checks, and compiles nothing",
         kind: Kind::Hygiene(Reads::Code),
         run: hooks::run,
     },
@@ -517,6 +518,12 @@ const TASKS: &[Task] = &[
         description: "extract every composite action's shell into a directory, for shellcheck",
         kind: Kind::Standalone,
         run: action_shell::run,
+    },
+    Task {
+        name: "collect-provenance",
+        description: "export five release attestation bundles after exact subject-set checks",
+        kind: Kind::Standalone,
+        run: release_provenance::run,
     },
     Task {
         // The other half of `check-devenv-shell`, and standalone for `action-shell`'s reason plus
