@@ -252,7 +252,7 @@ mod tests {
         let found = super::problems(&root, flake, &[clippy_reference()]);
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("cargoClippyExtraArgs"), "{found:?}");
-        assert!(super::problems(&root, GOOD_FLAKE, &[clippy_reference()]).is_empty());
+        assert!(super::problems(&root, GOOD_FLAKE, &[clippy_reference()]).is_empty(), "a clean clippy flake raises no problems");
         drop_root(&root);
     }
 
@@ -312,7 +312,7 @@ mod tests {
             "# uses: github/codeql-action/analyze@v3 was weighed and refused\njobs:\n  a:\n    steps:\n      - uses: actions/checkout@v7\n",
         )
         .expect("write");
-        assert!(super::problems(&root, GOOD_FLAKE, &[clippy_reference()]).is_empty());
+        assert!(super::problems(&root, GOOD_FLAKE, &[clippy_reference()]).is_empty(), "a problem-free flake raises no problems");
         drop_root(&root);
     }
 

@@ -180,7 +180,7 @@ mod tests {
     fn one_version_of_the_client_is_read_out_of_a_lock_file() {
         let lock = format!("{}{}", stanza("ureq", "3.4.0", &["rustls"]), stanza("serde", "1.0.0", &[]));
         assert_eq!(versions_of(&lock, "ureq"), vec![String::from("3.4.0")]);
-        assert!(versions_of(&lock, "reqwest").is_empty());
+        assert!(versions_of(&lock, "reqwest").is_empty(), "a client absent from the lock file has no versions");
     }
 
     #[test]

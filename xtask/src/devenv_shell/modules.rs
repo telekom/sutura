@@ -213,6 +213,6 @@ mod tests {
         // A relative `.nix` path resolves without touching the filesystem.
         assert_eq!(resolved("./nix/x.nix", &root, 3).expect("a path"), "nix/x.nix");
         // And the real file declares no imports, so the queue it contributes is empty.
-        assert!(yaml_imports(&root).expect("devenv.yaml reads").is_empty());
+        assert!(yaml_imports(&root).expect("devenv.yaml reads").is_empty(), "the real devenv.yaml contributes no imports to the queue");
     }
 }

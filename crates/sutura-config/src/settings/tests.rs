@@ -58,7 +58,7 @@ fn the_embedded_defaults_are_a_loopback_development_service() {
     assert_eq!(settings.rate_limit().client_address(), ClientAddressSource::Peer);
     assert!(settings.rate_limit().trusted_proxies().is_empty());
     assert!(settings.server().tls().is_none());
-    assert!(settings.refusals().is_empty());
+    assert!(settings.refusals().is_empty(), "the peer-only posture refuses nothing");
 }
 
 #[test]
@@ -484,7 +484,7 @@ fn a_production_deployment_that_answers_every_control_starts() {
     let settings = Settings::load(&Sources::defaults(Environment::Production).with_overlay(production_overlay()))
         .expect("a production posture that answers every control is servable");
     assert!(settings.environment().is_production());
-    assert!(settings.refusals().is_empty());
+    assert!(settings.refusals().is_empty(), "a servable production posture refuses nothing");
 }
 
 // ----------------------------------------------- the environment-driven split ----
@@ -871,7 +871,7 @@ fn a_deployment_that_configures_a_source_and_declares_no_mode_does_not_start() {
     let defaults = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
     assert!(defaults.sources().is_empty());
     assert!(defaults.security().identity().is_none());
-    assert!(defaults.refusals().is_empty());
+    assert!(defaults.refusals().is_empty(), "the development defaults refuse nothing");
 }
 
 #[test]

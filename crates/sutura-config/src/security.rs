@@ -846,7 +846,7 @@ mod tests {
             // Every declaration says something about the hop, and only one of them says there is
             // none. That sentence is what the startup log prints, so it is asserted here rather
             // than trusted.
-            assert!(!parsed.cleartext_hop().is_empty());
+            assert!(!parsed.cleartext_hop().is_empty(), "each cleartext hop is named");
         }
         assert_eq!(TlsTermination::default(), TlsTermination::None);
         assert!(!TlsTermination::None.is_declared());

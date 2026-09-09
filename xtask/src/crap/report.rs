@@ -338,7 +338,7 @@ mod tests {
     fn an_empty_allow_list_on_one_line_is_not_a_block() {
         // `allow = []` followed by more keys would otherwise swallow the rest of the file.
         let policy = parse_policy("threshold = 30.0\nallow = []\nfail-above = true\n").expect("parses");
-        assert!(policy.allow.is_empty());
+        assert!(policy.allow.is_empty(), "the one-line empty allow list is read as empty");
         assert!(policy.fail_above);
     }
 
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn a_clean_report_has_no_offenders() {
         let entries = vec![entry("sutura-domain", "fine", 1.0)];
-        assert!(offenders(&entries, 30.0).is_empty());
+        assert!(offenders(&entries, 30.0).is_empty(), "a clean report has no offenders");
     }
 
     #[test]

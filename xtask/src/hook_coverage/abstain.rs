@@ -295,7 +295,7 @@ mod tests {
         );
         // A line with no probe yields nothing, so it cannot contribute an empty group that every
         // host satisfies.
-        assert!(super::probes("        exec cargo run -q -p xtask -- crap").is_empty());
+        assert!(super::probes("        exec cargo run -q -p xtask -- crap").is_empty(), "a line with no probe contributes no probes");
     }
 
     #[test]
@@ -375,8 +375,8 @@ mod tests {
         assert_eq!(tools("fmt-parity"), vec![vec![String::from("nix")]]);
         // A hook that only sources the stable environment decides nothing, so its `Passed` is
         // still read as coverage - which is what keeps this from failing a correct tree.
-        assert!(tools("rust-clippy").is_empty());
-        assert!(tools("hygiene").is_empty());
+        assert!(tools("rust-clippy").is_empty(), "a hook that only sources the stable environment names no tools");
+        assert!(tools("hygiene").is_empty(), "a hook that only sources the stable environment names no tools");
     }
 
     #[test]

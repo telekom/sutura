@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(records[0].package, "sutura-cli");
         assert_eq!(records[0].probe_features, vec![String::from("bigquery")]);
         assert_eq!(records[1].package, "sutura-serve");
-        assert!(records[1].probe_features.is_empty());
+        assert!(records[1].probe_features.is_empty(), "the serve record probes no feature set");
     }
 
     #[test]
@@ -548,7 +548,7 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{e}"));
         let found = super::unprobed(&super::records(nix), &documented);
-        assert!(found.problems.is_empty());
+        assert!(found.problems.is_empty(), "no probe problems when every recorded crate is documented");
         assert!(found.probed.is_empty(), "{:?}", found.probed);
     }
 
@@ -560,7 +560,7 @@ mod tests {
         let documented = super::documented::builds("docs/p.md", "```bash\ncargo build -p sutura-cli --features bigquery\n```\n")
             .unwrap_or_else(|e| panic!("{e}"));
         let found = super::unprobed(&super::records(nix), &documented);
-        assert!(found.problems.is_empty());
+        assert!(found.problems.is_empty(), "a single real gap raises no other problems");
         assert_eq!(found.probed.len(), 1, "{:?}", found.probed);
     }
 

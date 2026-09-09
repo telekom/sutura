@@ -741,18 +741,18 @@ mod tests {
     fn as_ref_is_the_alternative_and_is_not_a_leak() {
         // Deliberately absent from `LEAKY`: it promises nothing about hashing or ordering, and the
         // guide recommends it wherever a borrow is genuinely wanted.
-        assert!(leaks("impl AsRef<str> for Digest {\n}\n").is_empty());
+        assert!(leaks("impl AsRef<str> for Digest {\n}\n").is_empty(), "AsRef is the non-leaky alternative");
     }
 
     #[test]
     fn an_ordinary_trait_impl_is_not_a_leak() {
         let source = "impl core::fmt::Display for Digest {\n}\nimpl TryFrom<String> for Digest {\n}\n";
-        assert!(leaks(source).is_empty());
+        assert!(leaks(source).is_empty(), "Display and TryFrom are not leaks");
     }
 
     #[test]
     fn an_inherent_impl_is_not_a_trait_impl() {
-        assert!(leaks("impl Digest {\n    pub fn as_str(&self) -> &str {\n        &self.0\n    }\n}\n").is_empty());
+        assert!(leaks("impl Digest {\n    pub fn as_str(&self) -> &str {\n        &self.0\n    }\n}\n").is_empty(), "an inherent impl is not a trait-impl leak");
     }
 
     #[test]
@@ -768,14 +768,14 @@ mod tests {
         // Load-bearing rather than tidy: this repo says exactly that in three doc comments, so a
         // scan over raw text would fail on the sentences that explain the rule.
         let source = "/// There is deliberately no `Deref` here.\n// impl Deref for Digest {}\npub struct Digest(String);\n";
-        assert!(leaks(source).is_empty());
+        assert!(leaks(source).is_empty(), "comment prose about Deref is not an impl");
     }
 
     #[test]
     fn an_impl_inside_a_multi_line_string_is_not_an_impl() {
         // Which is what keeps this module's own fixtures invisible to the gate that reads them.
         let source = "fn fixture() -> &'static str {\n    r#\"\nimpl Deref for Digest {\n}\n\"#\n}\n";
-        assert!(leaks(source).is_empty());
+        assert!(leaks(source).is_empty(), "an impl inside a string literal is not a real impl");
     }
 
     #[test]
@@ -820,7 +820,7 @@ mod tests {
         // nothing it may lend. `sutura-domain`'s own `AsRef` impls are untouched by this rule,
         // which is why it is scoped to `SEALED` rather than added to `LEAKY`.
         assert_eq!(handed_out("impl AsRef<[String]> for Census {\n}\n").len(), 1);
-        assert!(handed_out("impl AsRef<str> for Digest {\n}\n").is_empty());
+        assert!(handed_out("impl AsRef<str> for Digest {\n}\n").is_empty(), "AsRef hands out nothing to leak");
         assert!(
             leaks("impl AsRef<[String]> for Census {\n}\n").is_empty(),
             "not a global rule"
@@ -830,8 +830,8 @@ mod tests {
     #[test]
     fn an_ordinary_trait_impl_on_a_sealed_type_is_not_a_leak() {
         // The rule is about handing out the contents, not about sealing the type off entirely.
-        assert!(handed_out("impl core::fmt::Debug for Census {\n}\n").is_empty());
-        assert!(handed_out("impl Drop for Swept {\n}\n").is_empty());
+        assert!(handed_out("impl core::fmt::Debug for Census {\n}\n").is_empty(), "Debug promises nothing to hand out");
+        assert!(handed_out("impl Drop for Swept {\n}\n").is_empty(), "Drop hands out nothing");
     }
 
     #[test]
