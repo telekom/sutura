@@ -98,6 +98,7 @@ rec {
       pkgs.keycloak
       pkgs.curl
       pkgs.coreutils
+      pkgs.jq
       endpoints.script
     ];
     text = ''
@@ -290,6 +291,14 @@ rec {
           echo "keycloak tier: a server is running here and its own log names no port, so there" >&2
           echo "               is nothing to republish. Tear it down with" >&2
           echo "               \`just keycloak-tier stop\` and start again." >&2
+          exit 1
+        fi
+        endpointsfile="$state/endpoints.json"
+        if [ -f "$endpointsfile" ] && ! jq --exit-status \
+          '.services.keycloak == null or .services.keycloak.provisioner == "nix"' \
+          "$endpointsfile" >/dev/null 2>&1; then
+          echo "keycloak tier: refusing to replace a keycloak entry that this nix tier does" >&2
+          echo "               not own. Stop its provisioner or remove its stale claim first." >&2
           exit 1
         fi
         # The credentials are NOT RECOVERABLE and this is the one arm that cannot heal. Every
@@ -519,6 +528,31 @@ rec {
       # AND NOTHING RE-PROVISIONED. The client secret is generated per `start`, so an unchanged one
       # is what says anything holding the old realm file does not have to re-read it.
       test "$(jq -r '.client.secret' "$realm")" = "$secret_before"
+
+      # A mismatched entry from ANOTHER provisioner is not this tier's stale claim to heal. The
+      # service key is shared with the docker identity profile, so replacing that entry crosses
+      # the provisioner boundary and makes a later docker teardown leave this JVM published.
+      foreign_port=$((port + 1))
+      jq --argjson port "$foreign_port" \
+        '.services.keycloak = { host: "127.0.0.1", port: $port, provisioner: "docker" }' \
+        "$endpoints" > "$endpoints.new"
+      mv "$endpoints.new" "$endpoints"
+      expect_state 3 "another provisioner's entry does not describe this tier"
+
+      echo "--- the foreign-claim refusal below is expected, its message included ---"
+      refused=0
+      sutura-keycloak-tier start || refused=$?
+      if [ "$refused" = 0 ]; then
+        echo "start replaced another provisioner's keycloak entry" >&2
+        exit 1
+      fi
+      test "$(jq -r '.services.keycloak.provisioner' "$endpoints")" = docker
+      test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$foreign_port"
+
+      # Restore this tier's own claim so the remaining state transitions still start from the
+      # live JVM and the records it created.
+      sutura-tier-endpoint publish "$tree" keycloak 127.0.0.1 "$port"
+      expect_state 0 "the tier reads as reachable after its own claim is restored"
 
       # --- and the arm that CANNOT heal refuses, rather than reporting success ---
       # Every secret this tier has is generated at `start` and written to the realm file alone -
