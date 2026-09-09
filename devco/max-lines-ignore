@@ -103,6 +103,17 @@ vendor/**
 # rule is literal-scoped for the reason argued three sections up, so it cannot see a count in
 # prose going stale. It has already said EMPTY once when it was not.
 
+# The required CI workflow. Over the cap because it enumerates the gates one at a time BY DESIGN:
+# every check keeps its own step so a failure names itself, which is the property the parallel
+# prefetch above it was written to preserve rather than trade away. The maintainer authorised the
+# exemption when the prefetch pushed the file over.
+#
+# `[warn]` rather than `[silent]` on purpose. This is hand-written, so it keeps printing - the
+# argument that exempts prose and generated output does not reach a workflow whose length is a
+# function of how many steps somebody wrote. If it is ever split, the seam is the CRAP-baseline
+# block, which is self-contained and reads as its own concern.
+.github/workflows/ci.yml
+
 # Scratch a browser tool writes into the working tree: verbatim dumps of visited pages, thousands
 # of lines each, regenerated on every run and gitignored. Generated output by any reading, and the
 # reason it is listed rather than left to fail is that a developer who used that tool could not

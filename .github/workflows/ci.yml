@@ -314,6 +314,41 @@ jobs:
             nix run .#xtask -- classify
           fi
 
+      # >>> ONE INVOCATION, SO THE SCHEDULER CAN FILL THE HOST. <<<
+      #
+      # The nine checks below were nine SEQUENTIAL `nix build` calls, which hands nix one root at a
+      # time - and nix starts only as many builds as there are runnable derivations, so a single root
+      # over a crane closure is one heavy cargo derivation behind a wide fan of fetches. Measured by
+      # `runner-probe.yml` on a 32-core host: the best job configuration still left the host **77%
+      # idle on average** while peaking above 90%. `max-jobs` was never the constraint - the number
+      # of roots was.
+      #
+      # THIS STEP IS A PREFETCH, NOT A VERDICT, and that is what keeps per-step attribution. Each
+      # check below still runs its own `nix build`, still owns its own log, and still fails its own
+      # step by name - it just finds its result already in the local store. So a reader who sees
+      # `Clippy` red still gets clippy's output, which is exactly what merging the steps into one
+      # invocation would have cost.
+      #
+      # `continue-on-error` is therefore correct rather than a way to hide a red: the authoritative
+      # verdicts are the steps that follow, and if a derivation fails here the step that owns it
+      # fails immediately afterwards with its own attributed output. `--keep-going` is what makes
+      # that true - without it the first failure would abandon the other eight and this step would
+      # slow the job it exists to speed up.
+      - name: Realise every check in one graph
+        continue-on-error: true
+        run: |
+          set -eu
+          nix build -L --keep-going \
+            .#checks.x86_64-linux.hygiene \
+            .#checks.x86_64-linux.reuse \
+            .#checks.x86_64-linux.fmt \
+            .#checks.x86_64-linux.clippy \
+            .#checks.x86_64-linux.nextest \
+            .#checks.x86_64-linux.keycloak-tier \
+            .#checks.x86_64-linux.postgres-tier \
+            .#checks.x86_64-linux.doctest \
+            .#checks.x86_64-linux.api-docs
+
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
 
