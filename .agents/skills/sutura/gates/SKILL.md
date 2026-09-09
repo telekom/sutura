@@ -38,17 +38,14 @@ the literal still resolves; a darwin one is `/nix/var/nix/builds/nix-<pid>-<rand
 resolves nowhere and a THIRD-PARTY crate fails to compile in a check that changed nothing -
 `just validate` red at `checks.nextest` before running a test, on `main`. `flake.nix`'s
 `inheritedArtifacts` pairs every `cargoArtifacts` with `nix/purge-baked-out-dirs.sh`, which
-regenerates exactly the output naming a directory it no longer sits in: one crate of 138 measured,
-so the reuse the checks exist on survives. **What it does not reach:** a generated file naming some
-OTHER absolute directory, a path written into a compiled artifact rather than into the bytes of the
-output directory, and - narrower than that paragraph used to admit - a path in `$unitDir/output`,
-cargo's record of the `cargo::` directives the script PRINTED, which is a sibling of `out/` and not
-inside it, so the search never reads it. All three fail the same loud way. Widening to `output` was
-refused rather than costed: a build script that publishes its own output directory as a link path
-names it there as a matter of course, so purging on that record reaches every such crate, and how
-many of the 138 that is has not been counted. The limit is ASSERTED rather than merely stated - the
-sweep's own test builds four synthetic unit directories, one per branch of its decision, and checks
-`try_exists` on the unit AND its fingerprint; the `output`-only unit is the one it proves SURVIVES.
+regenerates output naming a directory it no longer sits in. **What it does not reach:** a generated
+file naming some OTHER absolute directory, or a path written into a compiled artifact rather than
+the output directory's bytes. The sibling `$unitDir/output` is also outside the search, but stale
+directive bytes alone are not a broken compiler input: pinned Cargo rewrites the previous literal
+`OUT_DIR` in parsed directive values. The script header records the source, independent probe and
+its limits, plus a closure scan whose detection time is NOT rebuild cost. None establishes general
+relocation safety. The existing four-unit actual-script fixture checks the unit AND its fingerprint
+and proves the `output`-only unit SURVIVES; it holds the detector's scope, not Cargo's rewrite.
 
 **And that pairing was a SHAPE rather than a mechanism for as long as nobody asked.** One attrset
 makes it hard to separate by accident and holds nothing against `//`, which updates one level deep:
@@ -81,8 +78,7 @@ adding a pin anywhere.
 
 | Concern | Owner |
 | --- | --- |
-| Compiler version, anything shipped | `rust-toolchain.toml`, read by rustup **and** by nix |
-| Compiler version, the local inner loop | `devco/rust-toolchain-nightly.toml` |
+| Compiler version | `devco/rust-toolchain-nightly.toml`, read by nix; the top-level `rust-toolchain.toml` is the rustup-facing copy of the same pin |
 | The dev shell, tool versions, script names | `devenv.nix` |
 | The release build, cross-compilation, the image | `flake.nix` |
 | Anything delivered as a conda or Python package | `pixi.toml` |
@@ -93,41 +89,52 @@ adding a pin anywhere.
 `check-pins` fails if a tool appears in both nix and pixi. `nix` is the only pin for a tool whose
 version changes what it reports.
 
+**Adding a NEW gate needs a spare line in `xtask/src/main.rs`, and there may not be one.** That file
+holds the task table, and on 2026-09-07 it stood at **999 of the 1000-line cap** `max-lines`
+enforces - a cap `crates/` and `xtask/` cannot be exempted from, because `UNEXEMPTABLE_PREFIXES` is
+exactly those two. A module declaration plus a `Task { .. }` entry is seven lines at its shortest,
+so *add a gate* silently means *split `main.rs` first*. Two ways out, and the second is usually
+better: split the table, or add the rule to an existing gate that already reads the same inputs -
+a submodule under `xtask/src/<gate>/` costs `main.rs` nothing, and a second gate over the same walk
+would be a second answer anyway. `check-workflows`' badge rules landed that way.
+
+**And when a new gate reads `flake.nix` for a name, LEX it - do not search the text.** `flake.nix`
+declares `apps.<name>` and `checks.<name>` for overlapping sets of names, so *does the file mention
+`reuse`* is true of a tree whose CHECK has been renamed away. Measured: that exact substring rule
+passed the mutation it existed to catch, and `workflows::declared_block` - which already lexes the
+block - refuses it. Same family as the brace-counting and fence-scanning defects further down.
+
 ## Never hand-write the cargo line
 
-`just lint` and `just test` ARE the gates' invocations. A hand-written line diverges twice, and
-fixing only the first still fails:
+`just lint` and `just test` ARE the gates' invocations. A hand-written line diverges:
 
-1. This shell's cargo is **nightly** for the cranelift backend and reports lints stable has not got.
-   `nix/stable-env.sh` is the fix.
-2. The gate adds **`-D warnings`**, so a bare run turns a `restriction`-category finding into a
-   warning that a grep for `^error` does not see. It passes locally and fails the gate.
+The gate adds **`-D warnings`**, so a bare run turns a `restriction`-category finding into a
+warning that a grep for `^error` does not see. It passes locally and fails the gate. (This shell's
+bare `cargo` used to be a cranelift nightly while the gates ran on a separate stable toolchain, so
+a hand-written line diverged twice; the stable/nightly split is gone, so that half no longer
+applies - the shell's bare `cargo` IS what the gates and CI run.)
 
-Both were hit in one session by two different agents, after each read the half of the rule that
-named only the first.
-
-The same shell environment **follows cargo into other checkouts and breaks builds there**:
-`CARGO_UNSTABLE_CODEGEN_BACKEND`, `CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` and two DuckDB path
-variables are unscoped. Measured, not theorised: a control build of a C++-linking crate from this
+Another part of the shell environment still **follows cargo into other checkouts and breaks builds
+there**: if a developer has opted into cranelift, `CARGO_UNSTABLE_CODEGEN_BACKEND` and
+`CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` are set, and the two DuckDB path variables are
+unscoped regardless. Measured, not theorised: a control build of a C++-linking crate from this
 shell aborted with an uncaught foreign exception behind millions of unwind-table errors, because
 cranelift's unwind tables cannot carry an exception across the C++/Rust boundary. The same suite is
 green with the four unset. **A red run from this shell in another repo is unexplained until you
 unset them.** No gate can see a build somewhere else, which is exactly why it is written down.
 
-The `ci` profile inherits `dev`, so anything building `--profile ci` locally - the causality gate
-included - hits the same cranelift problem and needs `nix/stable-env.sh` first.
+**Local Rust gates run on the shell's nightly cargo, matching CI.** The formatter, changed-package,
+doctest and clippy hook entries run the same `cargo` as the corresponding `just` tasks - there is no
+separate stable-toolchain indirection anymore, so a recipe cannot diverge from its hook. What holds that is
+execution: the gate-entry regression in `xtask/src/hooks.rs` runs the `fmt`, `lint` and
+`check-changed` recipe bodies against fake tools. `just test` is deliberately outside that
+enumeration because executing its body would provision a database - there the line is held by
+review.
 
-**The local channel split is not uniform, and the non-obvious half is which hooks are which.** On
-stable: every `just` task and devenv script, the commit and push clippy hooks, and the coverage hook
-- that last one from **absence** rather than preference, because `-C instrument-coverage` does not
-exist under cranelift, so `cargo xtask crap` re-establishes stable itself rather than trusting its
-caller. On the shell's nightly: the `fmt`, `check-changed` and doctest commit hooks, and anything you
-type yourself. Anything that only CODEGENS is faster on cranelift and its verdict does not depend on
-the channel, which is why iteration stays there deliberately. Two things where it does depend:
-clippy's lint set (above), and rustfmt's *output* - the two channels agree byte-for-byte over this
-tree today, so the commit hook is left fast and a push hook builds the exact check CI runs. The
-separate target directory is not optional: alternating compilers in one directory invalidates every
-artifact in it.
+**Pinned Nix routes do not require the dev shell.** `nix/run-gate.sh` probes host cargo (the
+shell's nightly when one is active) and falls back to the pinned Nix check; it clears the two
+inherited cranelift variables before the Nix route. The two push-tier checks - secret scanning and
+the supply-chain gate - need no local Rust toolchain.
 
 ## Direction is per-gate, and each one says so at its own decision
 
@@ -150,20 +157,20 @@ artifact in it.
 
 **Neither direction is a default. What a wrong answer costs decides it, per gate.**
 
-## Hooks, and why clippy runs twice
+## Hooks, and why the push stage is security-only
 
-The push stage repeats the commit stage's compiling hook because **`git rebase` and
-`git rebase --continue` run no commit hook at all**, and a conflict resolution used to reach the
-remote with nothing having compiled it. `check-hook-tiers` holds two things: the push stage runs a
-hook that COMPILES, and that hook's entry is the commit stage's **own** - the second because cargo
-keys its fingerprints on the invocation, so a push command differing by one flag rebuilds the
-workspace instead of reusing what the commit hook built.
+The push stage runs ONLY the two whole-tree security checks - `secret-sweep`
+(`nix/run-gate.sh secrets`) and `cargo-deny` (`nix/run-gate.sh supply-chain`) - and nothing that
+compiles first-party code. It used to repeat the commit stage's clippy hook so that
+**`git rebase` and `git rebase --continue`, which run no commit hook at all**, could not push a
+conflict resolution nobody had compiled. That push-compile tier is **deliberately retired**: the
+compile is a commit-stage concern, and an uncompiled rebase now reaches CI rather than being
+caught locally. `check-hook-tiers` holds the new shape - every `pre-push` hook is one of the two
+security checks, and none of it compiles.
 
 Tiers are bypassable with `--no-verify`, so none of this is an invariant. What the gate holds is
-that the tiers documented here are the tiers `.pre-commit-config.yaml` declares. It expresses the
-repeated run as a YAML anchor rather than a second copy, because a gate that makes `git push` slow
-gets bypassed and then guards nothing: measured, the push clippy is ~1 s after a warm commit hook
-and ~76 s into an empty target directory, which the first commit in a fresh clone pays anyway.
+that the tiers documented here are the tiers `.pre-commit-config.yaml` declares, in both
+directions: a push hook that compiles OR that is outside the security-only set fails the gate.
 
 **The CRAP gate** scores cyclomatic complexity weighted by the tests covering it - the combination
 neither a complexity limit nor a coverage percentage catches alone. Split by cost: `check-crap`
@@ -171,6 +178,29 @@ reads the policy and compiles nothing, so it is in the sweep; `just crap` runs t
 It is scoped to the domain crate because `--workspace` coverage is over six minutes and more than 80
 CPU-minutes; `docs/crap.md` carries the measured cost of every wider option and what the scope
 therefore does not see.
+
+## Fuzzing: the deterministic build gate vs. the scheduled run
+
+`fuzz/` is a libFuzzer target set over the parsers that read input this deployment does not write.
+The two halves are deliberately different shapes, and reading one for the other is how a green run
+stops meaning anything:
+
+- **`check-fuzz` (a hygiene gate, milliseconds) is what gates every pull request.** It reads the
+  fuzz manifest, the `fuzz_targets/*.rs` set, the tracked `fuzz/seeds/`, the workflow's matrix and
+  the lock, and fails when a target stops being declared, seeded or run. It compiles nothing, so a
+  green `hygiene` says the harness is wired - **not** that it found anything.
+- **Actual fuzzing is scheduled, never a merge gate.** `.github/workflows/fuzz.yml` runs on a cron
+  and `workflow_dispatch`, spends a time budget per target, and its `smoke` leg replays the
+  committed seeds. A run that failed a merge on a fresh random path would be a gate somebody turns
+  off, after which nothing generates input. A crash enters the tree as a **seed** and a regression,
+  never as a corpus entry.
+
+The `smoke` leg is real but narrow: `-runs=0` replays every tracked seed once with no mutation, so
+its verdict is a function of committed files. Both `fuzz.yml` jobs are classified `[advisory]` in
+`devco/required-contexts`, so neither is required. **What is not covered by a green fuzz run:**
+DataFusion/DuckDB parsing (upstream), dialect differential fuzzing, and any parser the harness does
+not name in its own header - and a scheduled run that finds nothing proves only that the committed
+seeds and a finite budget did not find anything, never that a parser is panic-free.
 
 ## Checks that pass while the thing they describe is broken
 
@@ -618,6 +648,30 @@ therefore does not see.
   deliberately one-sided, because an invocation is not a green run and the authority for *did this
   pass* is unreachable from the sandbox the gate runs in. A one-sided rule that names its side is
   worth more than a two-sided one nobody can implement.
+- **THE FIX THAT READS A COMMAND READ A SEPARATOR INSIDE SOMEBODY'S QUOTES, and the guard on the
+  claim it defends was a substring of free prose.** Same gate, one round later; both measured on the
+  merged tree with `ci.yml` and the page restored after each. (1) The invocation scan split each raw
+  line on `&&`, `;`, `|`, `(`, a backtick and seven more, so a `just <task>` written inside a quoted
+  `echo` began a command: five prose shapes moved the resolved count 18 → 19, which REFUSES the
+  honest `unrun` cell and instructs `wired`. It tracks quoting now, and a bare backtick is prose
+  here deliberately - `shellcheck` refuses the legacy substitution (SC2006), while a backticked task
+  in a YAML `name:` is ordinary writing. **What says a narrowing lost nothing is the SET, not the
+  count**: 18 both ways here, and the same 18 names. (2) The predicate refusing `yes` for leg 2
+  matched the substring `nowhere` in a free-prose cell - spell it `not anywhere yet`, point
+  `Reached by` at a real CI-invoked lint, and the page published `yes` at exit 0. A closed
+  vocabulary is what the claims cells already had. **What a vocabulary cannot reach, which is why
+  the page still names this as review's:** it holds that a cell MEANS something, never that it is
+  true, so `in process, every run` on a venue that runs nowhere passes. **And the issue reporting
+  both over-reported one**: a trailing `#` comment was named as a third shape and is not one, in
+  four spellings - `#` is in no separator list, so the comment stays glued to what precedes it.
+- **A property held for ONE path while the job places several, and the sentence beside it said
+  *the* credential.** The same gate built *placed and removed* from the single path
+  `GOOGLE_APPLICATION_CREDENTIALS` names, so a second key document written under `$RUNNER_TEMP` and
+  never deleted read as clean - exit 0, byte-identical to the run where every copy is removed. **A
+  QUANTIFIER is a claim**: *the* credential and *every copy of a secret* are different properties,
+  and the record asked for the second. And **a whole-string form is not an argument list**:
+  `rm -f "<a>" "<b>"` contains the literal `rm -f "<b>"` for no `<b>` but the first, so the form
+  that missed two paths would also have FAILED a job removing three correctly.
 - **`just ship-check` is DIFF-SCOPED, and its green used to say nothing about that.** `prek` filters
   every hook by the changed file set - which is what makes it fast enough to run before a push, and
   is correct behaviour. Measured on a branch whose diff was one workflow file and one README: five
@@ -644,7 +698,7 @@ therefore does not see.
   every surface covered and `ok`, exit 0 - **character for character** the lines the real run
   printed, with nothing having executed. And the only end-to-end fixture for the counting rule was
   itself a `--dry-run` capture under a doc comment calling it a real run. (3) **Eight of the fifteen
-  declared hooks print `Passed` after deciding not to run** - three of the four on push - because a
+  declared hooks print `Passed` after deciding not to run** - both of the two on push - because a
   self-skip on a missing tool exits 0. Measured with the `shellcheck` entry verbatim and `nix` off
   `PATH`: notice printed, exit 0. So on any host without nix the verdict was a green run over hooks
   that announced their own abstention.
@@ -743,6 +797,55 @@ therefore does not see.
   scans, so a needle inside a single-line string on a line that IS live is still a live anchor. What
   they buy is that a commented-OUT line is not one - which is the whole property a wiring assertion
   needs, and nothing more.
+
+**A PATH WITH NO KEY IN IT IS ONE PATH FOR EVERY CHECKOUT ON THE MACHINE, and the failure is a
+confident wrong verdict rather than an error.** `telekom/sutura#405` collected six collisions
+measured in one day; the transferable part is the shape of the argument that hid the live one.
+`sutura-conformance` renamed its corpus onto `<temp_dir>/sutura-conformance/<table>.csv` and the
+comment beside it said *the bytes are identical either side of the rename* - **true per tree, false
+per machine**. Reproduced 2026-09-07 with two worktrees, each running its own `on_disk`, one row
+differing by one cent: the `DuckDB` binding failed two cases as CONTENT faults naming this
+repository's own corpus, while the run that overwrote the file was green. The window is wide because
+`attach_csv` builds a VIEW over `read_csv_auto`, so the bytes are read at QUERY time and the view
+holds only the path.
+
+Three things worth carrying:
+
+- **The default is under the worktree, not keyed under a shared root.** `Scope::state_dir()` needs no
+  key because the tree IS the key. `Scope::scratch(purpose)` exists for one reason - a unix socket
+  path caps around 100 bytes, so a server cannot sit under a deep worktree - and it is a NAME rather
+  than an allocation, the same asymmetry `dev/src/scope.rs` argues for naming over ports.
+- **The first segment below the root is the question.** That corpus DID carry the process id, in the
+  staged file it renamed away from, so a rule asking *is a key anywhere near this* would have passed
+  the very defect it was written for. `cargo xtask check-worktree-state` reads the first `.join`
+  argument and nothing deeper.
+- **AN ANCHOR IS STRICTLY STRONGER THAN A COUNT FLOOR, and the ORDER of two refusals decides
+  whether a gate refuses for its own reason.** Both of `check-worktree-state`'s conservation laws
+  take their numbers from one scope predicate, so a predicate that stops matching leaves them
+  agreeing over a subset with every floor satisfied - which is why the gate anchors named subjects,
+  one per arm, instead: an unreachable subject refuses whether or not anybody reads a number. The
+  trap is what came next. Written as a refusal inside the witness's constructor, the anchor made the
+  gate's verdict over the falsifier tree - where no anchor can exist - come from a MISSING INPUT
+  rather than from its own rule, measured, and only three of the sweep's gates manage the latter. So
+  a violation is reported AHEAD of a missed anchor, through an exhaustive `Decision` a test can
+  read. **A fail-closed precondition placed ahead of the rule turns a rule-refusal into an
+  input-refusal, and nothing but reading the verdict will tell you.**
+- **A NEEDLE HAS TO BE CODE, and the two words the gate's own remedy printed were the ones that
+  defeated it.** `check-worktree-state` matched its key spellings as substrings of the raw path
+  expression, so `temp_dir().join("sutura-scratch")` passed - the word was in the BASENAME, not in a
+  derivation - and so did `"shared-digest-cache"` and `"my-tempdir"`: three written, machine-shared
+  paths at exit 0. `scratch` and `state_dir` are exactly what its `explain()` tells a developer to
+  use, so following the printed remedy produced a path it then accepted. **And the planted fixture
+  could not see it**, because the basename it used (`"sutura-planted-fixture"`) contained no needle -
+  a fixture that cannot express the shape it covers is the recurring failure here. The blanking is
+  language-scoped (`"$( .. )"` in shell still executes) and keeps `{..}` placeholders, which are
+  code: dropping those would redden `format!("sutura-{digest}")`.
+- **A `/tmp/` literal cannot be judged from a line, and the measurement is why the gate does not
+  try.** Every rooted literal in this workspace is a fixture value that never reaches a filesystem
+  - `cargo xtask check-worktree-state` prints the count, so no figure is copied here;
+  a rule reddening them would redden correct work, so the gate reads the STATEMENT for a filesystem
+  mutation and answers `Unwritten` where there is none. What that does not reach is a mutation
+  laundered into a helper - stated at the variant rather than left to be found.
 
 ## The causality gate, and how it can lie
 
@@ -1071,14 +1174,20 @@ into the trunk, malformed JSON and a missing key, and `forked` is always `merge-
 therefore always an ancestor of HEAD. The reachable failure is the degenerate endpoint INSIDE
 history: **a recorded parent whose commit CONTAINS this branch forks at HEAD**, a base equal to HEAD
 makes the diff the uncommitted working tree alone, and the gate answers *no changed tests - nothing
-to prove* at **exit 0 over every file the branch changed**. Reproduced twice, and the trigger is this
-repository's own house style rather than a corner - merge-forward-never-rebase means a parent with
-your branch merged into it is an ordinary thing to have locally, as is metadata retargeted at the
-branch above. It is `causality::stack::Origin::Contains` now, refused AHEAD of the equality because
-the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is an ancestor of
-HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT that compares
-NAMES enumerates one spelling of one input** - the first version did exactly that, and it was
-untested glue, which is what let the enumeration stand.
+to prove* at **exit 0 over every file the branch changed**. Reproduced twice. **The trigger is a
+condition, not a list of shapes: it fires whenever HEAD is an ancestor of the recorded parent's
+commit** - reflexively, so a parent sitting exactly ON HEAD counts. Ordinary states that satisfy it
+include metadata still naming the branch ABOVE after a hand retarget, and a branch with no commit
+of its own yet whose parent's tip IS HEAD; there are others, and counting them would be the mistake
+this arm exists to record, in a second spelling. A parent STRICTLY behind HEAD cannot fire, and
+strictly is the load-bearing word: merging `main` into a branch that has a commit of its own leaves
+`main` a strict ancestor of the merge commit, so the fork point is `main`'s own tip and this arm is
+not reached - while `main` FAST-FORWARDED onto that same branch satisfies *ancestor* without the
+strictness, and fires. It is `causality::stack::Origin::Contains` now, refused AHEAD of the
+equality because the equality passes for it (`merge-base(named, HEAD)` is `named` whenever named is
+an ancestor of HEAD, and it always is). **The transferable half: a guard against a degenerate COMMIT
+that compares NAMES enumerates one spelling of one input** - the first version did exactly that, and
+it was untested glue, which is what let the enumeration stand.
 
 **What is STILL not asked, and a correct base does not rule it out:** whether the reverted
 implementation is something the measured test could even read. #293's pairing was wrong in that

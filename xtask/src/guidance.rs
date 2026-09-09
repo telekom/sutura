@@ -181,10 +181,11 @@ const FORBIDDEN: &[Forbidden] = &[
         except: &[],
     },
     Forbidden {
-        // Here rather than in the `CLAIMS` table for two reasons. `xtask/src/guidance/claims.rs`
-        // is at 985 of an unexemptable 1000 lines, and - the one that decides it - a
-        // `Contradicted` entry retires itself when its evidence goes, which is right for a claim
-        // resting on a CODE fact. This one rests on `docs/adr/0016` decision 7, a DECISION, and
+        // Here rather than in the `CLAIMS` table, and only ONE of the two reasons this used to
+        // give survives. The line-count one does not: the table has since moved to
+        // `xtask/src/guidance/claims/contradicted.rs` and has room. The one that decides it is
+        // that a `Contradicted` entry retires itself when its evidence goes, which is right for a
+        // claim resting on a CODE fact. This one rests on `docs/adr/0016` decision 7, a DECISION, and
         // reversing a decision is the case where the entry gets deleted rather than retired.
         needle: "property named `sutura`",
         instead: "one string-valued structured property under a name of the DEPLOYMENT's choosing; \
@@ -268,20 +269,24 @@ fn pinned_value(root: &Path, pin: &Pin) -> Option<String> {
 /// Tokens rather than a verdict, because one walk answers both questions the gate has: *does this
 /// line contradict the pin*, and *does any page state it at all*. The second is what keeps the
 /// first from running over an empty set - see [`version_mismatches`].
+///
+/// A token counts if it is a bare version like `1.98.0` OR a `nightly-<date>` like
+/// `nightly-2026-09-08`: the single pin channel is a nightly date, so a page that states it
+/// writes the whole token and it must equal the pin value read back from the file.
 fn stated_versions(line: &str, pin: &Pin) -> Vec<String> {
     if !line.contains(pin.marker) {
         return Vec::new();
     }
-    let digits: String = line
-        .chars()
-        .map(|c| if c.is_ascii_digit() || c == '.' { c } else { ' ' })
-        .collect();
-    digits
-        .split_whitespace()
+    line.split_whitespace()
         // Trim the sentence's own punctuation first: "1.98.0." is the same version as
         // "1.98.0", and treating them as different is how a correct doc gets flagged.
-        .map(|t| t.trim_matches('.'))
-        .filter(|t| t.contains('.') && t.starts_with(|c: char| c.is_ascii_digit()))
+        .map(|t| t.trim_matches(['.', ',', ';', ':', '(', ')', '"', '\'']))
+        .filter(|t| {
+            let body = t.strip_prefix("nightly-").unwrap_or(t);
+            // A bare version is dotted (`1.98.0`); a nightly date is dash-separated
+            // (`2026-09-08`), so a date carries no `.` and must be matched on its `-`.
+            body.contains(['.', '-']) && body.starts_with(|c: char| c.is_ascii_digit())
+        })
         .map(String::from)
         .collect()
 }
@@ -570,10 +575,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             CONTRADICTED.len(),
             COUNTS.len(),
             HOSTED.len(),
-            // THREE numbers from three places, and printed rather than merely held. The pair used
-            // to be statements and FILES, and review measured what that could not see: truncating
-            // the per-file line walk to two lines left both unmoved with a planted refutation
-            // unseen. `lines` is the one that drops.
+            // THREE numbers from three places, printed for a reader to compare runs with - and
+            // NOT the floor, which is `github.com/telekom/sutura#414`: each is derived by
+            // iterating what a walk returned, so a narrowing moves them with itself. Measured,
+            // `.take(100)` on the per-file line walk printed 80244 of 294744 here at exit 0.
+            // `absences::Sighted::short` is what refuses a short walk now.
             read.stated,
             read.files,
             read.lines,
@@ -592,7 +598,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     eprintln!("Guidance that no longer matches the repo is read as current. Fix the text, or");
     eprintln!(
         "if the rule itself is wrong, change it in xtask/src/guidance.rs - or in\n\
-         xtask/src/guidance/claims.rs for a claim or a count, or\n\
+         xtask/src/guidance/claims/contradicted.rs for a claim,\n\
+         xtask/src/guidance/claims/counts.rs for a count, or\n\
          xtask/src/guidance/pages.rs for a page's own shape - with a reason."
     );
     Verdict::Fail
@@ -613,28 +620,40 @@ mod tests {
     #[test]
     fn a_line_naming_the_pin_file_and_a_stale_version_contradicts() {
         assert!(contradicts(
-            "The compiler pin is rust-toolchain.toml, currently 1.93.0.",
-            &PIN,
-            "1.98.0"
-        ));
-        assert!(!contradicts(
             "The compiler pin is rust-toolchain.toml, currently 1.98.0.",
             &PIN,
-            "1.98.0"
+            "nightly-2026-09-08"
+        ));
+        assert!(!contradicts(
+            "The compiler pin is rust-toolchain.toml, currently nightly-2026-09-08.",
+            &PIN,
+            "nightly-2026-09-08"
         ));
     }
 
     #[test]
     fn a_line_not_naming_the_pin_file_is_none_of_its_business() {
         // Some other version in prose is not a claim about our pin.
-        assert!(!contradicts("DataFusion 53 is the upstream version.", &PIN, "1.98.0"));
+        assert!(!contradicts(
+            "DataFusion 53 is the upstream version.",
+            &PIN,
+            "nightly-2026-09-08"
+        ));
     }
 
     #[test]
     fn trailing_punctuation_is_not_a_different_version() {
         // The sentence's full stop is not part of the version.
-        assert!(!contradicts("Pinned in rust-toolchain.toml at 1.98.0.", &PIN, "1.98.0"));
-        assert!(contradicts("Pinned in rust-toolchain.toml at 1.93.0.", &PIN, "1.98.0"));
+        assert!(!contradicts(
+            "Pinned in rust-toolchain.toml at nightly-2026-09-08.",
+            &PIN,
+            "nightly-2026-09-08"
+        ));
+        assert!(contradicts(
+            "Pinned in rust-toolchain.toml at 1.98.0.",
+            &PIN,
+            "nightly-2026-09-08"
+        ));
     }
 
     #[test]
@@ -642,7 +661,7 @@ mod tests {
         assert!(!contradicts(
             "The compiler pin lives in rust-toolchain.toml and nowhere else.",
             &PIN,
-            "1.98.0"
+            "nightly-2026-09-08"
         ));
     }
 
@@ -652,12 +671,22 @@ mod tests {
         // The distinction the vacuity check rests on: *fine* and *a statement* are not the same
         // verdict. Every marker line in this repo used to be the first kind, which is how a
         // working comparison ended up with nothing to compare.
-        assert!(stated_versions("The compiler pin lives in rust-toolchain.toml and nowhere else.", &PIN).is_empty());
-        assert_eq!(
-            stated_versions("Pinned in rust-toolchain.toml at 1.98.0.", &PIN),
-            vec![String::from("1.98.0")]
+        assert!(
+            stated_versions("The compiler pin lives in rust-toolchain.toml and nowhere else.", &PIN).is_empty(),
+            "a pin mention with no version states no version"
         );
-        assert!(stated_versions("DataFusion 53.0.0 is the upstream version.", &PIN).is_empty());
+        assert_eq!(
+            stated_versions("Pinned in rust-toolchain.toml at nightly-2026-09-08.", &PIN),
+            vec![String::from("nightly-2026-09-08")]
+        );
+        assert!(
+            !stated_versions("Pinned in rust-toolchain.toml at 1.98.0.", &PIN).is_empty(),
+            "a stale bare version is still a stated version, so it can be contradicted"
+        );
+        assert!(
+            stated_versions("DataFusion 53.0.0 is the upstream version.", &PIN).is_empty(),
+            "the DataFusion version line states no compiler-pin version"
+        );
     }
 
     #[test]
@@ -776,7 +805,10 @@ mod tests {
     fn a_markdown_table_header_is_preceded_by_a_blank_line() {
         use super::pages::table_problems;
         let spaced = page("A paragraph.\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n");
-        assert!(table_problems("a.md", &spaced).is_empty());
+        assert!(
+            table_problems("a.md", &spaced).is_empty(),
+            "a properly spaced table reports no problems"
+        );
         // What a rebase did to one record's four-venues table: the pipes joined the paragraph.
         let run_on = page("A paragraph.\n| a | b |\n| --- | --- |\n");
         let problems = table_problems("a.md", &run_on);
@@ -784,7 +816,10 @@ mod tests {
         assert!(problems[0].starts_with("a.md:2:"), "{problems:?}");
         // The same shape shown inside a fence is an example, not a table.
         let shown = page("A paragraph.\n\n```text\nA paragraph.\n| a | b |\n```\n");
-        assert!(table_problems("a.md", &shown).is_empty());
+        assert!(
+            table_problems("a.md", &shown).is_empty(),
+            "a table shown inside a fence is not a problem"
+        );
     }
 
     #[test]

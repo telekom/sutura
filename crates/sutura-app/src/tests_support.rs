@@ -519,6 +519,62 @@ impl CredentialBroker for CountingBroker {
     }
 }
 
+/// A broker that grants each source the shared witness that source's OWN operator wrote.
+///
+/// **The fake a two-source shared deployment needs, and the reason is a mechanism rather than
+/// convenience.** `Presented::agrees_with` compares the witness against the posture the adapter was
+/// handed by *equality on the prose*, and every other fake here mints one fixed witness for every
+/// source - which is correct while one acknowledgement is in play and refuses the moment two sources
+/// carry two sentences. `StaticCredentialBroker` is per-source for the same reason.
+///
+/// Built from the postures the registry was given, so a test cannot arrange for the broker and the
+/// adapters to disagree by accident. A source it was not told about gets the deployment's own
+/// identity, which is what `LegCredentials::minted` needs to cover the set it was asked for.
+pub(crate) struct AcknowledgingBroker {
+    /// The WITNESS per source rather than the `Presented` it becomes. `Presented` is deliberately
+    /// not `Clone` - it carries a `Secret` in another variant - so the leg is built inside `mint`,
+    /// which is where a real broker builds one anyway.
+    by_source: BTreeMap<SourceName, SharedIdentityDeclared>,
+}
+
+impl AcknowledgingBroker {
+    /// One entry per source, from that source's own declared posture.
+    ///
+    /// An impersonating source contributes nothing, so this fake stays the *shared* broker it says
+    /// it is and such a source falls through to the fixture's own witness - which is what its leg
+    /// is then refused for by `agrees_with`, not by this.
+    pub(crate) fn over(postures: &[(SourceName, SourcePosture)]) -> Self {
+        let mut by_source = BTreeMap::new();
+        for (source, posture) in postures {
+            if let SourcePosture::SharedServiceUser { ref declared } = *posture {
+                drop(by_source.insert(source.clone(), declared.clone()));
+            }
+        }
+        Self { by_source }
+    }
+}
+
+impl CredentialBroker for AcknowledgingBroker {
+    type Error = BrokerUnreachable;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        let mut presented = BTreeMap::new();
+        for name in sources.iter() {
+            let leg = self
+                .by_source
+                .get(name)
+                .map_or_else(shared_leg, |declared| Presented::SharedServiceUser {
+                    declared: declared.clone(),
+                });
+            drop(presented.insert(name.clone(), leg));
+        }
+        // The `map_err` arm is unreachable: the map is built from `sources`, so it covers it.
+        LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
+            .map(|credentials| Minted::Granted { credentials })
+            .map_err(|_uncoverable| BrokerUnreachable)
+    }
+}
+
 /// One model as a catalog document names it: the model, its data system, its table.
 pub(crate) type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
 

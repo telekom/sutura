@@ -34,9 +34,9 @@ fn an_inbound_block_with_no_mode_does_not_start() {
     let sources = Sources::defaults(Environment::Development)
         .with_overlay("security:\n  inbound:\n    resource: \"https://sutura.example.com\"\n");
     let error = Settings::load(&sources).expect_err("a block with no mode is refused");
-    assert!(matches!(error, SettingsError::InboundModeUndeclared), "{error:?}");
+    assert!(matches!(*error.reason(), SettingsError::InboundModeUndeclared), "{error:?}");
     // The message has to say what to write, because a refusal that does not is a support request.
-    let rendered = error.to_string();
+    let rendered = error.reason().to_string();
     assert!(rendered.contains("direct"), "{rendered}");
     assert!(rendered.contains("behind-gateway"), "{rendered}");
     // And an unrecognised mode is its own refusal rather than a fall back to either.
@@ -44,7 +44,7 @@ fn an_inbound_block_with_no_mode_does_not_start() {
         .with_overlay("security:\n  inbound:\n    mode: \"trusting\"\n    algorithms: [\"RS256\"]\n");
     assert!(
         matches!(
-            Settings::load(&sources).expect_err("`trusting` is not a mode"),
+            Settings::load(&sources).expect_err("`trusting` is not a mode").reason(),
             SettingsError::InboundModeUnknown { .. }
         ),
         "an unknown mode must not fall back to a posture"
@@ -76,7 +76,7 @@ fn each_mode_requires_its_own_keys_and_the_refusal_names_the_mode() {
         "security:\n  inbound:\n    mode: \"direct\"\n    key_set_file: \"/k.json\"\n    algorithms: [\"RS256\"]\n",
     );
     let error = Settings::load(&sources).expect_err("`direct` needs a resource identifier");
-    let SettingsError::InboundKeyMissing { key, ref mode } = error else {
+    let SettingsError::InboundKeyMissing { key, ref mode } = *error.reason() else {
         panic!("expected a missing key, got {error:?}");
     };
     assert_eq!(key, "security.inbound.resource");
@@ -88,7 +88,7 @@ fn each_mode_requires_its_own_keys_and_the_refusal_names_the_mode() {
     );
     let error = Settings::load(&sources).expect_err("`behind-gateway` needs a proof header");
     assert!(
-        matches!(error, SettingsError::InboundKeyMissing { key, .. } if key == "security.inbound.transit_header"),
+        matches!(*error.reason(), SettingsError::InboundKeyMissing { key, .. } if key == "security.inbound.transit_header"),
         "{error:?}"
     );
 }
@@ -134,7 +134,7 @@ fn a_deployment_token_and_the_direct_mode_are_refused_because_they_share_one_hea
     let sources = Sources::defaults(Environment::Development)
         .with_overlay(format!("security:\n  access_token: \"{TOKEN}\"\n{DIRECT_INBOUND}"));
     let error = Settings::load(&sources).expect_err("two credentials in one header is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert!(
@@ -173,7 +173,7 @@ fn a_production_deployment_that_verifies_its_callers_needs_no_deployment_token()
             .with_overlay("server:\n  host: \"0.0.0.0\"\n  port: 8080\nsecurity:\n  tls_termination: \"ingress\"\n"),
     )
     .expect_err("production with no credential at all is refused");
-    let SettingsError::NotFitToServe { ref refusals } = error else {
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert!(
@@ -197,7 +197,10 @@ fn a_pinned_algorithm_a_caller_could_forge_is_refused_through_the_whole_layering
              algorithms: [\"{named}\"]\n"
         ));
         let error = Settings::load(&sources).expect_err("a forgeable algorithm is refused");
-        assert!(matches!(error, SettingsError::InboundAlgorithms { .. }), "{named}: {error:?}");
+        assert!(
+            matches!(*error.reason(), SettingsError::InboundAlgorithms { .. }),
+            "{named}: {error:?}"
+        );
     }
     // An empty list too, so "pinned" cannot be satisfied by pinning nothing.
     let sources = Sources::defaults(Environment::Development).with_overlay(
@@ -205,7 +208,7 @@ fn a_pinned_algorithm_a_caller_could_forge_is_refused_through_the_whole_layering
          authorization_server: \"https://issuer.example.com\"\n    key_set_file: \"/k.json\"\n    algorithms: []\n",
     );
     assert!(matches!(
-        Settings::load(&sources).expect_err("pinning nothing is not pinning"),
+        Settings::load(&sources).expect_err("pinning nothing is not pinning").reason(),
         SettingsError::InboundAlgorithms { .. }
     ));
 }
@@ -232,5 +235,5 @@ fn an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error() {
             "https://typo.example.com",
         )]));
     let error = Settings::load(&sources).expect_err("a misspelled key is an error naming it");
-    assert!(matches!(error, SettingsError::Source { .. }), "{error:?}");
+    assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
 }

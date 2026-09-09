@@ -35,7 +35,9 @@ sutura-exec-duckdb = { workspace = true }
 # A second DATA SOURCE, over the wire, and a development dependency for the same reason: it proves
 # the Postgres statement we render is accepted by a real Postgres. Its corpus cells run against this
 # worktree's provisioned tier and skip where none is up.
-sutura-exec-postgres = { workspace = true }
+# `fixtures` for `PostgresWarehouse::local_config`, which the adapters harness below opens the tier
+# with. A DEV-dependency's feature reaches no consumer, which is the point of the gate on it.
+sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
 # THE engine, and what the golden suite executes with. Also the far side of the differential test:
 # one plan computed locally here and pushed down as SQL to the data source above, rows compared. A
 # statement that is valid SQL with different semantics is the bug class that catches.

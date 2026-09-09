@@ -1,7 +1,10 @@
-# The compiler pin, and the single source of truth for it: rustup honours it directly and
-# Nix reads it as data via `fromTOML`, so the dev shell, a bare rustup fallback and CI
-# cannot disagree about the compiler.
+# The single compiler pin. This top-level file is the rustup/editor/CI-facing copy of
+# devco/rust-toolchain-nightly.toml: a bare `rustup`, editors, `.github` and the Dockerfile read
+# a top-level `rust-toolchain.toml`, while every Nix build and the dev shell resolve the SAME
+# channel through nix/toolchains.nix from devco/rust-toolchain-nightly.toml.
+# There is no stable channel anywhere; what CI tests is what ships. Keep the two files' channel
+# in step when the nightly pin moves (bump the date once, in its own commit).
 [toolchain]
-channel = "1.98.0"
-components = ["rustfmt", "clippy", "rust-std", "llvm-tools-preview"]
+channel = "nightly-2026-09-08"
+components = ["rustfmt", "clippy", "rust-std", "llvm-tools-preview", "rustc-codegen-cranelift-preview", "rust-analyzer", "rust-src"]
 profile = "minimal"

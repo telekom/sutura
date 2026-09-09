@@ -39,7 +39,7 @@ use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::knowledge::Knowledge;
 use crate::model::{MetricName, SourceName};
 use crate::query::RefusalReason;
-use crate::source::ExecutedAs;
+use crate::source::UniformlyExecuted;
 use crate::text::first_invisible;
 use crate::warehouse::cardinality::{KeyNotCounted, KeyNotUnique};
 
@@ -162,7 +162,7 @@ impl core::fmt::Display for DefinitionVersion {
 pub struct Provenance {
     version: DefinitionVersion,
     digest: DefinitionDigest,
-    executed_as: ExecutedAs,
+    executed_as: UniformlyExecuted,
 }
 
 impl Provenance {
@@ -174,7 +174,7 @@ impl Provenance {
     /// carries a `Provenance` beside its rows, and an enum variant is always constructible by
     /// whoever can build its fields. Nothing outside this crate built one - checked before narrowing
     /// it - so this costs no caller.
-    const fn new(version: DefinitionVersion, digest: DefinitionDigest, executed_as: ExecutedAs) -> Self {
+    const fn new(version: DefinitionVersion, digest: DefinitionDigest, executed_as: UniformlyExecuted) -> Self {
         Self {
             version,
             digest,
@@ -195,9 +195,11 @@ impl Provenance {
     /// What each leg of this answer ran as.
     ///
     /// Read off the posture the **adapter was handed**, never off a settings tree - see
-    /// [`crate::source`]. Non-empty, because [`ExecutedAs`] has no empty form.
+    /// [`crate::source`]. Non-empty, because [`crate::source::ExecutedAs`] has no empty form, and
+    /// uniform, because [`UniformlyExecuted`] is the only thing [`PinnedDefinitions::provenance`]
+    /// accepts.
     #[inline]
-    pub const fn executed_as(&self) -> &ExecutedAs {
+    pub const fn executed_as(&self) -> &UniformlyExecuted {
         &self.executed_as
     }
 }
@@ -382,7 +384,41 @@ impl PinnedDefinitions {
     /// prompt - reads [`Self::version`] and [`Self::digest`] instead. Nothing executed for it, and a
     /// `Provenance` with an empty execution record would be the one shape this argument exists to
     /// make unrepresentable.
-    pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance {
+    ///
+    /// # And a MIXED execution record is unrepresentable the same way
+    ///
+    /// The argument is [`UniformlyExecuted`] rather than [`crate::source::ExecutedAs`], so an answer
+    /// combining rows read under one posture with rows read under another cannot be built at all -
+    /// not refused at a call site somebody may move, but absent from the type system. A record with
+    /// two legs reaches this only through [`crate::source::ExecutedAs::uniform`], which is where the
+    /// verdict is made.
+    ///
+    /// **A mixed record has no way in:**
+    ///
+    /// ```compile_fail
+    /// use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+    /// use sutura_domain::source::ExecutedAs;
+    ///
+    /// fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
+    ///     pinned.provenance(both_legs)
+    /// }
+    /// ```
+    ///
+    /// The compiling twin, differing by exactly the one call that makes the verdict - so the block
+    /// above cannot be passing on a typo:
+    ///
+    /// ```
+    /// use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+    /// use sutura_domain::source::{ExecutedAs, LegsDecideIdentityDifferently};
+    ///
+    /// fn _uniform(
+    ///     pinned: &PinnedDefinitions,
+    ///     both_legs: ExecutedAs,
+    /// ) -> Result<Provenance, LegsDecideIdentityDifferently> {
+    ///     Ok(pinned.provenance(both_legs.uniform()?))
+    /// }
+    /// ```
+    pub fn provenance(&self, executed_as: UniformlyExecuted) -> Provenance {
         Provenance::new(self.version.clone(), self.digest.clone(), executed_as)
     }
 

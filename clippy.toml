@@ -31,9 +31,9 @@ enum-variant-name-threshold = 2       # default 3
 #
 # **Do not read the silence as permanent.** clippy 0.1.99 warns - "does not refer to a reachable
 # function", with an `allow-invalid = true` opt-out - measured on that version against a deliberate
-# nonsense path. `rust-toolchain.toml` pins 0.1.98, which does not, so writing the call remains the
-# only check that holds today. When the pin moves past that, the warning becomes the mechanism and
-# this paragraph is where that gets recorded.
+# nonsense path. The clippy the single pinned nightly ships did not, so writing the call remains
+# the only check that holds today. When the pin moves past that, the warning becomes the mechanism
+# and this paragraph is where that gets recorded.
 disallowed-methods = [
   # The obvious way to parse a catalog-authored SQL fragment, and it PANICS. `Parser::new` over an
   # empty token list hits an `expect` in the parser, which is what `""`, whitespace-only and

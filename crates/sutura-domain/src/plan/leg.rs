@@ -1,10 +1,11 @@
 //! One source's share of a federated question, and the only thing the port can be handed.
 //!
-//! **The shapes, their closure, and nothing that produces or executes one.** There is no splitter
-//! and no combiner in this workspace, so no production code constructs a [`LegPlan`]: what is here
-//! is the vocabulary a splitter will emit and `sutura-sql` already renders, pinned per dialect
-//! before anything runs it. `.agents/skills/sutura/query-surface` carries that state, and this
-//! module says it rather than leaving it to be discovered.
+//! **The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
+//! `sutura_app::answer_federated` hands it to an adapter, and
+//! [`FederatedPlan::combine`](crate::plan::FederatedPlan::combine) - a function in this crate -
+//! assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
+//! builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+//! published artefact reaches, and this module says the shape rather than the state.
 //! `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 //! `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
 //!
@@ -40,7 +41,7 @@
 
 use crate::calendar::TimeRange;
 use crate::model::{MetricName, QualifiedTable, SourceName, TableName};
-use crate::plan::{PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, StatementTables};
+use crate::plan::{PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, ResultLabel, StatementTables};
 use crate::warehouse::ParamValue;
 
 /// One number a leg computes, and the label it is projected under.
@@ -59,7 +60,7 @@ use crate::warehouse::ParamValue;
 ///
 /// ```compile_fail
 /// use sutura_domain::measure::ZeroDenominator;
-/// use sutura_domain::plan::{LegTerm, PlanMeasure, PlanTerm};
+/// use sutura_domain::plan::{InternalLabel, LegTerm, PlanMeasure, PlanTerm, ResultLabel};
 ///
 /// // `LegTerm::new` takes a term, and a ratio is not one.
 /// fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDenominator) -> LegTerm {
@@ -69,7 +70,7 @@ use crate::warehouse::ParamValue;
 ///             denominator,
 ///             zero_denominator,
 ///         },
-///         String::from("ratio"),
+///         ResultLabel::internal(InternalLabel::Leaf(0)),
 ///     )
 /// }
 /// ```
@@ -78,24 +79,24 @@ use crate::warehouse::ParamValue;
 /// terms, and the division happens above every leg.
 ///
 /// ```
-/// use sutura_domain::plan::{LegTerm, PlanTerm};
+/// use sutura_domain::plan::{InternalLabel, LegTerm, PlanTerm, ResultLabel};
 ///
 /// fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
 ///     vec![
-///         LegTerm::new(numerator, String::from("numerator")),
-///         LegTerm::new(denominator, String::from("denominator")),
+///         LegTerm::new(numerator, ResultLabel::internal(InternalLabel::Leaf(0))),
+///         LegTerm::new(denominator, ResultLabel::internal(InternalLabel::Leaf(1))),
 ///     ]
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct LegTerm {
     term: PlanTerm,
-    label: String,
+    label: ResultLabel,
 }
 
 impl LegTerm {
     #[inline]
-    pub const fn new(term: PlanTerm, label: String) -> Self {
+    pub const fn new(term: PlanTerm, label: ResultLabel) -> Self {
         Self { term, label }
     }
 
@@ -104,9 +105,10 @@ impl LegTerm {
         &self.term
     }
 
+    /// The text this term is projected under.
     #[inline]
     pub fn label(&self) -> &str {
-        &self.label
+        self.label.as_str()
     }
 }
 

@@ -1,0 +1,4 @@
+# NotFitToServe variants without test-name or snapshot-word evidence.
+# Entries: <Variant> <YYYY-MM-DD> <reason and what would end the exception>
+# Dates are shape-checked; stale and unknown entries fail. No exceptions currently.
+# Name coverage is not proof of provocation or execution in a venue.

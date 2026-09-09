@@ -4,7 +4,8 @@
 //! header already named: `claims` and `counts` are two checks that share nothing but the flattened
 //! view a claim and a count are both found in.** `CONTRADICTED` grows by ENTRY - one claim is about
 //! twenty lines - so the file holding it is the one that has to have room, which is what this move
-//! bought.
+//! bought and then ran out of: the table has since moved to `claims/contradicted.rs`, and the
+//! parent's own note there records why a reserve measured in spare lines expires.
 //!
 //! The tests for what is here are in the parent's `tests` module - **not** beside the table they
 //! read, which is where `remedies`' tests are and is the half of that sentence that stopped being

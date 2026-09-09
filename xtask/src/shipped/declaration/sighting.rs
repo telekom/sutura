@@ -78,7 +78,7 @@ mod tests {
             found: Vec::new(),
             accounted: Vec::new(),
         };
-        assert!(dropped.found.is_empty());
+        assert!(dropped.found.is_empty(), "the dropped parse leaves no found spellings");
         let unaccounted: Vec<usize> = sighted(text)
             .into_iter()
             .filter(|line| !dropped.accounted.contains(line))

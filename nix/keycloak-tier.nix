@@ -273,9 +273,11 @@ rec {
         printf '%s-%s' "$1" "$password_seed"
       }
 
-      # The heal for a live server this worktree has stopped claiming. `just dev-up` serialising
-      # `endpoints.json` wholesale from the docker services it read is how the state happens
-      # (`github.com/telekom/sutura#317`): the JVM survives, its entry does not.
+      # The heal for a live server this worktree has stopped claiming. Both writers of
+      # `endpoints.json` merge per ENTRY now (`github.com/telekom/sutura#317`), so a `dev-up` no
+      # longer takes this tier's entry with it - but the state is still reachable without anybody
+      # having done anything wrong: a `start` that dies between the bind and its publish, a
+      # hand-removed file, a `stop` that failed. The JVM survives, its entry does not.
       #
       # The entry that goes back is THE SAME ENTRY - the port is the one the server itself printed
       # into its log, and nothing here re-provisions or re-generates. That is the point of healing
@@ -427,7 +429,8 @@ rec {
   # **And it drives the three states `status` answers, which no other venue can see.** A
   # green run elsewhere says a server came up; it says nothing about a server whose entry
   # something else dropped, and that state is reachable without anybody having done anything
-  # wrong - `just dev-up` still serialises `endpoints.json` wholesale. So the unclaimed arm
+  # wrong - a `start` that dies between the bind and its publish, a hand-removed file, a
+  # `stop` that failed. So the unclaimed arm
   # is made here on purpose: withdraw the entry over the live JVM, assert 3 rather than 0,
   # and assert that `start` heals it with THE SAME PID and THE SAME CLIENT SECRET. The pid is
   # the load-bearing half - a heal and a second JVM on a second OS-chosen port are both
@@ -479,7 +482,11 @@ rec {
       # so a tier that started and published nothing is a tier no test can reach.
       endpoints=.sutura-dev/endpoints.json
       test -f "$endpoints"
-      test "$(jq -r '.provisioner' "$endpoints")" = nix
+      # THE MARKER IS ON THE ENTRY - `github.com/telekom/sutura#317`. This asserted a
+      # document-level `.provisioner`, which is the last writer's opinion about every other
+      # writer's service and answers wrong for one of them the moment `xtask dev-up` merges
+      # its own entries beside these. `dev/src/discovery.rs` reads it per service now.
+      test "$(jq -r '.services.keycloak.provisioner' "$endpoints")" = nix
       port="$(jq -r '.services.keycloak.port' "$endpoints")"
       test "$port" -gt 0
       test "$(jq -r '.services.keycloak.host' "$endpoints")" = 127.0.0.1
@@ -490,8 +497,9 @@ rec {
       test "$(jq -r '.issuer' "$realm")" = "http://127.0.0.1:$port/realms/${realm}"
 
       # --- a live server whose entry was dropped HEALS IN PLACE ---
-      # `github.com/telekom/sutura#324`. The state is `just dev-up` serialising `endpoints.json`
-      # wholesale from the docker services it read (#317): the JVM survives and its entry does not.
+      # `github.com/telekom/sutura#324`. The state is any publish this tier's entry did not
+      # survive - a `start` that died between the bind and its publish, a hand-removed file, a
+      # `stop` that failed: the JVM survives and its entry does not.
       # Two wrong answers are possible here and this tier gave the first one for as long as
       # `start`'s guard WAS `status` - print *already up* and return 0 having published nothing.
       # The second is what an endpoint-derived guard alone would have given: a cold start that
@@ -546,6 +554,9 @@ rec {
       sutura-tier-endpoint publish "$tree" postgres "$tree/.sutura-dev/pg" 5432
       test "$(jq -r '.services | length' "$endpoints")" = 2
       test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$port"
+      # And each entry still says who published it, which is what makes `stop` able to
+      # withdraw its own and leave the neighbour's.
+      test "$(jq -r '.services.postgres.provisioner' "$endpoints")" = nix
 
       # `stop` withdraws BOTH of ITS OWN claims and NEITHER of the neighbour's. A stale
       # endpoint is read as availability, which is how a fail-closed cell panics on a dead

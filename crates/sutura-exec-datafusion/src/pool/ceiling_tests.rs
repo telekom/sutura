@@ -21,15 +21,11 @@ use std::sync::Arc;
 use datafusion::arrow::array::{ArrayRef, Date32Array, Int64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
-use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
-use sutura_domain::plan::{
-    Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-    StatementTables,
-};
-use sutura_domain::warehouse::{ParamValue, Warehouse as _};
+use sutura_domain::plan::Executable;
+use sutura_domain::warehouse::Warehouse as _;
 
 use crate::{DataFusionError, DataFusionWarehouse, WorkingSet};
+use crate::{day, question, source};
 
 /// A ceiling small enough that any real operator reservation is over it.
 ///
@@ -43,22 +39,6 @@ const ROOMY: usize = 64 * 1024 * 1024;
 
 fn ceiling(bytes: usize) -> WorkingSet {
     WorkingSet::of_bytes(core::num::NonZeroUsize::new(bytes).expect("a test ceiling is positive"))
-}
-
-fn day(iso: &str) -> Date {
-    Date::parse(iso).expect("a test date is a date")
-}
-
-fn source() -> SourceName {
-    SourceName::parse("local").expect("a test source is a source")
-}
-
-fn orders() -> TableName {
-    TableName::parse("orders").expect("a test table is a table")
-}
-
-fn on(name: &str) -> PlanColumn {
-    PlanColumn::new(orders(), ColumnName::parse(name).expect("a test column is a column"))
 }
 
 /// Enough rows in enough groups that a grouped aggregate builds a hash table worth reserving for.
@@ -85,42 +65,6 @@ fn batch() -> RecordBatch {
         Field::new("amount_cents", DataType::Int64, false),
     ]);
     RecordBatch::try_new(Arc::new(schema), columns).expect("a test batch is rectangular")
-}
-
-/// Revenue by region for one month: a grouped aggregate, which is an operator that reserves.
-fn question() -> QueryPlan {
-    QueryPlan::new(
-        source(),
-        MetricName::parse("revenue").expect("a test metric is a metric"),
-        StatementTables::only(orders()),
-        PlanBucket::new(String::from("period"), Grain::Month, on("order_date")),
-        vec![PlanKey::new(String::from("region"), on("region"))],
-        PlanMeasure::Simple {
-            term: PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: on("amount_cents"),
-            },
-        },
-        String::from("revenue"),
-        vec![
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::AtOrAfter {
-                    column: on("order_date"),
-                    param: 0,
-                },
-            ),
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::Before {
-                    column: on("order_date"),
-                    param: 1,
-                },
-            ),
-        ],
-        vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-07-01"))],
-        TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
-    )
 }
 
 fn engine(bytes: usize) -> DataFusionWarehouse {

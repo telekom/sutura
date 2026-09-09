@@ -37,7 +37,7 @@
 //! A verified subject's question can be answered under the *deployment's* own identity on a source
 //! declared `shared-service-user` - that is honest, acknowledged and not impersonation - and the
 //! incident question is then "whose access filtered these rows". The answer is
-//! [`crate::source::ExecutedAs`], which rides on the [`Provenance`] an answer carries, and
+//! [`crate::source::UniformlyExecuted`], which rides on the [`Provenance`] an answer carries, and
 //! [`CallRecord::executed_as`] is the accessor: a sink writing an audit line does not have to know
 //! that provenance transitively holds it. It answers `None` for a refusal, because nothing executed.
 //!
@@ -68,7 +68,7 @@
 use crate::identity::{Expiry, PrincipalChain};
 use crate::pinned::Provenance;
 use crate::query::{RefusalReason, ToolOutcome};
-use crate::source::ExecutedAs;
+use crate::source::UniformlyExecuted;
 
 /// Where a record of one call goes.
 ///
@@ -200,7 +200,7 @@ impl<'a> CallRecord<'a> {
     /// verified subject's question was filtered by that subject's own access or by the identity this
     /// deployment holds for the source.
     #[must_use]
-    pub const fn executed_as(&self) -> Option<&ExecutedAs> {
+    pub const fn executed_as(&self) -> Option<&UniformlyExecuted> {
         match self.outcome {
             RecordedOutcome::Answered { provenance, .. } => Some(provenance.executed_as()),
             RecordedOutcome::Refused { .. } => None,

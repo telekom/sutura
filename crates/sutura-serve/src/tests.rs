@@ -233,10 +233,12 @@ fn a_catalog_naming_a_source_with_no_declaration_starts_nothing() {
     // **This replaces `a_catalog_spanning_two_data_systems_starts_nothing`, and the replacement is
     // the point of this branch rather than a regression.** That test asserted a constraint the
     // source registry removes: a catalog whose models sit on two DECLARED sources is now a
-    // deployment that opens two engines, and only a QUESTION whose plan spans both is refused -
-    // once the splitter produces a federated plan it is refused by `answer` as
-    // `FederationNotExecutable` while no adapter executes a leg (three or more sources are refused
-    // at plan time, which is where the blanket bound always belonged).
+    // deployment that opens two engines, and a QUESTION whose plan spans both is now ANSWERED on
+    // this binary: `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS`, so the splitter's
+    // federated plan runs as two legs and the combiner assembles them - `served.rs`'s
+    // `a_served_deployment_answers_a_question_spanning_two_sources` asks this deployment one and
+    // gets rows. (Three or more sources are still refused at plan time, which is where the blanket
+    // bound always belonged.)
     //
     // What survives, and what this asserts, is the half that is still a misconfiguration: a source
     // the catalog reads and the deployment never declared. There is nothing to open it as, no
@@ -716,8 +718,10 @@ fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot(
         "an impersonating posture on an adapter that cannot impersonate must not start",
     );
     assert!(error.contains(ENGINE_SOURCE), "the refusal must name the source: {error}");
+    // `per-subject credential` is a substring of the fuller spelling, so the OR was one fact
+    // stated twice; the shorter arm alone is equivalent and the needle the rule trusts.
     assert!(
-        error.contains("cannot carry a per-subject credential") || error.contains("per-subject credential"),
+        error.contains("per-subject credential"),
         "the refusal must say what the adapter cannot do: {error}"
     );
     assert!(

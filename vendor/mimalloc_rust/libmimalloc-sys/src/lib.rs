@@ -3,7 +3,6 @@
 
 use core::ffi::c_void;
 
-
 extern "C" {
     /// Allocate zero-initialized `size` bytes.
     ///

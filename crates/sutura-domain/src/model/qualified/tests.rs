@@ -149,10 +149,7 @@ fn no_part_of_a_path_can_carry_a_quote_which_is_what_the_golden_stripping_rests_
         let refused = ProjectName::parse(&raw).expect_err("a quote character is not a project character");
         assert_eq!(
             refused,
-            InvalidIdentifier::IllegalCharacter {
-                value: raw.clone(),
-                offending,
-            },
+            InvalidIdentifier::IllegalCharacter { value: raw, offending },
             "a {offending:?} reached a project name"
         );
     }
