@@ -47,6 +47,7 @@ mod one_bound;
 mod pins;
 mod refusals;
 mod registry;
+mod release_provenance;
 mod repo;
 mod rust_source;
 mod serde_parse;
@@ -517,6 +518,12 @@ const TASKS: &[Task] = &[
         description: "extract every composite action's shell into a directory, for shellcheck",
         kind: Kind::Standalone,
         run: action_shell::run,
+    },
+    Task {
+        name: "collect-provenance",
+        description: "export five release attestation bundles after exact subject-set checks",
+        kind: Kind::Standalone,
+        run: release_provenance::run,
     },
     Task {
         // The other half of `check-devenv-shell`, and standalone for `action-shell`'s reason plus
