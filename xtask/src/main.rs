@@ -48,6 +48,7 @@ mod pins;
 mod refusals;
 mod registry;
 mod repo;
+mod rust_source;
 mod serde_parse;
 mod shared_client;
 mod shipped;

@@ -171,6 +171,39 @@ const ABSENCES: &[Absence] = &[
         }],
     },
     Absence {
+        // `#432`, from the review of `#338`. `CompileFailure` gained a second arm and three
+        // sentences downstream went on naming the first: a caller was told the BUNDLE would not
+        // compile its question for a failure that is this workspace's own splitter and assembler
+        // disagreeing. The three were reworded, and a mutation putting them back left the whole
+        // suite green - 2658 tests, exit 0 - because no test and no snapshot names any of them. So
+        // the reword was held by review and by nothing, which is what this entry changes.
+        name: "no compile-failure sentence blames the pinned bundle",
+        claimed: &["No sentence on this variant's path blames the pinned bundle"],
+        stated_in: &["crates/sutura-app/src/**/*.rs"],
+        // One sighting per wording, because the three live in three crates and a reword that
+        // reached two of them is the failure this is for. ALL are scanned; ANY standing fails.
+        refuted_by: &[
+            Sighting {
+                // Every crate's library source rather than `sutura-app`'s: the sentence a caller
+                // reads is written wherever the transport writes it, and an entry that looked only
+                // where the variant is declared would be blind to two of the three.
+                over: &["crates/*/src/**/*.rs"],
+                holds: "compiled against the pinned bundle",
+                means: "the failure's own `Display` blames the bundle again for a cause that may be an assembly defect",
+            },
+            Sighting {
+                over: &["crates/*/src/**/*.rs"],
+                holds: "pinned bundle did not compile",
+                means: "the HTTP sink's log line blames the bundle again",
+            },
+            Sighting {
+                over: &["crates/*/src/**/*.rs"],
+                holds: "against its own bundle",
+                means: "the MCP tool result tells a model the bundle is at fault again",
+            },
+        ],
+    },
+    Absence {
         // `#370` row E, third item. `docs/adr/0015` specifies the gauge's absence, and an operator
         // is told not to alert on the reading - so a consumer landing without the record moving is
         // the instruction going stale.

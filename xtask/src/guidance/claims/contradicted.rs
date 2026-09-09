@@ -461,25 +461,42 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         except: &[],
     },
     Contradicted {
-        // `github.com/telekom/sutura#370` row A. The wording sat on the doc comment of the very
-        // method the federated answer path calls, and `just api` republished it at
-        // `docs/api/sutura-domain.md`, which `mkdocs.yml` puts in the nav. **It was TRUE when it
-        // was written**, so nothing here could have caught it going false - that direction is
-        // `absences`, one module over. This is the other one: a ratchet, so the pre-federation
-        // wording cannot be reinstated by anyone reading the method rather than its caller.
-        name: "nothing constructs a second leg",
-        // ONE wording, and the other half of the same sentence is deliberately not here: `there is
-        // no combiner` is also how the BigQuery adapter's refusal says a LEG arrived with nothing
-        // above it to group it - a different claim, and correct. Registering it would fail correct
-        // prose, which is the pair `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids`
-        // refuses. What survives is the clause that carries the workspace-wide claim.
+        // `github.com/telekom/sutura#370` row A, widened by issue 113. The first wording sat on the
+        // doc comment of the very method the federated answer path calls, and `just api` republished
+        // it at `docs/api/sutura-domain.md`, which `mkdocs.yml` puts in the nav. **Every wording here
+        // was TRUE when it was written**, so nothing here could have caught them going false - that
+        // direction is `absences`, one module over. This is the other one: a ratchet, so no spelling
+        // of the pre-federation belief can be reinstated by whoever reads one file and not its caller.
+        //
+        // RENAMED from "nothing constructs a second leg", which was the label version of the same
+        // defect this table exists for: the entry always held one CLAIM - that a question is not
+        // answered across two data systems - and a name naming one of its sentences is how a sibling
+        // wording gets filed as a second entry nobody adds.
+        name: "this deployment does not answer across two data systems",
+        // The other half of the leg sentence is deliberately not here: `there is no combiner` is also
+        // how the BigQuery adapter's refusal says a LEG arrived with nothing above it to group it - a
+        // different claim, and correct. Registering it would fail correct prose, which is the pair
+        // `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids` refuses. What survives is the
+        // clause that carries the workspace-wide claim.
         //
         // **The sibling sentences are NOT fixed by this entry, and saying so is the point.** The
         // same absence is written in several more `.rs` doc comments, which this table's scope
         // never reaches - `github.com/telekom/sutura#404` measures each one and says which
         // production line refutes it. They are filed rather than folded in here because one file
         // is an adapter another change owns and one is a record that would need an amendment.
-        wordings: &["Nothing constructs a second leg"],
+        wordings: &[
+            "Nothing constructs a second leg",
+            // Issue 113, and the SAME claim rather than a second one: the plan-stage rule went out
+            // with the splitter, and this is the sentence that outlived it on a published page and
+            // in a record. `docs/concepts.md` was corrected and its two siblings were missed, which
+            // is this table's founding cause verbatim. The lineage aside is registered in both its
+            // spellings, because the shorter one also opens a sentence that goes on to explain
+            // federation - and that one is correct.
+            "The plan names exactly one source, so a question that would need two identities is \
+             refused before anything runs",
+            "a plan resolves to one source, a measure reads",
+            "plan resolves to exactly one source, a measure reads",
+        ],
         // The combiner's declaration, which is what the sentence says does not exist. It is called
         // from `sutura_app`'s federated path, but the declaration is the narrower fact and the one
         // that retires the rule if federation is ever taken back out.
@@ -489,7 +506,12 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         }],
         instead: "`sutura_app`'s federated answer path builds the second leg and \
                   `crates/sutura-domain/src/plan/federated/mod.rs` declares what groups the \
-                  two, so the record's shape is settled rather than provisional",
+                  two, so the record's shape is settled rather than provisional. A plan names one \
+                  data system per LEG and at most two legs - three or more refuse as \
+                  `PlanSpansTooManySources` - and whether the two legs would decide identity the \
+                  same way is not a plan-stage fact at all, since a posture belongs to an opened \
+                  adapter; that is refused above the credential mint. `docs/concepts.md` carries \
+                  the corrected wording and its limits",
         only: &[],
         except: &[],
     },
@@ -511,6 +533,30 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         instead: "`load()` runs at boot and the request path borrows the pinned bundle whole - \
                   `crates/sutura-http/src/state.rs` hands a handler `&PinnedDefinitions` - so \
                   there is no per-request view over it, and nothing on that path can acquire I/O",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
+        // An ENTRY and not a rewrite alone, because the page that carried this is the one an agent
+        // debugging a red test is ROUTED to, and it handed them a cause removed in the same commit
+        // that edited the paragraph. Three wordings false in the safe direction; the fourth - the
+        // `removed BEFORE` clause - false in the UNSAFE one, promising a fail-closed file where a
+        // neighbour's entry now deliberately survives.
+        name: "a `dev-up` rewrites the whole discovery document",
+        wordings: &[
+            "still serialises the whole document",
+            "so a nix tier's entry goes with it",
+            "the next `just test` still answers nothing",
+            "removed BEFORE the tier is touched",
+        ],
+        evidence: &[Evidence {
+            path: "dev/src/discovery.rs",
+            holds: "fn a_second_provisioners_entry_survives_a_publish",
+        }],
+        instead: "both writers of the discovery document merge per ENTRY, so a neighbour's entry \
+                  outlives a `just dev-up` and keeps the file alive with it - which narrows the \
+                  fail-closed claim to one provisioner's own entries. `dev/src/discovery.rs` and \
+                  `.agents/skills/sutura/query-surface/SKILL.md` state it correctly",
         only: &[],
         except: &[],
     },

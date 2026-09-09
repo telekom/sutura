@@ -1,11 +1,12 @@
 //! The derived corpus: the shared example bytes, plus the declared edits that make a topology the
 //! quickstart cannot state.
 //!
-//! **One data directory, two catalogs over it, and the two differ in exactly one line** - whether
+//! The baseline has **one data directory, two catalogs over it, differing in exactly one line** - whether
 //! the `customers` model sits on the metric's own data system. That width is
-//! [`the_two_catalogs_differ_in_one_document`], and it is the control on the whole instrument:
+//! [`the_two_catalogs_differ_in_one_document`], and it is the control on the baseline instrument:
 //! without it, a corpus asymmetry would be reported by `super` as a federation defect, which is the
 //! most expensive kind of false positive because the diagnosis names the wrong subsystem.
+//! The refusal-only variants also move products, under distinct stems without mutating the baseline.
 //!
 //! **Derived rather than committed, and that is a scope decision.** Placing the dimension model on a
 //! second source is one deployment's topology, and `examples/single-player` is a single-source
@@ -13,7 +14,7 @@
 //! measure that cannot federate, none of which belongs in a document a reader is told to run.
 //! Editing the shared corpus would also have moved anchors and committed snapshots in three crates.
 //!
-//! So each derivation is one entry in [`CATALOG_CASES`], [`DATA_CASES`] or [`DERIVED_QUESTIONS`]
+//! Each baseline derivation is one entry in [`CATALOG_CASES`], [`DATA_CASES`] or [`DERIVED_QUESTIONS`]
 //! with its reason beside it, and a [`Edit::Rewrite`] whose text has left the shared document
 //! PANICS rather than deriving nothing - a corpus edit upstream fails loudly instead of quietly
 //! emptying this file. The appended fact rows are dated `2026-07-01`, outside every anchor range and
@@ -285,6 +286,20 @@ pub(crate) struct Derived {
 pub(crate) fn derived() -> &'static Derived {
     static ONCE: OnceLock<Derived> = OnceLock::new();
     ONCE.get_or_init(|| derive_into("federated-differential"))
+}
+
+/// An owned refusal topology: customers are remote, and products take the supplied source line.
+/// Distinct caller stems keep these variants separate from each other and the shared baseline.
+pub(crate) fn remote_products(stem: &str, source_line: &'static str) -> Derived {
+    let derived = derive_into(stem);
+    apply(
+        &derived.two_source.join("models/products.md"),
+        &Edit::Rewrite {
+            find: "source: local",
+            with: source_line,
+        },
+    );
+    derived
 }
 
 /// **The same corpus with the `many_to_one` between the fact and the dimension VIOLATED**, as one

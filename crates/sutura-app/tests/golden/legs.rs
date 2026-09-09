@@ -15,6 +15,11 @@
 //! binding, which holds a leg to the number the whole-plan case lands on, and the two-engine pass in
 //! `tests/differential/federated.rs`. These four dialects are evidence about the renderer.
 //!
+//! **And the limit these fixtures carry about themselves:** nothing holds them against what
+//! `sutura_semantic::plan` actually emits. That is why every reserved label below is taken from
+//! `InternalLabel` rather than spelled - a hand-written one is where the fixture and the splitter
+//! can drift with no cell to say so.
+//!
 //! **The fixtures are the federated form of questions that already exist in the corpus**, over the
 //! same telco catalog, with `customers` imagined on a second data system - which is the case
 //! `docs/adr/0007` is about. Three fact shapes and two lookup shapes:
@@ -36,11 +41,12 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::TIME_BUCKET_LABEL;
-use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
+use sutura_domain::model::{
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName,
+};
 use sutura_domain::plan::{
     InternalLabel, LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm,
-    PredicateOrigin, StatementTables,
+    PredicateOrigin, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::{Dialect, generate_leg};
@@ -72,7 +78,10 @@ fn column(table_name: &str, column_name: &str) -> PlanColumn {
 }
 
 fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
-    PlanKey::new(String::from(label), column(table_name, column_name))
+    PlanKey::new(
+        ResultLabel::dimension(&DimensionName::parse(label).expect("a fixture dimension is a dimension")),
+        column(table_name, column_name),
+    )
 }
 
 /// The key the two legs are joined on, under the label the splitter gives it.
@@ -94,7 +103,7 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// restricts a column NAME to a letter or an underscore first. `label.rs` carries the table of what
 /// each venue establishes, and which two targets are still parser-only.
 fn link_key(table_name: &str) -> PlanKey {
-    PlanKey::new(InternalLabel::Link.label(), column(table_name, "customer_key"))
+    PlanKey::new(ResultLabel::internal(InternalLabel::Link), column(table_name, "customer_key"))
 }
 
 fn june() -> TimeRange {
@@ -106,7 +115,7 @@ fn june() -> TimeRange {
 }
 
 fn month_bucket() -> PlanBucket {
-    PlanBucket::new(String::from(TIME_BUCKET_LABEL), Grain::Month, column(FACT_TABLE, "month"))
+    PlanBucket::new(ResultLabel::bucket(), Grain::Month, column(FACT_TABLE, "month"))
 }
 
 /// The two range bounds and the metric's own status filter, in parameter order.
@@ -164,7 +173,7 @@ fn term(aggregate: Aggregate, column_name: &str, position: usize) -> LegTerm {
             aggregate,
             column: column(FACT_TABLE, column_name),
         },
-        InternalLabel::Leaf(position).label(),
+        ResultLabel::internal(InternalLabel::Leaf(position)),
     )
 }
 

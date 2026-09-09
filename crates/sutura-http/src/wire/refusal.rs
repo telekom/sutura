@@ -281,6 +281,24 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  system. Asking the same question again returns this same refusal"
             ),
         ),
+        // 409, and the same family as the three federation refusals above: the question is well
+        // formed, the metric permits it, and this deployment will not answer THIS one. Not 403 -
+        // nothing about the caller's own authorization decided it, and a caller told `forbidden`
+        // goes looking for a better token. Not 503, because retrying returns the same refusal
+        // until a deployment's own source declarations change.
+        //
+        // The sentence names the two POSTURE LABELS and nothing else. `SourcePosture` carries the
+        // operator's acknowledgement prose, so the domain variant carries labels out of a closed
+        // set of two - see [`RefusalBody`] for the general rule, which this follows for an
+        // operator's text rather than a caller's.
+        RefusalReason::LegsDecideIdentityDifferently { ref postures } => (
+            StatusCode::CONFLICT,
+            "legs_decide_identity_differently",
+            format!(
+                "answering this would combine data systems that decide who is asking differently                  ({}), and a total made of rows read under two identities is a number neither of                  them is entitled to. It is refused rather than labelled: ask the same metric                  without the dimension on the second data system, or report it to a person",
+                postures.iter().copied().collect::<Vec<&str>>().join(" and ")
+            ),
+        ),
     };
     (
         status,
@@ -459,6 +477,13 @@ mod tests {
                 },
                 StatusCode::FORBIDDEN,
                 "credential_unavailable",
+            ),
+            (
+                RefusalReason::LegsDecideIdentityDifferently {
+                    postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
+                },
+                StatusCode::CONFLICT,
+                "legs_decide_identity_differently",
             ),
         ]
     }

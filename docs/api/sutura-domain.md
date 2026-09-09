@@ -121,7 +121,7 @@ the posture each leg ran under, and the expiry the credentials carried.**
 A verified subject's question can be answered under the *deployment's* own identity on a source
 declared `shared-service-user` - that is honest, acknowledged and not impersonation - and the
 incident question is then "whose access filtered these rows". The answer is
-`crate::source::ExecutedAs`, which rides on the `Provenance` an answer carries, and
+`crate::source::UniformlyExecuted`, which rides on the `Provenance` an answer carries, and
 `CallRecord::executed_as` is the accessor: a sink writing an audit line does not have to know
 that provenance transitively holds it. It answers `None` for a refusal, because nothing executed.
 
@@ -198,7 +198,7 @@ pub const fn chain(&self) -> &PrincipalChain
 Who the call is attributable to.
 
 ```rust
-pub const fn executed_as(&self) -> Option<&ExecutedAs>
+pub const fn executed_as(&self) -> Option<&UniformlyExecuted>
 ```
 
 Which identity produced each leg, where anything executed.
@@ -3764,13 +3764,15 @@ pub const fn digest(&self) -> &DefinitionDigest
 ```
 
 ```rust
-pub const fn executed_as(&self) -> &ExecutedAs
+pub const fn executed_as(&self) -> &UniformlyExecuted
 ```
 
 What each leg of this answer ran as.
 
 Read off the posture the **adapter was handed**, never off a settings tree - see
-`crate::source`. Non-empty, because `ExecutedAs` has no empty form.
+`crate::source`. Non-empty, because `crate::source::ExecutedAs` has no empty form, and
+uniform, because `UniformlyExecuted` is the only thing `PinnedDefinitions::provenance`
+accepts.
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -3936,7 +3938,7 @@ fn _pin(
 ```
 
 ```rust
-pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance
+pub fn provenance(&self, executed_as: UniformlyExecuted) -> Provenance
 ```
 
 The provenance to attach to one answer produced from this bundle.
@@ -3951,6 +3953,40 @@ A caller that only wants to *describe* this bundle - a catalog endpoint, the age
 prompt - reads `Self::version` and `Self::digest` instead. Nothing executed for it, and a
 `Provenance` with an empty execution record would be the one shape this argument exists to
 make unrepresentable.
+
+# And a MIXED execution record is unrepresentable the same way
+
+The argument is `UniformlyExecuted` rather than `crate::source::ExecutedAs`, so an answer
+combining rows read under one posture with rows read under another cannot be built at all -
+not refused at a call site somebody may move, but absent from the type system. A record with
+two legs reaches this only through `crate::source::ExecutedAs::uniform`, which is where the
+verdict is made.
+
+**A mixed record has no way in:**
+
+```compile_fail
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+use sutura_domain::source::ExecutedAs;
+
+fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
+    pinned.provenance(both_legs)
+}
+```
+
+The compiling twin, differing by exactly the one call that makes the verdict - so the block
+above cannot be passing on a typo:
+
+```
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+use sutura_domain::source::{ExecutedAs, LegsDecideIdentityDifferently};
+
+fn _uniform(
+    pinned: &PinnedDefinitions,
+    both_legs: ExecutedAs,
+) -> Result<Provenance, LegsDecideIdentityDifferently> {
+    Ok(pinned.provenance(both_legs.uniform()?))
+}
+```
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -4494,6 +4530,40 @@ pub struct PlanBucket
 
 The truncated time column, and the label it is projected under.
 
+**The label is a `ResultLabel` and not a `String`, which is the third carrier
+`telekom/sutura#337` names.** Every producer in this workspace passes `ResultLabel::bucket`,
+which takes no argument because there is nothing to choose:
+`TIME_BUCKET_LABEL` is the one spelling.
+
+**The limit, next to the claim:** the type says the text came from something already parsed, not
+WHICH of the four constructors produced it - so a bucket labelled with a dimension's own name is
+still representable here, and what refuses that particular collision is
+`Definitions::assemble`, which will not accept a dimension named
+`period` in the first place.
+
+A computed bucket label is a compile error, which is the pair `ResultLabel` carries for a key
+applied to the carrier it did not reach:
+
+```compile_fail
+use sutura_domain::model::{ColumnName, Grain, TableName};
+use sutura_domain::plan::{PlanBucket, PlanColumn};
+
+fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanBucket {
+    PlanBucket::new(format!("0_leaf_{leaf}"), Grain::Month, PlanColumn::new(table, column))
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::model::{ColumnName, Grain, TableName};
+use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
+
+fn _parsed(table: TableName, column: ColumnName) -> PlanBucket {
+    PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table, column))
+}
+```
+
 #### Methods
 
 ```rust
@@ -4508,8 +4578,10 @@ pub const fn grain(&self) -> Grain
 pub fn label(&self) -> &str
 ```
 
+The text the bucket is projected under.
+
 ```rust
-pub const fn new(label: String, grain: Grain, column: PlanColumn) -> Self
+pub const fn new(label: ResultLabel, grain: Grain, column: PlanColumn) -> Self
 ```
 
 #### Implements
@@ -4524,6 +4596,11 @@ pub struct PlanKey
 
 One group-by key.
 
+**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
+to be labelled with whatever text its producer computed, and what kept that out of the internal
+namespace a federated leg also projects into was a derivation held by review. The type is the
+mechanism now: `ResultLabel` carries the compile-fail pair that says so.
+
 #### Methods
 
 ```rust
@@ -4534,8 +4611,14 @@ pub const fn column(&self) -> &PlanColumn
 pub fn label(&self) -> &str
 ```
 
+The text this key is projected under.
+
+Text rather than the `ResultLabel`, because every reader of a label renders it: the
+generator quotes it as an alias and the combiner looks a column up by it. What the type
+holds is the way IN.
+
 ```rust
-pub const fn new(label: String, column: PlanColumn) -> Self
+pub const fn new(label: ResultLabel, column: PlanColumn) -> Self
 ```
 
 #### Implements
@@ -4731,7 +4814,7 @@ pub const fn metric(&self) -> &MetricName
 ```
 
 ```rust
-pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
+pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: ResultLabel, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
 ```
 
 One statement's worth of decisions.
@@ -4949,6 +5032,8 @@ one place: the caller owns the order, which is what the placeholder-position con
 
 ### `use None`
 
+### `use None`
+
 ### `constant MAX_ROWS`
 
 The most rows any plan may return.
@@ -5081,7 +5166,7 @@ pub const fn metric(&self) -> &MetricName
 The metric this answer is measured in.
 
 ```rust
-pub fn new(metric: MetricName, measure_label: String, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+pub fn new(metric: MetricName, measure_label: ResultLabel, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
 ```
 
 Constructs a federated plan from its two legs and the answer's key order.
@@ -5135,7 +5220,7 @@ One group-by key of the answer: which leg owns it, and the label it carries in t
 ##### Methods
 
 ```rust
-pub const fn fact(label: String) -> Self
+pub const fn fact(label: ResultLabel) -> Self
 ```
 
 A key read from the fact leg's result, under `label`.
@@ -5144,10 +5229,10 @@ A key read from the fact leg's result, under `label`.
 pub fn label(&self) -> &str
 ```
 
-The label this key carries in its leg's result.
+The text this key carries in its leg's result.
 
 ```rust
-pub const fn lookup(label: String) -> Self
+pub const fn lookup(label: ResultLabel) -> Self
 ```
 
 A key read from the lookup leg's result, under `label`.
@@ -5307,16 +5392,18 @@ with another public label at load, and cannot collide with an internal one at al
 nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
 is the property the test asserts, and the thing to re-establish if this spelling ever changes.
 
-**And the two halves are held by different KINDS of thing, which is the asymmetry to know about.**
-This half is a type. The public half is not: `PlanKey` and
-`LegTerm` carry their labels as `String`, so what keeps a public label out
-of this namespace is that `sutura_semantic::plan::federated_plan` derives every one of them from a
-`DimensionName`, a `MetricName` or `TIME_BUCKET_LABEL` - a derivation held by review, and by no
-test: the test above asks the four name parsers to refuse these spellings, which is a property of
-`parse_identifier`, not of any plan. A computed public label landing on `0_leaf_{n}` would be
-refused by `distinct_columns` as `DuplicateLabels`, so the failure direction is a refusal rather
-than a wrong number - which is why the `String`s are still here. `telekom/sutura#337` is the
-typed-label remedy that would make the comparison impossible rather than unnecessary.
+**Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
+`InternalLabel`; the public half is `ResultLabel`, whose only
+constructors take a `DimensionName`, a `MetricName`, `InternalLabel` or nothing at all - so a
+computed string is not a label a plan can carry, and the derivation
+`sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
+instead. What that changes about the paragraph above: the two namespaces are still disjoint
+*because* of the leading digit, and what the types add is that no producer can put a value in
+both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
+something already parsed, never WHICH of the four constructors produced it - so a value built by
+`ResultLabel::internal` is accepted anywhere a label is
+taken, the bucket's position included. Nothing here reads the provenance back, because nothing
+needs to: the disjointness is the leading digit.
 
 **Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
 is 63 characters because that is the tightest among the data systems targeted, and it is a
@@ -5361,6 +5448,180 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+### Module `label`
+
+What a result column may be labelled, and the four things a label can be derived from.
+
+#### `struct ResultLabel`
+
+```rust
+pub struct ResultLabel
+```
+
+The label one column of a result carries, which can only be built out of something already
+parsed.
+
+**The half of the labelling scheme that used to be held by review.** A federated leg's result
+carries two kinds of label in one namespace. The internal kind is
+`InternalLabel`, a type: every rendering starts with a digit, and
+`crate::model`'s identifier parser refuses a leading digit as a FIRST character, so no
+`DimensionName`, `MetricName`, `ColumnName` or `TableName` can spell one. The public kind was
+a `String` on `PlanKey` and `LegTerm`, and what
+kept a public label out of the internal namespace was that `sutura_semantic::plan` happened to
+derive every one of them from a dimension name, a metric name or
+`TIME_BUCKET_LABEL` - a derivation held by review, and by no
+test. `telekom/sutura#337` is the report.
+
+This type is the other half. There is no constructor taking text, so the four functions below are
+the whole of what a label can come from, and a computed string is not one of them. That turns
+*nothing compares the two halves* into *nothing can put a value in both*, which is the stronger
+version of the same argument and the one the leading digit was chosen to support.
+
+**Why a newtype over the rendering rather than the four-variant enum the report sketched.** An
+enum would have to hand out its text, and `Internal(InternalLabel::Leaf(n))` has no `&'static
+str` rendering to hand out - the position is formatted - so `label()` would return a
+`Cow` and the five alias call sites in `sutura_sql::generate` would change
+with it. Measured, not assumed: `aliased(inner: Expr, label: &str)` is called five times there,
+once per projected column shape. So the rendering is stored and the four constructors are the
+gate. **The limit, next to the claim:** which of the four a label came from is not recoverable
+from the value, because nothing reads it back - what the type buys is that the TEXT can only come
+from one of them.
+
+A computed string is not a label, and that is a compile error rather than a review finding:
+
+```compile_fail
+use sutura_domain::model::{ColumnName, TableName};
+use sutura_domain::plan::{PlanColumn, PlanKey};
+
+// The failure `telekom/sutura#325`'s F2 reproduced: a public key labelled with a computed
+// string that lands in the internal namespace.
+fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanKey {
+    PlanKey::new(format!("0_leaf_{leaf}"), PlanColumn::new(table, column))
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::model::{ColumnName, DimensionName, TableName};
+use sutura_domain::plan::{PlanColumn, PlanKey, ResultLabel};
+
+fn _parsed(table: TableName, column: ColumnName, dimension: &DimensionName) -> PlanKey {
+    PlanKey::new(ResultLabel::dimension(dimension), PlanColumn::new(table, column))
+}
+```
+
+**The two blocks above hold a CARRIER's signature, and that is not the same as this type being
+closed.** They say `PlanKey::new` will not take a `String`; they say nothing about whether a
+`String` can become a `ResultLabel` first, and
+`PlanKey::new(ResultLabel::from(format!("0_leaf_{n}")), column)` is `telekom/sutura#325`'s F2 one
+conversion further out. Measured rather than reasoned: adding `impl From<String> for ResultLabel`
+and touching no carrier left `just test` at exit 0 with 2658 tests passing and BOTH carrier pairs
+green. So the closure is stated over the type, on the bound every carrier is really reached
+through:
+
+```compile_fail
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+// Text does not become a label, by any route.
+fn _computed(leaf: usize) -> ResultLabel {
+    _labelled(format!("0_leaf_{leaf}"))
+}
+```
+
+And the twin over the same bound, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+fn _parsed() -> ResultLabel {
+    _labelled(ResultLabel::bucket())
+}
+```
+
+**And it does not deserialize, which no gate in this tree holds.**
+`cargo xtask check-serde-parse` is the gate for a derived `Deserialize` writing past a parse, and
+what makes a type its subject is a FALLIBLE constructor - a `-> Result<Self, _>`. The four above
+cannot fail, because nothing is left to reject once the argument is a certified name, so this
+type is outside the gate for being parsed too well. Measured: `#[derive(serde::Deserialize)]`
+here reports `check-serde-parse: ok - 649 struct(s) in 388 file(s), serde routed through parse`
+and `hygiene: ok - 34 gate(s)`. `telekom/sutura#446` carries the general case, which is the
+gate's design question rather than this type's; the pair below is what holds this one:
+
+```compile_fail
+fn _needs<T: serde::de::DeserializeOwned>() {}
+
+// A label read off the wire would be a label nothing parsed.
+fn _off_the_wire() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+And the twin over the same shape, with the serde bound this type does satisfy:
+
+```
+fn _needs<T: serde::Serialize>() {}
+
+fn _into_a_snapshot() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+**It serializes as the bare string it renders**, so the plan goldens are unchanged by this type
+existing: a plan's serialized form is what a snapshot pins, and a wrapper visible in it would be
+a diff about a Rust type rather than about what we decided to execute.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The text this label carries in a result.
+
+```rust
+pub fn bucket() -> Self
+```
+
+The label the truncated time column carries, which is one constant for every plan.
+
+No argument, because there is nothing to choose:
+`TIME_BUCKET_LABEL` is the one spelling, and
+`Definitions::assemble` refuses a dimension that shadows it.
+
+```rust
+pub fn dimension(name: &DimensionName) -> Self
+```
+
+The label a group-by key carries: the dimension's own certified name.
+
+```rust
+pub fn internal(label: InternalLabel) -> Self
+```
+
+A label in the namespace no question can name.
+
+The one way into that half, and it takes the type rather than its text - so the reserved
+spelling still lives in exactly one place.
+
+```rust
+pub fn measure(metric: &MetricName) -> Self
+```
+
+The label the answer's measure carries: the metric's own certified name.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
 
 ### Module `leg`
 
@@ -5427,7 +5688,7 @@ The division a leg cannot express does not compile:
 
 ```compile_fail
 use sutura_domain::measure::ZeroDenominator;
-use sutura_domain::plan::{LegTerm, PlanMeasure, PlanTerm};
+use sutura_domain::plan::{InternalLabel, LegTerm, PlanMeasure, PlanTerm, ResultLabel};
 
 // `LegTerm::new` takes a term, and a ratio is not one.
 fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDenominator) -> LegTerm {
@@ -5437,7 +5698,7 @@ fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDe
             denominator,
             zero_denominator,
         },
-        String::from("ratio"),
+        ResultLabel::internal(InternalLabel::Leaf(0)),
     )
 }
 ```
@@ -5446,12 +5707,12 @@ And the twin, so a rename cannot make that block pass vacuously: the two halves 
 terms, and the division happens above every leg.
 
 ```
-use sutura_domain::plan::{LegTerm, PlanTerm};
+use sutura_domain::plan::{InternalLabel, LegTerm, PlanTerm, ResultLabel};
 
 fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
     vec![
-        LegTerm::new(numerator, String::from("numerator")),
-        LegTerm::new(denominator, String::from("denominator")),
+        LegTerm::new(numerator, ResultLabel::internal(InternalLabel::Leaf(0))),
+        LegTerm::new(denominator, ResultLabel::internal(InternalLabel::Leaf(1))),
     ]
 }
 ```
@@ -5462,8 +5723,10 @@ fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
 pub fn label(&self) -> &str
 ```
 
+The text this term is projected under.
+
 ```rust
-pub const fn new(term: PlanTerm, label: String) -> Self
+pub const fn new(term: PlanTerm, label: ResultLabel) -> Self
 ```
 
 ```rust
@@ -6060,6 +6323,7 @@ somebody else's input.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
+- `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
 
 #### Implements
 
@@ -6208,6 +6472,20 @@ executed, and provenance is read by whoever holds the answer *after* the rows we
 cannot prevent a disclosure and does not attempt to. What keeps a shared source from being served
 unnoticed is the boot refusal in `sutura_config::Settings::refusals` and the cross-check above,
 both of which happen before a listener is bound.
+
+# One answer, one kind of identity - and this half IS a control
+
+`ExecutedAs::uniform` is the verdict, and `UniformlyExecuted` is what carrying it looks like:
+`crate::pinned::PinnedDefinitions::provenance` takes only that, so an answer whose legs decide
+identity two different ways is **unconstructible** rather than merely declined. It is a control
+and the recording beside it is not, for the reason the paragraph above gives - a refusal reaches a
+caller instead of the rows, and a record reaches them after.
+
+Two things it does not reach, both worth having in front of a reader here. It compares the posture
+**variant** and never the value, because an acknowledgement is written per source and two ordinary
+shared legs are therefore two unequal values and one posture. And *same posture* is not *same
+asker*: nothing in this module or in `crate::identity` names WHICH shared identity a source is
+read as.
 
 # Nothing here is `Deserialize`, and that is the same property `crate::identity` has
 
@@ -6641,6 +6919,26 @@ pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
 
 What one source's leg ran as, if this answer has one.
 
+```rust
+pub fn uniform(self) -> Result<UniformlyExecuted, LegsDecideIdentityDifferently>
+```
+
+This record, if every leg in it decides identity the same way.
+
+**The predicate compares the VARIANT and never the value, and that distinction is the whole
+of what makes this shippable.** `SourcePosture` derives `PartialEq` and a shared source
+carries the operator's own acknowledgement, which is resolved per source - so two ordinary
+`shared-service-user` legs whose operators wrote different sentences are two *unequal*
+values and one posture. A `!=` here would refuse the only federating shape that ships.
+`SourcePosture::as_str` is the variant, so the set below has one member for any number of
+shared legs.
+
+What it decides is *same posture*, and what it cannot decide is *same asker*:
+`crate::identity::Presented::SharedServiceUser` carries the acknowledgement witness and no
+identity, and nothing here names WHICH shared identity a source is read as. So two
+`shared-service-user` legs may be two different deployment-held identities and this passes
+them. Stated with the claim, because the stronger reading is the one somebody will make.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -6652,6 +6950,87 @@ pub struct LegAlreadyRecorded
 ```
 
 A second leg was recorded for a source that already had one.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct UniformlyExecuted`
+
+```rust
+pub struct UniformlyExecuted
+```
+
+An execution record whose legs all decide identity the same way.
+
+**This exists so a mixed-posture answer is unconstructible rather than refused twice.**
+`crate::pinned::PinnedDefinitions::provenance` takes one of these, `Provenance::new` is
+private, and `ToolOutcome::Answer` carries a `Provenance` - so an answer combining two postures
+has no way to be built, whatever a call site above it forgets to ask. The refusal in the
+federated answer path is what stops the legs *running*; this is what stops rows *reaching a
+caller* if that call site is ever moved below execution.
+
+The field is private and there is no `Deserialize`, for `SharedIdentityDeclared`'s reason: a
+value that reached this type without passing `ExecutedAs::uniform` would be the one state it
+exists to make unreachable. What it does **not** claim is that the constructors are unreachable
+from another crate - `Self::of` is `pub`, because one leg cannot disagree with itself and the
+mono answer path has no error arm to write.
+
+#### Methods
+
+```rust
+pub fn legs(&self) -> impl Iterator<Item>
+```
+
+Every leg, by source, in source order.
+
+```rust
+pub fn of(source: SourceName, posture: SourcePosture) -> Self
+```
+
+One leg, which is uniform by construction.
+
+The mono answer path's door, and it returns no `Result` deliberately: a single-leg record has
+one posture, so an `Err` arm there would be a refusal nothing can provoke sitting on the path
+every question takes. Two doors, one property - the other is `ExecutedAs::uniform`.
+
+```rust
+pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
+```
+
+What one source's leg ran as, if this answer has one.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct LegsDecideIdentityDifferently`
+
+```rust
+pub struct LegsDecideIdentityDifferently
+```
+
+The legs of one answer would not all decide identity the same way.
+
+Carries the posture LABELS and never a `SourcePosture`, and that is a disclosure decision
+rather than a convenience: the shared variant holds `SharedIdentityDeclared` ->
+`AcknowledgementReason`, both `Serialize`, so a value here would publish the operator's own
+prose to whatever reads the refusal this becomes - a caller, a log, an agent's context. The
+labels come from `SourcePosture::NAMES`' closed set and say the whole of what a reader needs.
+
+#### Methods
+
+```rust
+pub fn into_postures(self) -> BTreeSet<&'static str>
+```
+
+The labels, for a refusal that carries them onward.
+
+```rust
+pub const fn postures(&self) -> &BTreeSet<&'static str>
+```
+
+The posture labels this answer would have combined, in name order.
 
 #### Implements
 

@@ -37,7 +37,7 @@ use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, Pinned
 use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
-use sutura_semantic::{BundleInconsistent, Compiled, compile};
+use sutura_semantic::{CompileFailure, Compiled, compile};
 
 use crate::federated::answer_federated;
 pub use crate::warehouses::{SourceAlreadyOpen, Warehouses};
@@ -237,10 +237,19 @@ mod proof {
 /// boundary gate bans `anyhow` for, arrived at by a different route.
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError<E, M> {
+    /// The pinned bundle would not compile this question, or the splitter built a two-source plan
+    /// this workspace could not then assemble.
+    ///
+    /// **Both are our own side being wrong, which is what keeps them out of a refusal.**
+    /// `telekom/sutura#338` is the second one's report: it used to arrive as
+    /// [`RefusalReason::FederationNotExecutable`], which is what a build whose adapter type does not
+    /// declare `Warehouse::EXECUTES_LEGS` is told, so a wiring defect was indistinguishable from a
+    /// build that cannot run a leg. `sutura_semantic::CompileFailure` keeps them apart and keeps the
+    /// typed cause.
     #[error("the question could not be compiled")]
     Compile {
         #[source]
-        cause: BundleInconsistent,
+        cause: CompileFailure,
     },
     #[error("the data system did not answer")]
     Warehouse {
