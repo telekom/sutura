@@ -304,7 +304,8 @@ mod tests {
             ("sutura-semantic", &[]),
             ("sutura-sql", &[]),
         ]);
-        assert!(check(&valid).expect("valid metadata").problems.is_empty());
+        let report = check(&valid).expect("valid metadata");
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
         for (field, value) in [
             ("default", serde_json::json!(["compile"])),
             ("compile", serde_json::json!(["dep:sutura-semantic", "dep:sutura-sql"])),
