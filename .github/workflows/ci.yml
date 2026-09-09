@@ -241,13 +241,21 @@ jobs:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
           # absent: with it, a pull request could add a substituter and a trusted key and have
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
-          # goes HERE, where the workflow diff shows it - never read from flake.nix. There is no
-          # third-party substituter line to add: `docs/adr/0026` records the Actions cache as the
-          # only carrier, and `cargo xtask check-workflows` refuses one NAMED in a workflow, both
-          # as `name = value` here and as `--name value` on a nix command line. It cannot see a
-          # value assembled from pieces, so that is review's, not the gate's.
+          # goes HERE, where the workflow diff shows it - never read from flake.nix.
+          #
+          # ONE store outside this repository is trusted, and both halves are COMMITTED rather than
+          # held in a secret or a variable: a committed value is one a reviewer sees and one
+          # `cargo xtask check-workflows` can compare against, while a variable swaps with no diff
+          # and nothing notices. The gate permits exactly this pair in exactly this spelling - an
+          # added store, a different key, that key on another host, or this store passed as
+          # `--extra-substituters` are all still refused. Nix's signature check bounds the trust.
+          # The WRITE credential is the only secret; it is an *environment* secret and it lives in
+          # `cachix-push.yml`, so no job on this path can reach it. Residual limit: a value
+          # assembled from pieces, or one arriving via another action's input, passes unseen.
           extra_nix_config: |
             fallback = true
+            substituters = https://sutura.cachix.org
+            trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       - uses: ./.github/actions/nix-store-cache
         with:
@@ -863,6 +871,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
+            substituters = https://sutura.cachix.org
+            trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       - uses: ./.github/actions/nix-store-cache
         with:

@@ -149,6 +149,8 @@ jobs:
           # says what is configured here rather than what nix can possibly be told.
           extra_nix_config: |
             fallback = true
+            substituters = https://sutura.cachix.org
+            trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       # One entry PER TARGET: each leg builds a different closure, so a shared key would have the
       # four overwrite each other. Restore-only on a pull request - see

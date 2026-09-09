@@ -272,6 +272,40 @@ fn undashed(token: &str) -> (bool, &str) {
     (bare.len() < token.len(), bare)
 }
 
+/// The one store outside this repository that CI trusts, with the key that signs it.
+///
+/// **Committed rather than held in a secret or a variable, deliberately.** A committed value is one a
+/// reviewer sees in the diff and one this gate can compare against; a variable can be swapped with no
+/// diff at all and nothing would notice. The write credential is the only half that is a secret, and
+/// it is an *environment* secret so only a push to the default branch can reach it.
+const ALLOWED: [(&str, &str); 2] = [
+    ("substituters", "https://sutura.cachix.org"),
+    (
+        "trusted-public-keys",
+        "sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=",
+    ),
+];
+
+/// Whether one line assigns `setting` to exactly the permitted value and to nothing else.
+///
+/// **Only the assignment form is permitted, never a flag.** The allowance exists for the installer's
+/// own `extra_nix_config`, where the workflow diff shows it; a substituter passed on a command line
+/// stays refused even when it names the allowed store, because that spelling is how a step reaches
+/// past the configuration a reviewer read. And the comparison is against the WHOLE value list, so
+/// appending a second store to an otherwise-permitted line is still a refusal.
+fn permitted(code: &str, setting: &str) -> bool {
+    let Some((name, value)) = code.split_once('=') else {
+        return false;
+    };
+    if name.trim() != setting {
+        return false;
+    }
+    ALLOWED
+        .iter()
+        .find(|(named, _)| *named == setting)
+        .is_some_and(|(_, allowed)| value.split_whitespace().eq(std::iter::once(*allowed)))
+}
+
 /// Every line of one file that would make CI trust a store outside this repository.
 ///
 /// A LINE rule and not a step rule, and the residual limit belongs where a reader meets it: this
@@ -286,6 +320,9 @@ fn trusted_stores(label: &str, text: &str) -> Vec<String> {
         let Some(code) = key_of(line) else { continue };
         for setting in SUBSTITUTER {
             let Some(named) = names(code, setting) else { continue };
+            if named == Names::Assigned && permitted(code, setting) {
+                continue;
+            }
             let how = match named {
                 Names::Assigned => format!("assigns `{setting}`, so every nix invocation in the job trusts it"),
                 Names::Flag => format!("passes `{setting}` as a command-line option, so that nix invocation trusts it"),
@@ -311,6 +348,46 @@ mod tests {
     /// rather than the closure's borrowed pairs.
     fn owned(label: &str, text: &str) -> Vec<(String, String)> {
         vec![(String::from(label), String::from(text))]
+    }
+
+    /// The allowance is the whole risk of enabling a binary cache: it has to admit exactly one store
+    /// and refuse every neighbouring shape, or it reads as coverage while trusting anything.
+    #[test]
+    fn exactly_one_store_is_permitted_and_every_neighbour_is_still_refused() {
+        let allowed = "      extra_nix_config: |\n        substituters = https://sutura.cachix.org\n        trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=\n";
+        assert!(
+            super::trusted_stores("ci.yml", allowed).is_empty(),
+            "the committed store and its key are the one permitted pair"
+        );
+
+        for (why, text) in [
+            (
+                "a second store appended to the permitted line",
+                "        substituters = https://sutura.cachix.org https://example.invalid\n",
+            ),
+            ("a different store", "        substituters = https://example.invalid\n"),
+            (
+                "the permitted key on another host",
+                "        trusted-public-keys = example.invalid-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=\n",
+            ),
+            (
+                "a different key for the permitted store",
+                "        trusted-public-keys = sutura.cachix.org-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n",
+            ),
+            (
+                "the permitted store passed as a FLAG rather than assigned",
+                "        run: nix build --extra-substituters https://sutura.cachix.org .#xtask\n",
+            ),
+            (
+                "the permitted store via --option",
+                "        run: nix build --option substituters https://sutura.cachix.org .#xtask\n",
+            ),
+        ] {
+            assert!(
+                !super::trusted_stores("ci.yml", text).is_empty(),
+                "still refused: {why}"
+            );
+        }
     }
 
     #[test]

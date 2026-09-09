@@ -54,7 +54,7 @@ case "$1" in
 esac
 package=$5
 target=$7
-expected="tree --offline --locked --package $package --target $target --edges normal,no-proc-macro --prefix none --format {p}|{f} --no-dedupe --color never"
+expected="tree --offline --locked --package $package --target $target --edges normal,no-proc-macro --prefix none --format {p}|{f} --color never"
 [ "$*" = "$expected" ] || exit 42
 last=false
 if [ "$package" = root-two ] && [ "$target" = aarch64-apple-darwin ]; then last=true; fi
@@ -130,7 +130,7 @@ if "$last" && [ "$SUTURA_FEATURE_CASE" = nonzero ]; then exit 23; fi
         for package in ["root-one", "root-two"] {
             for target in TARGETS {
                 writeln!(expected,
-                    "<tree><--offline><--locked><--package><{package}><--target><{target}><--edges><normal,no-proc-macro><--prefix><none><--format><{{p}}|{{f}}><--no-dedupe><--color><never>"
+                    "<tree><--offline><--locked><--package><{package}><--target><{target}><--edges><normal,no-proc-macro><--prefix><none><--format><{{p}}|{{f}}><--color><never>"
                 ).expect("writing the expected command ledger");
             }
         }
