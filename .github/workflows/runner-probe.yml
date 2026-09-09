@@ -22,6 +22,45 @@
 # `[advisory]`. It runs on a dispatch and on a pull request that touches this file or the action it
 # calls - which is exactly when its numbers are what a reviewer needs.
 #
+# WHAT IT MEASURED, on 2026-09-09, two attempts of run 34337027276, `nix build
+# .#checks.x86_64-linux.clippy` from an empty store (73 -> 3541 paths, identical in every arm) on
+# `rust-mcp-32core`, which `nproc` reads as **32 cores, 126 GiB, ~1.1-1.7 TB free**:
+#
+#   | arm | pair, from `nix config show` | wall (n=2) | mean busy | peak |
+#   | --- | --- | --- | --- | --- |
+#   | reference | max-jobs 32 (from `auto`), cores 0 | 208 s, 258 s | 22.3%, 22.8% | 92%, 96% |
+#   | one-job   | max-jobs 1, cores 0                | 365 s, 303 s | 15.6%, 15.1% | 96%, 94% |
+#   | bounded   | max-jobs 4, cores 8                | 290 s, 288 s | 16.4%, 16.5% | 26%, 26% |
+#
+# THE PAIR IS NOT CHANGED, and the measurement is why. The reference - what CI already does - was
+# fastest in both attempts, and its slowest run (258 s) beats every run of both alternatives. So
+# the oversubscription argument does not survive contact: `max-jobs = 32` is a CEILING, not an
+# allocation, and nix starts only as many builds as the graph offers - which for a crane closure is
+# one heavy cargo derivation at a time behind a wide fan of fetches and unpacks. What `auto` buys
+# here is that fan running in parallel; capping it to one job costs 18-45%.
+#
+# READ THE LIMITS WITH THE NUMBERS. Within-arm spread is 24% (reference) and 20% (one-job), so
+# reference-against-bounded (258 s against 288 s) is INSIDE the spread and not a result;
+# reference-against-one-job clears it. `cores = 8` is visible as a mechanism rather than as a
+# number - the `bounded` arm's peak never exceeds 26%, which is a quarter of the host, exactly what
+# that setting means.
+#
+# THE TABLE IS DATED FOR A SECOND REASON: it was taken with `cache.nixos.org` as the only
+# substituter. Once a binary cache carries this project's own closure, an arm starting from an
+# empty store SUBSTITUTES most of these 3541 paths instead of building them - so these arms become
+# even more fetch-bound, the numbers move, and a pre-cache number must not be averaged with a
+# post-cache one. Re-run the probe on the same commit rather than comparing across that boundary;
+# it costs three cold builds and answers it exactly.
+#
+# AND THE ANSWER TO *fully utilise the host* IS NOT THIS PAIR. The best arm leaves the host 77%
+# idle on average while peaking above 90%: this workload is dominated by fetching and unpacking
+# ~3.4 GiB and by a dependency graph that serialises, not by a shortage of offered cores. Three
+# places that ceiling actually lives, none of them a nix setting: the cold store (issue #512's
+# allocation, a settings action), the traversal in `nix run .#default-features` (issue #511), and
+# `ci.yml` invoking its gates as SEQUENTIAL `nix build` steps, which by construction offers the
+# scheduler one heavy derivation at a time. Merging those steps into one invocation would let
+# `max-jobs` fill the host and would cost per-step attribution in the log - named here, not taken.
+#
 # WHAT IT CANNOT ANSWER: cost. A runner's price per minute is in no API this repository can read, so
 # a latency-per-cost verdict needs that number from the billing side. This file supplies latency and
 # utilisation, on a stated cache state, and nothing more.
