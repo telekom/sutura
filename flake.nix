@@ -358,18 +358,6 @@
           }
         );
 
-        # A MINIMAL dependency closure for the structural checks that run `cargo xtask ...` and
-        # nothing else (hygiene/crap-delta/causality step and friends): they only need xtask and
-        # its own (small) deps, so inheriting the full --workspace --all-features nightly closure
-        # above would make e.g. hygiene - the FIRST check, meant to fail fast - decompress and
-        # touch webpki-roots/thread_local/... before its license-cell verdict. `-p xtask` keeps it
-        # fast and keeps the verdict the only thing it waits for.
-        xtaskDeps = craneLibNightly.buildDepsOnly (
-          ciArgs
-          // {
-            cargoExtraArgs = "-p xtask";
-          }
-        );
 
         # ARTIFACTS BUILT IN ANOTHER DERIVATION, AND THE ONE THING THAT MAKES THEM SAFE TO INHERIT,
         # as a single attrset - so a consumer cannot take the artifacts without the regeneration.
@@ -583,7 +571,7 @@
           # paid the same tax more quietly. The derivation graph showed one shared closure the
           # whole time - `nix eval` agreed - because sharing an input is not the same as
           # compiling into it.
-          hygiene = craneLibNightly.mkCargoDerivation (ciArgs // inheritedArtifacts xtaskDeps // {
+          hygiene = craneLibNightly.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifactsNightly // {
             src = wholeTree;
             pnameSuffix = "-hygiene";
             doCheck = false;
