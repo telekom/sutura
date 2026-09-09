@@ -254,8 +254,8 @@ jobs:
           # assembled from pieces, or one arriving via another action's input, passes unseen.
           extra_nix_config: |
             fallback = true
-            substituters = https://sutura.cachix.org
-            trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       - uses: ./.github/actions/nix-store-cache
         with:
@@ -871,8 +871,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            substituters = https://sutura.cachix.org
-            trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       - uses: ./.github/actions/nix-store-cache
         with:

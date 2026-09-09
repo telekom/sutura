@@ -55,8 +55,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            substituters = https://sutura.cachix.org
-            trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       # The same scope the `ci` job wrote moments ago, so realising the checks below is a restore
       # rather than a rebuild. A miss here costs a build and publishes the same paths regardless.

@@ -321,7 +321,20 @@
         # is earned - `checks.nextest` builds a test binary per crate, so the dev-dependency
         # artifacts it caches are ones that check would otherwise compile itself. `nix/jscpd.nix`
         # carries the measurement for the other answer, where nothing consumes them.
-        ciArtifacts = craneLib.buildDepsOnly (ciArgs // { doCheck = true; });
+        # `--all-features` MATCHES WHAT THE CONSUMERS ASK FOR, and that is the whole point: `clippy`,
+        # `nextest` and `doctest` each pass `--all-features`, while this dependency build did not - so
+        # every feature-gated dependency fell outside the shared artifacts and was recompiled by each
+        # consumer. Measured before this line existed: `checks.nextest` recompiled 67 third-party
+        # crates every run while `clippy` recompiled none. The cost is a larger artifact, which is a
+        # real trade against a cache that is already over its allocation - so this is the change to
+        # re-measure first if the hit rate moves the wrong way.
+        ciArtifacts = craneLib.buildDepsOnly (
+          ciArgs
+          // {
+            doCheck = true;
+            cargoExtraArgs = "--workspace --all-features";
+          }
+        );
 
         # ARTIFACTS BUILT IN ANOTHER DERIVATION, AND THE ONE THING THAT MAKES THEM SAFE TO INHERIT,
         # as a single attrset - so a consumer cannot take the artifacts without the regeneration.

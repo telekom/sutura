@@ -303,16 +303,24 @@ const ALLOWED: [(&str, &str); 2] = [
 
 /// Whether one line assigns `setting` to exactly the permitted value and to nothing else.
 ///
-/// **Only the assignment form is permitted, never a flag.** The allowance exists for the installer's
-/// own `extra_nix_config`, where the workflow diff shows it; a substituter passed on a command line
-/// stays refused even when it names the allowed store, because that spelling is how a step reaches
-/// past the configuration a reviewer read. And the comparison is against the WHOLE value list, so
-/// appending a second store to an otherwise-permitted line is still a refusal.
+/// **Only the additive assignment form is permitted** - `extra-substituters`, never plain
+/// `substituters`, and never a flag. Three narrowings, each for its own reason: the allowance exists
+/// for the installer's own `extra_nix_config`, where the workflow diff shows it; a substituter passed
+/// on a command line stays refused even when it names the allowed store, because that spelling is how
+/// a step reaches past the configuration a reviewer read; and the **destructive** spelling is refused
+/// because it replaces nix's default substituter list instead of adding to it. The comparison is
+/// against the WHOLE value list, so appending a second store to an otherwise-permitted line is still
+/// a refusal.
 fn permitted(code: &str, setting: &str) -> bool {
     let Some((name, value)) = code.split_once('=') else {
         return false;
     };
-    if name.trim() != setting {
+    // ONLY the `extra-` form, and this is the half that was learned the expensive way: plain
+    // `substituters = …` REPLACES nix's default list rather than adding to it, so it drops
+    // `cache.nixos.org` and the next build fetches nothing - it compiles the bootstrap chain
+    // (`stage0-posix`, `mescc-tools`, `bash`) from source. Permitting the additive spelling and
+    // refusing the destructive one means the gate now refuses that outage even for the allowed store.
+    if name.trim() != format!("extra-{setting}") {
         return false;
     }
     ALLOWED
@@ -394,7 +402,7 @@ mod tests {
     /// and refuse every neighbouring shape, or it reads as coverage while trusting anything.
     #[test]
     fn exactly_one_store_is_permitted_and_every_neighbour_is_still_refused() {
-        let allowed = "      extra_nix_config: |\n        substituters = https://sutura.cachix.org\n        trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=\n";
+        let allowed = "      extra_nix_config: |\n        extra-substituters = https://sutura.cachix.org\n        extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=\n";
         assert!(
             super::trusted_stores("ci.yml", allowed).is_empty(),
             "the committed store and its key are the one permitted pair"
@@ -403,16 +411,20 @@ mod tests {
         for (why, text) in [
             (
                 "a second store appended to the permitted line",
-                "        substituters = https://sutura.cachix.org https://example.invalid\n",
+                "        extra-substituters = https://sutura.cachix.org https://example.invalid\n",
             ),
-            ("a different store", "        substituters = https://example.invalid\n"),
+            ("a different store", "        extra-substituters = https://example.invalid\n"),
+            (
+                "the DESTRUCTIVE spelling, which replaces nix's default list and cost a bootstrap build",
+                "        substituters = https://sutura.cachix.org\n",
+            ),
             (
                 "the permitted key on another host",
-                "        trusted-public-keys = example.invalid-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=\n",
+                "        extra-trusted-public-keys = example.invalid-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=\n",
             ),
             (
                 "a different key for the permitted store",
-                "        trusted-public-keys = sutura.cachix.org-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n",
+                "        extra-trusted-public-keys = sutura.cachix.org-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n",
             ),
             (
                 "the permitted store passed as a FLAG rather than assigned",

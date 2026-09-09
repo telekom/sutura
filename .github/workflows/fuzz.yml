@@ -88,6 +88,15 @@ jobs:
           extra_nix_config: |
             fallback = true
 
+      # A scope of its OWN, and it has to be its own: nothing here is shareable with `ci`. This
+      # workspace compiles under the pinned NIGHTLY with sanitizer codegen, from its own
+      # `Cargo.lock` and its own `[profile.*]` - so its store paths are different derivations by
+      # construction, not the same ones under another name. Without this the whole fuzz workspace
+      # was rebuilt on every push to the default branch.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: fuzz
+
       - name: Replay the committed corpus
         run: bash nix/run-fuzz.sh smoke
 
