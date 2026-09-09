@@ -130,7 +130,7 @@ jscpd)
         exec cargo run -q -p xtask -- check-jscpd
     elif command -v nix >/dev/null 2>&1; then
         echo "run-gate: jscpd absent, using nix (same pin as CI)"
-        exec nix run .#jscpd -- --silent --no-colors --format rust --min-lines 30 --min-tokens 250 --ignore 'target/**,site/**,result/**,.pixi/**,.sutura-dev/**,report/**' .
+        exec nix run .#jscpd -- --silent --no-colors --format rust --min-lines 30 --min-tokens 250 --ignore 'target/**,site/**,result/**,result-*/**,.pixi/**,.sutura-dev/**,report/**,**/.prek-cache/**' .
     else
         echo "run-gate: SKIPPED the copy-paste scan - no jscpd and no nix on this host."
         echo "          CI (checks.hygiene) enforces it; this only delays the finding."
