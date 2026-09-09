@@ -610,16 +610,21 @@ jobs:
           retention-days: 30
 
       # The pages under docs/api/ are GENERATED from the library crates' doc comments and
-      # COMMITTED, because rustdoc JSON is nightly-only and the docs job has stable and nothing
-      # else. A committed generated file rots silently, so this regenerates them and
-      # byte-compares: a doc comment that changed without a regeneration fails here instead of
-      # publishing a stale page as current. Locally the same gate is
-      # `cargo xtask check-api-docs`, and the fix it asks for is `just api`.
+      # COMMITTED. rustdoc JSON (`--output-format json`) is nightly-only, so this is its own
+      # flake output rather than a fold into an ordinary check: the output packages its own
+      # rustdoc JSON generator and its own interpreter, run with `--all-features`. A committed
+      # generated file rots silently, so this regenerates them and byte-compares: a doc
+      # comment that changed without a regeneration fails here instead of publishing a stale
+      # page as current. Locally the same gate is `cargo xtask check-api-docs`, and the fix
+      # it asks for is `just api`.
       #
-      # THE ONLY NIGHTLY STEP in this workflow, deliberately. `--output-format json` is an
-      # unstable rustdoc option, so the stable toolchain everything else here uses rejects `-Z`
-      # outright. That is why it is its own flake output rather than folded into a check above:
-      # the output brings its own nightly toolchain and its own interpreter for the generator.
+      # rustdoc JSON is unstable nightly-only, which is the whole reason this step is a flake
+      # output of its own rather than one of the checks above: the generator needs a nightly
+      # that can accept `--output-format json`. That is no longer "the only nightly step" in
+      # the way an older comment claimed - the stable/nightly split is gone, and every build,
+      # every gate and every shipped artifact here runs the SAME single pinned nightly from
+      # devco/rust-toolchain-nightly.toml. The step stays separate for the packaging of the
+      # generator and interpreter, not because the rest of the tree is stable.
       #
       # `api` is set by classify for a library crate's sources, for the generator, for the
       # committed pages, and for the manifests - the pages are generated with `--all-features`,
