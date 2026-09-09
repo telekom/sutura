@@ -50,7 +50,7 @@ let
       cargoToml = src + "/rust/crates/cpd/Cargo.toml";
     }).version;
     nativeBuildInputs = [ pkgs.pkg-config ];
-    buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
+    buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
   };
 in
 # `doCheck = false` ON THE DEPS DERIVATION, AND THE MEASUREMENT IS WHY. crane defaults it to
