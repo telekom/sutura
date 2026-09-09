@@ -84,6 +84,12 @@ name = "corpus"
 path = "tests/corpus.rs"
 required-features = ["wire", "fixtures"]
 
+# Explicit disposable-dataset / read-only-project venues; ordinary acceptance excludes this binary.
+[[test]]
+name = "cross_resource"
+path = "tests/cross_resource.rs"
+required-features = ["wire", "fixtures"]
+
 # The TWO-PRINCIPAL cell - the one leg here whose claim is about identity rather than about SQL.
 #
 # A third target rather than more of `acceptance.rs`, for the same two reasons the corpus leg is one:
@@ -115,12 +121,10 @@ required-features = ["wire"]
 # same reason that cell needs no `fixtures`: this leg loads nothing and creates nothing - it projects
 # one fixed statement about the caller.
 #
-# It is NOT picked up by `nix run .#bigquery-acceptance`, which filters both this binary and
-# `two_principals` out. That filter is a two-name list now where `docs/adr/0017`'s amendment *the
-# two-principal cell exists, and what it is not* had one - cited by TITLE, because that record has
-# been the seventh, eighth and tenth amendment in three days. The property it was defending
-# survives: what is filtered is a BINARY, so a test added to any of the four targets is reached
-# without a count anywhere being edited.
+# It is NOT picked up by `nix run .#bigquery-acceptance`, which excludes this binary,
+# `two_principals`, and the explicitly selected `cross_resource` venue. Filtering by binary keeps
+# newly added ordinary acceptance tests reachable without a test-name list; each separate venue
+# retains its own input and execution contract.
 [[test]]
 name = "exchanged_identity"
 path = "tests/exchanged_identity.rs"
