@@ -6,7 +6,7 @@
 # WHY IT IS WORTH A FILE. That ratio is otherwise obtainable only by counting `copying path`
 # against `building` lines in a build log - which is how issue #487's ~94% had to be measured - so
 # an ineffective cache and an effective one looked identical from the run page. The hosted populate
-# step in `ci.yml` has been `completed/skipped` on every `main` push since it merged and nothing
+# step `docs/adr/0026` deleted was `completed/skipped` on every `main` push it ran on and nothing
 # anywhere said so; that is the class of defect this addresses.
 #
 # **ITS SHAPE IS THE POINT: IT REPORTS, IT DOES NOT JUDGE.** A cold cache is legitimate - the first

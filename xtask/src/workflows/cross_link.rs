@@ -353,7 +353,7 @@ mod tests {
         drop_root(&root);
     }
 
-    /// Dropping a leg from the all-four set shrinks what `main` primes into the binary cache.
+    /// Dropping a leg from the all-four set shrinks the per-target store `main` writes for it.
     #[test]
     fn a_partial_all_four_set_is_refused() {
         let target = wrap(&format!(

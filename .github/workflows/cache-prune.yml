@@ -16,13 +16,18 @@
 # Actions cache has no per-ref retention setting, so this workflow cannot promise exactly three days
 # for `main`; it never deletes those entries and leaves their lifetime to GitHub's idle/LRU policy.
 #
-# Since 2026-09-08 `main`'s full 4-triple cross closure is additionally signed into a GLOBAL,
-# non-ref-scoped binary cache (see `ci.yml` / `cross-link.yml`, `NIX_CACHE_*`), so it no longer
-# depends on this file's scope or on the Actions cache's LRU to stay warm: PRs restore it from the
-# binary cache, which outlives the 7-day idle eviction and the per-ref scoping both. The daily
-# sweep's 800-deletion budget is deliberately NOT raised: it exists to stay under the hourly API
-# limit, and `main`'s closure is not a prune candidate here at all (the ref parser below returns no
-# number for `refs/heads/main`), so there is nothing for a higher budget to protect.
+# SINCE #490 A PULL REQUEST WRITES NOTHING, so this sweep has less to do rather than more, and the
+# 800-deletion budget is deliberately NOT raised: it exists to stay under the hourly API limit, not
+# to keep up with volume. `main`'s entries are not prune candidates here at all - the ref parser
+# below returns no number for `refs/heads/main` - so there is nothing for a higher budget to
+# protect. There is also no second, non-ref-scoped carrier standing behind this: `docs/adr/0026`
+# retired the third-party binary cache, so the entries this file spares ARE what a pull request
+# restores from.
+#
+# WHAT IS NOT MEASURABLE FROM OUTSIDE, and the reason no budget change is proposed with a number
+# beside it: `orgs/{org}/actions/cache/usage` needs `admin:org` and answers 403 without it, so the
+# repository allocation and its headroom cannot be re-read by a contributor. The 100 GB above is
+# #472's measurement, not one taken here.
 #
 # What it costs when it is wrong: re-running CI on an already-closed pull request rebuilds
 # from scratch instead of restoring. That is slower and still correct, and it is rare enough
