@@ -330,7 +330,7 @@ struct Sighted {
     /// Files in scope that could not be read.
     unread: Vec<String>,
     /// A walk that did not reach every subject it was offered, worded by
-    /// [`crate::repo::Short`] or by this module where the second count is its own.
+    /// [`crate::repo::accounting::Short`] or by this module where the second count is its own.
     ///
     /// **This is the arm that makes the numbers above worth printing.** Each entry is a pair of
     /// counts taken on opposite sides of one walk: the witness's own length against the caller's
