@@ -403,7 +403,10 @@ mod tests {
         };
         let coverage = Coverage::of(measured.tests(), &files, &read);
         assert_eq!(coverage.ratio(), "1 of 1 added tests measured");
-        assert!(coverage.unmeasured().is_empty());
+        assert!(
+            coverage.unmeasured().is_empty(),
+            "the fully measured diff leaves no unmeasured added tests"
+        );
     }
 
     #[test]
@@ -557,6 +560,9 @@ mod tests {
         let read = tree(&[("crates/x/src/a.rs", helper), ("crates/x/Cargo.toml", &manifest("x"))]);
         let coverage = Coverage::of(&[], &files, &read);
         assert_eq!(coverage.ratio(), "0 of 0 added tests measured");
-        assert!(coverage.unmeasured().is_empty());
+        assert!(
+            coverage.unmeasured().is_empty(),
+            "an empty added set leaves nothing unmeasured"
+        );
     }
 }

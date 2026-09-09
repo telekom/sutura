@@ -102,7 +102,7 @@ env:
 
 jobs:
   link:
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # 120 for the same reason as `ci`, with more of it: each target in the matrix compiles that
     # same large closure again for its own triple, and none of them shares the host's artifacts.
     timeout-minutes: 120
@@ -143,10 +143,14 @@ jobs:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
           # substituter stays absent, so a pull request cannot point CI at a store it controls.
           # No third-party substituter is configured here either - `docs/adr/0026` records the
-          # Actions cache as the only carrier, so the only store CI trusts is the one this
-          # repository's own `main` wrote.
+          # Actions cache as the only carrier. `cargo xtask check-workflows` refuses one NAMED in
+          # a workflow, in either spelling nix accepts (`name = value` and `--name value`); it
+          # cannot see a URL assembled from pieces or handed to nix by another action, so this
+          # says what is configured here rather than what nix can possibly be told.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
       # One entry PER TARGET: each leg builds a different closure, so a shared key would have the
       # four overwrite each other. Restore-only on a pull request - see

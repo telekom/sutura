@@ -323,7 +323,7 @@ const TASKS: &[Task] = &[
         // owns the `justfile`; this one owns `.pre-commit-config.yaml`, where the tiering
         // decision lives and where deleting one block silently un-tiers it.
         name: "check-hook-tiers",
-        description: "the push stage compiles, with the commit stage's own invocation",
+        description: "the pre-push stage runs only the security checks, and compiles nothing",
         kind: Kind::Hygiene(Reads::Code),
         run: hooks::run,
     },
