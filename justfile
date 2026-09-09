@@ -348,11 +348,13 @@ gates: hygiene
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
-    # The BYTE-COMPARE half of the attribution gate. Here rather than in `hygiene` because it runs
+    # The DERIVING half of the attribution gate. Here rather than in `hygiene` because it runs
     # `cargo metadata`, which needs a resolvable registry the nix sandbox has not got - the same
-    # reason `check-api-docs` is not a hygiene gate. `check-attribution` in the sweep only sees that
-    # a licence cell is non-empty, so without this the main content of a generated file is trusted.
-    cargo run -q -p xtask -- check-attribution-current
+    # reason `check-api-docs` is not a hygiene gate. The document is generated and NOT committed, so
+    # there is nothing to byte-compare: this generates one and refuses an incomplete result. The
+    # sweep's `check-attribution-owner` is the offline half, and it holds the ABSENCE of a committed
+    # copy - which is the property that keeps a dependency bump from being red on arrival.
+    cargo run -q -p xtask -- check-attribution
     # The DEFAULT-feature lane, and it is here for the line above's reason: it shells out to cargo.
     # Every other compiling gate in this repo passes `--all-features`, and `nix/shipped.nix`
     # publishes cargo's default set - so a `#[cfg(feature = ...)]` compiled only with the feature on
@@ -575,10 +577,16 @@ lint-workflows:
 devenv-linter:
     devenv shell devenv-linter
 
-# Regenerate the committed attribution document from `cargo metadata`. `ATTRIBUTION.md` is the
-# statement a distributor hands on - every third-party crate this workspace resolves and the licence
-# it declares - and `cargo xtask check-attribution` is the gate that fails when it falls behind the
-# lock. Through a bare `cargo` rather than nix, because `cargo metadata` is the tool and it needs the
+# Write the attribution document from `cargo metadata` - every third-party crate this workspace
+# resolves and the licence it declares, which is the statement a distributor hands on.
+#
+# **It is NOT committed, and that is the point.** A committed copy fell behind `Cargo.lock` on every
+# dependency bump, and since Dependabot cannot regenerate it, every bot bump was red on arrival.
+# `cargo xtask check-attribution-owner` refuses a committed copy; `.github/workflows/release.yml`
+# generates the released asset from the tagged tree. So this writes under `/target`, which
+# `.gitignore` already excludes, and exists for a human who wants to read the current list.
+#
+# Through a bare `cargo` rather than nix, because `cargo metadata` is the tool and it needs the
 # workspace's own resolver, not a pinned binary.
 attribution:
     #!/usr/bin/env bash

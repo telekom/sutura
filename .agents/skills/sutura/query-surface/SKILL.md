@@ -37,13 +37,16 @@ visible in the code; these rules are not:
   are written for different readers.
 - **The OpenAPI document is built at startup and served**, not dumped, so a missing path attribute
   fails to compile rather than producing a page with a gap.
-- **`ATTRIBUTION.md` is deliberately WIDER than any one binary**, which is the opposite of an
+- **The attribution document is deliberately WIDER than any one binary**, which is the opposite of an
   SBOM's rule and for a stated reason: an SBOM overstating what is in an artefact is a false claim
   about it, while an attribution document naming a crate that did not ship discharges an obligation
   nobody had. What selects a row is **not being a workspace member**, never the presence of a
   `source` line - `source` means registry-or-git, which omitted the vendored path dependencies while
-  a shipped binary links one of them. **Limit:** it carries no Apache-2.0 `NOTICE` text, and
-  **there is no `NOTICE` check** - "inspired by" is not a licence position.
+  a shipped binary links one of them. It is **generated and never committed** - a committed derived
+  file went stale on every dependency bump and made each bot bump red on arrival - so
+  `check-attribution` refuses an incomplete generation and `check-attribution-owner` refuses a
+  committed copy. **Limit:** it carries no Apache-2.0 `NOTICE` text, and **there is no `NOTICE`
+  check** - "inspired by" is not a licence position.
 - Two attribution gates, split by the input each needs: one reads the lock and holds the crate SET;
   the other regenerates and byte-compares, holding the CONTENT, and needs a resolvable registry.
   Without the second, changing any row's licence to arbitrary text passed.
