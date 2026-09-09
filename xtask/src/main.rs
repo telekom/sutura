@@ -194,7 +194,7 @@ const TASKS: &[Task] = &[
         // same kind of check - and this one is about the ERROR principle rather than the newtype
         // one. Name coverage is narrower than proving a test actually provokes the refusal.
         name: "check-refusal-coverage",
-        description: "every RefusalReason and NotFitToServe variant is named, or separately excused with a date and reason",
+        description: "every variant of the 3 ENROLLED refusal enums is named, or separately excused with a date and reason",
         kind: Kind::Hygiene(Reads::Code),
         run: refusals::run,
     },
