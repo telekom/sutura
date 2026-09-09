@@ -119,8 +119,8 @@ jobs:
         # proves the genuinely new cross surface without re-paying for the host triple the
         # native job has already linked. A push to `main` runs all four: that is the all-4 link
         # gate (it keeps `x86_64-unknown-linux-musl`'s static-allocator check and
-        # `x86_64-unknown-linux-gnu` live before any tag) and the run that primes the binary
-        # cache every pull request and every PR leg restores from. The full-set half stays
+        # `x86_64-unknown-linux-gnu` live before any tag) and the run that writes the per-target
+        # Actions-cache entries every pull-request leg then restores. The full-set half stays
         # deliberately the same list as release.yml's `build`.
         #
         # In a CALLED workflow the `github` context reflects the CALLER's event, not
@@ -142,14 +142,11 @@ jobs:
         with:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
           # substituter stays absent, so a pull request cannot point CI at a store it controls.
-          # The read-only binary-cache backstop is added HERE rather than in flake.nix, so every
-          # byte of it is visible in this diff. Both lines are secret-driven with an empty
-          # fallback: until the owner provisions the cache the values are empty and each line
-          # interpolates to nothing, so no store a pull request does not control is ever trusted.
+          # No third-party substituter is configured here either - `docs/adr/0026` records the
+          # Actions cache as the only carrier, so the only store CI trusts is the one this
+          # repository's own `main` wrote.
           extra_nix_config: |
             fallback = true
-            ${{ secrets.NIX_CACHE_SUBSTITUTER != '' && format('substituters = {0}', secrets.NIX_CACHE_SUBSTITUTER) || '' }}
-            ${{ secrets.NIX_CACHE_PUBLIC_KEY != '' && format('trusted-public-keys = {0}', secrets.NIX_CACHE_PUBLIC_KEY) || '' }}
 
       # One entry PER TARGET: each leg builds a different closure, so a shared key would have the
       # four overwrite each other. Restore-only on a pull request - see
@@ -157,21 +154,6 @@ jobs:
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ${{ matrix.target }}
-          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
-
-      # MAIN'S ALL-4 RUN POPULATES the read-only binary cache that `extra_nix_config` above makes
-      # every pull request and every other leg substitute from. Gated on the push event AND the
-      # cache name: a pull request can never reach this step (and must not push). The token is
-      # carried by the action input, not the condition - GitHub does not expose `secrets` to an
-      # `if` - and an empty token means "configure, push nothing", so a repository whose owner has
-      # not provisioned Cachix leaves everything wired-but-inert and safe. The `NIX_CACHE_NAME`
-      # variable and the `NIX_CACHE_AUTH_TOKEN` secret are the owner's to create.
-      - name: Populate the binary cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.NIX_CACHE_NAME != ''
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        with:
-          name: ${{ vars.NIX_CACHE_NAME }}
-          authToken: ${{ secrets.NIX_CACHE_AUTH_TOKEN }}
 
       # Through `env` rather than interpolated into the script: a matrix literal is not
       # attacker-controlled, but the rule that no `${{ }}` reaches a shell body is worth more
