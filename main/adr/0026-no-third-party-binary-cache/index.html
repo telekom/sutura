@@ -6,35 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="The public Rust API, generated from rustdoc JSON and committed.">
+        <meta name="description" content="Why the secret-gated Cachix wiring in ci.yml and cross-link.yml was deleted rather than provisioned, what the GitHub Actions cache does and does not carry in its place, what the deleted step was measured to be doing (nothing, silently, on every main push), and which gate now refuses its return.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0026-no-third-party-binary-cache/">
       
       
-        <link rel="prev" href="../adr/0026-no-third-party-binary-cache/">
+        <link rel="prev" href="../0025-what-a-scorecard-zero-says-about-this-repository/">
       
       
-        <link rel="next" href="sutura-domain/">
+        <link rel="next" href="../../api/">
       
       
         
       
       
-      <link rel="icon" href="../assets/favicon.svg">
+      <link rel="icon" href="../../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>API reference - sutura</title>
+        <title>No third-party binary cache - sutura</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="../css/telekom.css">
+      <link rel="stylesheet" href="../../css/telekom.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#api-reference" class="md-skip">
+        <a href="#no-third-party-binary-cache" class="md-skip">
           Skip to content
         </a>
       
@@ -94,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              API reference
+              No third-party binary cache
             
           </span>
         </div>
@@ -241,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -270,7 +270,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -359,7 +359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -387,7 +387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -415,7 +415,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../qa/" class="md-nav__link">
+      <a href="../../qa/" class="md-nav__link">
         
   
   
@@ -443,7 +443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-prompt/" class="md-nav__link">
+      <a href="../../agent-prompt/" class="md-nav__link">
         
   
   
@@ -536,7 +536,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../serving/" class="md-nav__link">
+      <a href="../../serving/" class="md-nav__link">
         
   
   
@@ -564,7 +564,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../verifying-a-release/" class="md-nav__link">
+      <a href="../../verifying-a-release/" class="md-nav__link">
         
   
   
@@ -663,7 +663,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -691,7 +691,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../where-identity-is-proven/" class="md-nav__link">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
         
   
   
@@ -716,30 +716,12 @@
                 
   
   
+    
+  
   
   
     
     
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
       
         
       
@@ -759,811 +741,6 @@
       
         
       
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Decisions
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Decisions
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0001-first-party-semantic-models/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    First-party semantic models
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A closed vocabulary for measures
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    DataFusion for local execution
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A named escape hatch for authored SQL
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A refusal carries a status
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Several databases behind one data system, declined
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Federating across different data systems
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A credential per leg, for the calling subject
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The plan, from one source to many and one user to many
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0010-transport-security-for-a-source/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Transport security for a source
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0011-pluggable-by-declaration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Pluggable by declaration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Conformance packs for inputs and adapters
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A raw SQL tool, off by default
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    How a caller proves who it is
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    An authenticated metrics endpoint
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0016-what-datahub-can-carry/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What DataHub can carry
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What a BigQuery test runs against
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What the BigQuery wire is built from
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A table outside the connection's own dataset
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A credential the compiler refuses to print
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    How a published artefact proves where it came from
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Untrusted content, and what marks it
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    How the agent surface learns who is asking
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Three OSS-readiness scans, and what each discloses
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What a Scorecard zero says about this repository
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../adr/0026-no-third-party-binary-cache/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    No third-party binary cache
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-    
-  
-  
-  
-    
-    
-      
-        
-          
         
       
         
@@ -1608,11 +785,947 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the agent surface learns who is asking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Three OSS-readiness scans, and what each discloses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a Scorecard zero says about this repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-there-and-what-it-was-measured-to-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was there, and what it was measured to do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-deleting-it-beats-provisioning-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why deleting it beats provisioning it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-replaces-it-nothing-new" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What replaces it: nothing new
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-record-does-not-say" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this record does NOT say
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-mechanism-that-holds-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The mechanism that holds it
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="./" class="md-nav__link md-nav__link--active">
+            <a href="../../api/" class="md-nav__link ">
               
   
   
@@ -1630,13 +1743,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1656,7 +1769,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-domain/" class="md-nav__link">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
         
   
   
@@ -1684,7 +1797,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-catalog-local/" class="md-nav__link">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1712,7 +1825,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-catalog-datahub/" class="md-nav__link">
+      <a href="../../api/sutura-catalog-datahub/" class="md-nav__link">
         
   
   
@@ -1740,7 +1853,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-semantic/" class="md-nav__link">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1768,7 +1881,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-sql/" class="md-nav__link">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
         
   
   
@@ -1796,7 +1909,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1824,7 +1937,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1852,7 +1965,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-exec-bigquery/" class="md-nav__link">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
         
   
   
@@ -1880,7 +1993,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-exec-postgres/" class="md-nav__link">
+      <a href="../../api/sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -1908,7 +2021,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-app/" class="md-nav__link">
+      <a href="../../api/sutura-app/" class="md-nav__link">
         
   
   
@@ -1936,7 +2049,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-config/" class="md-nav__link">
+      <a href="../../api/sutura-config/" class="md-nav__link">
         
   
   
@@ -1964,7 +2077,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-runtime/" class="md-nav__link">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1992,7 +2105,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-http/" class="md-nav__link">
+      <a href="../../api/sutura-http/" class="md-nav__link">
         
   
   
@@ -2020,7 +2133,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-mcp/" class="md-nav__link">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
         
   
   
@@ -2048,7 +2161,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-conformance/" class="md-nav__link">
+      <a href="../../api/sutura-conformance/" class="md-nav__link">
         
   
   
@@ -2076,7 +2189,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sutura-dev/" class="md-nav__link">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
         
   
   
@@ -2181,7 +2294,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
+      <a href="../../contributing/" class="md-nav__link">
         
   
   
@@ -2209,7 +2322,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../crap/" class="md-nav__link">
+      <a href="../../crap/" class="md-nav__link">
         
   
   
@@ -2237,7 +2350,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../enterprise-mirrors/" class="md-nav__link">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -2265,7 +2378,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../publishing/" class="md-nav__link">
+      <a href="../../publishing/" class="md-nav__link">
         
   
   
@@ -2300,7 +2413,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -2347,10 +2460,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#these-pages-are-generated" class="md-nav__link">
+  <a href="#the-decision" class="md-nav__link">
     <span class="md-ellipsis">
       
-        These pages are generated
+        The decision
       
     </span>
   </a>
@@ -2358,10 +2471,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-markdown-rather-than-rustdocs-own-site" class="md-nav__link">
+  <a href="#what-was-there-and-what-it-was-measured-to-do" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why markdown rather than rustdoc's own site
+        What was there, and what it was measured to do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-deleting-it-beats-provisioning-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why deleting it beats provisioning it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-replaces-it-nothing-new" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What replaces it: nothing new
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-record-does-not-say" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this record does NOT say
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-mechanism-that-holds-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The mechanism that holds it
       
     </span>
   </a>
@@ -2388,64 +2545,110 @@
   
 
 
-<h1 id="api-reference">API reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h1>
-<p>The public Rust API, one page per library crate, <strong>generated</strong> from rustdoc JSON and committed. The
-list is derived from <code>cargo metadata</code>, so a new library crate gets a page without anybody adding it
-here - and <code>cargo xtask check-api-docs</code> fails until that page is generated and committed.</p>
-<p>The order below is the order a question travels in, which is also the dependency direction: every
-arrow points inward, at the domain.</p>
+<h1 id="no-third-party-binary-cache">No third-party binary cache<a class="headerlink" href="#no-third-party-binary-cache" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted</strong>, 2026-09-09. Supersedes the binary-cache half of <code>#472</code>'s Proposal 2 and the
+wiring <code>#477</code> added for it. <code>docs/adr/0025</code> is the neighbouring case: a control this repository
+publishes has to be held by a mechanism, or it is an overstated control.</p>
+<h2 id="the-decision">The decision<a class="headerlink" href="#the-decision" title="Permanent link">&para;</a></h2>
+<p><strong>The GitHub Actions cache is the only store this repository carries between runs.</strong> No hosted or
+third-party Nix binary cache is configured, and none is trusted as a substituter. <code>#472</code> asked for
+one; the maintainer ruled against it, and this record is that ruling plus the measurements that
+make it the cheap answer rather than the resigned one.</p>
+<h2 id="what-was-there-and-what-it-was-measured-to-do">What was there, and what it was measured to do<a class="headerlink" href="#what-was-there-and-what-it-was-measured-to-do" title="Permanent link">&para;</a></h2>
+<p><code>ci.yml</code> and <code>cross-link.yml</code> each carried three pieces of wiring:</p>
+<table>
+<thead>
+<tr>
+<th>piece</th>
+<th>gated on</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>two <code>substituters</code> / <code>trusted-public-keys</code> lines in <code>install-nix-action</code>'s <code>extra_nix_config</code></td>
+<td><code>secrets.NIX_CACHE_SUBSTITUTER</code>, <code>secrets.NIX_CACHE_PUBLIC_KEY</code></td>
+</tr>
+<tr>
+<td>a <code>hosted:</code> input to <code>.github/actions/nix-store-cache</code>, feeding one summary row</td>
+<td><code>vars.NIX_CACHE_NAME</code></td>
+</tr>
+<tr>
+<td>a <code>Populate the binary cache</code> step (<code>cachix/cachix-action</code>)</td>
+<td><code>github.event_name == 'push' &amp;&amp; github.ref == 'refs/heads/main' &amp;&amp; vars.NIX_CACHE_NAME != ''</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>None of those four names has ever existed in this repository.</strong> Read on 2026-09-08: the repository
+declares no Actions variables at all (<code>total_count: 0</code>). So the two <code>extra_nix_config</code> lines
+interpolated to the empty string on every run, the summary row said <code>UNPROVISIONED</code>, and the populate
+step was <code>completed/skipped</code> on every <code>main</code> push it ever ran on - <code>run 34247863640</code>, step 6, is the
+one that was read line by line.</p>
+<p>That is the defect, and it is not the skip. <strong>Staying inert while unprovisioned was deliberate and
+safe.</strong> The defect is that a reader saw a green <code>main</code> and a shipped feature while the mechanism did
+nothing, which is the same class as <code>#476</code>'s witness that reddened when publication <em>worked</em>: a check
+that is blind is worse than a check that is absent, because it looks like coverage.</p>
+<h2 id="why-deleting-it-beats-provisioning-it">Why deleting it beats provisioning it<a class="headerlink" href="#why-deleting-it-beats-provisioning-it" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>The premise it was filed on is refuted.</strong> <code>#472</code> argued the cache was cold and ref-scoped, so
+   PRs recompiled the closure. Measured instead: a <strong>~94-95% path hit rate</strong>, and on a branch that
+   moves no dependency input the first <code>ci</code> run restored <strong>742</strong> store paths against <strong>37</strong> built,
+   the second <strong>654</strong> against <strong>39</strong>. <code>vendor-cargo-deps</code> and <code>vendor-registry</code> were rebuilt in
+   neither. <code>main</code>'s Actions-cache entries DO serve pull requests. A second carrier would have been
+   added on top of a carrier that already works.</li>
+<li><strong>The two supporting hypotheses are refuted too.</strong> The 18,688-entry drop was <code>cache-prune.yml</code>
+   doing its job on <code>pull_request_target: closed</code>, not eviction; <code>#472</code> records the allocation as
+   100 GB, so headroom is not the constraint. And crane's deps derivation is hash-stable while the
+   lockfiles are: over 30 commits of <code>main</code>, <code>Cargo.lock</code> moved once and <code>flake.lock</code> not at all.</li>
+<li><strong>It cannot be justified on wall clock.</strong> Run-to-run duration here varies <strong>64%</strong> (1351 s against
+   825 s, same branch, same dependency state), so no duration claim below that spread is
+   measurable - and nothing measured here exceeds it. The deterministic oracle is counting
+   <code>Compiling sutura-&lt;crate&gt;</code> lines in a build log, and <code>#486</code> is the issue that owns that number.</li>
+<li><strong>It is a supply-chain surface for a benefit nobody has measured.</strong> A substituter plus a trusted
+   key means CI fetches store paths signed by a key held outside this repository. <code>ci.yml</code>
+   deliberately withholds the flag that would let <code>flake.nix</code> add its own substituter, precisely so
+   a pull request cannot point CI at a store it controls; adding a permanent third-party one back
+   spends part of that guarantee. Against an unmeasured gain, on top of a working cache, that trade
+   is refused.</li>
+<li><strong>Code cannot fix a missing secret.</strong> Provisioning was an owner task on <code>#472</code>'s ask list and is
+   now retired. Leaving the wiring in place while it stays unprovisioned means keeping a mechanism
+   whose only observable behaviour is a skip.</li>
+</ol>
+<h2 id="what-replaces-it-nothing-new">What replaces it: nothing new<a class="headerlink" href="#what-replaces-it-nothing-new" title="Permanent link">&para;</a></h2>
+<p><code>.github/actions/nix-store-cache</code> restores <code>/nix/store</code> on <strong>every</strong> event and saves it <strong>only</strong> from
+a push to <code>main</code> (<code>#490</code>, <code>#487</code>). That asymmetry is pinned token for token by
+<code>xtask::workflows::cache_scope</code>, and the run reports what it carried rather than asserting it worked.
+<code>cache-prune.yml</code> is unchanged and stays: with pull requests no longer writing, the entries it spares
+are exactly what a pull request restores from, and there is no second carrier standing behind them.</p>
+<h2 id="what-this-record-does-not-say">What this record does NOT say<a class="headerlink" href="#what-this-record-does-not-say" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="sutura-domain/">sutura-domain</a> - the domain types and the port traits. Depends on nothing but
-  <code>serde</code> and <code>thiserror</code>, and a gate keeps it that way</li>
-<li><a href="sutura-catalog-local/">sutura-catalog-local</a> - a <code>SemanticCatalog</code> adapter over a directory of
-  markdown documents with YAML frontmatter</li>
-<li><a href="sutura-semantic/">sutura-semantic</a> - the compiler: resolve and plan. It renders nothing, and has
-  no SQL generator in its dependency tree</li>
-<li><a href="sutura-sql/">sutura-sql</a> - rendering: a plan becomes one statement in one dialect. Depended on
-  by the SQL adapters and by the CLI, and deliberately not by the compiler</li>
-<li><a href="sutura-exec-datafusion/">sutura-exec-datafusion</a> - THE engine. A <code>Warehouse</code> adapter that
-  executes a plan over Arrow and generates no SQL</li>
-<li><a href="sutura-exec-duckdb/">sutura-exec-duckdb</a> - a <code>Warehouse</code> adapter over DuckDB as a DATA SOURCE:
-  it renders the plan into DuckDB SQL and pushes it down. A development dependency, not shipped</li>
-<li><a href="sutura-app/">sutura-app</a> - the service, generic over the ports. Also the <code>Surface</code> driving port
-  and its one implementor, so a transport implements nothing another transport owns</li>
-<li><a href="sutura-config/">sutura-config</a> - the settings tree and the startup refusals. Holds no
-  framework: it decides what the service may do before anything is built</li>
-<li><a href="sutura-runtime/">sutura-runtime</a> - the process-global concerns a library must not install as a
-  side effect of being linked: the subscriber, the panic hook, the shutdown signal</li>
-<li><a href="sutura-http/">sutura-http</a> - transport only. It consumes the <code>Surface</code> port rather than
-  declaring it, so a second transport reaches for <code>sutura-app</code> and never for this crate</li>
-<li><a href="sutura-conformance/">sutura-conformance</a> - the conformance packs: test bodies written once
-  against the ports, bound to an adapter by a macro. It points inward like everything else - at the
-  domain and at no adapter, which is what lets an adapter's own crate take it as a dev-dependency</li>
+<li><strong>Not that a binary cache would not help a cold run.</strong> A genuinely cold run - a moved
+  <code>flake.lock</code> or <code>Cargo.lock</code> - still compiles a dependency closure that is one of the largest in
+  the ecosystem, and that is what <code>ci.yml</code>'s 120-minute timeout exists for. A hosted cache is a
+  real answer to that case. It is refused here because the case is rare, the gain is unmeasured
+  against a 64% spread, and it costs a trusted third-party key.</li>
+<li><strong>Not that the Actions cache is fast.</strong> <code>#490</code> is explicit that it buys hygiene and legibility.
+  The measured hit rate says the closure is reused; it says nothing about seconds.</li>
+<li><strong>Not that the entry always fits.</strong> GitHub refuses a single cache entry over 10 GB and this store
+  has never been weighed. If a save is refused, the summary line says so and the next run compiles.
+  There is no fallback carrier any more, and that is the cost of this decision, stated here rather
+  than left for a reader to discover.</li>
+<li><strong>Not a statement about the repository's cache allocation.</strong> <code>orgs/{org}/actions/cache/usage</code>
+  answers 403 without <code>admin:org</code>, so the allocation and its headroom are not re-readable by a
+  contributor. The 100 GB figure is <code>#472</code>'s measurement.</li>
 </ul>
-<h2 id="these-pages-are-generated">These pages are generated<a class="headerlink" href="#these-pages-are-generated" title="Permanent link">&para;</a></h2>
-<p>Do not edit them; every page carries a header saying so. The source of the text is the doc comments
-in the crate, and a correction belongs there. Regenerate with:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>just<span class="w"> </span>api
-</span></code></pre></div>
-<p>That runs two steps. <code>cargo rustdoc --output-format json</code> is nightly-only, because that is an
-unstable rustdoc option - not a new pin, but the nightly this repository already keeps for the
-cranelift backend (<code>devco/rust-toolchain-nightly.toml</code>). <code>docs/.tools/rustdoc_to_markdown.py</code> then
-reads the JSON and writes markdown, using the pixi interpreter and the standard library only.</p>
-<p>rustdoc JSON carries a <code>format_version</code> that changes between nightlies. The generator refuses to run
-on a number it was not written for, printing the value it found against the value it expected. A
-generator that guessed would one day emit a page with the interesting parts silently missing.</p>
-<p><code>cargo xtask check-api-docs</code> regenerates and byte-compares, so a doc comment that changed without a
-regeneration fails the gate instead of publishing a stale page as current. CI runs it as the
-<code>api-docs</code> flake check, its only nightly step, and it is self-scoping: a change touching only
-private code regenerates to identical output and passes.</p>
-<h2 id="why-markdown-rather-than-rustdocs-own-site">Why markdown rather than rustdoc's own site<a class="headerlink" href="#why-markdown-rather-than-rustdocs-own-site" title="Permanent link">&para;</a></h2>
-<p><code>cargo doc</code> produces a complete static site with its own search index. That index is rustdoc's, not
-this site's, and the two cannot be merged, because mkdocs indexes markdown at build time.
-Publishing the HTML would give a reader two search boxes and no way to know which one to use.</p>
-<p>Generating markdown puts the API in the <strong>same</strong> search as the prose on every other page. It is the
-shape <code>mkdocstrings</code> uses for Python: read structured data, emit pages, rather than scrape a
-rendered site.</p>
-<p>The trade is depth. These pages carry each public item, its signature, its documentation, its
-methods and the traits it implements. They do not carry rustdoc's source links, its type-directed
-navigation or its "implementors" listings. For those, run <code>cargo doc --workspace --no-deps</code> and open
-what it writes under <code>target/doc</code>.</p>
+<h2 id="the-mechanism-that-holds-it">The mechanism that holds it<a class="headerlink" href="#the-mechanism-that-holds-it" title="Permanent link">&para;</a></h2>
+<p><code>cargo xtask check-workflows</code> refuses, over the whole <code>.github</code> tree:</p>
+<ul>
+<li>any step naming a hosted binary-cache publisher (<code>cachix/cachix-action</code>,
+  <code>DeterminateSystems/flakehub-cache-action</code>) while this record stands;</li>
+<li>any step in ordinary CI whose <code>if:</code> or <code>save:</code> reads <code>secrets.</code> or <code>vars.</code> - repository state the
+  workflow cannot observe, so the step's own skip is invisible. <code>secrets</code> is not even available to an
+  <code>if:</code>, and a <code>vars</code> test in one is the exact shape that was silently green here;</li>
+<li>this record being missing or empty, for <code>sast.rs</code>'s reason: a refusal enforcing a decision nobody
+  wrote down is a rule with no reason.</li>
+</ul>
+<p><strong>Adding a binary cache later is a good change, and it makes this record wrong the moment it lands.</strong>
+So the gate refuses the combination rather than the tool, and its message names this file to edit.</p>
 
 
 
@@ -2520,10 +2723,10 @@ what it writes under <code>target/doc</code>.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
