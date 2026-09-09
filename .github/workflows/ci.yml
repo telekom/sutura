@@ -243,7 +243,9 @@ jobs:
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
           # goes HERE, where the workflow diff shows it - never read from flake.nix. There is no
           # third-party substituter line to add: `docs/adr/0026` records the Actions cache as the
-          # only carrier, and `cargo xtask check-workflows` refuses one coming back.
+          # only carrier, and `cargo xtask check-workflows` refuses one NAMED in a workflow, both
+          # as `name = value` here and as `--name value` on a nix command line. It cannot see a
+          # value assembled from pieces, so that is review's, not the gate's.
           extra_nix_config: |
             fallback = true
 

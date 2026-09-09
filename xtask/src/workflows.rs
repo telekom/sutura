@@ -80,7 +80,9 @@ mod sast;
 // CAN A `pull_request` PATH WRITE THE ACTIONS CACHE? Its own file for `sast`'s reason - this one
 // is against the unexemptable 1000-line cap - and the seam is the question: every other rule here
 // asks whether a reference RESOLVES, this one asks what a step is ALLOWED to do. See its header for
-// the name list it is limited to and why a job-level condition is deliberately not accepted.
+// the name list it is limited to and why a job-level condition is deliberately not accepted. Its
+// `retired` child holds the other half - is `docs/adr/0026`'s recorded ABSENCE of a third-party
+// binary cache still absent - split off when the same cap bit a second time.
 mod cache_scope;
 
 // DOES THE 2/4 CROSS MATRIX STILL SPLIT BY EVENT? A single inline ternary on
@@ -278,7 +280,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!();
         eprintln!("An entry a pull request writes is readable by exactly one pull request and is then");
         eprintln!("pruned: restore everywhere, save only from a push to main, per");
-        eprintln!(".github/actions/nix-store-cache. docs/adr/0026 retired the third-party cache too.");
+        eprintln!(".github/actions/nix-store-cache. docs/adr/0026 retired the third-party cache, so a");
+        eprintln!("substituter NAMED in a workflow is refused - `name = value` and `--name value` both.");
         return Verdict::Fail;
     }
 
@@ -320,7 +323,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and the only store CI trusts, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             walked.len(),
             walked.join(", ")

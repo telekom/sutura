@@ -143,8 +143,10 @@ jobs:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
           # substituter stays absent, so a pull request cannot point CI at a store it controls.
           # No third-party substituter is configured here either - `docs/adr/0026` records the
-          # Actions cache as the only carrier, so the only store CI trusts is the one this
-          # repository's own `main` wrote.
+          # Actions cache as the only carrier. `cargo xtask check-workflows` refuses one NAMED in
+          # a workflow, in either spelling nix accepts (`name = value` and `--name value`); it
+          # cannot see a URL assembled from pieces or handed to nix by another action, so this
+          # says what is configured here rather than what nix can possibly be told.
           extra_nix_config: |
             fallback = true
 
