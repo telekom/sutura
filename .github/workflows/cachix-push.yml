@@ -38,8 +38,10 @@ permissions:
 
 jobs:
   push:
-    # Advisory by design - registered as such in `devco/required-contexts`. A cache publish that can
-    # block a merge is a cache publish that gets turned off the first time the network is slow.
+    # NOT in `devco/required-contexts`, and that is correct rather than an omission: that record
+    # accounts for jobs reporting a status-check CONTEXT, whose gating events are `pull_request` and
+    # `merge_group`. This workflow triggers on neither, so it reports no context and can gate no
+    # merge - which is also why a cache publish here can never turn into a blocked merge.
     name: push
     runs-on: rust-mcp-32core
     environment: cachix-push
