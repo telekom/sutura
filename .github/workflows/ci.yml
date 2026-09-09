@@ -334,7 +334,7 @@ jobs:
       # fails immediately afterwards with its own attributed output. `--keep-going` is what makes
       # that true - without it the first failure would abandon the other eight and this step would
       # slow the job it exists to speed up.
-      - name: Realise every check in one graph
+      - name: Realise all checks in one graph and report host utilisation
         continue-on-error: true
         # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
         # across the merged graph and writes cpus/memory/model + the nix max-jobs/cores pair in
