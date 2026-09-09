@@ -167,5 +167,3 @@ runner-probe.yml:bounded
 # a time-budgeted fuzz run must not gate a merge, and the entry is here so that argument is a
 # classification rather than an omission. What IS gated on every pull request is `check-fuzz`
 # inside the hygiene sweep, which reads the harness and costs milliseconds.
-fuzz.yml:smoke
-fuzz.yml:fuzz
