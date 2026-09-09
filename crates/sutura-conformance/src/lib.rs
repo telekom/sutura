@@ -22,10 +22,11 @@
 //!
 //! # Three properties, and each is the reason for a rule below
 //!
-//! 1. **The packs live in their own crate**, depending on `sutura-domain` and on no adapter - so the
+//! 1. **The packs live in their own crate**, depending on `sutura-domain` and on no port implementor - so the
 //!    harness is a dependency an adapter's own crate can take rather than a directory another
 //!    crate's tests reach into sideways. That is what `crates/sutura-exec-bigquery/tests/corpus.rs`
-//!    could not do and had to hand-write instead.
+//!    could not do and had to hand-write instead. Default-off `compile` additionally enables the
+//!    compiler, SQL renderer and JSON plan-value comparison; execute-only consumers opt into none.
 //! 2. **Every behaviour keeps its own name per adapter.** A generic function per pack would give one
 //!    test name per adapter, so a failure would say *the duckdb pack failed* and not which
 //!    behaviour. [`execute_packs`] exists only to give each behaviour a name the runner reports and
@@ -64,7 +65,7 @@
 //!   returning `Ok` unconditionally passes all of them and the gate.
 //! - **That a binding reporting its fixture ABSENT asked anything, on a machine that provisioned
 //!   nothing.** [`Fixture`] is a type a binding fills in and this crate cannot see a socket:
-//!   `xtask/src/boundaries/harness.rs` holds it to `sutura-domain` alone, and that gate's own
+//!   `xtask/src/boundaries/harness.rs` excludes every port implementor, and that gate's own
 //!   remedy assigns *reaching a provisioned tier* to the adapter's fixture. **In a venue that
 //!   provisioned one this is closed** - [`not_here`] and [`census`] both fail a declared absence
 //!   wherever [`REQUIRE_TIER`] is set, and `nix/with-tier.sh`'s `sutura_tier_up` STARTS a tier and
@@ -103,6 +104,8 @@
 /// name. `$crate::sutura_domain` always resolves.
 pub use sutura_domain;
 
+#[cfg(feature = "compile")]
+pub mod compile;
 pub mod corpus;
 pub mod execute;
 pub mod venue;

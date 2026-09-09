@@ -31,10 +31,11 @@ mod conformance {
 
 # Three properties, and each is the reason for a rule below
 
-1. **The packs live in their own crate**, depending on `sutura-domain` and on no adapter - so the
+1. **The packs live in their own crate**, depending on `sutura-domain` and on no port implementor - so the
    harness is a dependency an adapter's own crate can take rather than a directory another
    crate's tests reach into sideways. That is what `crates/sutura-exec-bigquery/tests/corpus.rs`
-   could not do and had to hand-write instead.
+   could not do and had to hand-write instead. Default-off `compile` additionally enables the
+   compiler, SQL renderer and JSON plan-value comparison; execute-only consumers opt into none.
 2. **Every behaviour keeps its own name per adapter.** A generic function per pack would give one
    test name per adapter, so a failure would say *the duckdb pack failed* and not which
    behaviour. `execute_packs` exists only to give each behaviour a name the runner reports and
@@ -73,7 +74,7 @@ mod conformance {
   returning `Ok` unconditionally passes all of them and the gate.
 - **That a binding reporting its fixture ABSENT asked anything, on a machine that provisioned
   nothing.** `Fixture` is a type a binding fills in and this crate cannot see a socket:
-  `xtask/src/boundaries/harness.rs` holds it to `sutura-domain` alone, and that gate's own
+  `xtask/src/boundaries/harness.rs` excludes every port implementor, and that gate's own
   remedy assigns *reaching a provisioned tier* to the adapter's fixture. **In a venue that
   provisioned one this is closed** - `not_here` and `census` both fail a declared absence
   wherever `REQUIRE_TIER` is set, and `nix/with-tier.sh`'s `sutura_tier_up` STARTS a tier and
@@ -403,6 +404,14 @@ name. `$crate::sutura_domain` always resolves.
 
 What one behaviour of one pack answers.
 
+## `macro compile_packs`
+
+Binds named catalog checks. `golden` additionally takes `oracle` and `cases` constructors;
+`declaring` deliberately cannot supply either. The tag must agree with `SemanticCatalog::KIND`.
+
+The macro and public calls are exercised by this crate's integration test; registry coverage is
+not inferred from these invocations and remains the later registration work.
+
 ## `macro execute_packs`
 
 Binds the execute pack to one adapter, as one named `#[test]` per behaviour.
@@ -463,6 +472,156 @@ registered adapter whose binding is in another file or another module, with the 
 COMPUTED from where the invocation sits, because those two properties are what the filters above
 rest on. What it still cannot see is an emitted test: the evidence is a written invocation and
 its position.
+
+## Module `compile`
+
+Catalog-only conformance, behind the default-off `compile` feature.
+
+Fixtures supply a catalog, independent expected values and questions. These packs own every
+comparison; no warehouse, filesystem corpus or callback implementing an assertion is required.
+Golden catalogs owe the oracle and compile cases. Declaring catalogs owe declaration fidelity
+and repeat-load determinism, not the golden model. `Golden` holds that distinction for direct
+calls; `crate::compile_packs` additionally checks the binding's tag at compile time.
+
+A case pins the serialized plan (JSON value equality, not whitespace), or the exact typed
+refusal. Only after that comparison do we render, comparing statement, source and parameters for
+each member of `sutura_sql::dialect::ALL`; federated statements are ordered fact then lookup. This does not
+prove a server accepts SQL, execute rows, establish identity, or prove `ALL` exhausts its enum.
+Expectations produced by the compiler under test are not an independent oracle. No real catalog
+is registered here yet; the existing app goldens and their snapshots remain untouched.
+
+### `struct Golden`
+
+```rust
+pub struct Golden<'a, C>
+```
+
+An adapter whose own declaration permits the golden-only checks. This borrows, never clones,
+the adapter; a declaring adapter cannot acquire this witness through a public field.
+
+#### Methods
+
+```rust
+pub const fn new(catalog: &'a C) -> Result<Self, NotGolden>
+```
+
+### `struct NotGolden`
+
+```rust
+pub struct NotGolden
+```
+
+A declaring catalog cannot be held to somebody else's complete model.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct Rendering`
+
+```rust
+pub struct Rendering
+```
+
+One dialect's independently expected statements. A mono plan has one, a federated plan two.
+
+#### Methods
+
+```rust
+pub const fn new(dialect: Dialect, statements: Vec<GeneratedQuery>) -> Self
+```
+
+### `enum Expected`
+
+```rust
+pub enum Expected
+```
+
+Expected values, not a second serialized format: plan values are the domain's own serialization.
+
+#### Variants
+
+- `Planned`
+- `Federated`
+- `Refused`
+
+### `struct Case`
+
+```rust
+pub struct Case
+```
+
+One named question and the independently authored values it must produce.
+
+#### Methods
+
+```rust
+pub const fn new(name: &'static str, question: Query, expected: Expected, renderings: Vec<Rendering>) -> Self
+```
+
+### `enum Fault`
+
+```rust
+pub enum Fault<E>
+```
+
+Which contract failed. Catalog, compiler and renderer errors retain their typed causes.
+
+#### Variants
+
+- `Load`
+- `Declaration`
+- `Unstable`
+- `Oracle`
+- `EmptyCorpus`
+- `Compile`
+- `Serialize`
+- `Outcome`
+- `Dialects`
+- `Render`
+- `Statement`
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `fn declaration_matches`
+
+```rust
+pub fn declaration_matches<C>(catalog: &C) -> Checked<<C as >::Error>
+```
+
+Universal: both under-declaration and promised-but-absent content are faults.
+
+### `fn repeats_its_digest`
+
+```rust
+pub fn repeats_its_digest<C>(catalog: &C) -> Checked<<C as >::Error>
+```
+
+Universal: repeat-load determinism only, not invariance under reformatting or changed inputs.
+
+### `fn agrees_with_oracle`
+
+```rust
+pub fn agrees_with_oracle<C>(golden: &Golden<'_, C>, oracle: &sutura_domain::pinned::PinnedDefinitions) -> Checked<<C as >::Error>
+```
+
+Golden-only: exact definitions and knowledge, without requiring the fixture's version or source
+contribution manifest to be the oracle's. Prose is compared, not erased.
+
+### `fn matches_cases`
+
+```rust
+pub fn matches_cases<C>(golden: &Golden<'_, C>, cases: &[Case]) -> Checked<<C as >::Error>
+```
+
+Golden-only: compare the plan/refusal before touching the renderer, then every dialect's output.
+An empty corpus and missing or repeated dialects cannot silently reduce the tested population.
+
+### `type_alias Checked`
+
+The result of one catalog conformance check.
 
 ## Module `corpus`
 
