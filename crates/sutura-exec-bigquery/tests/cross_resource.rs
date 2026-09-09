@@ -20,6 +20,7 @@
 //! This is shared-credential adapter execution, not a shipped feature or impersonation proof.
 
 #[cfg(test)]
+#[path = "cross_resource_fixture/cross_resource_fixture.rs"]
 mod cross_resource_fixture;
 #[cfg(test)]
 #[path = "cross_resource_fixture/live.rs"]
