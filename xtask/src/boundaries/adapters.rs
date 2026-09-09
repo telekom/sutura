@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn the_shape_this_workspace_actually_has_is_clean() {
-        assert!(report(&as_it_is()).is_empty());
+        assert!(report(&as_it_is()).is_empty(), "the real workspace shape has no adapter-boundary problems");
     }
 
     #[test]
@@ -346,7 +346,7 @@ mod tests {
     fn a_shared_renderer_is_not_an_adapter_edge() {
         // Both SQL adapters depend on `sutura-sql` and it is in no class, which is the whole
         // reason the rule is per class rather than "an adapter depending on an adapter".
-        assert!(report(&as_it_is()).is_empty());
+        assert!(report(&as_it_is()).is_empty(), "the real workspace shape has no adapter-boundary problems");
     }
 
     #[test]

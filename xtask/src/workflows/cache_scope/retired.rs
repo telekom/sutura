@@ -500,7 +500,7 @@ mod tests {
         // AND THE OTHER DIRECTION, so this cannot pass by refusing everything: the live shape,
         // whose gate names only contexts a workflow can evaluate for itself.
         let live = step_using(STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
-        assert!(super::retired(&owned("ci.yml", &live)).is_empty());
+        assert!(super::retired(&owned("ci.yml", &live)).is_empty(), "a live step that gates on its own context is not retired");
         // A secret in a `with:` VALUE is legitimate and is NOT this rule's business - the bigquery
         // credential is exactly that. Stated as a test because it is the limit, not an oversight.
         let credential = step_using("actions/checkout", "token:", "${{ secrets.GITHUB_TOKEN }}");
@@ -693,7 +693,7 @@ mod tests {
         assert!(blank.first().is_some_and(|p| p.contains("is empty")), "{blank:#?}");
 
         std::fs::write(&record, "the decision, argued\n").expect("write the record");
-        assert!(super::record(&root).is_empty());
+        assert!(super::record(&root).is_empty(), "a written record leaves nothing to report");
         std::fs::remove_dir_all(&root).expect("the temp tree this test created is removable");
     }
 

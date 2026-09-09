@@ -521,12 +521,12 @@ mod tests {
 
     #[test]
     fn a_categorical_expect_is_not_caught() {
-        assert!(lints("#[expect(clippy::float_arithmetic, reason = \"by design\")]").is_empty());
+        assert!(lints("#[expect(clippy::float_arithmetic, reason = \"by design\")]").is_empty(), "a categorical expect is not a lint to forbid");
     }
 
     #[test]
     fn an_allow_is_not_caught() {
-        assert!(lints(&format!("#[allow(clippy::{})]", FORBIDDEN[0])).is_empty());
+        assert!(lints(&format!("#[allow(clippy::{})]", FORBIDDEN[0])).is_empty(), "an allow is not an expect to forbid");
     }
 
     #[test]
@@ -536,13 +536,13 @@ mod tests {
             "// No `#[expect(clippy::{})]` any more, and that is worth a line\nfn f() {{}}\n",
             FORBIDDEN[0]
         );
-        assert!(lints(&code).is_empty());
+        assert!(lints(&code).is_empty(), "a comment naming the class is not a lint to catch");
     }
 
     #[test]
     fn a_block_comment_naming_the_class_is_not_caught() {
         let code = format!("/* Never: #[expect(clippy::{})] */\nfn f() {{}}\n", FORBIDDEN[0]);
-        assert!(lints(&code).is_empty());
+        assert!(lints(&code).is_empty(), "a block comment naming the class is not a lint to catch");
     }
 
     #[test]
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn a_commented_out_attribute_on_a_later_line_is_not_caught() {
         let code = format!("fn f() {{}}\n// {}\n", expect(FORBIDDEN[2]));
-        assert!(lints(&code).is_empty());
+        assert!(lints(&code).is_empty(), "a commented-out attribute is not a live lint");
     }
 
     #[test]
@@ -610,7 +610,7 @@ mod tests {
             "    assert!(s.contains(k));\n",             // 7
             "}\n",
         );
-        assert!(needles(code).is_empty());
+        assert!(needles(code).is_empty(), "needles with no longer sibling are not flagged");
     }
 
     #[test]
@@ -634,7 +634,7 @@ mod tests {
             "    assert!(t.contains(\"graceful\"));\n", // 5
             "}\n",
         );
-        assert!(needles(code).is_empty());
+        assert!(needles(code).is_empty(), "a collision across separate fns is not a needle");
     }
 
     #[test]
@@ -660,7 +660,7 @@ mod tests {
             "    assert!(t.contains(\"graceful\"));\n",
             "}\n",
         );
-        assert!(needles(code).is_empty());
+        assert!(needles(code).is_empty(), "a commented-out call yields no needle");
     }
 
     #[test]
@@ -673,6 +673,6 @@ mod tests {
             "    assert!(t.contains(\"graceful\"));\n",         // 3
             "}\n",
         );
-        assert!(needles(code).is_empty());
+        assert!(needles(code).is_empty(), "a brace inside a literal spawns no phantom needle");
     }
 }

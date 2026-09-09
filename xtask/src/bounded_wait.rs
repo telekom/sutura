@@ -780,7 +780,7 @@ mod tests {
     fn a_status_field_is_not_a_status_call() {
         // `out.status.success()` is how every caller in this tier reads an exit code, so reading it
         // as a wait would make the gate fire on the code it is protecting.
-        assert!(found("let ok = out.status.success();\n").is_empty());
+        assert!(found("let ok = out.status.success();\n").is_empty(), "a status field is not read as a wait");
     }
 
     #[test]

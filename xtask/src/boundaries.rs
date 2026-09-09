@@ -660,7 +660,7 @@ mod tests {
 
     #[test]
     fn an_allowlisted_tree_has_no_violations() {
-        assert!(violations(&set(ALLOWED_IN_DOMAIN)).is_empty());
+        assert!(violations(&set(ALLOWED_IN_DOMAIN)).is_empty(), "an allowlisted tree yields no violations");
     }
 
     #[test]

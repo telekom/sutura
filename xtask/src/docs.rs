@@ -709,7 +709,8 @@ extra:
                 &set(&[]),
                 "docs"
             )
-            .is_empty()
+            .is_empty(),
+            "a matching pair is clean"
         );
     }
 
@@ -816,10 +817,10 @@ extra:
         );
 
         // Same-origin and relative loads are the point of the rule, not violations of it.
-        assert!(external_loads("t.css", "@import \"variables.css\";").is_empty());
-        assert!(external_loads("t.css", "  --md-primary-fg-color: #e20074;").is_empty());
+        assert!(external_loads("t.css", "@import \"variables.css\";").is_empty(), "a same-origin @import loads no external resource");
+        assert!(external_loads("t.css", "  --md-primary-fg-color: #e20074;").is_empty(), "a CSS variable declaration fetches no external resource");
         // A URL in prose or a comment fetches nothing, so it is none of this rule's business.
-        assert!(external_loads("t.css", " * see https://example.com/why").is_empty());
+        assert!(external_loads("t.css", " * see https://example.com/why").is_empty(), "a URL in prose or a comment loads nothing");
     }
 
     #[test]
@@ -829,7 +830,7 @@ extra:
         // A key that is not there is not declared, which is what separates "no exclusions" from
         // "an exclusion block naming nothing".
         assert!(!declares(CONFIG, "not_in_nav"));
-        assert!(exclusions("site_name: sutura\n").is_empty());
+        assert!(exclusions("site_name: sutura\n").is_empty(), "config naming no exclusions yields none");
     }
 
     #[test]

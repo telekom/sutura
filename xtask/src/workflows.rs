@@ -208,130 +208,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
-    // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
-    // readers and checked by nothing - and it was false.
-    let unclassified = contexts::problems(&root, &ordinary);
-    if !unclassified.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} job(s) or context(s) are not accounted for\n",
-            unclassified.len()
-        );
-        for problem in &unclassified {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("A job nobody requires gates nothing, and a required context nothing reports is a");
-        eprintln!("permanently pending merge. Which of the two a job is belongs in the record, not in");
-        eprintln!("a reader's assumption - see the header of devco/required-contexts for what that");
-        eprintln!("record can and cannot hold.");
-        return Verdict::Fail;
+
+    if let Some(verdict) = check_gates(&root, &ordinary, &flake, &references) {
+        return verdict;
     }
 
-    // WHAT A BADGE CLAIMS, AGAINST WHAT HOLDS IT. Beside the classification above because both
-    // are rules about what a workflow is ALLOWED to assert rather than about whether it resolves -
-    // and a badge is the one thing in this tree that asserts a control to somebody who cannot read
-    // the tree. See `scorecard`'s header for each rule and the limit beside it.
-    let mut badges = scorecard::problems(&root);
-    badges.extend(publication::problems(&root));
-    if !badges.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} badge/publication rule(s) broken\n",
-            badges.len()
-        );
-        for problem in &badges {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("A badge is a public claim, and an overstated control is itself the defect here.");
-        eprintln!("docs/adr/0024 is the decision; devco/scorecard-publication is what publishing");
-        eprintln!("sends and why it is on.");
-        return Verdict::Fail;
-    }
-
-    // AN ACCEPTED ZERO IS A CLAIM TOO, and it is the same class of defect one row over: a badge
-    // asserts a control to somebody who cannot read the tree, and so does a published score whose
-    // low row this repository has argued is held by other means. `docs/adr/0025` makes that
-    // argument about clippy and zizmor; this reads whether they are still there.
-    let stand_ins = sast::problems(&root, &flake, &references);
-    if !stand_ins.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} SAST stand-in rule(s) broken\n",
-            stand_ins.len()
-        );
-        for problem in &stand_ins {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("docs/adr/0025 accepts Scorecard's SAST zero because clippy under -D warnings and");
-        eprintln!("zizmor run inside the one required context. A record that outlives its stand-in is");
-        eprintln!("an overstated control, which AGENTS.md calls the defect itself.");
-        return Verdict::Fail;
-    }
-
-    // WHO MAY WRITE THE ACTIONS CACHE. Third rule in a row about what a workflow is ALLOWED to do
-    // rather than whether it resolves, and the newest: an entry a pull request writes is readable
-    // by exactly one pull request, so ordinary CI restores on every event and saves only from a
-    // push to `main`. Nothing held that before - `check-workflows` read flake references and
-    // `zizmor` reads security shapes, and neither can tell a cache action that saves from one that
-    // does not.
-    let writes = cache_scope::problems(&root, ordinary.closure());
-    if !writes.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} Actions-cache write rule(s) broken\n",
-            writes.len()
-        );
-        for problem in &writes {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("An entry a pull request writes is readable by exactly one pull request and is then");
-        eprintln!("pruned: restore everywhere, save only from a push to main, per");
-        eprintln!(".github/actions/nix-store-cache. docs/adr/0026 retired the third-party cache, so a");
-        eprintln!("substituter NAMED in a workflow is refused - `name = value` and `--name value` both.");
-        return Verdict::Fail;
-    }
-
-    // IS THE COMPILER BACKEND CHOSEN IN CI? The dev shell is nightly-only now, and the two
-    // codegen-backend env vars `nix/stable-env.sh` used to UNSET are nightly-only too - so a step
-    // that SETS one is an unremarked backend switch with no cleanup behind it. Refused by name so
-    // a reviewer sees the choice; see the module header for the exact-name list.
-    let codegen = codegen::problems(&root);
-    if !codegen.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} codegen-backend env variable rule(s) broken\n",
-            codegen.len()
-        );
-        for problem in &codegen {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("A workflow or action must not select the compiler backend itself - the toolchain a");
-        eprintln!("reviewer pinned is what chooses one. See xtask/src/workflows/codegen.rs for the");
-        eprintln!("name list and what it does not reach.");
-        return Verdict::Fail;
-    }
-
-    // WHICH SET AN EVENT RUNS. `cross-link.yml`'s matrix literal once chose two aarch64 legs on a
-    // pull request and four on `main` with nothing holding it - every gate stayed green on a
-    // 4-on-PR regression. `#477`'s own review rated that M1 gap compute-only, not blocking, but
-    // called it a claim no mechanism held. This pins the ternary.
-    let cross = cross_link::problems(&root);
-    if !cross.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} cross-matrix rule(s) broken\n",
-            cross.len()
-        );
-        for problem in &cross {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("A pull request proves the two aarch64 triples the native ci job never compiles,");
-        eprintln!("and a push to `main` builds all four; that split lives in one inline ternary in");
-        eprintln!("cross-link.yml. A gate that holds it keeps `cannot silently run 4 on a PR` true");
-        eprintln!("instead of merely written beside it - see xtask/src/workflows/cross_link.rs.");
-        return Verdict::Fail;
-    }
 
     let missing: Vec<&Reference> = references
         .iter()
@@ -368,6 +249,137 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     eprintln!();
     eprintln!("A deleted output is a workflow that fails minutes into a run, after the push.");
     Verdict::Fail
+}
+
+/// Every rule that compares what a workflow is ALLOWED to do against what is declared to hold
+/// it. Kept out of `run` so the walker stays a single responsibility per function; returns
+/// `Some(Fail)` with the report already printed the moment any one rule breaks.
+fn check_gates(root: &std::path::Path, ordinary: &contexts::OrdinaryCi, flake: &str, references: &[Reference]) -> Option<Verdict> {
+    // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
+    // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
+    // readers and checked by nothing - and it was false.
+    let unclassified = contexts::problems(root, ordinary);
+    if !unclassified.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} job(s) or context(s) are not accounted for\n",
+            unclassified.len()
+        );
+        for problem in &unclassified {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A job nobody requires gates nothing, and a required context nothing reports is a");
+        eprintln!("permanently pending merge. Which of the two a job is belongs in the record, not in");
+        eprintln!("a reader's assumption - see the header of devco/required-contexts for what that");
+        eprintln!("record can and cannot hold.");
+        return Some(Verdict::Fail);
+    }
+
+    // WHAT A BADGE CLAIMS, AGAINST WHAT HOLDS IT. Beside the classification above because both
+    // are rules about what a workflow is ALLOWED to assert rather than about whether it resolves -
+    // and a badge is the one thing in this tree that asserts a control to somebody who cannot read
+    // the tree. See `scorecard`'s header for each rule and the limit beside it.
+    let mut badges = scorecard::problems(root);
+    badges.extend(publication::problems(root));
+    if !badges.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} badge/publication rule(s) broken\n",
+            badges.len()
+        );
+        for problem in &badges {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A badge is a public claim, and an overstated control is itself the defect here.");
+        eprintln!("docs/adr/0024 is the decision; devco/scorecard-publication is what publishing");
+        eprintln!("sends and why it is on.");
+        return Some(Verdict::Fail);
+    }
+
+    // AN ACCEPTED ZERO IS A CLAIM TOO, and it is the same class of defect one row over: a badge
+    // asserts a control to somebody who cannot read the tree, and so does a published score whose
+    // low row this repository has argued is held by other means. `docs/adr/0025` makes that
+    // argument about clippy and zizmor; this reads whether they are still there.
+    let stand_ins = sast::problems(root, flake, references);
+    if !stand_ins.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} SAST stand-in rule(s) broken\n",
+            stand_ins.len()
+        );
+        for problem in &stand_ins {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("docs/adr/0025 accepts Scorecard's SAST zero because clippy under -D warnings and");
+        eprintln!("zizmor run inside the one required context. A record that outlives its stand-in is");
+        eprintln!("an overstated control, which AGENTS.md calls the defect itself.");
+        return Some(Verdict::Fail);
+    }
+
+    // WHO MAY WRITE THE ACTIONS CACHE. Third rule in a row about what a workflow is ALLOWED to do
+    // rather than whether it resolves, and the newest: an entry a pull request writes is readable
+    // by exactly one pull request, so ordinary CI restores on every event and saves only from a
+    // push to `main`. Nothing held that before - `check-workflows` read flake references and
+    // `zizmor` reads security shapes, and neither can tell a cache action that saves from one that
+    // does not.
+    let writes = cache_scope::problems(root, ordinary.closure());
+    if !writes.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} Actions-cache write rule(s) broken\n",
+            writes.len()
+        );
+        for problem in &writes {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("An entry a pull request writes is readable by exactly one pull request and is then");
+        eprintln!("pruned: restore everywhere, save only from a push to main, per");
+        eprintln!(".github/actions/nix-store-cache. docs/adr/0026 retired the third-party cache, so a");
+        eprintln!("substituter NAMED in a workflow is refused - `name = value` and `--name value` both.");
+        return Some(Verdict::Fail);
+    }
+
+    // IS THE COMPILER BACKEND CHOSEN IN CI? The dev shell is nightly-only now, and the two
+    // codegen-backend env vars `nix/stable-env.sh` used to UNSET are nightly-only too - so a step
+    // that SETS one is an unremarked backend switch with no cleanup behind it. Refused by name so
+    // a reviewer sees the choice; see the module header for the exact-name list.
+    let codegen = codegen::problems(root);
+    if !codegen.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} codegen-backend env variable rule(s) broken\n",
+            codegen.len()
+        );
+        for problem in &codegen {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A workflow or action must not select the compiler backend itself - the toolchain a");
+        eprintln!("reviewer pinned is what chooses one. See xtask/src/workflows/codegen.rs for the");
+        eprintln!("name list and what it does not reach.");
+        return Some(Verdict::Fail);
+    }
+
+    // WHICH SET AN EVENT RUNS. `cross-link.yml`'s matrix literal once chose two aarch64 legs on a
+    // pull request and four on `main` with nothing holding it - every gate stayed green on a
+    // 4-on-PR regression. `#477`'s own review rated that M1 gap compute-only, not blocking, but
+    // called it a claim no mechanism held. This pins the ternary.
+    let cross = cross_link::problems(root);
+    if !cross.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} cross-matrix rule(s) broken\n",
+            cross.len()
+        );
+        for problem in &cross {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A pull request proves the two aarch64 triples the native ci job never compiles,");
+        eprintln!("and a push to `main` builds all four; that split lives in one inline ternary in");
+        eprintln!("cross-link.yml. A gate that holds it keeps `cannot silently run 4 on a PR` true");
+        eprintln!("instead of merely written beside it - see xtask/src/workflows/cross_link.rs.");
+        return Some(Verdict::Fail);
+    }
+    None
 }
 
 fn joined(names: &BTreeSet<String>) -> String {

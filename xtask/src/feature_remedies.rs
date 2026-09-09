@@ -446,10 +446,10 @@ mod tests {
             vec!["bigquery"]
         );
         // #366's literal: it instructs a rebuild and spells no name at all.
-        assert!(named_features("build the binary with the feature that provides it, or write `markdown`").is_empty());
+        assert!(named_features("build the binary with the feature that provides it, or write `markdown`").is_empty(), "an instruction that names no feature yields none");
         // A backticked span that is NOT adjacent to the word is some other thing in the sentence -
         // a settings key here - and reading it as a feature would invent a citation.
-        assert!(named_features("`catalog.kind: datahub` needs a feature").is_empty());
+        assert!(named_features("`catalog.kind: datahub` needs a feature").is_empty(), "a settings key next to the word is not a named feature");
         assert_eq!(backticked_tail("built without the `bigquery` "), Some("bigquery"));
         assert_eq!(backticked_tail("nothing backticked here "), None);
     }

@@ -666,7 +666,7 @@ mod tests {
         // Pairing on the line would have said one `new` and one `removed` for a function nobody
         // touched, which is the noise that gets a delta gate switched off.
         assert_eq!(statuses(&comparison), vec![("f", Status::Moved)]);
-        assert!(comparison.removed.is_empty());
+        assert!(comparison.removed.is_empty(), "no function reads as removed when only its line moved");
     }
 
     #[test]
@@ -683,7 +683,7 @@ mod tests {
             statuses(&comparison),
             vec![("Real::fmt", Status::Unchanged), ("Real::fmt", Status::Unchanged)]
         );
-        assert!(comparison.removed.is_empty());
+        assert!(comparison.removed.is_empty(), "no same-named function reads as removed");
     }
 
     #[test]
@@ -779,7 +779,7 @@ mod tests {
         let comparison = compare(&before, &after, DEFAULT_EPSILON);
         let verdict = ratchet(&comparison, 30.0);
         assert_eq!(verdict.crossed.len(), 1);
-        assert!(verdict.worse_over_line.is_empty());
+        assert!(verdict.worse_over_line.is_empty(), "no entry reads as worse over the line");
         assert!(verdict.broken(30.0));
         let reasons = verdict.reasons(30.0);
         assert!(reasons.iter().any(|reason| reason.contains("crossed")), "{reasons:?}");

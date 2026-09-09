@@ -776,7 +776,7 @@ mod tests {
     fn the_scope_is_not_empty_and_names_no_duplicates() {
         // An empty scope would make the expensive gate a green no-op, which is the same failure
         // the empty-report refusal exists for, arrived at from the configuration side.
-        assert!(!super::SCOPE.is_empty());
+        assert!(!super::SCOPE.is_empty(), "the scoped package list must not be empty");
         let mut names: Vec<&str> = super::SCOPE.to_vec();
         names.sort_unstable();
         names.dedup();

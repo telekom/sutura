@@ -295,7 +295,8 @@ mod tests {
         assert!(
             super::indented_instructions(mention)
                 .unwrap_or_else(|e| panic!("{e}"))
-                .is_empty()
+                .is_empty(),
+            "an inline backticked mention is prose, not an indented instruction"
         );
         // And a FENCED block four columns in is code, not an indented instruction - the
         // admonition shape `markdown::opens` diverges from `CommonMark` for.
@@ -303,7 +304,8 @@ mod tests {
         assert!(
             super::indented_instructions(fenced)
                 .unwrap_or_else(|e| panic!("{e}"))
-                .is_empty()
+                .is_empty(),
+            "a fenced block four columns in is code, not an indented instruction"
         );
         assert_eq!(read("docs/p.md", fenced).len(), 1);
     }

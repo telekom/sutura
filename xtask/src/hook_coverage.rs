@@ -749,7 +749,7 @@ mod tests {
             (String::from(super::hooks::COMMIT), String::from("/dev/null")),
             (String::from(super::hooks::PUSH), String::from("/dev/null")),
         ];
-        assert!(super::unmeasured_stages(&declared, &logs).is_empty());
+        assert!(super::unmeasured_stages(&declared, &logs).is_empty(), "no declared stage is left unmeasured");
         let text = concat!(
             "default_stages: [pre-commit]\n",
             "      - id: a\n",
@@ -863,7 +863,8 @@ mod tests {
         assert!(
             super::surface_gaps(&changed, &[], &[String::from("lint-workflows")])
                 .1
-                .is_empty()
+                .is_empty(),
+            "a diff with lint-workflows named as seen leaves no gap"
         );
         // A Rust diff is covered when EVERY hook claiming Rust ran, and not before: `one of them
         // ran` is the sentence this module exists to stop being printed as coverage.
@@ -876,7 +877,7 @@ mod tests {
             .iter()
             .map(|id| String::from(*id))
             .collect();
-        assert!(super::surface_gaps(&rust, &all, &[]).1.is_empty());
+        assert!(super::surface_gaps(&rust, &all, &[]).1.is_empty(), "every hook claiming Rust leaves no gap");
         // Clippy alone is a gap, and the gap NAMES the four that did not run.
         let (_, partial) = super::surface_gaps(&rust, &[String::from("rust-clippy")], &[]);
         assert_eq!(partial.len(), 1, "{partial:?}");
@@ -898,7 +899,7 @@ mod tests {
     fn a_surface_naming_a_hook_the_config_does_not_declare_fails() {
         // The anti-rot half. Nothing here can read a `files:` regex, so what is held is that the
         // IDs this table leans on still exist - a rename would otherwise empty a claim in silence.
-        assert!(super::unknown_hook_ids(&declared()).is_empty());
+        assert!(super::unknown_hook_ids(&declared()).is_empty(), "no surface names a hook the config does not declare");
         let declared = declared();
         let unknown: Vec<String> = GONE
             .iter()
@@ -913,7 +914,7 @@ mod tests {
     fn every_surface_the_real_config_claims_still_exists() {
         // Over the REAL file, because the fixtures above prove the reader and not the tree. This is
         // the assertion that reddens when a hook is renamed in `.pre-commit-config.yaml`.
-        assert!(super::unknown_hook_ids(&declared()).is_empty());
+        assert!(super::unknown_hook_ids(&declared()).is_empty(), "every real-config hook ID is still declared");
         // And the two rows that claim nothing are exactly the two the header says there are. The
         // day a hook covers one of them this assertion is what says the header stopped being true
         // - which is the direction that matters, because a row claiming a hook that cannot report

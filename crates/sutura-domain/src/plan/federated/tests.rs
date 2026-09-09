@@ -307,7 +307,6 @@ fn avg_fact(rows: Vec<Vec<Value>>) -> RowSet {
 }
 
 #[test]
-#[expect(clippy::float_cmp, reason = "100.0 is exactly representable, so the compare is exact")]
 fn an_average_is_undivided_in_the_leg_and_divided_above() {
     let plan = avg_plan();
     let fact = avg_fact(vec![vec![

@@ -655,12 +655,12 @@ mod tests {
         // The distinction the vacuity check rests on: *fine* and *a statement* are not the same
         // verdict. Every marker line in this repo used to be the first kind, which is how a
         // working comparison ended up with nothing to compare.
-        assert!(stated_versions("The compiler pin lives in rust-toolchain.toml and nowhere else.", &PIN).is_empty());
+        assert!(stated_versions("The compiler pin lives in rust-toolchain.toml and nowhere else.", &PIN).is_empty(), "a pin mention with no version states no version");
         assert_eq!(
             stated_versions("Pinned in rust-toolchain.toml at 1.98.0.", &PIN),
             vec![String::from("1.98.0")]
         );
-        assert!(stated_versions("DataFusion 53.0.0 is the upstream version.", &PIN).is_empty());
+        assert!(stated_versions("DataFusion 53.0.0 is the upstream version.", &PIN).is_empty(), "the DataFusion version line states no compiler-pin version");
     }
 
     #[test]
@@ -779,7 +779,7 @@ mod tests {
     fn a_markdown_table_header_is_preceded_by_a_blank_line() {
         use super::pages::table_problems;
         let spaced = page("A paragraph.\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n");
-        assert!(table_problems("a.md", &spaced).is_empty());
+        assert!(table_problems("a.md", &spaced).is_empty(), "a properly spaced table reports no problems");
         // What a rebase did to one record's four-venues table: the pipes joined the paragraph.
         let run_on = page("A paragraph.\n| a | b |\n| --- | --- |\n");
         let problems = table_problems("a.md", &run_on);
@@ -787,7 +787,7 @@ mod tests {
         assert!(problems[0].starts_with("a.md:2:"), "{problems:?}");
         // The same shape shown inside a fence is an example, not a table.
         let shown = page("A paragraph.\n\n```text\nA paragraph.\n| a | b |\n```\n");
-        assert!(table_problems("a.md", &shown).is_empty());
+        assert!(table_problems("a.md", &shown).is_empty(), "a table shown inside a fence is not a problem");
     }
 
     #[test]

@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn try_from_is_what_makes_the_same_derive_correct() {
         let attrs = "#[derive(Debug, serde::Deserialize)]\n#[serde(try_from = \"String\")]";
-        assert!(findings(&newtype(attrs)).is_empty());
+        assert!(findings(&newtype(attrs)).is_empty(), "a try_from-correct newtype has no findings");
     }
 
     #[test]
@@ -345,7 +345,7 @@ mod tests {
             "{}impl<'de> serde::Deserialize<'de> for Digest {{}}\n",
             newtype("#[derive(Debug)]")
         );
-        assert!(findings(&text).is_empty());
+        assert!(findings(&text).is_empty(), "a hand-written Deserialize is a clean route");
     }
 
     #[test]
@@ -353,13 +353,13 @@ mod tests {
         // `Query`, `Anchor` and the `Raw*` settings shapes are this class: nothing is checked at
         // construction, so the derive walks past nothing.
         let text = "#[derive(serde::Deserialize)]\npub struct Query {\n    metric: MetricName,\n}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "a type with no fallible constructor has no findings");
     }
 
     #[test]
     fn an_infallible_constructor_is_not_a_parse() {
         let text = "#[derive(serde::Deserialize)]\npub struct Anchor {\n    value: String,\n}\n\nimpl Anchor {\n    pub const fn new(value: String) -> Self {\n        Self { value }\n    }\n}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "an infallible constructor is not a parse");
     }
 
     #[test]
@@ -377,13 +377,13 @@ mod tests {
     #[test]
     fn an_into_beside_the_try_from_is_the_fix() {
         let text = "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\", into = \"String\")]\npub struct Date {\n    year: i32,\n}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "an into beside the try_from leaves no findings");
     }
 
     #[test]
     fn a_hand_written_serialize_is_the_other_fix() {
         let text = "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Qualified {\n    part: String,\n}\n\nimpl serde::Serialize for Qualified {}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "a hand-written Serialize leaves no findings");
     }
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
         // as its inner value, so both directions are `String`.
         let text =
             "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Digest(String);\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "a newtype over the try_from target round-trips cleanly");
     }
 
     #[test]
@@ -439,7 +439,7 @@ mod tests {
         // and a rule that reported them would be reporting the absence of a file it never read.
         let text =
             "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Digest(String);\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "a try_from naming no declaration is not this rule's");
     }
 
     #[test]
@@ -465,14 +465,14 @@ mod tests {
         // The confound that makes comment blanking necessary rather than tidy: this repo's
         // doctests declare types, and one of them deriving Deserialize is not a violation.
         let text = "/// ```\n/// #[derive(serde::Deserialize)]\n/// pub struct Digest(String);\n/// impl Digest { pub fn parse(r: &str) -> Result<Self, E> { todo!() } }\n/// ```\npub fn f() {}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "a rustdoc-example declaration is not a declaration");
     }
 
     #[test]
     fn a_declaration_inside_a_multi_line_string_is_not_a_declaration() {
         // Which is what makes this module's own fixtures invisible to the gate that reads them.
         let text = "fn fixture() -> &'static str {\n    r#\"\n#[derive(serde::Deserialize)]\npub struct Digest(String);\nimpl Digest { pub fn parse(r: &str) -> Result<Self, E> { todo!() } }\n\"#\n}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "a string-literal declaration is not a declaration");
     }
 
     fn choice(attrs: &str, visibility: &str) -> String {
