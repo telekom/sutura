@@ -30,7 +30,7 @@
 //! are for. It does not see duplication in other languages. Thresholds (lines/tokens) are
 //! constants here; changing what trips the gate is a source change, reviewed.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::{Verdict, repo, repo::Unmigrated};
@@ -204,16 +204,49 @@ fn findings(clones: &[Duplicate], allow: &Allowlist) -> Vec<Duplicate> {
     clones.iter().filter(|c| !allowed(c, allow)).cloned().collect()
 }
 
+/// `jscpd`'s private temporary working directory, removed when dropped.
+///
+/// The directory is gone on the success AND the failure path, and even on a panic inside the scan
+/// (unwinding runs `Drop`) - a scope guard, without a global panic hook. Removing the `drop` body
+/// leaks one `$TMPDIR/jscpd-*` directory per scan, which `the_temp_work_dir_is_removed_when_the_guard_drops`
+/// holds red.
+struct TempWorkDir(PathBuf);
+
+impl TempWorkDir {
+    /// Create a fresh, uniquely named working directory under `$TMPDIR`.
+    fn create() -> Result<Self, String> {
+        // A per-call sequence keeps concurrently-running scans and unit tests from sharing a name
+        // under the same `<pid>-<secs>` second and deleting each other's directory mid-scan.
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let out = std::env::temp_dir().join(format!(
+            "jscpd-{}-{seq}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs())
+        ));
+        std::fs::create_dir_all(&out).map_err(|e| format!("could not create temp dir: {e}"))?;
+        Ok(Self(out))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempWorkDir {
+    fn drop(&mut self) {
+        // A failure here is not the scan's concern (the directory is already absent or the OS will
+        // reap it), so it must not turn a scan verdict into an error.
+        let _removed = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Run jscpd over [`SCAN`] and return the clones it found.
 fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
-    let out = std::env::temp_dir().join(format!(
-        "jscpd-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs())
-    ));
-    std::fs::create_dir_all(&out).map_err(|e| format!("could not create temp dir: {e}"))?;
+    let work = TempWorkDir::create()?;
+    let out = work.path();
 
     let mut cmd = Command::new(jscpd);
     cmd.arg("--silent")
@@ -221,7 +254,7 @@ fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
         .arg("--reporters")
         .arg("json")
         .arg("--output")
-        .arg(&out)
+        .arg(out)
         .arg("--format")
         .arg(FORMAT)
         .arg("--min-lines")
@@ -519,6 +552,18 @@ mod tests {
     #[test]
     fn census_passes_on_real_rust_outside_the_ignore_globs() {
         assert_eq!(check_census(&["crates/a.rs", "dev/b.rs"], IGNORE_GLOBS), Ok(()));
+    }
+
+    #[test]
+    fn the_temp_work_dir_is_removed_when_the_guard_drops() {
+        let path = {
+            let work = TempWorkDir::create().expect("scratch temp-dir creation");
+            let p = work.path().to_path_buf();
+            assert!(p.exists(), "the temp dir must exist while the guard is alive");
+            p
+        };
+        // `work` dropped here (end of the block), so `Drop` must have removed the directory.
+        assert!(!path.exists(), "the temp working dir must be removed when the guard drops");
     }
 
     #[test]
