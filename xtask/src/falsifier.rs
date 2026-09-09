@@ -22,12 +22,26 @@
 //! exists rather than a Rust file.
 //!
 //! **A seed is what makes a refusal come from a gate's OWN RULE rather than from a missing input,
-//! and only three of the gates here manage that.** Over this tree 20 refuse on an absent or
-//! unreadable input and 8 on an empty-scan floor; `telekom/sutura#405` asks its own gate to be one
-//! of the three, so the shell script below carries a real violation - an unkeyed path under the
-//! machine's temporary root - and `check-worktree-state` refuses it by name, with a line number,
-//! having found and adjudicated one taking. The file is a `.sh` under `nix/` because that is a
-//! scope no other gate in the sweep reads for content, so it falsifies exactly one gate.
+//! and only five of the gates here manage that.** Measured on `d26814e2` plus this commit by
+//! running every registered hygiene gate inside a reconstruction of this tree and classifying its
+//! first line: **23 refuse on an absent or unreadable input, 9 on an empty-scan floor, and 5 on
+//! their own rule** - `max-lines`, `line-endings` and `text-hygiene` off the seeded text files,
+//! `check-worktree-state` off the shell script, and `check-nix-platform` off `nix/platform.nix`.
+//!
+//! **THOSE THREE NUMBERS ARE A MEASUREMENT AND NOTHING EXECUTES THEM, which is the residue
+//! `telekom/sutura#371` names.** The sentence they replace said 20 / 8 / 3 over 31 gates and was
+//! wrong in every figure by the time it was read: all 37 gates refuse, so the test below stayed
+//! green for the whole time the split was stale. A gate that stops refusing on its own rule and
+//! starts refusing on a missing input is a weaker gate and moves nothing here. `AGENTS.md` prefers
+//! a check to a sentence and this is still a sentence: classifying a reason mechanically means
+//! capturing each gate's own output in-process, which is a design question rather than a one-liner.
+//! **So treat the split as of its commit and re-measure rather than citing it.**
+//!
+//! `telekom/sutura#405` asks its own gate to be one of them, so the shell script below carries a
+//! real violation - an unkeyed path under the machine's temporary root - and
+//! `check-worktree-state` refuses it by name, with a line number, having found and adjudicated one
+//! taking. The file is a `.sh` under `nix/` because that is a scope no other gate in the sweep
+//! reads for content, so it falsifies exactly one gate.
 //!
 //! **Why this module exists at all, rather than sitting in `main.rs`:** that file hit the
 //! 1000-line cap on the merge of two branches that both grew it, and `sutura/gates` says to move
@@ -69,6 +83,18 @@ pub(crate) fn falsifier_tree() -> PathBuf {
     // every other way - LF, a final newline, no trailing space, well under the line cap - so this
     // file falsifies one gate and tells the other three nothing.
     std::fs::create_dir_all(root.join("nix")).expect("the shell scope");
+    // A platform predicate read off the deprecated `stdenv` alias, which is `check-nix-platform`'s
+    // own rule. Seeded rather than left to the bare root FOR THE REASON THIS MODULE'S HEADER
+    // GIVES: `flake.nix` is a `.nix` file, so that gate's scan is neither empty nor missing its
+    // anchor here, and without a violation its refusal would have to come from an input it could
+    // not read - which is the weaker of the two and the residue `telekom/sutura#371` names. Clean
+    // in every other way - LF, a final newline, no trailing space, four lines - so it falsifies
+    // exactly one gate and tells the others nothing.
+    std::fs::write(
+        root.join("nix/platform.nix"),
+        "{ pkgs }:\n{\n  buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];\n}\n",
+    )
+    .expect("the deprecated platform predicate");
     std::fs::write(
         root.join("nix/shared-scratch.sh"),
         "#!/usr/bin/env bash\nlog=\"/tmp/sutura-gate-state.log\"\necho hi >\"$log\"\n",

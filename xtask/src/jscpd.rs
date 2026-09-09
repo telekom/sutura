@@ -27,11 +27,13 @@
 //!
 //! LIMIT, NEXT TO THE CLAIM. This scans the whole tree's Rust (`--format rust`) and cannot tell
 //! an intentional pattern from an accidental one - that is what the allowlist's written reasons
-//! are for. It does not see duplication in other languages. Thresholds (lines/tokens) are
-//! constants here; changing what trips the gate is a source change, reviewed.
+//! are for. It does not see duplication in other languages. `devco/jscpd.json` owns the ignore
+//! set; thresholds (lines/tokens) are constants here. Changing either is reviewed source.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use serde::Deserialize;
 
 use crate::{Verdict, repo, repo::Unmigrated};
 
@@ -49,10 +51,10 @@ const MIN_TOKENS: usize = 250;
 const FORMAT: &str = "rust";
 /// The allowlist policy file, granting auditable reasons for intentional clones.
 const IGNORE_FILE: &str = "devco/dup-ignore";
-/// Generated/build output jscpd must never scan, as comma-separated globs (`--ignore`).
+/// Generated/build output jscpd must never scan.
 /// `wholeTree` in the nix sandbox carries `target/` build artifacts, so relying on gitignore (a
 /// `.git`-less source does not apply it) would let a 250-line generated CRC table flag itself.
-const IGNORE_GLOBS: &str = "target/**,site/**,result/**,result-*/**,.pixi/**,.sutura-dev/**,report/**,**/.prek-cache/**";
+const CONFIG_FILE: &str = "devco/jscpd.json";
 /// First-party source that the allowlist may never excuse, mirroring `max_lines::is_unexemptable`
 /// (there under `UNEXEMPTABLE_PREFIXES`): an exemption list that can swallow `crates/` or `xtask/`
 /// is a gate that has quietly stopped gating.
@@ -74,18 +76,27 @@ struct Duplicate {
     tokens: u64,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JscpdConfig {
+    ignore: Vec<String>,
+}
+
+type LoadedConfig = (Vec<u8>, JscpdConfig);
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-jscpd: could not determine the repo root");
         return Verdict::Fail;
     };
 
-    // Single owner of the scan set: `nix/run-gate.sh`'s tier-2 jscpd arm carries an inline
-    // `--ignore` list it cannot import, so this gate re-parses it and refuses a drift.
-    if let Err(msg) = check_run_gate_globs(&root) {
-        eprintln!("xtask check-jscpd: FAILED - {msg}");
-        return Verdict::Fail;
-    }
+    let (config_bytes, config) = match load_config(&root) {
+        Ok(config) => config,
+        Err(msg) => {
+            eprintln!("xtask check-jscpd: FAILED - {msg}");
+            return Verdict::Fail;
+        }
+    };
 
     // CENSUS FLOOR, decided before `jscpd` exists and independent of `--min-tokens`: this gate must
     // scan real Rust, and an `--ignore` glob that starts matching it lets a clone hide in the
@@ -106,7 +117,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
     let rs_files: Vec<&str> = files.iter().map(String::as_str).filter(|f| is_rust(f)).collect();
-    if let Err(msg) = check_census(&rs_files, IGNORE_GLOBS) {
+    if let Err(msg) = check_census(&rs_files, &config.ignore) {
         eprintln!("xtask check-jscpd: FAILED - {msg}");
         return Verdict::Fail;
     }
@@ -133,7 +144,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
 
-    let clones = match scan(&root, &jscpd) {
+    let clones = match scan(&root, &jscpd, &config_bytes) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("xtask check-jscpd: FAILED - {e}");
@@ -156,59 +167,26 @@ fn is_rust(path: &str) -> bool {
 /// in-scope `.rs` (or a clone there could never be reported). Pure and unit-tested, so a mutation
 /// that drops or weakens it reddens the suite. `git ls-files '*.rs'` is the independent oracle -
 /// `report.statistics.total.sources` drops sub-`--min-tokens` files and would not be a floor.
-fn check_census(rs_files: &[&str], ignore_globs: &str) -> Result<(), String> {
+fn check_census(rs_files: &[&str], ignore_globs: &[String]) -> Result<(), String> {
     if rs_files.is_empty() {
         return Err(String::from(
             "found zero in-scope `.rs` files, so this gate would attest over no Rust at all",
         ));
     }
-    let globs: Vec<&str> = ignore_globs.split(',').map(str::trim).collect();
+    let globs: Vec<&str> = ignore_globs.iter().map(String::as_str).collect();
     if let Some(hidden) = rs_files.iter().copied().find(|f| repo::matches_any(&globs, f)) {
         return Err(format!(
-            "`{ignore_globs}` matches {hidden}, so a clone in that file could never be reported"
+            "the ignore set in {CONFIG_FILE} matches {hidden}, so a clone in that file could never be reported"
         ));
     }
     Ok(())
 }
 
-/// The glob list the tier-2 jscpd arm of `nix/run-gate.sh` carries, as it appears between
-/// `--ignore '` and the closing quote - the ONLY source of truth for that tier's `--ignore`.
-fn tier2_globs(run_gate_text: &str) -> Option<&str> {
-    const MARKER: &str = "--ignore '";
-    let offset = run_gate_text.find(MARKER)? + MARKER.len();
-    let rest = run_gate_text.get(offset..)?;
-    let end = rest.find('\'')?;
-    rest.get(..end)
-}
-
-/// Does `nix/run-gate.sh`'s tier-2 jscpd `--ignore` list equal [`IGNORE_GLOBS`]?
-///
-/// run-gate.sh cannot import the Rust const, so its inline copy would silently drift (one side
-/// adds `result-*/**`, the other does not, and the two tiers scan different trees). This gate is
-/// the single owner: it re-parses the shell line and refuses a drift, held here by a unit test.
-fn check_run_gate_globs(root: &Path) -> Result<(), String> {
-    let path = root.join("nix/run-gate.sh");
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    globs_agree(&text).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// The pure comparison: does one run-gate.sh tier-2 `--ignore` list equal [`IGNORE_GLOBS`]?
-fn globs_agree(run_gate_text: &str) -> Result<(), String> {
-    let Some(listed) = tier2_globs(run_gate_text) else {
-        return Err(String::from(
-            "the tier-2 jscpd arm no longer passes `--ignore '<globs>'`, so its scan set cannot be verified against IGNORE_GLOBS",
-        ));
-    };
-    let gate: std::collections::BTreeSet<&str> = IGNORE_GLOBS.split(',').map(str::trim).filter(|g| !g.is_empty()).collect();
-    let tier2: std::collections::BTreeSet<&str> = listed.split(',').map(str::trim).filter(|g| !g.is_empty()).collect();
-    if gate == tier2 {
-        return Ok(());
-    }
-    let missing: Vec<&str> = gate.difference(&tier2).copied().collect();
-    let extra: Vec<&str> = tier2.difference(&gate).copied().collect();
-    Err(format!(
-        "the tier-2 jscpd `--ignore` list drifted from IGNORE_GLOBS (missing {missing:?}, extra {extra:?}); keep the two in agreement"
-    ))
+fn load_config(root: &Path) -> Result<LoadedConfig, String> {
+    let path = root.join(CONFIG_FILE);
+    let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {CONFIG_FILE}: {e}"))?;
+    let config = serde_json::from_slice(&bytes).map_err(|e| format!("cannot parse {CONFIG_FILE}: {e}"))?;
+    Ok((bytes, config))
 }
 
 /// The gate's decision, computed from the raw clones and the parsed allowlist.
@@ -291,9 +269,11 @@ impl Drop for TempWorkDir {
 }
 
 /// Run jscpd over the repository's Rust and return the clones it found.
-fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
+fn scan(root: &Path, jscpd: &Path, config: &[u8]) -> Result<Vec<Duplicate>, String> {
     let work = TempWorkDir::create()?;
     let out = work.path();
+    let config_path = out.join("jscpd.json");
+    std::fs::write(&config_path, config).map_err(|e| format!("could not snapshot {CONFIG_FILE}: {e}"))?;
 
     let mut cmd = Command::new(jscpd);
     cmd.arg("--silent")
@@ -308,8 +288,8 @@ fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
         .arg(MIN_LINES.to_string())
         .arg("--min-tokens")
         .arg(MIN_TOKENS.to_string())
-        .arg("--ignore")
-        .arg(IGNORE_GLOBS)
+        .arg("--config")
+        .arg(config_path)
         // Scan the whole tree's Rust. Since paths then report relative to the scan root, the
         // allowlist's `path:start` entries are repo-relative (`crates/...`, `xtask/...`).
         .arg(root);
@@ -329,9 +309,7 @@ fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
     parse_report(&value)
 }
 
-/// Parse jscpd's `json` report into [`Duplicate`]s. Hand-parsed over `serde_json::Value`
-/// rather than `#[derive(Deserialize)]` because the derive would add `serde` as an xtask
-/// dependency for one struct; this shape is stable enough that the read is worth the lines.
+/// Parse the narrow fields this verdict needs while tolerating additions to jscpd's report.
 fn parse_report(value: &serde_json::Value) -> Result<Vec<Duplicate>, String> {
     let duplicates = value
         .get("duplicates")
@@ -585,20 +563,23 @@ mod tests {
 
     #[test]
     fn census_refuses_an_empty_scan() {
-        assert!(check_census(&[], IGNORE_GLOBS).is_err());
+        assert!(check_census(&[], &[]).is_err());
     }
 
     #[test]
     fn census_refuses_an_ignore_glob_that_matches_source() {
-        // The trap the floor closes: widening `IGNORE_GLOBS` so it covers real `.rs` would make a
+        // The trap the floor closes: widening the config so it covers real `.rs` would make a
         // clone in the skipped half invisible. This must refuse.
-        assert!(check_census(&["crates/sutura-domain/src/lib.rs"], "crates/**").is_err());
-        assert!(check_census(&["dev/a.rs"], "dev/**").is_err());
+        assert!(check_census(&["crates/sutura-domain/src/lib.rs"], &[String::from("crates/**")]).is_err());
+        assert!(check_census(&["dev/a.rs"], &[String::from("dev/**")]).is_err());
     }
 
     #[test]
     fn census_passes_on_real_rust_outside_the_ignore_globs() {
-        assert_eq!(check_census(&["crates/a.rs", "dev/b.rs"], IGNORE_GLOBS), Ok(()));
+        assert_eq!(
+            check_census(&["crates/a.rs", "dev/b.rs"], &[String::from("target/**")]),
+            Ok(())
+        );
     }
 
     #[test]
@@ -611,23 +592,6 @@ mod tests {
         };
         // `work` dropped here (end of the block), so `Drop` must have removed the directory.
         assert!(!path.exists(), "the temp working dir must be removed when the guard drops");
-    }
-
-    #[test]
-    fn run_gate_tier2_globs_match_the_gate_owner() {
-        // The tier-2 arm must hand `IGNORE_GLOBS` to bare jscpd; a subset silently scans a
-        // different tree than the gate. `nix/run-gate.sh` cannot import the const, so this gate
-        // re-parses the shell line and refuses a drift.
-        let agreeing = "exec nix run .#jscpd -- --silent --no-colors --format rust --min-lines 30 \
-                        --min-tokens 250 --ignore 'target/**,site/**,result/**,result-*/**,.pixi/**,.sutura-dev/**,report/**,**/.prek-cache/**' .\n";
-        globs_agree(agreeing).expect("the agreeing set must pass");
-        // The old subset that #483 shipped (missing `result-*/**` and `**/.prek-cache/**`) IS the
-        // drift this holds: either side diverging must refuse.
-        let drifted = "exec nix run .#jscpd -- --silent --no-colors --format rust --min-lines 30 \
-                       --min-tokens 250 --ignore 'target/**,site/**,result/**,.pixi/**,.sutura-dev/**,report/**' .\n";
-        assert!(globs_agree(drifted).is_err());
-        // An arm that no longer passes `--ignore '<globs>'` cannot be verified at all.
-        assert!(globs_agree("exec nix run .#jscpd -- .\n").is_err());
     }
 
     #[test]
