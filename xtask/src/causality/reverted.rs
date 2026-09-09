@@ -148,6 +148,7 @@ use super::names::CargoName;
 use super::place;
 use super::provenance::Reach;
 use super::regions::{PostImage, TestScope, scope};
+use crate::repo::{Offered, Reached};
 
 /// Reads a file's content AT THE BASE COMMIT - the tree a revert restores.
 ///
@@ -164,7 +165,15 @@ pub(crate) enum Reverted {
     /// run is exactly the defect this gate exists to name.
     Behaviour,
     /// Not one of them does, each with the reason. A green base run then measured the partition.
-    Nothing(Vec<Excused>),
+    ///
+    /// **A witness rather than a `Vec`, since `github.com/telekom/sutura#414`.** The excuses come
+    /// off `crate::repo::Offered::each`, whose payload is one outcome per reverted file by
+    /// construction, so this arm cannot be built over a SUBSET of the revert: `for path in revert`
+    /// narrowed to `.take(3)` used to leave a four-file revert excused from three, printing four
+    /// `restore:` lines beside three `out of reach:` lines and asserting they agree - suite green
+    /// at 2831 passed. The loop is inside the witness now and the length is not a count anybody
+    /// remembers to compare.
+    Nothing(Reached<Excused>),
 }
 
 impl Reverted {
@@ -191,24 +200,26 @@ impl Reverted {
         let Some(measured) = packages(test_files, read) else {
             return Self::Behaviour;
         };
-        let mut excused = Vec::with_capacity(revert.len());
-        for path in revert {
-            let Some(file) = files.iter().find(|changed| changed.path == *path) else {
-                return Self::Behaviour;
-            };
-            let Some(one) = excuse(file, &measured, read, at_base) else {
-                return Self::Behaviour;
-            };
-            excused.push(one);
-        }
-        Self::Nothing(excused)
+        // The loop lives inside `each`, so there is no iterator here to narrow, and the payload
+        // it returns holds one outcome per reverted file - `Reached::all` then yields the excused
+        // set only when EVERY file in the revert earned an excuse. Every path is classified rather
+        // than stopping at the first that cannot be: the excuse is the expensive half and the
+        // revert set is a handful of files, and an early exit is exactly where the missing
+        // accounting used to hide.
+        let Ok(looked) = Offered::over("reverted file", revert).each(|_, path| {
+            let file = files.iter().find(|changed| changed.path == *path)?;
+            excuse(file, &measured, read, at_base)
+        }) else {
+            return Self::Behaviour;
+        };
+        looked.all(|one| one).map_or(Self::Behaviour, Self::Nothing)
     }
 
     /// The files this says nothing reverted could have reached, or nothing.
     pub(crate) fn out_of_reach(&self) -> &[Excused] {
         match *self {
             Self::Behaviour => &[],
-            Self::Nothing(ref excused) => excused,
+            Self::Nothing(ref excused) => excused.outcomes(),
         }
     }
 }

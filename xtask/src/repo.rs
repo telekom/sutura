@@ -6,8 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
+mod accounting;
 mod census;
 
+pub(crate) use accounting::{Offered, Reached};
 pub(crate) use census::{Census, Refusal, Scope, Unmigrated};
 
 /// Directories no gate ever descends into: build output, VCS internals, tool caches.
