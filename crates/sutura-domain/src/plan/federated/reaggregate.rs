@@ -43,28 +43,38 @@ pub(super) const fn reaggregates(aggregate: Aggregate) -> bool {
     Reduction::of(aggregate).is_some()
 }
 
-/// One re-aggregated value per carried leaf, in [`Federation::carried`] order.
+/// One re-aggregated value per carried leaf, in [`Federation::carried`] order, bound to its tree.
 ///
 /// Non-emptiness is neither claimed nor needed here. What the type does hold is the pairing - these
-/// values, this order, a cursor starting at zero - which is why [`measure`](Leaves::measure) is a
-/// method on it rather than a function taking a slice and a `&mut usize` a caller supplies.
-pub(super) struct Leaves(Vec<Value>);
+/// values, this order, this [`Above`] tree, a cursor starting at zero - which is why
+/// [`measure`](Leaves::measure) is a method rather than a function taking those parts separately.
+pub(super) struct Leaves<'a> {
+    above: &'a Above,
+    values: Vec<Value>,
+}
 
-impl Leaves {
+impl<'a> Leaves<'a> {
     /// Re-aggregates every leaf across one group's rows, one value per leaf, in carried order.
-    pub(super) fn of(federation: &Federation, leaf_rows: &[Vec<Value>], metric: &MetricName) -> Result<Self, FederatedFailure> {
-        federation
+    pub(super) fn of(
+        federation: &'a Federation,
+        leaf_rows: &[Vec<Value>],
+        metric: &MetricName,
+    ) -> Result<Self, FederatedFailure> {
+        let values = federation
             .carried()
             .iter()
             .enumerate()
             .map(|(column, leaf)| aggregate(leaf.combine(), leaf_rows.iter().filter_map(|row| row.get(column)), metric))
-            .collect::<Result<Vec<Value>, FederatedFailure>>()
-            .map(Self)
+            .collect::<Result<Vec<Value>, FederatedFailure>>()?;
+        Ok(Self {
+            above: federation.above(),
+            values,
+        })
     }
 
     /// The measure: the divide tree above these leaves, applied to them.
-    pub(super) fn measure(&self, above: &Above, metric: &MetricName) -> Result<Value, FederatedFailure> {
-        apply_above(above, &self.0, &mut 0, metric)
+    pub(super) fn measure(&self, metric: &MetricName) -> Result<Value, FederatedFailure> {
+        apply_above(self.above, &self.values, &mut 0, metric)
     }
 }
 

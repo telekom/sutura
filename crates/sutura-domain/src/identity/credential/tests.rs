@@ -296,7 +296,7 @@ fn what_a_failure_says_names_the_subject_the_way_a_record_does_and_carries_no_ma
         granted: Subject::TheDeploymentItself,
     }
     .to_string();
-    assert!(rendered.contains("a verified subject `someone@example.com`"), "{rendered}");
+    assert!(rendered.contains("a verified subject `s***@example.com`"), "{rendered}");
     assert!(rendered.contains("a deployment subject"), "{rendered}");
     // No variant of this enum holds credential material, so there is nothing here to redact - which
     // is a property of the shape rather than of the sentence.
@@ -392,9 +392,7 @@ fn a_principal_name_that_could_forge_a_record_line_does_not_parse() {
     // matters: a record is one line, so a newline here is a second record nobody wrote.
     assert_eq!(
         PrincipalName::parse("analyst\nsubject=admin"),
-        Err(InvalidPrincipalId::ControlCharacter {
-            value: String::from("analyst\nsubject=admin"),
-        })
+        Err(InvalidPrincipalId::ControlCharacter { code: 0x0A })
     );
     assert_eq!(
         PrincipalName::parse("analyst\u{202E}role"),

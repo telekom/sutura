@@ -337,9 +337,11 @@ jobs:
       - name: Realise all checks in one graph and report host utilisation
         continue-on-error: true
         # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
-        # across the merged graph and writes cpus/memory/model + the nix max-jobs/cores pair in
-        # force + mean/peak CPU-busy to the job summary, so a later analysis can see whether the
-        # host was saturated or idle while the checks ran. ~0 cost side effect.
+        # across the merged graph and reports cpus/memory/model + the nix max-jobs/cores pair in
+        # force + mean/peak CPU-busy, so a later analysis can see whether the host was saturated
+        # or idle while the checks ran. ~0 cost side effect. It lands in the job summary AND as a
+        # `measure-host(<label>):` line in this job's log - grep that prefix, since the summary is
+        # served to a browser and to nothing a script can read.
         uses: ./.github/actions/measure-host
         with:
           label: merged check graph (9 roots)

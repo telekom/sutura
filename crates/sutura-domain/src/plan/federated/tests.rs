@@ -990,3 +990,10 @@ fn a_null_key_and_an_unmatched_key_re_aggregate_into_one_unmatched_group() {
         ]]
     );
 }
+
+#[test]
+fn leaves_measure_the_tree_they_were_built_from() {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let leaves: super::Leaves<'_> = super::Leaves::of(&federation, &[vec![Value::Integer(7)]], &metric("sum")).expect("leaves");
+    assert_eq!(leaves.measure(&metric("sum")).expect("measure"), Value::Integer(7));
+}
