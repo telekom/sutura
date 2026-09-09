@@ -14,12 +14,12 @@ A version number in a design record is stale before anybody builds from it. So a
 it carries the date it was checked and an instruction to re-check.
 
 **The compiler is the one exception, and it is written here rather than only in the file it comes
-from.** The pin is `rust-toolchain.toml` at 1.98.0 - authoritative rather than indicative, read by
-rustup and by nix, and the one version in this tree a page may quote with no date beside it,
-because `check-guidance` compares every version written next to that file name against the pin and
-fails when NO page states it at all. That second half is the point: a comparison with nothing to
-compare is not a control, and this sentence is what feeds it. Any other version in prose still
-needs its date.
+from.** The pin is `rust-toolchain.toml` at nightly-2026-09-08 - authoritative rather than
+indicative, read by rustup and by nix, and the one version in this tree a page may quote with no
+date beside it, because `check-guidance` compares every version written next to that file name
+against the pin and fails when NO page states it at all. That second half is the point: a
+comparison with nothing to compare is not a control, and this sentence is what feeds it. Any other
+version in prose still needs its date.
 
 That rule applies to any figure, not just versions: **a bare count with no command and no date
 attached is one nobody can check.** This repo has had the same test tally wrong six times in one

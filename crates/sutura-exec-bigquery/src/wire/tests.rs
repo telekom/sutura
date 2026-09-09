@@ -464,7 +464,8 @@ fn rows_with_no_schema_are_refused_and_no_rows_with_no_schema_are_an_empty_resul
     assert!(
         columns::<CannotFail>(None, 0)
             .expect("an empty result has no columns")
-            .is_empty()
+            .is_empty(),
+        "a zero-row result delivers no columns"
     );
 }
 

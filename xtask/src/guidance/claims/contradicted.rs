@@ -14,53 +14,6 @@ use super::{Contradicted, Evidence};
 
 pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
-        name: "formatter commit hook uses the shell's nightly",
-        wordings: &["On the shell's nightly: the `fmt`, `check-changed` and doctest commit hooks"],
-        evidence: &[Evidence {
-            path: ".pre-commit-config.yaml",
-            holds: "entry: bash -c 'source nix/stable-env.sh; exec cargo run -q -p xtask -- fmt --check'",
-        }],
-        instead: "The formatter hook sources `nix/stable-env.sh` before dispatch. \
-                  Local Rust gates require the configured stable toolchain; this trusts the \
-                  configured environment, not arbitrary wrappers or compiler overrides",
-        only: &[],
-        except: &[],
-    },
-    Contradicted {
-        // The SIBLING of the entry above, found by reviewing that one: the same change that made
-        // the formatter hook require configured stable tools also made `run-gate.sh` REFUSE a host
-        // with neither that configuration nor nix - and the two hook comments that described the
-        // old unconditional tiering were not carried. Registered rather than only reworded,
-        // because a rewording that lands in one file and not its sibling is the whole reason this
-        // table exists.
-        //
-        // **What is NOT registered, and why, because a reader will find it.** The posture epigram
-        // itself is quoted in `nix/with-tier.sh`, `xtask/src/hook_coverage/abstain.rs` and one
-        // library doc comment, each about a DIFFERENT tiering that this change did not touch - the
-        // Postgres tier's `command -v` arm, and the hooks that self-skip on a missing tool. Those
-        // read as attributions and are corrected in place; forbidding the epigram outright would
-        // fail prose that is still true of the mechanism it describes.
-        name: "a Rust commit hook tiers down to a notice on any host",
-        wordings: &[
-            "falls back to nix and then to a notice",
-            "falls back to `nix run .#crap` and then to a notice",
-        ],
-        // The rule it retired against, in the script that decides. Not the hook file: this claim
-        // is about what `run-gate.sh` DOES, and evidence read out of the page being checked would
-        // make the entry circular.
-        evidence: &[Evidence {
-            path: "nix/run-gate.sh",
-            holds: "with neither route, the helper refuses rather than skips",
-        }],
-        instead: "`nix/run-gate.sh` requires either configured local stable tools or Nix for the \
-                  `tests`, `supply-chain` and `crap` arms, and `nix/stable-env.sh` terminates the \
-                  caller when it has neither - so those hooks DO wall a host with no route, deliberately, \
-                  because a silent skip of the suite is worse than a stopped commit. What is left of the \
-                  notice is one host: a configured toolchain missing the optional tool with no Nix beside it",
-        only: &[],
-        except: &[],
-    },
-    Contradicted {
         name: "additional named credential writes are held only by review",
         wordings: &["for the CI key and by review for the two principal keys placed beside it"],
         evidence: &[Evidence {
@@ -501,11 +454,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // from `sutura_app`'s federated path, but the declaration is the narrower fact and the one
         // that retires the rule if federation is ever taken back out.
         evidence: &[Evidence {
-            path: "crates/sutura-domain/src/plan/federated/mod.rs",
+            path: "crates/sutura-domain/src/plan/federated.rs",
             holds: "pub fn combine(",
         }],
         instead: "`sutura_app`'s federated answer path builds the second leg and \
-                  `crates/sutura-domain/src/plan/federated/mod.rs` declares what groups the \
+                  `crates/sutura-domain/src/plan/federated.rs` declares what groups the \
                   two, so the record's shape is settled rather than provisional. A plan names one \
                   data system per LEG and at most two legs - three or more refuse as \
                   `PlanSpansTooManySources` - and whether the two legs would decide identity the \

@@ -311,7 +311,8 @@ mod tests {
                 "There IS an HTTP surface, and its token authenticates the deployment.",
                 "no MCP server and no HTTP surface"
             )
-            .is_empty()
+            .is_empty(),
+            "an absent wording is not reported"
         );
         // Every occurrence, not just the first: two siblings in one file is the shape this
         // whole table exists for.

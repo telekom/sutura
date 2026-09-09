@@ -309,7 +309,9 @@ half. Making it public was necessary and not sufficient.
   Retried three times, then a warning, and **the step exited 0**. So no amount of visibility or
   permission fixes this: the label is the blocker, and the exception is a requirement of the tool.
 
-  **A deliberate exception, not drift.** Every other `runs-on:` in `.github/` stays `rust-mcp`: the
+  **A deliberate exception, not drift.** Every other `runs-on:` in `.github/` stayed on the larger
+  Rust runner - `rust-mcp` when this was written, `rust-mcp-32core` since that label was pinned and
+  the jobs that compile nothing were moved to `ubuntu-latest` alongside this one: the
   custom runner exists to build the Rust, and these two jobs build nothing - `score` is checkout, a
   third-party container action and upload-artifact; `published` is one `gh api` read and one
   `curl`. **A metadata scanner needs none of the build environment**, which is the whole

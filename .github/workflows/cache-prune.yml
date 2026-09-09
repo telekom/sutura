@@ -68,7 +68,9 @@ concurrency:
 
 jobs:
   prune:
-    runs-on: rust-mcp
+    # `ubuntu-latest`: API reads, deletes and shell. No checkout, no nix, no cargo - nothing here
+    # touches a store, so the Rust runner had nothing to offer it.
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       actions: write        # delete cache entries

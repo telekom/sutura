@@ -1,0 +1,83 @@
+name: cachix-push
+
+# Publish this repository's own store paths to the OSS binary cache, so a later run substitutes them
+# instead of rebuilding. READS need nothing from here - every job's installer already names the
+# substituter and its public key, committed in the clear. This workflow is only the WRITE half.
+#
+# **Why a workflow of its own rather than a step in `ci`.** An `environment:` is declared per JOB, and
+# the environment holding the token restricts deployments to the default branch - so declaring it on
+# `ci` would make every pull request's `ci` job fail the branch policy. Splitting the write out keeps
+# the token unreachable from the pull-request path by construction rather than by an `if:`.
+#
+# **Two independent restrictions, deliberately.** The trigger admits only a push to the default
+# branch, AND the environment's own deployment-branch policy admits only that branch. The trigger is
+# in this file and a pull request could edit it; the policy is held by the forge and a pull request
+# cannot. Belt and braces, and the braces are the half that is not ours to weaken.
+#
+# **THE LIMIT, stated where a reader meets it:** no gate in this repository can verify that policy.
+# `check-workflows` runs inside a derivation with no network, so it can pin the `environment:` key
+# here and refuse its removal, but the protection behind the name is an owner-held control confirmed
+# out of band. Worse, a job naming an environment that does NOT exist can cause one to be created
+# with no protection rules at all - which would read as configured and protect nothing. Verified by
+# hand on the day this landed: the environment exists, its policy admits the default branch only, the
+# token is an environment secret, and no repository-level copy of it remains.
+
+on:
+  push:
+    branches:
+      - main
+
+# Never publish twice for one commit, and never race two pushes; the later commit is the one worth
+# having, so an in-progress publish for an older one is cancelled.
+concurrency:
+  group: cachix-push
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  push:
+    # NOT in `devco/required-contexts`, and that is correct rather than an omission: that record
+    # accounts for jobs reporting a status-check CONTEXT, whose gating events are `pull_request` and
+    # `merge_group`. This workflow triggers on neither, so it reports no context and can gate no
+    # merge - which is also why a cache publish here can never turn into a blocked merge.
+    name: push
+    runs-on: rust-mcp-32core
+    environment: cachix-push
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+
+      # The same scope the `ci` job wrote moments ago, so realising the checks below is a restore
+      # rather than a rebuild. A miss here costs a build and publishes the same paths regardless.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # This job publishes what it realises below; it must not also try to push the whole store,
+          # which would upload every substituted upstream path back to a cache that does not need it.
+          pushFilter: "(-source$|nixpkgs)"
+
+      # Realise the closure the cache is FOR: the dependency artifacts every check shares. Naming the
+      # checks rather than the whole flake keeps the publish to what a later run actually restores.
+      - name: Realise and publish the shared closure
+        run: |
+          set -eu
+          nix build --print-build-logs \
+            .#checks.x86_64-linux.nextest \
+            .#checks.x86_64-linux.clippy \
+            .#checks.x86_64-linux.hygiene

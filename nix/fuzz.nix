@@ -21,14 +21,14 @@
 # WHAT IT DOES NOT DO. It builds nothing in a nix sandbox. `cargo fuzz` wants a writable target
 # directory and a registry, exactly like `apps.deny`, `apps.causality` and `apps.crap`, so this is
 # an app rather than a check - and it is also why fuzzing cannot become a `nix flake check`.
-{ pkgs, nightlyToolchain }:
+{ pkgs, toolchain }:
 
 pkgs.writeShellApplication {
   name = "sutura-fuzz";
   # `stdenv.cc` for the C++ compiler: `libfuzzer-sys` builds a vendored copy of libFuzzer's own
   # C++ sources through the `cc` crate, so without a compiler on PATH the first build fails inside
   # a build script rather than in anything recognisable.
-  runtimeInputs = [ nightlyToolchain pkgs.cargo-fuzz pkgs.stdenv.cc ];
+  runtimeInputs = [ toolchain pkgs.cargo-fuzz pkgs.stdenv.cc ];
   text = ''
     # `cargo fuzz` resolves `fuzz/` relative to the current directory, so find the root by walking
     # up for the fuzz crate's own manifest. `$0` cannot be used for this: a `writeShellApplication`
@@ -43,9 +43,8 @@ pkgs.writeShellApplication {
       root="$parent"
     done
     cd "$root"
-    # A target directory of its own, for the reason the stable/nightly split states in Cargo.toml:
-    # alternating compilers in one directory invalidates every artifact in it, and this one is
-    # nightly plus a sanitizer.
+    # A target directory of its own: it is the one tree compiled by the fuzz toolchain and its
+    # sanitizer, so it must not share artifacts with, or invalidate, the dev shell's `target/`.
     export CARGO_TARGET_DIR="$root/target/fuzz"
     # This shell's cranelift settings are for the local inner loop and are unscoped, so they follow
     # cargo in here. Cranelift cannot emit the sancov instrumentation a fuzz build needs.
