@@ -91,8 +91,8 @@ use crate::adapters::{a_caller, posture, shared_credential, source, version};
 mod corpus;
 
 use corpus::{
-    A_DUPLICATED_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, every_question, lookup_source, violated,
-    with_null_keys,
+    A_DUPLICATED_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, every_question, lookup_source,
+    remote_products, violated, with_null_keys,
 };
 
 /// An amount of working set no question in this corpus comes near, so only a defect refuses.
@@ -115,6 +115,76 @@ fn bundle(catalog: &Path) -> PinnedDefinitions {
     sutura_catalog_local::LocalCatalog::new(source(), catalog.to_path_buf(), version())
         .load()
         .unwrap_or_else(|e| panic!("the derived catalog at {} does not load: {e}", catalog.display()))
+}
+
+/// Compile only: these topology witnesses open no execution adapter.
+fn compiled_dimensions(pinned: &PinnedDefinitions, dimensions: &str) -> Compiled {
+    let query = serde_norway::from_str(&format!(
+        "metric: recurring_revenue\ngrain: month\nrange: {{ start: 2026-06-01, end: 2026-07-01 }}\n\
+         dimensions: [{dimensions}]\n"
+    ))
+    .expect("the topology question is valid");
+    compile(&query, pinned).expect("the derived catalog is consistent")
+}
+
+#[test]
+fn two_remote_sources_exceed_the_two_source_plan_limit() {
+    let corpus = remote_products("federation-three-sources", "source: inventory");
+    let one = bundle(&corpus.one_source);
+    let three = bundle(&corpus.two_source);
+    let [mono, customer, product, refused] = [
+        compiled_dimensions(&one, "region, product_family"),
+        compiled_dimensions(&three, "region"),
+        compiled_dimensions(&three, "product_family"),
+        compiled_dimensions(&three, "region, product_family"),
+    ];
+    assert_eq!(
+        [
+            matches!(mono, Compiled::Planned { .. }),
+            matches!(customer, Compiled::Federated { .. }),
+            matches!(product, Compiled::Federated { .. }),
+        ],
+        [true; 3],
+        "the whole question plans locally and each remote relationship alone can federate"
+    );
+    let Compiled::Refused {
+        reason: RefusalReason::PlanSpansTooManySources { sources, limit },
+    } = refused
+    else {
+        panic!("the combined question must refuse its three sources, not {refused:?}");
+    };
+    assert_eq!((sources, limit), (3, 2));
+}
+
+#[test]
+fn two_relationships_on_one_remote_source_have_no_single_federation_link() {
+    let corpus = remote_products("federation-ambiguous-links", "source: geo");
+    let one = bundle(&corpus.one_source);
+    let two = bundle(&corpus.two_source);
+    let [mono, customer, product, same_link, refused] = [
+        compiled_dimensions(&one, "region, product_family"),
+        compiled_dimensions(&two, "region"),
+        compiled_dimensions(&two, "product_family"),
+        compiled_dimensions(&two, "region, segment"),
+        compiled_dimensions(&two, "region, product_family"),
+    ];
+    assert_eq!(
+        [
+            matches!(mono, Compiled::Planned { .. }),
+            matches!(customer, Compiled::Federated { .. }),
+            matches!(product, Compiled::Federated { .. }),
+            matches!(same_link, Compiled::Federated { .. }),
+        ],
+        [true; 4],
+        "one-source, single-link and two-dimensions-on-one-link controls must remain supported"
+    );
+    let Compiled::Refused {
+        reason: RefusalReason::FederationLinkAmbiguous { source },
+    } = refused
+    else {
+        panic!("the combined question must refuse its two remote relationships, not {refused:?}");
+    };
+    assert_eq!(source.as_str(), LOOKUP_SOURCE);
 }
 
 /// The one-source side: the ENGINE, over every table the bundle names.
