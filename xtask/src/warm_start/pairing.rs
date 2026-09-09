@@ -178,7 +178,7 @@ impl Swept {
 
 /// One nix file as a SIBLING claim needs it: where it lives, and what the evaluator sees.
 ///
-/// A named pair rather than a tuple, for the reason [`Scan`]'s neighbours give: `(String, String)`
+/// A named pair rather than a tuple, for the reason `Scan`'s neighbours give: `(String, String)`
 /// says nothing about which string is the path. Not [`NixFile`] either - that type carries `raw`
 /// as well, and a claim that only reads code should not be handed the view where a comment still
 /// counts as text.
