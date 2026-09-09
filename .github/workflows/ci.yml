@@ -336,18 +336,25 @@ jobs:
       # slow the job it exists to speed up.
       - name: Realise every check in one graph
         continue-on-error: true
-        run: |
-          set -eu
-          nix build -L --keep-going \
-            .#checks.x86_64-linux.hygiene \
-            .#checks.x86_64-linux.reuse \
-            .#checks.x86_64-linux.fmt \
-            .#checks.x86_64-linux.clippy \
-            .#checks.x86_64-linux.nextest \
-            .#checks.x86_64-linux.keycloak-tier \
-            .#checks.x86_64-linux.postgres-tier \
-            .#checks.x86_64-linux.doctest \
-            .#checks.x86_64-linux.api-docs
+        # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
+        # across the merged graph and writes cpus/memory/model + the nix max-jobs/cores pair in
+        # force + mean/peak CPU-busy to the job summary, so a later analysis can see whether the
+        # host was saturated or idle while the checks ran. ~0 cost side effect.
+        uses: ./.github/actions/measure-host
+        with:
+          label: merged check graph (9 roots)
+          run: |-
+            set -eu
+            nix build -L --keep-going \
+              .#checks.x86_64-linux.hygiene \
+              .#checks.x86_64-linux.reuse \
+              .#checks.x86_64-linux.fmt \
+              .#checks.x86_64-linux.clippy \
+              .#checks.x86_64-linux.nextest \
+              .#checks.x86_64-linux.keycloak-tier \
+              .#checks.x86_64-linux.postgres-tier \
+              .#checks.x86_64-linux.doctest \
+              .#checks.x86_64-linux.api-docs
 
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
