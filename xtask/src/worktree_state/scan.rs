@@ -51,7 +51,7 @@ const STATEMENT_LINES: usize = 40;
 
 /// A language this gate lexes, and the whole scope decision.
 ///
-/// An enum rather than a `bool` or an extension string, so [`Language::roots`] and the dispatch in
+/// An enum rather than a `bool` or an extension string, so [`roots_of`] and the dispatch in
 /// [`takings`] both have to answer for every language rather than inherit a default - the shape
 /// `telekom/sutura#405` names as property 5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

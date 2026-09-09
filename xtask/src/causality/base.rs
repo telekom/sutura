@@ -8,7 +8,7 @@
 //! whose whole job is to catch exactly that.
 //!
 //! SO A VERDICT NAMES WHAT REDDENED. Every failure the run reports is read back by name and
-//! compared against the tests under test, through [`super::scoped::AddedTest::claims`] - the same
+//! compared against the tests under test, through [`super::place::AddedTest::claims`] - the same
 //! key the filter is built from, applied here by us instead of by nextest. That makes this a
 //! second ENFORCER of one key rather than a second key, and the distinction is load-bearing: it
 //! catches a filter that stopped filtering (a nextest version whose expression syntax moved, a

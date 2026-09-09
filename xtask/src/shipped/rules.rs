@@ -11,7 +11,7 @@
 //! gate writes.
 //!
 //! Its own file because the parent is against the unexemptable 1000-line cap, and it carries its
-//! own test for the reason [`crate::falsifier`] states: a file that adds no `#[test]` is
+//! own test for the reason the test-only `crate::falsifier` states: a file that adds no `#[test]` is
 //! revertible, so the causality base tree would delete it while a parent held for its tests still
 //! declared the module.
 

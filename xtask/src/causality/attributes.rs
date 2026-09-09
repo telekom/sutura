@@ -284,7 +284,7 @@ impl Cells {
 
     /// Does this file declare tests of which NONE runs here?
     ///
-    /// The coarser of the two answers, and it is needed BESIDE [`Self::ignores`] rather than
+    /// The coarser of the two answers, and it is needed BESIDE [`Self::unreached`] rather than
     /// instead of it, because the two catch different halves and this repository's own evidence
     /// is the sharp case: the only line reaching `examples/multi-player` sits in a HELPER the
     /// tests call, not in a test body, so a per-line rule alone leaves `#[ignore]` on every test

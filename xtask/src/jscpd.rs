@@ -204,7 +204,7 @@ fn findings(clones: &[Duplicate], allow: &Allowlist) -> Vec<Duplicate> {
     clones.iter().filter(|c| !allowed(c, allow)).cloned().collect()
 }
 
-/// Run jscpd over [`SCAN`] and return the clones it found.
+/// Run jscpd over the repository's Rust and return the clones it found.
 fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
     let out = std::env::temp_dir().join(format!(
         "jscpd-{}-{}",

@@ -10,7 +10,7 @@
 pub(super) struct Surface {
     /// What a reader would call it.
     pub(super) label: &'static str,
-    /// Path globs, matched by [`repo::matches`].
+    /// Path globs, matched by [`crate::repo::matches`].
     pub(super) paths: &'static [&'static str],
     /// The hook IDs that claim it. **EMPTY is the sharp case**: nothing a diff-scoped hook run
     /// invokes reaches this surface at all.

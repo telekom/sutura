@@ -54,7 +54,7 @@
 //! deleting one disjunct from the return produced two contradictory sentences in one run at exit 0
 //! with every unit test still green - because every test was a pure-function test and nothing
 //! called [`run`]. The tests below drive [`run_in`] over crafted trees for that reason, and
-//! [`tests::the_real_tree_passes_this_gate`] drives it over this repo, the way `check-workflows`
+//! `tests::the_real_tree_passes_this_gate` drives it over this repo, the way `check-workflows`
 //! and `check-venues` each anchor on the real file their fixtures only imitate.
 //!
 //! # WHAT IT READS, AND WHAT IT REFUSES TO GUESS
@@ -67,7 +67,7 @@
 //!   rows. This is the rule the docker gate already states the other way round: no container
 //!   runtime is a legitimate developer machine, an unreadable input is not. So a missing file means
 //!   *nothing is tolerated* and the census line says so, and every other error is [`Verdict::Fail`].
-//!   Held by [`tests::an_absent_allowlist_is_configuration_and_an_unreadable_one_is_a_fault`], which
+//!   Held by `tests::an_absent_allowlist_is_configuration_and_an_unreadable_one_is_a_fault`, which
 //!   drives the non-UTF-8 case because it is the one that behaves the same for every user; a
 //!   permission bit does not, under a build sandbox that may own the file.
 //! * **It prints what it read, as a PAIR from two different places.** Every package in the lock and

@@ -19,7 +19,7 @@
 /// recognise has to COUNT, or it is invisible rather than uncounted - and a shape that was never
 /// counted is out of reach of the row floor as well. `github.com/telekom/sutura#414`.
 ///
-/// BROADER than [`spelled`]'s own match in four ways, each of them a declaration that would
+/// BROADER than [`super::spelled`]'s own match in four ways, each of them a declaration that would
 /// otherwise be neither compared, reported nor counted: any number of `- ` sequence markers
 /// (`- binaries: ...` is how a `strategy.matrix` entry spells this set, the shape `release.yml`
 /// names in prose, and it was measured invisible at exit 0 with a verdict byte-identical to a
