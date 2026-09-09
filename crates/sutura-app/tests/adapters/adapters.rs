@@ -12,11 +12,12 @@
 //!    open it over the example corpus;
 //! 2. one line in [`registered`].
 //!
-//! In `tests/adapters/mod.rs` rather than `tests/adapters.rs` so cargo does not build it as a test
-//! target of its own. It is shared by every test target here, which is why nothing in it is
-//! target-specific: `unused_imports` and `dead_code` are both `deny` in the workspace lint table, so
-//! an item only one target used would fail the build of the other. The fakes live in
-//! `tests/support/mod.rs`, which one target includes.
+//! Declared by `golden.rs` and `differential.rs` with `#[path = "adapters/adapters.rs"] mod adapters;`
+//! and living in a self-named `tests/adapters/adapters.rs` rather than `tests/adapters.rs` at the
+//! root, so cargo does not build it as a test target of its own. It is shared by every test target
+//! here, which is why nothing in it is target-specific: `unused_imports` and `dead_code` are both
+//! `deny` in the workspace lint table, so an item only one target used would fail the build of the
+//! other. The fakes live in `tests/support/support.rs`, which one target includes.
 //!
 //! # The axes, and why each artefact sits on the one it does
 //!

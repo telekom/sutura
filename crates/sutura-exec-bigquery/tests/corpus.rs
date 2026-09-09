@@ -177,6 +177,7 @@
 // tried to make it one.
 
 #[cfg(test)]
+#[path = "support/support.rs"]
 mod support;
 
 // The per-run table naming harness, which is the mechanism this leg's re-entrancy rests on. Its own
@@ -184,6 +185,7 @@ mod support;
 // rather than more of this one because this file is at the 1000-line cap. Every `#[test]` over it
 // stays here: `.agents/skills/sutura/gates` records why moving assertions instead orphans them.
 #[cfg(test)]
+#[path = "naming/naming.rs"]
 mod naming;
 
 // `cfg(test)` around the whole file, which is the house pattern rather than a preference: clippy
