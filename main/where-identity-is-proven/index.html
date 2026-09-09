@@ -2917,14 +2917,35 @@ local composite action or the shared <code>nix/</code> shell - never a green run
 skips reads the same as one that passes, and a hand-run is invisible to both. So <em><code>unrun</code> has
 stopped being honest</em> and <em><code>wired</code> is not yet earned</em> are mechanical; <em><code>yes</code> is earned</em> is
 review's, with the run named beside it.</p>
-<p><strong>And the one that is REVIEW's alone, named rather than left to be discovered.</strong> Nothing checks
-that the task a <code>Reached by</code> cell names is the task that runs <em>this</em> venue. Measured: pointing
-the two-keys row at <code>`nix run .#actionlint`</code> - a real, CI-invoked, entirely unrelated lint -
-AND changing its matrix cell and section from <code>unrun</code> to <code>wired</code> passes at exit 0. Repointing
-alone is refused by the <code>unrun</code> ratchet. What the gate holds is that a venue's state is
-consistent with a named invocation; that the invocation belongs to this venue, and that an
-accepted run-site token is true, remain review's. An invented run site plus an unrelated
-invocation can still publish a false leg-2 <code>yes</code>; this change does not close that gap.</p>
+<p><strong>A citation is ANCHORED in the tree, and the anchor is narrower than <em>CI invokes it</em>.</strong> Two
+rules, and the second is conditioned on the run site - which is what makes that closed
+vocabulary do mechanical work rather than only be spell-checked. First: a venue may state
+<code>yes</code>, <code>can</code> or <code>wired</code> only if its <code>Reached by</code> names a task that <strong>runs this workspace's
+tests</strong>, because CI invokes lints, builds, docs and release jobs too. Second: a venue that runs
+in <strong>a GitHub environment</strong> - <em>on demand</em> - additionally needs a job to invoke that task, since
+a job is the only thing that can demand a run there. Measured before those rules: pointing the
+two-keys row at <code>`nix run .#actionlint`</code> - a real, CI-invoked, entirely unrelated lint - and
+moving its cell to <code>wired</code> passed at exit 0; and setting an on-demand venue's cell to <code>yes</code>
+with no run ever performed passed at exit 0, because only <code>unrun</code> and <code>wired</code> read the
+invocation set at all. Both are refused now.</p>
+<p><strong>Why the second rule is not universal, measured rather than assumed.</strong> Requiring an invocation
+everywhere refused the two <code>in process</code> venues, whose claims are answered on every push: this
+workspace's suite runs in CI as a nix <strong>check</strong>, and what the gate resolves is <code>just &lt;task&gt;</code> and
+<code>nix run .#&lt;app&gt;</code> - so <code>just test</code> is genuinely run by CI and is invisible to that reader. A
+gate that reddens correct work gets disabled, and the run-site token already states the
+difference the rule needs.</p>
+<p><strong>What that costs, rather than left to be discovered:</strong> for an on-demand venue, a green run
+somebody did by hand can no longer be cited as <code>yes</code>. That follows from this page's own
+argument - nothing here can see a hand-run - so a <code>yes</code> resting on one was resting on recall.
+The honest cell until a job demands the run is <code>unrun</code>.</p>
+<p><strong>And what still gets through, so a reader does not stop looking.</strong> For an <code>in process</code> venue
+the anchor is the first rule alone, so what holds a <code>yes</code> there is that the suite really is the
+venue - which its own token asserts and nothing mechanical proves. For every venue, what is
+held is that the named task runs tests, never that it runs <em>this</em> venue's tests: repointing a
+row at ANOTHER venue's test task still passes, and whether an accepted run-site token is true
+is still prose. So a false leg-2 <code>yes</code> costs three edits rather than two - the run site, the
+verdict, and a <code>Reached by</code> pointed at some other venue's test task - and the third is the one
+review can see, because it names a task that visibly belongs to a different row.</p>
 <p><strong>Invocation reading has syntax limits too.</strong> Workflow and action sources contribute their
 <code>run:</code> bodies, not ordinary YAML names or descriptions; shared shell scripts are read whole.
 The indentation reader is not a YAML parser: a <code>run:</code>-shaped line inside a prose block scalar
@@ -2933,10 +2954,11 @@ apostrophe in unquoted prose can instead hide one. Neither is evidence of shell 
 <p><strong>And <em>the two columns of a row are read together</em> buys less than it sounds like, measured.</strong>
 <code>Where it runs</code> has no external anchor either - it is prose on this page, editable in the same
 diff as the cell it guards. Overstating the row-grant claim took three edits before that rule
-and takes <strong>two</strong> after it: change a <code>Where it runs</code> cell from <em>nowhere yet</em> to <em>a GitHub
-environment, on demand</em>, then change the verdict. <code>check-venues</code> exits 0 on the pair with a
-byte-identical summary. The rule raises the cost of the overstatement; it does not make it
-impossible, and only a run named beside a <code>yes</code> does that.</p>
+and took <strong>two</strong> after it: change a <code>Where it runs</code> cell from <em>nowhere yet</em> to <em>a GitHub
+environment, on demand</em>, then change the verdict - <code>check-venues</code> exited 0 on the pair with a
+byte-identical summary. The anchor rule above put the third edit back, because the exchange
+venue's task is one no job invokes. The rules raise the cost of the overstatement; they do not
+make it impossible, and only a run named beside a <code>yes</code> does that.</p>
 </div>
 <h2 id="the-venues">The venues<a class="headerlink" href="#the-venues" title="Permanent link">&para;</a></h2>
 <table>
@@ -3527,7 +3549,10 @@ account is not built</em>. Until that exists, <code>AGENTS.md</code> keeps the s
 <li>A new venue arrives as a row in the table above <strong>with its exclusions written</strong>, in the same change.</li>
 <li>A test moving from one venue to another moves its row, rather than gaining a second one.</li>
 <li><code>Where it runs</code> must use the closed vocabulary; the gate holds its meaning, not whether the
-  claimed run site is true or its named task belongs to that venue.</li>
+  claimed run site is true.</li>
+<li>A <code>yes</code>, <code>can</code> or <code>wired</code> cell needs a <code>Reached by</code> task that <strong>runs tests</strong> - a lint CI invokes
+  is not a venue anything is proven in - and an <strong>on demand</strong> venue needs a job to invoke it as
+  well. That the task runs <em>this</em> venue's tests is still review's.</li>
 <li><code>just validate</code> runs every venue that needs no network. The other three do not, and each says so where
   it is invoked.</li>
 </ul>

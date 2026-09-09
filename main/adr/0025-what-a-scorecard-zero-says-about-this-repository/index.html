@@ -1734,6 +1734,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-09-464-the-experiment-the-first-one-asked-for-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment (2026-09-09, #464): the experiment the first one asked for, run
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2777,6 +2788,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-09-464-the-experiment-the-first-one-asked-for-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment (2026-09-09, #464): the experiment the first one asked for, run
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3257,6 +3279,115 @@ remote source; it isolates propagation, not whether <code>rust/sql-injection</co
 nothing here is held by a gate: <code>xtask</code>'s SAST rule refuses a Scorecard-recognised scanner while
 this record still accepts the zero, so the <em>absence</em> of the workflow is enforced - the reason for
 the absence is only written down.</p>
+<h2 id="second-amendment-2026-09-09-464-the-experiment-the-first-one-asked-for-run">Second amendment (2026-09-09, <code>#464</code>): the experiment the first one asked for, run<a class="headerlink" href="#second-amendment-2026-09-09-464-the-experiment-the-first-one-asked-for-run" title="Permanent link">&para;</a></h2>
+<p>The amendment above ends by naming two next steps and asking for one of them to be measured. Both
+have now been settled, and the answer does not change the decision: <strong>the workflow is still not
+added.</strong> What changes is that the deferral is no longer waiting on an experiment - the experiment
+is done, and one of the two branches it named never existed.</p>
+<p><strong>Which branch died, and why.</strong> The first was <em>build the database with a real build mode</em>. There is
+no such mode: <code>rust/codeql-extractor.yml</code> declares <code>build_modes:</code> with <code>none</code> as the entire list, so
+no change to a workflow, a runner or a toolchain can buy one. That branch was never available and
+should not be offered to the next reader. The second was <em>dependency-and-standard-library
+extraction</em>, and that one was real, testable and has now been tested.</p>
+<p><strong>The measurement.</strong> CodeQL CLI <code>2.27.0</code> with <code>codeql/rust-all</code> <code>0.2.21</code> and <code>codeql/rust-queries</code>
+<code>0.1.42</code> - bundle <code>codeql-bundle-v2.27.0</code>, read from the action's own <code>src/defaults.json</code> rather
+than assumed - over a buildless database built with
+<code>--extractor-option=extract_dependencies_as_source=true</code> and a toolchain carrying <code>rust-src</code>, so the
+sysroot source was present and discoverable. Two things are different from the earlier run and both
+make this probe strictly stronger. The sink is
+<code>&lt;tokio_postgres::client::Client&gt;::prepare</code>, <strong>the call this tree actually makes</strong> - the earlier
+table was measured against <code>rusqlite::Connection::execute</code>, a sink in a crate no adapter here uses.
+And the taint source is an <code>axum</code> route handler, which <strong>is</strong> a modelled remote source, so this
+measures whether <code>rust/sql-injection</code> fires end to end rather than only whether a value propagates.</p>
+<p><strong>The positive control fired</strong>, which is the only thing that separates a working analysis from an
+inert one in a tree that should have no findings. Shapes, all against <code>prepare</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Shape</th>
+<th>Sink recognised</th>
+<th>Reported by <code>rust/sql-injection</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>value passed straight to <code>prepare</code></td>
+<td>yes</td>
+<td><strong>yes</strong></td>
+</tr>
+<tr>
+<td>bound to a local, then passed</td>
+<td>yes</td>
+<td><strong>yes</strong></td>
+</tr>
+<tr>
+<td>through <code>format!</code></td>
+<td>yes</td>
+<td>no</td>
+</tr>
+<tr>
+<td>through <code>+</code> concatenation</td>
+<td>yes</td>
+<td>no</td>
+</tr>
+<tr>
+<td>through <code>.to_string()</code></td>
+<td>yes</td>
+<td>no</td>
+</tr>
+<tr>
+<td>through <code>.as_str()</code> into <code>query</code></td>
+<td>yes</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>format!</code> into a struct field, read back through an accessor</td>
+<td>yes</td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<p>The last row is the one that matters, because it is the shape this repository compiles SQL in.</p>
+<p><strong>The earlier diagnosis was right in consequence and wrong in mechanism, and the correction is the
+part worth keeping.</strong> It recorded that a buildless database "extracts the crate's own dependencies
+but not <code>alloc</code>/<code>std</code>". The sysroot is in fact extracted: <strong>3016 sysroot files and 98903 functions
+from them are in the database</strong>. Only <strong>2497</strong> of those functions carry a canonical path, and <strong>no
+<code>alloc::</code>, <code>core::</code> or <code>std::</code> canonical path exists at all</strong> - against 25257 of 148253 functions
+overall. The extractor says why, over those files: <code>semantic analyzer unavailable (failed to
+determine rust edition)</code>. So the standard library is not absent, it is <strong>unresolved</strong>, and a taint
+summary naming <code>alloc::fmt::format</code> still has nothing to bind to. Turning dependency-as-source
+extraction on does not reach it, because the failure is not about which files are read.</p>
+<p><strong>A third instance of the same cause, found by accident and worth the warning.</strong> A sink whose
+receiver sits behind <code>Arc</code> is not recognised as a sink at all - method resolution needs the same
+missing <code>core::</code>/<code>alloc::</code> callables. Three fixture cases were invalidated this way and were
+discarded rather than counted as negatives. This tree is not exposed to it today, because the
+adapter holds <code>client: tokio_postgres::Client</code> as a direct field, but a future refactor putting a
+client behind a smart pointer would silently remove the sink rather than the finding.</p>
+<p><strong>What this tree would actually get, which is the cost argument.</strong> Nothing today, and not because
+the analysis is broken: <code>sutura-sql</code> renders SQL from a typed AST, values travel as <code>$n</code> bind
+parameters, and the only <code>format!</code> reaching statement text interpolates two newtypes. A correctly
+working scanner reports zero here. So the job's whole value would be catching a <strong>future</strong>
+regression - and the regression class it would need to catch is precisely the one measured above as
+not caught. A scanner that finds nothing today because it is working and one that finds nothing
+because its models are inert are indistinguishable from the outside, which is why the control, not
+the finding count, is the thing to look at.</p>
+<p><strong>Cost, measured rather than estimated.</strong> On one contended developer host: database creation
+<strong>659-770 s</strong> for a ten-function fixture, producing a <strong>692 MiB</strong> database; suite analysis
+<strong>111-189 s</strong> at <code>--threads=4</code>. Roughly a quarter of an hour for a fixture, against <code>ci</code>'s 20-37
+minutes - enough to say that a per-pull-request job would not be free, and not enough to price a
+job over this whole workspace, which was not measured.</p>
+<p><strong>What stays true.</strong> No secret is involved in any of this: code scanning on a public repository
+needs only <code>security-events: write</code>, so nothing here bears on <code>docs/adr/0026</code>. The absence of the
+workflow remains held by <code>xtask</code>'s SAST rule rather than by this text - that rule refuses a
+Scorecard-recognised scanner while this record accepts the zero, and it is what would make adding
+<code>CodeQL</code> fail until this record is rewritten.</p>
+<p><strong>What this does not say.</strong> It does not say CodeQL Rust cannot track this class, and it does not say
+a later release will not. It is one fixture, one host, one version. Not measured: any other sink
+family end to end, the analysis cost over this workspace rather than a fixture, and whether a
+first-party model pack supplying the missing summaries against the paths the database <em>does</em> contain
+would close the gap - that is the one untried lever left, and it is a larger piece of work than a
+workflow. The release to watch is one whose notes mention Rust taint through owned-<code>String</code>
+construction, or canonical paths for sysroot crates in a buildless database.</p>
 
 
 
