@@ -83,7 +83,16 @@ suturaPurgeBakedOutDirs() (
   while IFS= read -r record; do
     if [ -z "$record" ]; then continue; fi
 
-    unitDir="${record%/root-output}"
+    recordDir="${record%/*}"
+    # `root-output` and `out/` are the two faces of one build-script run. The pinned nightly keeps
+    # the record under a `run/` subdirectory with `out/` as its SIBLING under `build/<crate>/<hash>/`;
+    # an older cargo wrote `root-output` beside `out/` at `build/<crate>-<hash>/`. `outDir` is the
+    # directory of generated content either way, found by looking where `out/` actually is.
+    if [ -d "$recordDir/out" ]; then
+        unitDir="$recordDir"
+    else
+        unitDir="${recordDir%/*}"
+    fi
     outDir="$unitDir/out"
     if [ ! -d "$outDir" ]; then continue; fi
 
@@ -93,16 +102,30 @@ suturaPurgeBakedOutDirs() (
     # Moved - but only content that hard-coded the old directory is unusable.
     if ! grep -qrF -- "$ranIn" "$outDir"; then continue; fi
 
-    unit="${unitDir##*/}"
-    crate="${unit%-*}"
-    if [ -z "$crate" ] || [ "$crate" = "$unit" ]; then continue; fi
+    # The crate dir and the two purge globs also follow the layout that put `out/` where it is.
+    ownerDir="${unitDir%/*}"
+    case "${ownerDir##*/}" in
+      build)
+        # Old layout: `build/<crate>-<hash>/` - the unit dir is named after the crate.
+        crate="${unitDir##*/}"
+        crate="${crate%-*}"
+        if [ -z "$crate" ] || [ "$crate" = "${unitDir##*/}" ]; then continue; fi
+        profileDir="${ownerDir%/*}"
+        purge="$ownerDir/${crate:?}-* $profileDir/.fingerprint/$crate-*"
+        ;;
+      *)
+        # New layout: `build/<crate>/<hash>/` - the whole crate dir holds out/, run/ AND its
+        # fingerprints, so dropping it is the same "the build script must rerun" purge as above.
+        crate="${ownerDir##*/}"
+        purge="$ownerDir"
+        ;;
+    esac
 
-    buildDir="${unitDir%/*}"
-    profileDir="${buildDir%/*}"
     printf 'purge-baked-out-dirs: %s baked %s into what it generated\n' "$crate" "$ranIn"
     # Both unit directories and every fingerprint for the crate: the build script has to RERUN
     # (that is what rewrites the path) and the library has to be recompiled against what it wrote.
-    rm -rf -- "${buildDir:?}/$crate"-* "${profileDir:?}/.fingerprint/$crate"-*
+    # shellcheck disable=SC2086
+    rm -rf -- $purge
     purged=$((purged + 1))
   done <<<"$records"
 
