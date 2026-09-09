@@ -1,4 +1,4 @@
-//! Warning events carry the bounded route template, never the request's raw path.
+//! Deployment-token and request-timeout warnings carry the bounded route template, never the raw request path.
 
 use super::*;
 
