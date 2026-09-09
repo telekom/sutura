@@ -6,10 +6,10 @@
 //! the table a developer supplies, the name no dataset holds, and the one plan every leg asks - so
 //! what is left beside the assertions is the assertions.
 //!
-//! **In `tests/fixture/mod.rs` and declared by `acceptance.rs` alone**, which is the difference
-//! from `tests/support/mod.rs`: that one is shared with the corpus leg, so `dead_code = "deny"`
-//! means nothing target-specific can live in it. Everything here is target-specific, which is
-//! exactly why it is not there.
+//! Declared by `acceptance.rs` with `#[path = "fixture/fixture.rs"] mod fixture;` and living in a
+//! self-named `tests/fixture/fixture.rs`, which is the difference from `tests/support/mod.rs`: that
+//! one is shared with the corpus leg, so `dead_code = "deny"` means nothing target-specific can live
+//! in it. Everything here is target-specific, which is exactly why it is not there.
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::model::{
