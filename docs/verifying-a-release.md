@@ -1,8 +1,8 @@
 # Verifying a release
 
-Every artefact a tagged release publishes is signed, and every one carries SLSA provenance. This
-page is what the signatures mean, the commands that check them, and - the part that matters more -
-what they do **not** say.
+The tagged-release workflow signs artefacts and records SLSA provenance as described below.
+Signature and provenance bundles carry the evidence; they do not recursively attest themselves.
+This page explains the checks and, just as importantly, what they do **not** say.
 
 ## Read this part first
 
@@ -58,6 +58,7 @@ the two documents answers is under [The licence statement](#the-licence-statemen
 | the eight leaf images | n/a | no | `cosign sign`, by digest |
 | the four manifest lists | n/a | yes | `cosign sign`, by digest |
 | each leaf image's CycloneDX SBOM | n/a | n/a | `cosign attest --type cyclonedx` |
+| `sutura-provenance.intoto.jsonl` | five existing signed attestation bundles | not recursively attested | n/a |
 
 Every count in that table is two binaries times four triples, or its consequence. A leaf and the SBOM
 beside it are named by the same key - `<triple>` for `sutura`, `serve-<triple>` for `sutura-serve` -
@@ -80,11 +81,10 @@ produced it.
 at, they are signed by `cosign` individually, and pinning one means asking for a single architecture
 on purpose. There are four lists rather than two now, because there are two binaries.
 
-**The images get `cosign` and the assets get a bundle, and the reason is who can verify.**
-`gh attestation verify` asks GitHub's API - it needs reach to the forge and an authenticated `gh`.
-`cosign verify-blob` needs the file, its bundle and Sigstore's trust root, so an artefact you
-mirrored into your own storage six months ago is still verifiable from the bytes you mirrored, with
-no account anywhere. That is the case a release asset exists for.
+**The images get `cosign` and the assets get a bundle.** By default, `gh attestation verify`
+fetches provenance from GitHub. With `--bundle`, it reads the exported JSONL instead; retain that
+asset alongside mirrored files. Verification still needs an independently trusted Sigstore root
+and an explicit signer/source policy, not merely a bundle supplied by the same mirror.
 
 ## There is no key
 
@@ -123,6 +123,44 @@ gh attestation verify sutura-x86_64-unknown-linux-gnu.tar.gz --repo telekom/sutu
 The second prints the workflow, the ref and the commit the artefact was built from. Read them: an
 attestation from a *different* ref of this repository verifies perfectly well and is still not the
 release you meant to download.
+
+### Provenance from mirrored bytes
+
+For releases made by the exporting workflow, retain `sutura-provenance.intoto.jsonl` with the
+original assets. It contains five Sigstore bundles: one multi-subject asset attestation and four
+manifest-list attestations. It is not a new signing policy. The collector checks required
+JSON/DSSE/SLSA fields and exact unique name/digest pairs against `subjects.sha256` and
+`image-digests.txt`, then writes the asset only after all inputs pass. It does **not** verify
+signatures, certificates or transparency proofs. A missing export blocks draft publication.
+
+Choose the expected tag and full source commit independently of the downloaded bundle. Supply a
+trusted-root file obtained through your trusted distribution channel; do not trust one merely
+because a mirror placed it beside the artefact. For example, with those values already set:
+
+```bash
+gh attestation verify sutura-x86_64-unknown-linux-gnu.tar.gz \
+  --bundle sutura-provenance.intoto.jsonl \
+  --custom-trusted-root "$TRUSTED_ROOT" \
+  --repo telekom/sutura \
+  --signer-workflow telekom/sutura/.github/workflows/release.yml \
+  --source-ref "refs/tags/$TAG" --source-digest "$SOURCE_COMMIT" \
+  --cert-identity "https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/$TAG" \
+  --cert-oidc-issuer https://token.actions.githubusercontent.com \
+  --predicate-type https://slsa.dev/provenance/v1
+```
+
+The [verifier's bundle mode](https://cli.github.com/manual/gh_attestation_verify) accepts JSONL
+without fetching attestations from the forge. Test the command with network access disabled to
+establish the fully mirrored-byte claim for your verifier and trust-root distribution. An OCI
+reference can still require registry access; this file example does not prove offline image
+retrieval or verification.
+
+**Venue limit:** PR CI can exercise fake bundle output and refusal paths, not the tagged job's
+OIDC signing, real bundle export or release upload. After merge, the first intended tagged release
+must demonstrate the five-record asset, successful verification of the mirrored original bytes
+under the policy above, and rejection of altered bytes and a wrong source ref. Until that tagged
+run and mirror-only check are recorded, those outcomes remain unproven; older releases need not
+contain the export. No tag or release is created merely to make a PR check green.
 
 ## Verifying an image
 

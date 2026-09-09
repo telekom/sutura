@@ -241,31 +241,15 @@ jobs:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
           # absent: with it, a pull request could add a substituter and a trusted key and have
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
-          # goes here, where the workflow diff shows it. The read-only binary-cache backstop is
-          # added HERE (never from flake.nix); its secret-driven lines interpolate to nothing
-          # while unprovisioned, so no store a pull request does not control is ever trusted.
+          # goes HERE, where the workflow diff shows it - never read from flake.nix. There is no
+          # third-party substituter line to add: `docs/adr/0026` records the Actions cache as the
+          # only carrier, and `cargo xtask check-workflows` refuses one coming back.
           extra_nix_config: |
             fallback = true
-            ${{ secrets.NIX_CACHE_SUBSTITUTER != '' && format('substituters = {0}', secrets.NIX_CACHE_SUBSTITUTER) || '' }}
-            ${{ secrets.NIX_CACHE_PUBLIC_KEY != '' && format('trusted-public-keys = {0}', secrets.NIX_CACHE_PUBLIC_KEY) || '' }}
 
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
-          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
-
-      # MAIN POPULATES THE BINARY CACHE every pull request substitutes from: it signs the native
-      # closure into a GLOBAL, non-ref-scoped cache so a PR's cold leg restores instead of compile
-      # (the Actions cache is ref-scoped and dies with its PR). Gated on the event AND the cache
-      # name; the token rides the action input (`secrets` is not visible to an `if`) and an empty
-      # token means configure-push-nothing, keeping an unprovisioned repo inert. The NIX_CACHE_NAME
-      # variable and NIX_CACHE_AUTH_TOKEN secret are the owner's to create.
-      - name: Populate the binary cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.NIX_CACHE_NAME != ''
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        with:
-          name: ${{ vars.NIX_CACHE_NAME }}
-          authToken: ${{ secrets.NIX_CACHE_AUTH_TOKEN }}
 
       - name: Toolchain in use
         run: |
@@ -878,7 +862,6 @@ jobs:
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: bq
-          hosted: ${{ vars.NIX_CACHE_NAME != '' }}
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #

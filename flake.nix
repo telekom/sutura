@@ -316,7 +316,12 @@
         # `release` stays for the shipped binary and the cross artifacts - the only place an
         # optimised build is worth paying for.
         ciArgs = commonArgs // { CARGO_PROFILE = "ci"; };
-        ciArtifacts = craneLib.buildDepsOnly ciArgs;
+        # `doCheck = true` STATED and not defaulted, which `cargo xtask check-warm-start` requires
+        # of every `buildDepsOnly`: that pass is a SECOND codegen of the whole closure, and here it
+        # is earned - `checks.nextest` builds a test binary per crate, so the dev-dependency
+        # artifacts it caches are ones that check would otherwise compile itself. `nix/jscpd.nix`
+        # carries the measurement for the other answer, where nothing consumes them.
+        ciArtifacts = craneLib.buildDepsOnly (ciArgs // { doCheck = true; });
 
         # ARTIFACTS BUILT IN ANOTHER DERIVATION, AND THE ONE THING THAT MAKES THEM SAFE TO INHERIT,
         # as a single attrset - so a consumer cannot take the artifacts without the regeneration.

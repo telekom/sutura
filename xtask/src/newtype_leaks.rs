@@ -148,6 +148,13 @@ const SEALED: &[Sealed] = &[
               judged paths would let a gate print a count of its own again",
     },
     Sealed {
+        name: "Offered",
+        declared_in: "xtask/src/repo/accounting.rs",
+        why: "the same class one level in - a gate's own walk INSIDE what the census handed it. \
+              `.take(100)` on one such line walk left 214500 of 294744 lines unread at exit 0, so \
+              the subjects are private and `each` is the only way to see one",
+    },
+    Sealed {
         name: "Discovered",
         declared_in: "xtask/src/warm_start/pairing.rs",
         why: "the reference derivation of the same argument: `Swept::over` refuses a paired set \

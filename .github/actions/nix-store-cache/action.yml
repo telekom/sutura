@@ -35,8 +35,13 @@
 # saves has never been weighed. `gc-max-store-size` is deliberately NOT set - `nix store gc` would
 # collect the dependency closure, because a `nix build` step overwrites `./result` and the check
 # outputs are therefore not GC roots, so bounding the entry that way would throw away exactly what
-# is worth saving. If a save is refused, the summary line below says so on every `main` push, and
-# the hosted binary cache wired in `ci.yml` (inert while unprovisioned) is the fallback.
+# is worth saving. If a save is refused, the summary line below says so on every `main` push.
+#
+# AND THERE IS NO SECOND CARRIER BEHIND IT. `docs/adr/0026` retired the third-party binary cache
+# this file used to name as its fallback: that wiring was gated on repository secrets and variables
+# that never existed, so its populate step was `completed/skipped` on every `main` push it ever ran
+# on - silently, and green. This action is now the whole mechanism, and if its save is refused the
+# next run compiles. `cargo xtask check-workflows` refuses a secret-gated writer coming back.
 name: nix-store-cache
 description: Restore /nix/store from the Actions cache on every event; write it only from a push to main.
 
@@ -46,13 +51,6 @@ inputs:
     # acceptance job builds a different crate, so a shared key would have them overwrite each
     # other's entry. A pull request restores the entry its own scope wrote on `main`.
     description: What this job's store is, so two jobs do not share one entry - `ci`, `bq`, a target triple.
-    required: true
-  hosted:
-    # AN INPUT AND NOT `vars.NIX_CACHE_NAME != ''` READ HERE, and the reason is measured rather than
-    # stylistic: a composite action manifest cannot see the `vars` context at all. Run 34261889080
-    # failed to LOAD this file - "Unrecognized named-value: 'vars'", a manifest validation error, so
-    # no step in it ran. The caller evaluates it and passes the answer through.
-    description: Whether the hosted binary cache is provisioned, as `vars.NIX_CACHE_NAME != ''`.
     required: true
 
 runs:
@@ -82,7 +80,7 @@ runs:
     # THE WITNESS, AND ITS SHAPE IS THE POINT: IT REPORTS AND NEVER FAILS.
     #
     # An unprovisioned or ineffective cache used to be `skipped`, green and invisible - the hosted
-    # populate step in `ci.yml` has been `completed/skipped` on every `main` push since it merged
+    # populate step `docs/adr/0026` deleted was `completed/skipped` on every `main` push it ran on
     # and nothing anywhere said so. A step that goes RED on that is inverted logic: publication
     # working is the success condition, and #476 deleted exactly such a step. So this prints, and a
     # legitimately cold cache prints a miss rather than failing a run.
@@ -101,13 +99,8 @@ runs:
         PRIMARY: ${{ steps.store.outputs.primary-key }}
         RESTORED: ${{ steps.store.outputs.restored-key }}
         WRITES: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        HOSTED: ${{ inputs.hosted }}
       run: |
         set -eu
-        # HOSTED arrives from the `env:` block above; declaring it with `export` (no value, so
-        # the environment's own value is kept) tells shellcheck it is external, not a misspelling
-        # of the `hosted` result assigned below (SC2153).
-        export HOSTED
         carried="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
         # A file rather than a step output: the `ci` job's closing step reads it to report a ratio,
         # and a composite action cannot register a post step to do that itself.
@@ -124,11 +117,6 @@ runs:
         else
           write="restore-only, nothing written"
         fi
-        if [ "$HOSTED" = "true" ]; then
-          hosted="provisioned"
-        else
-          hosted="UNPROVISIONED - ci.yml's populate step is skipped, so no store outside this repository is written or trusted"
-        fi
         {
           printf '### nix store cache (%s)\n\n' "$SCOPE"
           printf '| | |\n| --- | --- |\n'
@@ -136,7 +124,6 @@ runs:
           printf '| write | %s |\n' "$write"
           printf "| key | \`%s\` |\n" "$PRIMARY"
           printf '| paths carried | %s |\n' "$carried"
-          printf '| hosted binary cache | %s |\n' "$hosted"
         } >> "$GITHUB_STEP_SUMMARY"
-        printf 'nix-store-cache(%s): %s; %s; %s paths carried; hosted cache %s\n' \
-          "$SCOPE" "$restore" "$write" "$carried" "$hosted"
+        printf 'nix-store-cache(%s): %s; %s; %s paths carried\n' \
+          "$SCOPE" "$restore" "$write" "$carried"

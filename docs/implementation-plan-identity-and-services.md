@@ -992,7 +992,7 @@ economise.
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
    | `check-worktree-state` | the Rust under `crates/`, `xtask/` and `dev/`, and the shell under `nix/*.sh` - for every acquisition of a machine-shared filesystem root, and whether anything keys the path it builds |
    | `check-conformance-bindings` | the Rust and the manifests under `crates/` - the golden matrix's `data_systems` registry against the crates holding a conformance binding |
-   | `check-refusal-coverage` | the Rust and snapshots under `crates/`, `devco/refusals-unprovoked-allow`, and `devco/startup-refusals-unprovoked-allow` |
+   | `check-refusal-coverage` | the Rust and snapshots under `crates/`, and one allow file per enrolled enum (`devco/refusals-unprovoked-allow`, `devco/startup-refusals-unprovoked-allow`, `devco/validation-refusals-unprovoked-allow` - an absent one means no exceptions). The enrolled set is a DECLARED list of three enums in `xtask/src/refusals.rs`, not every refusal-shaped enum in the tree |
    | `check-feature-remedies` | the string literals under `crates/*/src/` and each crate's own `Cargo.toml` |
    | `check-expect-thresholds` | every tracked `*.rs` |
    | `check-examples` | the directories under `examples/`, and the Rust that reaches for one |

@@ -482,4 +482,108 @@ mod tests {
         }
         assert!(checked >= 3, "expected at least three composite actions, found {checked}");
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_previous_export_is_refused_before_any_signing_or_snapshot() {
+        let root = crate::repo::root().expect("repository root");
+        let text = std::fs::read_to_string(root.join(".github/actions/attest-and-sign/action.yml")).expect("release action");
+        let steps = extract(&text);
+        let first = steps.first().expect("action has shell");
+        assert_eq!(first.step, "Refuse a previous provenance export");
+        let scratch = std::env::temp_dir().join(format!("sutura-export-guard-{}", std::process::id()));
+        #[expect(clippy::create_dir, reason = "exclusive fixture ownership")]
+        std::fs::create_dir(&scratch).expect("new fixture directory");
+        let mut statuses = Vec::new();
+        for (name, kind) in [
+            ("sutura-provenance.intoto.jsonl", "absent"),
+            ("sutura-provenance.intoto.jsonl", "file"),
+            ("sutura-provenance.intoto.jsonl", "dangling symlink"),
+            (".sutura-provenance.intoto.jsonl.tmp", "file"),
+            (".sutura-provenance.intoto.jsonl.tmp", "dangling symlink"),
+        ] {
+            let path = scratch.join(name);
+            if kind == "file" {
+                std::fs::write(&path, "old export").expect("old fixture export");
+            } else if kind == "dangling symlink" {
+                std::os::unix::fs::symlink(scratch.join("absent"), &path).expect("fixture symlink");
+            }
+            let output = std::process::Command::new("bash")
+                .args(["--noprofile", "--norc", "-c", &first.body])
+                .env_remove("BASH_ENV")
+                .env("ASSETS", &scratch)
+                .output()
+                .expect("actual guard shell");
+            statuses.push(output.status.code());
+            if kind != "absent" {
+                std::fs::remove_file(&path).expect("remove only fixture file or symlink");
+            }
+        }
+        std::fs::remove_dir_all(&scratch).expect("remove only fixture directory");
+        assert_eq!(statuses, [Some(0), Some(1), Some(1), Some(1), Some(1)]);
+    }
+
+    #[test]
+    fn publication_requires_the_export_before_a_draft_and_includes_it_in_upload() {
+        let root = crate::repo::root().expect("repository root");
+        let text = std::fs::read_to_string(root.join(".github/workflows/release.yml")).expect("release workflow");
+        let step = extract(&text)
+            .into_iter()
+            .find(|step| step.step == "Publish")
+            .expect("publication shell");
+        let scratch = std::env::temp_dir().join(format!("sutura-export-publication-{}", std::process::id()));
+        #[expect(clippy::create_dir, reason = "exclusive fixture ownership")]
+        std::fs::create_dir(&scratch).expect("new fixture directory");
+        std::fs::create_dir_all(scratch.join("dist")).expect("fixture assets");
+        std::fs::write(scratch.join("notes.md"), "fixture notes").expect("fixture notes");
+        std::fs::write(scratch.join("dist/runtime.tar.gz"), "fixture bytes").expect("fixture asset");
+        let mut outcomes = Vec::new();
+        for contents in [None, Some(""), Some("fixture export")] {
+            if let Some(bytes) = contents {
+                std::fs::write(scratch.join("dist/sutura-provenance.intoto.jsonl"), bytes).expect("fixture export");
+            }
+            std::fs::write(scratch.join("calls"), "").expect("clear fake port ledger");
+            let output = std::process::Command::new("bash")
+                .args(["--noprofile", "--norc", "-c", PUBLISH_FAKE])
+                .current_dir(&scratch)
+                .env_remove("BASH_ENV")
+                .env("PUBLISH_STEP", &step.body)
+                .env("GITHUB_REF_NAME", "v0.0.0")
+                .output()
+                .expect("publication shell with fake gh port");
+            let calls = std::fs::read_to_string(scratch.join("calls")).expect("fake port ledger");
+            outcomes.push((output.status.code(), calls, output));
+        }
+        std::fs::remove_dir_all(&scratch).expect("remove only fixture directory");
+        for (index, (code, calls, output)) in outcomes.into_iter().enumerate() {
+            if index < 2 {
+                assert_eq!(code, Some(1), "{output:?}");
+                assert!(calls.is_empty(), "missing/empty export reached gh: {calls}");
+            } else {
+                assert_eq!(code, Some(0), "{output:?}");
+                assert!(calls.contains("release create v0.0.0 --draft"), "{calls}");
+                assert!(
+                    calls.contains("release upload v0.0.0 dist/runtime.tar.gz dist/sutura-provenance.intoto.jsonl\n"),
+                    "{calls}"
+                );
+            }
+        }
+    }
+
+    // Only gh is replaced. This runs the actual Publish body; no network or release can occur.
+    const PUBLISH_FAKE: &str = r#"
+set -eu
+gh() {
+  printf '%s\n' "$*" >> calls
+  case "$*" in
+    'release view '*'--jq if .isDraft then'*) return 1 ;;
+    'release view '*'--jq .isDraft') printf 'false\n' ;;
+    'release view '*'--jq .assets | length') printf '2\n' ;;
+    'release create '*|'release upload '*|'release edit '*) return 0 ;;
+    *) return 97 ;;
+  esac
+}
+export -f gh
+bash --noprofile --norc -c "$PUBLISH_STEP"
+"#;
 }

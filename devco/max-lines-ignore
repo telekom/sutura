@@ -97,12 +97,11 @@ vendor/**
 
 [warn]
 
-# No HAND-WRITTEN file is listed here, and that is the claim worth making: an entry here is a
-# promise to split a file, not a way to silence the gate, and it keeps printing until somebody
-# keeps that promise. The header used to say the section was EMPTY, which stopped being true when
-# the entry below was added - reported in review, and the new inert-exemption rule cannot see it
-# because that rule is literal-scoped for the reason argued three sections up. So it is corrected
-# here by hand, where the gate cannot look.
+# ONE hand-written file is listed here, and the claim this section makes is unchanged by it: an
+# entry here is a promise to split a file, not a way to silence the gate, and it keeps printing
+# until somebody keeps that promise. This paragraph is maintained BY HAND - the inert-exemption
+# rule is literal-scoped for the reason argued three sections up, so it cannot see a count in
+# prose going stale. It has already said EMPTY once when it was not.
 
 # Scratch a browser tool writes into the working tree: verbatim dumps of visited pages, thousands
 # of lines each, regenerated on every run and gitignored. Generated output by any reading, and the
@@ -111,3 +110,26 @@ vendor/**
 # is what this paragraph used to cite as a `site/` exemption. There is no `site/` entry in this
 # file and there never was.
 .playwright-mcp/**
+
+# The flake, at 1005 lines. Hand-written, so `[warn]` and not `[silent]`: the WARN keeps it
+# visible as debt rather than settled, and the argument for calling it generated output does not
+# survive contact. That argument is real and worth recording, because it is the one a reader will
+# reach for - the file's length is a function of HOW MANY CHECK DERIVATIONS EXIST, since
+# `xtask/src/workflows/nix_block.rs` and `check-workflows` parse the `checks = {` block
+# TEXTUALLY, so every check has to be declared literally in this file and cannot be `inherit`ed
+# in from a module. That makes the length partly structural, the same shape as a lockfile's
+# length being a function of the dependency graph. It is still the wrong section: a lockfile has
+# no author to judge, and this file's prose - which is most of it - is judged in review line by
+# line. So the honest reading is hand-written debt with a split available.
+#
+# THE SPLIT ALREADY AGREED, which is what a `[warn]` entry promises: check BODIES move to `nix/`
+# modules and the declaration stays here, exactly as `postgres-tier`, `keycloak-tier`, `jscpd`,
+# `shipped` and `api-docs` already do. That is the only route, because the declarations
+# themselves cannot leave.
+#
+# WHY IT CROSSED NOW rather than being left at exactly 1000: `ciArtifacts` had to STATE
+# `doCheck`, which `cargo xtask check-warm-start` requires of every `buildDepsOnly` after one of
+# them was measured compiling its closure twice for nobody. Five lines, and no deletion in this
+# file was honest to offset them - the alternative was a decision written nowhere near its site,
+# which is the thing the reason paragraphs here exist to prevent.
+flake.nix

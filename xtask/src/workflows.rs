@@ -266,7 +266,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // push to `main`. Nothing held that before - `check-workflows` read flake references and
     // `zizmor` reads security shapes, and neither can tell a cache action that saves from one that
     // does not.
-    let writes = cache_scope::problems(ordinary.closure());
+    let writes = cache_scope::problems(&root, ordinary.closure());
     if !writes.is_empty() {
         eprintln!(
             "xtask check-workflows: FAILED - {} Actions-cache write rule(s) broken\n",
@@ -276,9 +276,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             eprintln!("  {problem}");
         }
         eprintln!();
-        eprintln!("A run restores caches from its own ref or the default branch, so an entry a pull");
-        eprintln!("request writes is readable by exactly one pull request and is then pruned. Restore");
-        eprintln!("everywhere, save only from a push to main - see .github/actions/nix-store-cache.");
+        eprintln!("An entry a pull request writes is readable by exactly one pull request and is then");
+        eprintln!("pruned: restore everywhere, save only from a push to main, per");
+        eprintln!(".github/actions/nix-store-cache. docs/adr/0026 retired the third-party cache too.");
         return Verdict::Fail;
     }
 
@@ -320,7 +320,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and the only store CI trusts, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             walked.len(),
             walked.join(", ")
