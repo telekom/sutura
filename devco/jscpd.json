@@ -1,0 +1,12 @@
+{
+  "ignore": [
+    "target/**",
+    "site/**",
+    "result/**",
+    "result-*/**",
+    ".pixi/**",
+    ".sutura-dev/**",
+    "report/**",
+    "**/.prek-cache/**"
+  ]
+}
