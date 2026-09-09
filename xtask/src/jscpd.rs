@@ -290,7 +290,7 @@ impl Drop for TempWorkDir {
     }
 }
 
-/// Run jscpd over [`SCAN`] and return the clones it found.
+/// Run jscpd over the repository's Rust and return the clones it found.
 fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
     let work = TempWorkDir::create()?;
     let out = work.path();
