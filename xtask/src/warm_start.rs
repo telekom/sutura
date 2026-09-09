@@ -864,7 +864,7 @@ mod tests {
         // `just lint-workflows` shellchecks it clean and `just hygiene` - `pairing` included -
         // reports `ok - 32 gate(s)` over a tree where nothing is purged. This reddens on it,
         // `left: (true, true)`, because the unit and its fingerprint are still there.
-        use super::sweep::{present, sweep, unit};
+        use super::sweep::{present, present_run, sweep, unit, unit_run};
 
         let target = std::env::temp_dir().join(format!("sutura-sweep-{}", std::process::id()));
         drop(std::fs::remove_dir_all(&target));
@@ -905,8 +905,26 @@ mod tests {
             &format!("cargo:rustc-link-search=native={elsewhere}"),
         );
 
+        // 5. THE PINNED NIGHTLY's LAYOUT: `root-output` under `run/`, `out/` its sibling, under
+        //    `build/<crate>/<hash>/`. The reader that looked for `out/` BESIDE the record found
+        //    nothing there, skipped every record and printed `0 regenerated here` - the false
+        //    negative that left this baked-out `embed.rs` in the freshly pinned nightly's CI, which
+        //    then failed the HEAD-precondition compile with `#[folder = "..."] does not exist`.
+        //    The fix identifies `out/` by where it actually is and drops the whole crate dir.
+        let nightly_dir = unit_run(
+            &profile,
+            "nightly",
+            "eeee",
+            elsewhere,
+            &format!("#[folder = \"{elsewhere}\"]"),
+        );
+
         let said = sweep(&target);
 
+        assert!(
+            !present_run(&nightly_dir),
+            "the pinned-nightly unit is purged so the build script reruns and rewrites the path: {said}"
+        );
         assert_eq!(
             present(&profile, "moved", "aaaa"),
             (false, false),
@@ -927,7 +945,7 @@ mod tests {
             (true, true),
             "the `output` file is the STATED LIMIT: {said}"
         );
-        assert!(said.contains("1 inherited build script output(s) regenerated here"), "{said}");
+        assert!(said.contains("2 inherited build script output(s) regenerated here"), "{said}");
         drop(std::fs::remove_dir_all(&target));
     }
 }

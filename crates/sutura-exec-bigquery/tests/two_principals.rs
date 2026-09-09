@@ -89,6 +89,7 @@
 // `cfg(test)` around the whole file - the house pattern, because clippy honours
 // `allow-expect-in-tests` only inside a `#[cfg(test)]` item.
 #[cfg(test)]
+#[path = "support/support.rs"]
 mod support;
 
 #[cfg(test)]

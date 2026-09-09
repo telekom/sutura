@@ -78,8 +78,7 @@ adding a pin anywhere.
 
 | Concern | Owner |
 | --- | --- |
-| Compiler version, anything shipped | `rust-toolchain.toml`, read by rustup **and** by nix |
-| Compiler version, the local inner loop | `devco/rust-toolchain-nightly.toml` |
+| Compiler version | `devco/rust-toolchain-nightly.toml`, read by nix; the top-level `rust-toolchain.toml` is the rustup-facing copy of the same pin |
 | The dev shell, tool versions, script names | `devenv.nix` |
 | The release build, cross-compilation, the image | `flake.nix` |
 | Anything delivered as a conda or Python package | `pixi.toml` |
@@ -107,47 +106,35 @@ block - refuses it. Same family as the brace-counting and fence-scanning defects
 
 ## Never hand-write the cargo line
 
-`just lint` and `just test` ARE the gates' invocations. A hand-written line diverges twice, and
-fixing only the first still fails:
+`just lint` and `just test` ARE the gates' invocations. A hand-written line diverges:
 
-1. This shell's cargo is **nightly** for the cranelift backend and reports lints stable has not got.
-   `nix/stable-env.sh` is the fix.
-2. The gate adds **`-D warnings`**, so a bare run turns a `restriction`-category finding into a
-   warning that a grep for `^error` does not see. It passes locally and fails the gate.
+The gate adds **`-D warnings`**, so a bare run turns a `restriction`-category finding into a
+warning that a grep for `^error` does not see. It passes locally and fails the gate. (This shell's
+bare `cargo` used to be a cranelift nightly while the gates ran on a separate stable toolchain, so
+a hand-written line diverged twice; the stable/nightly split is gone, so that half no longer
+applies - the shell's bare `cargo` IS what the gates and CI run.)
 
-Both were hit in one session by two different agents, after each read the half of the rule that
-named only the first.
-
-The same shell environment **follows cargo into other checkouts and breaks builds there**:
-`CARGO_UNSTABLE_CODEGEN_BACKEND`, `CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` and two DuckDB path
-variables are unscoped. Measured, not theorised: a control build of a C++-linking crate from this
+Another part of the shell environment still **follows cargo into other checkouts and breaks builds
+there**: if a developer has opted into cranelift, `CARGO_UNSTABLE_CODEGEN_BACKEND` and
+`CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` are set, and the two DuckDB path variables are
+unscoped regardless. Measured, not theorised: a control build of a C++-linking crate from this
 shell aborted with an uncaught foreign exception behind millions of unwind-table errors, because
 cranelift's unwind tables cannot carry an exception across the C++/Rust boundary. The same suite is
 green with the four unset. **A red run from this shell in another repo is unexplained until you
 unset them.** No gate can see a build somewhere else, which is exactly why it is written down.
 
-The `ci` profile inherits `dev`, so anything building `--profile ci` locally - the causality gate
-included - hits the same cranelift problem and needs `nix/stable-env.sh` first.
+**Local Rust gates run on the shell's nightly cargo, matching CI.** The formatter, changed-package,
+doctest and clippy hook entries run the same `cargo` as the corresponding `just` tasks - there is no
+separate stable-toolchain indirection anymore, so a recipe cannot diverge from its hook. What holds that is
+execution: the gate-entry regression in `xtask/src/hooks.rs` runs the `fmt`, `lint` and
+`check-changed` recipe bodies against fake tools. `just test` is deliberately outside that
+enumeration because executing its body would provision a database - there the line is held by
+review.
 
-**Local Rust gates require configured stable tools.** The formatter, changed-package, doctest and
-clippy hook entries source `nix/stable-env.sh`, as do the corresponding `just` tasks. That second
-half was FALSE when it was first written - `just check-changed` was the one Rust recipe with no
-`source` line, so the recipe a person types ran the cranelift nightly while its own commit hook ran
-stable. What holds it now is execution rather than the sentence: the gate-entry regression in
-`xtask/src/hooks.rs` runs the `fmt`, `lint` and `check-changed` recipe bodies against a fake
-toolchain. `just test` sources the helper too and is deliberately outside that enumeration, because
-executing its body would provision a database - there the line is held by review. The helper
-terminates the caller when `SUTURA_STABLE_BIN` is absent, empty or lacks a required executable;
-returning an error alone would not stop the hooks' semicolon-separated commands. Enter the dev
-shell to obtain the pinned configuration. This trusts that environment: it is not attestation of
-arbitrary wrappers or compiler overrides. Nightly remains the interactive cranelift toolchain and
-the API JSON writer's requirement, not a second formatter whose output is assumed equal.
-
-**Pinned Nix routes do not require that local variable.** `nix/run-gate.sh` sends unconfigured Rust
-cases to their existing Nix fallback without probing host cargo, and refuses if Nix is absent too.
-It clears the same two inherited cranelift variables before either route. Secret scanning and the
-push-tier format check need no local Rust toolchain. The configured path keeps stable artifacts
-separate from nightly's; this does not make repeated sourcing target-directory-idempotent.
+**Pinned Nix routes do not require the dev shell.** `nix/run-gate.sh` probes host cargo (the
+shell's nightly when one is active) and falls back to the pinned Nix check; it clears the two
+inherited cranelift variables before the Nix route. The two push-tier checks - secret scanning and
+the supply-chain gate - need no local Rust toolchain.
 
 ## Direction is per-gate, and each one says so at its own decision
 
@@ -170,20 +157,20 @@ separate from nightly's; this does not make repeated sourcing target-directory-i
 
 **Neither direction is a default. What a wrong answer costs decides it, per gate.**
 
-## Hooks, and why clippy runs twice
+## Hooks, and why the push stage is security-only
 
-The push stage repeats the commit stage's compiling hook because **`git rebase` and
-`git rebase --continue` run no commit hook at all**, and a conflict resolution used to reach the
-remote with nothing having compiled it. `check-hook-tiers` holds two things: the push stage runs a
-hook that COMPILES, and that hook's entry is the commit stage's **own** - the second because cargo
-keys its fingerprints on the invocation, so a push command differing by one flag rebuilds the
-workspace instead of reusing what the commit hook built.
+The push stage runs ONLY the two whole-tree security checks - `secret-sweep`
+(`nix/run-gate.sh secrets`) and `cargo-deny` (`nix/run-gate.sh supply-chain`) - and nothing that
+compiles first-party code. It used to repeat the commit stage's clippy hook so that
+**`git rebase` and `git rebase --continue`, which run no commit hook at all**, could not push a
+conflict resolution nobody had compiled. That push-compile tier is **deliberately retired**: the
+compile is a commit-stage concern, and an uncompiled rebase now reaches CI rather than being
+caught locally. `check-hook-tiers` holds the new shape - every `pre-push` hook is one of the two
+security checks, and none of it compiles.
 
 Tiers are bypassable with `--no-verify`, so none of this is an invariant. What the gate holds is
-that the tiers documented here are the tiers `.pre-commit-config.yaml` declares. It expresses the
-repeated run as a YAML anchor rather than a second copy, because a gate that makes `git push` slow
-gets bypassed and then guards nothing: measured, the push clippy is ~1 s after a warm commit hook
-and ~76 s into an empty target directory, which the first commit in a fresh clone pays anyway.
+that the tiers documented here are the tiers `.pre-commit-config.yaml` declares, in both
+directions: a push hook that compiles OR that is outside the security-only set fails the gate.
 
 **The CRAP gate** scores cyclomatic complexity weighted by the tests covering it - the combination
 neither a complexity limit nor a coverage percentage catches alone. Split by cost: `check-crap`
@@ -711,7 +698,7 @@ seeds and a finite budget did not find anything, never that a parser is panic-fr
   every surface covered and `ok`, exit 0 - **character for character** the lines the real run
   printed, with nothing having executed. And the only end-to-end fixture for the counting rule was
   itself a `--dry-run` capture under a doc comment calling it a real run. (3) **Eight of the fifteen
-  declared hooks print `Passed` after deciding not to run** - three of the four on push - because a
+  declared hooks print `Passed` after deciding not to run** - both of the two on push - because a
   self-skip on a missing tool exits 0. Measured with the `shellcheck` entry verbatim and `nix` off
   `PATH`: notice printed, exit 0. So on any host without nix the verdict was a green run over hooks
   that announced their own abstention.

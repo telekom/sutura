@@ -154,8 +154,8 @@ fn a_lookup_leg_has_no_measure_and_no_bucket() {
     assert_eq!(source.as_str(), "crm");
     assert_eq!(table.to_string(), "dim_customer");
     assert_eq!(keys.len(), 2);
-    assert!(filters.is_empty());
-    assert!(params.is_empty());
+    assert_eq!(filters.as_slice(), []);
+    assert_eq!(params.as_slice(), []);
     // And the labels it projects are its keys and nothing else: no bucket label, no measure label.
     assert_eq!(
         lookup().result_labels(),
@@ -343,7 +343,7 @@ fn every_leg_names_exactly_one_data_system() {
     assert_eq!(Executable::from(&aggregate).source().as_str(), "local");
     assert_eq!(Executable::from(&dimension).source().as_str(), "crm");
     assert_eq!(Executable::from(&aggregate).params().len(), 1);
-    assert!(Executable::from(&dimension).params().is_empty());
+    assert_eq!(Executable::from(&dimension).params(), []);
     assert_eq!(
         Executable::from(&dimension).result_labels(),
         dimension.result_labels(),

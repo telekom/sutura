@@ -27,7 +27,6 @@
 
 extern crate libmimalloc_sys as ffi;
 
-
 use core::alloc::{GlobalAlloc, Layout};
 use core::ffi::c_void;
 use ffi::*;

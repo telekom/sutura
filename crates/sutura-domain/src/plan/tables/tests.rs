@@ -142,7 +142,7 @@ fn one_table_joined_twice_is_refused() {
 fn one_table_and_no_joins_needs_no_check() {
     let only = StatementTables::only(table("orders"));
     assert_eq!(only.table(), &QualifiedTable::from(table("orders")));
-    assert!(only.joins().is_empty());
+    assert_eq!(only.joins(), []);
 }
 
 /// A bare name and a qualified path ending in the same name collide as well.

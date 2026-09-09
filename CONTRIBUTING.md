@@ -98,10 +98,9 @@ you find out on the pull request instead of before it. On a network with no dire
 [Building without direct internet egress](https://github.com/telekom/sutura/blob/main/docs/enterprise-mirrors.md)
 first: nothing that fetches is hardcoded, and every location is read from the environment.
 
-**The dev shell's bare `cargo` is nightly**, because the cranelift backend is what makes the inner
-loop fast. Every gate that lints, tests or ships is stable. So a bare `cargo clippy` reports lints
-stable has never heard of, and **you cannot conclude your branch is red from one** - run `just
-lint`, which sources `nix/stable-env.sh` and adds `-D warnings`. That trap and its siblings are in
+**The dev shell's bare `cargo` is the nightly toolchain**, the same one every gate and CI use now
+- the stable/nightly split is gone, so a bare `cargo clippy` reports the lints CI sees. Run
+`just lint` anyway, because it also adds `-D warnings`. The trap and its siblings are in
 [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
 
 ## Using AI-generated code

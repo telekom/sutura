@@ -825,7 +825,7 @@ mod tests {
         // either and the result is rectangular.
         let degraded = RowSet::new(Vec::new(), vec![Vec::new(), Vec::new()])
             .expect("no columns and no cells per row is rectangular, which is what made the default silent");
-        assert!(degraded.columns().is_empty());
+        assert!(degraded.columns().is_empty(), "the exact defect being refused");
         assert_eq!(degraded.rows().len(), 2, "two rows of nothing, and a valid result set");
         // So the shape has to be refused where it arises. Constructed rather than provoked: the
         // handle is present for every statement this adapter runs - the test above is that path -

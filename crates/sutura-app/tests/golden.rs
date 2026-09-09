@@ -62,8 +62,10 @@
 // `expect` in a corpus helper is a lint error, and writing that setup in the `?`-ceremony the ban
 // would demand makes those helpers worse, which is what that exemption exists to avoid.
 #[cfg(test)]
+#[path = "adapters/adapters.rs"]
 mod adapters;
 #[cfg(test)]
+#[path = "support/support.rs"]
 mod support;
 
 // `#[path]` because a bare `mod catalogs;` at a crate root resolves to `tests/catalogs.rs`, and cargo

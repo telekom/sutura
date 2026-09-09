@@ -201,12 +201,13 @@ crate. The task prints that in its own output, so you do not have to remember it
 question is "does what I touched compile", `just check-changed` with no arguments reads the working
 tree and narrows to those packages; `just lint` is the workspace gate.
 
-The second line runs **twice** in the hooks - once on commit and again on push, from the same YAML
-node so the two are the identical invocation and the second reuses the first's fingerprints. The
-push run is there because `git rebase` and `git rebase --continue` run no commit hook at all, so a
-conflict resolution used to reach the remote with nothing having compiled it. Do not resolve a
-conflict and trust `just check`: it compiles one crate, and the merge that broke this repo was a
-clean one whose call site no longer matched a changed signature.
+The second line runs once in the hooks: the `rust-clippy` commit hook is the only place clippy runs.
+It USED to run twice - once on commit and again on a `pre-push` alias, so that `git rebase` and
+`git rebase --continue`, which run no commit hook at all, could not push a conflict resolution
+nobody had compiled. That push-compile tier is deliberately retired: `just lint` and the commit hook
+are the compile gates, and an uncompiled rebase now reaches CI rather than being caught locally. Do
+not resolve a conflict and trust `just check`: it compiles one crate, and the merge that broke this
+repo was a clean one whose call site no longer matched a changed signature.
 
 `sutura-domain` must acquire **no** framework dependency - no tokio, axum, rmcp, datafusion,
 arrow. `cargo xtask check-boundaries` enforces it.
@@ -226,7 +227,7 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask check-refusal-coverage` | a variant of an enrolled refusal enum (`RefusalReason`, `NotFitToServe`, `NotValidated`) that no test names and no snapshot records, unless separately excused - a file naming EVERY variant of an enum is a census and counts for none of that enum. Also a walk that disagrees with the enrolled variant count, in either direction |
 | `cargo xtask check-newtype-leaks` | a first-party `impl Deref`, `DerefMut`, `Borrow` or `BorrowMut`. It started green and its job is to stay that way |
 | `just lint`'s `disallowed_methods` | a call to `Secret::expose_secret`, `Warehouse::verify_anchor`, `tokio::task::spawn_blocking` or the panicking fragment parser with no `#[expect]` naming why |
-| `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles nothing, and a push-stage clippy invocation that is not the commit stage's own |
+| `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles first-party code, or that runs anything outside the two security checks (`secret-sweep`, `cargo-deny`) |
 | `cargo xtask commit-msg` | a subject that is not a conventional commit, over 72 chars |
 
 ## What stays advisory, and this list is the point of it
@@ -298,7 +299,8 @@ correct code gets disabled - which costs more than the rule was worth.
 ## Conventions
 
 - Rust 2024. One version for the workspace; crates inherit with `version.workspace = true`.
-- The compiler pin is `rust-toolchain.toml` and nowhere else - rustup and Nix both read it.
+- The compiler pin is the single pinned nightly in `devco/rust-toolchain-nightly.toml`, which
+  Nix reads; the top-level `rust-toolchain.toml` is the rustup-facing copy rustup reads directly.
 - Ports get **fakes**, not mocked HTTP. A test asserting on source text proves nothing.
 - Adding a dependency: `unused-deps` requires it to be referenced, and `cargo-deny` checks
   its licence and advisories. Both run in the gates.
