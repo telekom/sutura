@@ -8,7 +8,7 @@
 //!
 //! `github.com/telekom/sutura#402`'s seventh escape defeated the linter rather than the rule:
 //! `checkPhase = "true";` inside `linted` removes `bash -n` AND `shellcheck` from every body, and
-//! `just hygiene` stayed at exit 0 because every gate held the spelling `onStable`/`runs` rather
+//! `just hygiene` stayed at exit 0 because every gate held the spelling `runs`/`sourced` rather
 //! than what the wrapper emitted. The pre-#395 state it restored is bit-for-bit readable -
 //! `checkPhase: ""` on the derivation - which is what makes reading the derivation the assertion
 //! rather than a proxy for it.

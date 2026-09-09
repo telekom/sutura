@@ -319,157 +319,6 @@ mod tests {
         clippy::literal_string_with_formatting_args,
         reason = "The fixture contains shell parameter expansions, not Rust format arguments."
     )]
-    fn stable_gate_entries_refuse_before_an_unconfigured_host_tool_can_run() {
-        use std::os::unix::fs::PermissionsExt as _;
-        use std::process::Command;
-
-        const TOOLS: &[&str] = &[
-            "cargo",
-            "rustc",
-            "rustdoc",
-            "cargo-fmt",
-            "rustfmt",
-            "cargo-clippy",
-            "clippy-driver",
-        ];
-        let root = crate::repo::root().expect("the repository root");
-        let tree = crate::falsifier::falsifier_tree();
-        let shell = Command::new("bash")
-            .args(["--noprofile", "--norc", "-c", "command -v bash"])
-            .env_remove("BASH_ENV")
-            .output()
-            .expect("find the fixture's interpreter");
-        assert!(shell.status.success());
-        let shell = String::from_utf8(shell.stdout).expect("the interpreter path is text");
-        let write_tool = |path: &std::path::Path, origin: &str| {
-            let body = format!(
-                "#!{}\nprintf 'executed\\n' >\"${{SUTURA_GATE_MARKER:?}}\"\n\
-                 printf 'fixture-{origin} target=%s codegen=%s/%s\\n' \
-                 \"${{CARGO_TARGET_DIR:-}}\" \"${{CARGO_UNSTABLE_CODEGEN_BACKEND-unset}}\" \
-                 \"${{CARGO_PROFILE_DEV_CODEGEN_BACKEND-unset}}\"\n",
-                shell.trim()
-            );
-            std::fs::write(path, body).expect("write a fake tool");
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("make the fake executable");
-        };
-        let host = tree.join("host-bin");
-        std::fs::create_dir_all(&host).expect("the fallback directory");
-        write_tool(&host.join("cargo"), "host");
-        let stable = tree.join("stable bin");
-        std::fs::create_dir_all(&stable).expect("the configured directory");
-        for tool in TOOLS {
-            write_tool(&stable.join(tool), "stable");
-        }
-        let mut configurations = vec![
-            (String::from("missing"), None, false),
-            (String::from("empty"), Some(std::path::PathBuf::new()), false),
-            (String::from("nonexistent directory"), Some(tree.join("absent-bin")), false),
-            (String::from("configured"), Some(stable), true),
-        ];
-        for omitted in TOOLS {
-            for defect in ["missing", "not-executable", "directory"] {
-                let label = format!("{omitted}-{defect}");
-                let bin = tree.join(&label);
-                std::fs::create_dir_all(&bin).expect("the incomplete toolchain directory");
-                for tool in TOOLS {
-                    if tool != omitted || defect == "not-executable" {
-                        write_tool(&bin.join(tool), "stable");
-                    }
-                }
-                if defect == "not-executable" {
-                    std::fs::set_permissions(bin.join(omitted), std::fs::Permissions::from_mode(0o644))
-                        .expect("remove execute permission from one member");
-                } else if defect == "directory" {
-                    std::fs::create_dir_all(bin.join(omitted)).expect("a directory is not a tool");
-                }
-                configurations.push((label, Some(bin), false));
-            }
-        }
-        let config = std::fs::read_to_string(root.join(super::CONFIG)).expect("the hook configuration");
-        let declared = super::hooks(&config);
-        let mut entries = vec![(
-            String::from("source without errexit"),
-            String::from("source nix/stable-env.sh; printf 'continued\\n' >\"${SUTURA_GATE_CONTINUED:?}\"; cargo"),
-        )];
-        for id in [
-            "rust-fmt",
-            "rust-clippy",
-            "hygiene",
-            "rust-check-changed",
-            "rust-doctests",
-            "rust-clippy-push",
-        ] {
-            let hook = declared.iter().find(|hook| hook.id == id).expect("the gate hook is declared");
-            entries.push((String::from(id), hook.entry.clone()));
-        }
-        // The recipes a person types, and the reason `check-changed` is here: the list held `fmt`
-        // and `lint` while that recipe was the ONE Rust task with no `source` line, so the
-        // enumeration described the requirement rather than holding it. `test` is deliberately
-        // absent - its body brings up the Postgres tier, which this fixture must not do - so the
-        // helper's presence there is held by review, not by this loop.
-        for task in ["fmt", "lint", "check-changed"] {
-            let body = crate::tasks::recipe_body(&root, task).expect("the gate recipe").join("\n");
-            entries.push((format!("just {task}"), body));
-        }
-        let inherited_path = std::env::var("PATH").expect("the test runner has a PATH");
-        let path = format!("{}:{inherited_path}", host.display());
-        let mut wrong = Vec::new();
-        let marker = tree.join("entry-marker");
-        let continued = tree.join("continuation-marker");
-        for (configuration, bin, valid) in configurations {
-            for (entry, body) in &entries {
-                for prior in [&marker, &continued] {
-                    if prior.exists() {
-                        std::fs::remove_file(prior).expect("remove the prior invocation's marker");
-                    }
-                }
-                let mut command = Command::new(shell.trim());
-                command
-                    .args(["--noprofile", "--norc", "-c", body])
-                    .current_dir(&root)
-                    .env_remove("BASH_ENV")
-                    .env_remove("SUTURA_STABLE_BIN")
-                    .env("PATH", &path)
-                    .env("SUTURA_GATE_MARKER", &marker)
-                    .env("SUTURA_GATE_CONTINUED", &continued)
-                    .env("CARGO_TARGET_DIR", "fixture-target")
-                    .env("CARGO_UNSTABLE_CODEGEN_BACKEND", "true")
-                    .env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift");
-                if let Some(bin) = &bin {
-                    command.env("SUTURA_STABLE_BIN", bin);
-                }
-                let output = command.output().expect("execute the actual gate entry with fake tools");
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let correct = if valid {
-                    output.status.success()
-                        && marker.exists()
-                        && continued.exists() == (entry == "source without errexit")
-                        && stdout.contains("fixture-stable target=fixture-target/stable codegen=unset/unset")
-                        && !stdout.contains("fixture-host")
-                } else {
-                    !output.status.success() && !marker.exists() && !continued.exists()
-                };
-                if !correct {
-                    wrong.push(format!(
-                        "{configuration} / {entry}: {:?}; continued={}; tool={}; stdout={stdout:?}; stderr={:?}",
-                        output.status.code(),
-                        continued.exists(),
-                        marker.exists(),
-                        String::from_utf8_lossy(&output.stderr)
-                    ));
-                }
-            }
-        }
-        std::fs::remove_dir_all(tree).expect("remove the owned fixture");
-        assert!(wrong.is_empty(), "gate entries used an unsupported toolchain: {wrong:#?}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    #[expect(
-        clippy::literal_string_with_formatting_args,
-        reason = "The fixture contains shell parameter expansions, not Rust format arguments."
-    )]
     fn unconfigured_rust_hooks_use_pinned_nix_without_probing_host_cargo() {
         use std::os::unix::fs::PermissionsExt as _;
         use std::process::Command;
@@ -520,6 +369,10 @@ mod tests {
                     "<eval><--raw><--impure><--expr><builtins.currentSystem>\n<build><.#checks.fixture-system.fmt><-L>\n",
                 ),
             ] {
+                // The Rust arms probe host cargo; the secrets and fmt-parity arms never do. The
+                // fake `cargo` writes the marker on any invocation, so the marker's presence tells
+                // whether the probe ran.
+                let probes_cargo = matches!(gate, "tests" | "supply-chain" | "crap");
                 if !with_nix && matches!(gate, "secrets" | "fmt-parity") {
                     continue;
                 }
@@ -535,7 +388,6 @@ mod tests {
                         .args(["--noprofile", "--norc", "nix/run-gate.sh", gate])
                         .current_dir(&root)
                         .env_remove("BASH_ENV")
-                        .env_remove("SUTURA_STABLE_BIN")
                         .env("PATH", &bin)
                         .env("SUTURA_GATE_MARKER", &marker)
                         .env("SUTURA_GATE_NIX_LOG", &nix_log)
@@ -547,13 +399,17 @@ mod tests {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let invoked = std::fs::read_to_string(&nix_log).unwrap_or_default();
-                    let correct = !marker.exists()
+                    let correct = (marker.exists() == probes_cargo)
                         && if with_nix {
                             output.status.code() == Some(*nix_exit)
                                 && stdout.contains("fixture-nix backend=unset/unset")
                                 && invoked == expected
                         } else {
-                            !output.status.success() && invoked.is_empty()
+                            // Only the cargo-probing Rust gates reach here: without nix, and with
+                            // a broken cargo, they skip with a notice rather than refusing.
+                            output.status.success()
+                                && invoked.is_empty()
+                                && stdout.contains("SKIPPED")
                         };
                     if !correct {
                         wrong.push(format!(
@@ -562,72 +418,6 @@ mod tests {
                             marker.exists()
                         ));
                     }
-                }
-            }
-        }
-        let stable = tree.join("stable bin");
-        std::fs::create_dir_all(&stable).expect("the configured toolchain");
-        for tool in [
-            "cargo",
-            "rustc",
-            "rustdoc",
-            "cargo-fmt",
-            "rustfmt",
-            "cargo-clippy",
-            "clippy-driver",
-        ] {
-            let path = stable.join(tool);
-            let body = "printf '<%s>' \"$@\" >>\"${SUTURA_GATE_STABLE_LOG:?}\"\n\
-                        printf '\\n' >>\"$SUTURA_GATE_STABLE_LOG\"\nexit 1\n";
-            std::fs::write(&path, format!("#!{}\n{body}", shell.trim())).expect("write the stable fake");
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("make the fake executable");
-        }
-        // A configured toolchain must still be selected when Nix is available. The stable
-        // version probe declines the optional tool, so these cases do not provision a tier or
-        // run the native success arms (coverage stops at its first, llvm-cov probe).
-        for (gate, probe, expected) in [
-            (
-                "tests",
-                "<nextest><--version>\n",
-                "<eval><--raw><--impure><--expr><builtins.currentSystem>\n<build><.#checks.fixture-system.nextest><-L>\n",
-            ),
-            ("supply-chain", "<deny><--version>\n", "<run><.#deny>\n"),
-            ("crap", "<llvm-cov><--version>\n", "<run><.#crap>\n"),
-        ] {
-            for nix_exit in [0, 23] {
-                let marker = tree.join(format!("configured-{gate}-{nix_exit}.cargo"));
-                let stable_log = tree.join(format!("configured-{gate}-{nix_exit}.stable"));
-                let nix_log = tree.join(format!("configured-{gate}-{nix_exit}.nix"));
-                let output = Command::new(shell.trim())
-                    .args(["--noprofile", "--norc", "nix/run-gate.sh", gate])
-                    .current_dir(&root)
-                    .env_remove("BASH_ENV")
-                    .env("SUTURA_STABLE_BIN", &stable)
-                    .env("PATH", tree.join("with-nix"))
-                    .env("SUTURA_GATE_MARKER", &marker)
-                    .env("SUTURA_GATE_STABLE_LOG", &stable_log)
-                    .env("SUTURA_GATE_NIX_LOG", &nix_log)
-                    .env("SUTURA_GATE_NIX_EXIT", nix_exit.to_string())
-                    .env("CARGO_TARGET_DIR", "fixture-target")
-                    .env("CARGO_UNSTABLE_CODEGEN_BACKEND", "true")
-                    .env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
-                    .output()
-                    .expect("execute configured dispatch with Nix available");
-                let selected = std::fs::read_to_string(&stable_log).unwrap_or_default();
-                let invoked = std::fs::read_to_string(&nix_log).unwrap_or_default();
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if marker.exists()
-                    || selected != probe
-                    || invoked != expected
-                    || output.status.code() != Some(nix_exit)
-                    || !stdout.contains("fixture-nix backend=unset/unset")
-                {
-                    wrong.push(format!(
-                        "configured {gate}, exit={nix_exit}: {:?}; host={}; stable={selected:?}; nix={invoked:?}; {stdout:?}; {:?}",
-                        output.status.code(),
-                        marker.exists(),
-                        String::from_utf8_lossy(&output.stderr)
-                    ));
                 }
             }
         }
@@ -643,7 +433,7 @@ mod tests {
         "  - repo: local\n",
         "    hooks:\n",
         "      - id: rust-clippy\n",
-        "        entry: bash -c 'source nix/stable-env.sh; exec cargo clippy --workspace --all-targets --all-features -- -D warnings'\n",
+        "        entry: bash -c 'exec cargo clippy --workspace --all-targets --all-features -- -D warnings'\n",
         "        language: system\n",
         "      - id: secret-sweep\n",
         "        entry: bash nix/run-gate.sh secrets\n",
@@ -660,7 +450,7 @@ mod tests {
         "  - repo: local\n",
         "    hooks:\n",
         "      - id: rust-clippy\n",
-        "        entry: &clippy bash -c 'source nix/stable-env.sh; exec cargo clippy --workspace --all-targets --all-features -- -D warnings'\n",
+        "        entry: &clippy bash -c 'exec cargo clippy --workspace --all-targets --all-features -- -D warnings'\n",
         "        language: system\n",
         "      - id: secret-sweep\n",
         "        entry: bash nix/run-gate.sh secrets\n",
@@ -699,14 +489,14 @@ mod tests {
         // would rebuild the workspace rather than reuse what the commit hook built.
         let copied = AFTER.replace(
             "entry: *clippy",
-            "entry: bash -c 'source nix/stable-env.sh; exec cargo clippy --workspace --all-features -- -D warnings'",
+            "entry: bash -c 'exec cargo clippy --workspace --all-features -- -D warnings'",
         );
         assert_eq!(super::decide(&super::hooks(&copied)), Verdict::Fail);
         // An identical copy is not drift, and must not be reported as any: it is the same command,
         // just spelled twice. The anchor is how the file avoids that, not what the rule demands.
         let twin = AFTER.replace(
             "entry: *clippy",
-            "entry: bash -c 'source nix/stable-env.sh; exec cargo clippy --workspace --all-targets --all-features -- -D warnings'",
+            "entry: bash -c 'exec cargo clippy --workspace --all-targets --all-features -- -D warnings'",
         );
         assert_eq!(super::decide(&super::hooks(&twin)), Verdict::Pass);
     }

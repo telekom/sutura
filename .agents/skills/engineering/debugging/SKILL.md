@@ -170,7 +170,7 @@ Read these before spending an hour on a class of bug this repo has met.
 | Error names a lint or flag that looks correct | CRLF in a `.nix` file; `\r` became part of the argument |
 | A gate passes locally, fails in the Nix sandbox | it used `git ls-files`; there is no `.git` there |
 | A gate passes in the sandbox but checks nothing | it listed files via an absent tool and got an empty list - fail open, loudly |
-| Clippy clean locally, fails in CI | you ran the shell's bare `cargo`, which is a nightly for the cranelift backend and lints differently; `source nix/stable-env.sh` first |
+| Clippy clean locally, fails in CI | you ran a hand-written `cargo clippy` line without `-D warnings`, so a `restriction` lint passed locally that the gate rejects; run `just lint` |
 | `cargo-deny` cannot fetch advisories | a Nix build sandbox has no network; it runs as `nix run .#deny` |
 | A dependency compiled several times in one CI run | a check not sharing `cargoArtifacts` |
 | `401` on a `.narinfo` while `nix-cache-info` succeeds | the cache reads anonymously; artifacts need netrc credentials |
