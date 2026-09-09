@@ -15,7 +15,7 @@
 //! | Execute pack | This pack |
 //! | --- | --- |
 //! | [`Behaviour`](crate::Behaviour) + `EVERY` + `index` + the const assert | [`CompileBehaviour`] + `EVERY` + `index` + the const assert |
-//! | the `#[test]`s and [`census`](crate::census)'s `bound` are ONE repetition inside `execute_packs!` | the `#[test]`s and [`compile_census`]'s `bound` are ONE repetition inside [`compile_packs!`] |
+//! | the `#[test]`s and [`census`](crate::census)'s `bound` are ONE repetition inside `execute_packs!` | the `#[test]`s and [`compile_census`]'s `bound` are ONE repetition inside [`compile_packs!`](crate::compile_packs) |
 //! | `EXECUTES_LEGS` declaration, chcked by a `const` assert | [`SemanticCatalog::KIND`] declaration, checked by a `const` assert |
 //!
 //! And the one difference is what makes this pack a pair rather than a copy: **the GOLDEN/DECLARING
@@ -29,8 +29,9 @@
 //!   federates, so [`Compiled::Federated`] is a panic here rather than a case.
 //! - **A live source, or identity forwarding.** Issue #349's stated surviving limits: the fixture is
 //!   a hand-built catalog in this module, and no credential is minted for anything.
-//! - **Every dialect.** The corpus declares it renders `DuckDb` and `Postgres`, and what [`generate`]
-//!   produces for them is what [`statement_is_the_oracles_own`] compares. `ClickHouse` and `BigQuery`
+//! - **Every dialect.** The corpus declares it renders `DuckDb` and `Postgres`, and what
+//!   [`generate`](fn@sutura_sql::generate) produces for them is what [`statement_is_the_oracles_own`]
+//!   compares. `ClickHouse` and `BigQuery`
 //!   are out of scope here, which is why their renderings are not pinned.
 //! - **That the corpus is hard.** It is one aggregate over one metric plus four refusals - see
 //!   [`questions`] below for why none of the execute corpus's harder shapes is repeated here.
@@ -73,7 +74,7 @@ impl CompileBehaviour {
     /// Every behaviour a golden binding emits a test for, in the order it emits them.
     ///
     /// **The list [`compile_census`] compares a golden binding against**, and the pack's half of a
-    /// pair that cannot be edited apart: [`compile_packs!`] emits a `#[test]` AND its census element
+    /// pair that cannot be edited apart: [`compile_packs!`](crate::compile_packs) emits a `#[test]` AND its census element
     /// from one repetition, so a deleted test is a deleted element and this comparison reddens. That
     /// is the correction [`crate::Behaviour::EVERY`]'s own doc narrates for the execute pack; this
     /// list is where it is repeated rather than re-argued.
@@ -91,9 +92,9 @@ impl CompileBehaviour {
 
     /// The behaviours every catalog owes, golden or declaring.
     ///
-    /// [`compile_census`] compares a DECLARING binding against this rather than against [`EVERY`],
+    /// [`compile_census`] compares a DECLARING binding against this rather than against [`EVERY`](crate::compile::CompileBehaviour::EVERY),
     /// because a declaring adapter owns no oracle to be held to - it gets declaration fidelity and
-    /// repeat-load determinism and nothing else. Keeping it a named subset of [`EVERY`] makes the
+    /// repeat-load determinism and nothing else. Keeping it a named subset of [`EVERY`](crate::compile::CompileBehaviour::EVERY) makes the
     /// two lists one vocabulary rather than a second enum.
     pub const UNIVERSAL: &'static [Self] = &[Self::Fidelity, Self::Repeat];
 
@@ -155,7 +156,7 @@ const _: () = {
 /// cell functions are bound on this marker, so a cell that requires the whole model cannot be
 /// expanded for a catalog that does not implement it - the call does not typecheck. It is the
 /// ROUTING copy of [`SemanticCatalog::KIND`] (`macro_rules!` cannot read an associated constant, so
-/// the same fact is stated here in the form a binding can be bound on) and [`compile_packs!`]'
+/// the same fact is stated here in the form a binding can be bound on) and [`compile_packs!`](crate::compile_packs)'
 /// `const` assert is where the two are torn unless they agree. The canonical declaration of the kind
 /// is [`SemanticCatalog::KIND`] in the domain.
 pub trait GoldenCatalog: SemanticCatalog {}
@@ -640,7 +641,7 @@ where
 /// [`CompileBehaviour::Params`] - the bind parameters equal the oracle's.
 ///
 /// BOUND on [`GoldenCatalog`], for the reason [`plan_is_the_oracles_own`] gives. The statement and
-/// its parameters are folded in plan order by [`sutura_sql::generate`], so the parameters are
+/// its parameters are folded in plan order by [`sutura_sql::generate`](fn@sutura_sql::generate), so the parameters are
 /// compared over one dialect the way the statement is, and over the same one.
 pub fn params_are_the_oracles_own<C>()
 where
@@ -772,8 +773,9 @@ where
 /// does not have: a compile catalog is a hand-built fixture with no socket to be absent, so there is
 /// no floor to measure and no `NOT RUN` to print.
 ///
-/// 1. **`bound` is the array the single `#[test]`/census repetition inside [`compile_packs!`]
-///    generated**, one element per emitted test, compared against the behaviours the kind selects -
+/// 1. **`bound` is the array the single `#[test]`/census repetition inside
+///    [`compile_packs!`](crate::compile_packs) generated**, one element per emitted test, compared
+///    against the behaviours the kind selects -
 ///    [`CompileBehaviour::EVERY`] for `"golden"`, [`CompileBehaviour::UNIVERSAL`] for `"declaring"`.
 ///    A deleted test is a deleted element and this reddens, which is the correction [`crate::census`]
 ///    narrates for the execute pack.
