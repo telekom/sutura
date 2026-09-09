@@ -80,6 +80,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
+    // Single owner of the scan set: `nix/run-gate.sh`'s tier-2 jscpd arm carries an inline
+    // `--ignore` list it cannot import, so this gate re-parses it and refuses a drift.
+    if let Err(msg) = check_run_gate_globs(&root) {
+        eprintln!("xtask check-jscpd: FAILED - {msg}");
+        return Verdict::Fail;
+    }
+
     // CENSUS FLOOR, decided before `jscpd` exists and independent of `--min-tokens`: this gate must
     // scan real Rust, and an `--ignore` glob that starts matching it lets a clone hide in the
     // skipped half. `git ls-files '*.rs'` is the independent oracle - `report.statistics.total.sources`
@@ -162,6 +169,46 @@ fn check_census(rs_files: &[&str], ignore_globs: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// The glob list the tier-2 jscpd arm of `nix/run-gate.sh` carries, as it appears between
+/// `--ignore '` and the closing quote - the ONLY source of truth for that tier's `--ignore`.
+fn tier2_globs(run_gate_text: &str) -> Option<&str> {
+    const MARKER: &str = "--ignore '";
+    let offset = run_gate_text.find(MARKER)? + MARKER.len();
+    let rest = run_gate_text.get(offset..)?;
+    let end = rest.find('\'')?;
+    rest.get(..end)
+}
+
+/// Does `nix/run-gate.sh`'s tier-2 jscpd `--ignore` list equal [`IGNORE_GLOBS`]?
+///
+/// run-gate.sh cannot import the Rust const, so its inline copy would silently drift (one side
+/// adds `result-*/**`, the other does not, and the two tiers scan different trees). This gate is
+/// the single owner: it re-parses the shell line and refuses a drift, held here by a unit test.
+fn check_run_gate_globs(root: &Path) -> Result<(), String> {
+    let path = root.join("nix/run-gate.sh");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    globs_agree(&text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The pure comparison: does one run-gate.sh tier-2 `--ignore` list equal [`IGNORE_GLOBS`]?
+fn globs_agree(run_gate_text: &str) -> Result<(), String> {
+    let Some(listed) = tier2_globs(run_gate_text) else {
+        return Err(String::from(
+            "the tier-2 jscpd arm no longer passes `--ignore '<globs>'`, so its scan set cannot be verified against IGNORE_GLOBS",
+        ));
+    };
+    let gate: std::collections::BTreeSet<&str> = IGNORE_GLOBS.split(',').map(str::trim).filter(|g| !g.is_empty()).collect();
+    let tier2: std::collections::BTreeSet<&str> = listed.split(',').map(str::trim).filter(|g| !g.is_empty()).collect();
+    if gate == tier2 {
+        return Ok(());
+    }
+    let missing: Vec<&str> = gate.difference(&tier2).copied().collect();
+    let extra: Vec<&str> = tier2.difference(&gate).copied().collect();
+    Err(format!(
+        "the tier-2 jscpd `--ignore` list drifted from IGNORE_GLOBS (missing {missing:?}, extra {extra:?}); keep the two in agreement"
+    ))
 }
 
 /// The gate's decision, computed from the raw clones and the parsed allowlist.
@@ -564,6 +611,23 @@ mod tests {
         };
         // `work` dropped here (end of the block), so `Drop` must have removed the directory.
         assert!(!path.exists(), "the temp working dir must be removed when the guard drops");
+    }
+
+    #[test]
+    fn run_gate_tier2_globs_match_the_gate_owner() {
+        // The tier-2 arm must hand `IGNORE_GLOBS` to bare jscpd; a subset silently scans a
+        // different tree than the gate. `nix/run-gate.sh` cannot import the const, so this gate
+        // re-parses the shell line and refuses a drift.
+        let agreeing = "exec nix run .#jscpd -- --silent --no-colors --format rust --min-lines 30 \
+                        --min-tokens 250 --ignore 'target/**,site/**,result/**,result-*/**,.pixi/**,.sutura-dev/**,report/**,**/.prek-cache/**' .\n";
+        globs_agree(agreeing).expect("the agreeing set must pass");
+        // The old subset that #483 shipped (missing `result-*/**` and `**/.prek-cache/**`) IS the
+        // drift this holds: either side diverging must refuse.
+        let drifted = "exec nix run .#jscpd -- --silent --no-colors --format rust --min-lines 30 \
+                       --min-tokens 250 --ignore 'target/**,site/**,result/**,.pixi/**,.sutura-dev/**,report/**' .\n";
+        assert!(globs_agree(drifted).is_err());
+        // An arm that no longer passes `--ignore '<globs>'` cannot be verified at all.
+        assert!(globs_agree("exec nix run .#jscpd -- .\n").is_err());
     }
 
     #[test]
