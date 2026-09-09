@@ -28,11 +28,15 @@
 # Stable is the authority for everything else: rust-toolchain.toml. See the canonical-sources table
 # in AGENTS.md, which states the same split.
 [toolchain]
-channel = "nightly-2026-08-29"
+channel = "nightly-2026-09-08"
 # rustc-codegen-cranelift-preview is the whole reason this file exists. The rest match
 # rust-toolchain.toml so the inner loop has the same tools, plus the two that wire the
 # LANGUAGE SERVER to this same pin: rust-analyzer (the binary, first on PATH in the dev
 # shell) and rust-src (the standard library, so go-to-definition reaches std). Neither is
 # in rust-toolchain.toml, which is why this file is the place for them.
-components = ["rustfmt", "clippy", "rust-std", "rustc-codegen-cranelift-preview", "rust-analyzer", "rust-src"]
+# `llvm-tools-preview` is here for cargo-llvm-cov, which the CRAP gate (`cargo xtask crap`)
+# needs to take a coverage measurement: it was present in the old stable toolchain this pin
+# replaced and was dropped in the nightly unification, which broke `cargo xtask crap` with
+# "failed to find llvm-tools-preview".
+components = ["rustfmt", "clippy", "rust-std", "llvm-tools-preview", "rustc-codegen-cranelift-preview", "rust-analyzer", "rust-src"]
 profile = "minimal"

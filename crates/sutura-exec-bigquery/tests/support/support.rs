@@ -6,14 +6,15 @@
 //! money. A second copy that drifted by a digit would be a leg that bills differently from the one a
 //! reviewer read.
 //!
-//! In `tests/support/mod.rs` rather than `tests/support.rs` so cargo does not build it as a test
-//! target of its own. It is shared by all three legs, which is why **nothing in it is
-//! target-specific**: `dead_code` is `deny` in the workspace lint table, so an item only one target
-//! used would fail the build of the others. `SUTURA_BQ_TABLE` is therefore read by `acceptance.rs`
-//! and not here - neither other leg has a use for it - while [`named`] is here, because all three
-//! reach it. **The same lint is why [`opened_as`] exists beside [`opened`] rather than as a fourth
-//! parameter on it**: only the two-principal cell opens an impersonating source, and `opened`
-//! delegating keeps both live everywhere.
+//! Declared by each leg with `#[path = "support/support.rs"] mod support;` and living in a
+//! self-named `tests/support/support.rs` rather than `tests/support.rs` at the root, so cargo does
+//! not build it as a test target of its own. It is shared by all three legs, which is why **nothing
+//! in it is target-specific**: `dead_code` is `deny` in the workspace lint table, so an item only
+//! one target used would fail the build of the others. `SUTURA_BQ_TABLE` is therefore read by
+//! `acceptance.rs` and not here - neither other leg has a use for it - while [`named`] is here,
+//! because all three reach it. **The same lint is why [`opened_as`] exists beside [`opened`] rather
+//! than as a fourth parameter on it**: only the two-principal cell opens an impersonating source,
+//! and `opened` delegating keeps both live everywhere.
 //!
 //! # The three values, and where each comes from
 //!

@@ -446,8 +446,8 @@ mod tests {
         let expected = vec![row("postgres", "running", "healthy")];
         assert_eq!(parse_ps(array), expected);
         assert_eq!(parse_ps(lines), expected);
-        assert!(parse_ps("").is_empty());
-        assert!(parse_ps("not json").is_empty());
+        assert!(parse_ps("").is_empty(), "empty input parses to no rows");
+        assert!(parse_ps("not json").is_empty(), "non-JSON input parses to no rows");
     }
 
     #[test]
@@ -562,7 +562,10 @@ mod tests {
     #[test]
     fn a_missing_part_says_what_to_do_about_it() {
         for missing in [Missing::Cli, Missing::ComposePlugin, Missing::Daemon, Missing::WedgedDaemon] {
-            assert!(!missing.remedy().is_empty());
+            assert!(
+                !missing.remedy().is_empty(),
+                "every missing-part variant has a non-empty remedy"
+            );
         }
         // The two daemon variants must not give the same advice. That is the whole reason they are
         // two: telling somebody whose daemon is running-but-silent to START it is advice they have

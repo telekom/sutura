@@ -69,10 +69,10 @@ registry = "sparse+https://<host>/<path>/<crates>/index/"
 `sparse+` is required and the trailing slash matters. Without them cargo expects a git index and
 fails with a confusing clone error.
 
-`rustup` is not involved in the Nix path. `flake.nix` and `devenv.nix` resolve both pinned
-toolchains through rust-overlay - `rust-toolchain.toml`, and `devco/rust-toolchain-nightly.toml`
-for the local inner loop - so the compilers come from the Nix cache and the crates mirror above is
-all this section needs.
+`rustup` is not involved in the Nix path. `flake.nix` and `devenv.nix` resolve the single pinned
+toolchain through rust-overlay from `devco/rust-toolchain-nightly.toml` (the top-level
+`rust-toolchain.toml` is the rustup-facing copy of the same pin) - so the compilers come from the
+Nix cache and the crates mirror above is all this section needs.
 
 If you do use rustup, set `RUSTUP_DIST_SERVER` and `RUSTUP_UPDATE_ROOT`. An exact version pin needs
 that version to exist on the mirror, and a lazily-caching remote `404`s until something asks, which

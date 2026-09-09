@@ -212,6 +212,7 @@ nav:
       - Three OSS-readiness scans, and what each discloses: adr/0024-three-oss-readiness-scans-and-what-each-discloses.md
       - What a Scorecard zero says about this repository: adr/0025-what-a-scorecard-zero-says-about-this-repository.md
       - No third-party binary cache: adr/0026-no-third-party-binary-cache.md
+      - An OSS binary cache for this repository's own paths: adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

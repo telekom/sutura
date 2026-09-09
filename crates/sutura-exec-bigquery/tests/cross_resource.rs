@@ -25,8 +25,10 @@ mod cross_resource_fixture;
 #[path = "cross_resource_fixture/live.rs"]
 mod live;
 #[cfg(test)]
+#[path = "naming/naming.rs"]
 mod naming;
 #[cfg(test)]
+#[path = "support/support.rs"]
 mod support;
 
 #[cfg(test)]

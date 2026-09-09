@@ -5,10 +5,9 @@
 # going through `languages.rust.{channel,version}` in devenv instead was tried and silently
 # produced a shell with no cargo on PATH.
 #
-# `stable` is the authority for everything shipped: CI, the release build and the OCI image
-# all use it. `nightly` exists only for cranelift in the local inner loop.
+# The single pin is devco/rust-toolchain-nightly.toml - the one toolchain the dev shell, CI,
+# every gate and every shipped artifact are built from.
 { rustPkgs }:
 {
-  stable = rustPkgs.rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
   nightly = rustPkgs.rust-bin.fromRustupToolchainFile ../devco/rust-toolchain-nightly.toml;
 }

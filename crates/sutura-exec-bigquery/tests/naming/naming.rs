@@ -7,9 +7,11 @@
 //! `std::env` read in [`run_token`] - which is why it is testable without a project, and why the
 //! deterministic tests in `corpus.rs` can hold it.
 //!
-//! In `tests/naming/mod.rs` rather than `tests/naming.rs` so cargo does not build it as a test
-//! target of its own - the reason `tests/support/mod.rs` gives. The corpus and explicit cross-resource
-//! legs declare it: `dead_code` is `deny` in the workspace lint table, and `tests/acceptance.rs`
+//! Declared with an explicit `#[path = "naming/naming.rs"]` by both `corpus.rs` and
+//! `cross_resource.rs`, and living in a self-named `tests/naming/naming.rs` rather than
+//! `tests/naming.rs` at the root, so cargo does not build it as a test target of its own - the
+//! reason `tests/support/support.rs` gives. Unlike `support`, the deterministic legs that declare it
+//! are only those two: `dead_code` is `deny` in the workspace lint table, and `tests/acceptance.rs`
 //! names its one table from the developer's own environment rather than deriving it, so an item
 //! here would be dead in that target.
 //!

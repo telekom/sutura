@@ -1,15 +1,16 @@
 # shellcheck shell=bash
-# Prefer configured local stable tools, then the existing pinned Nix routes.
-# Missing stable configuration is not a new skip: Rust cases require either that configuration
-# or Nix. Once configured, the existing optional-tool abstentions remain below, as do the
-# non-Rust gates' tool-availability skips. Every skip names the check it did not perform.
+# Prefer the dev shell's local tools, then the existing pinned Nix routes. The dev shell's bare
+# cargo is the same nightly toolchain CI gates on, so a local run cannot disagree with a Nix run
+# about the toolchain. The non-Rust gates keep their tool-availability skips. Every skip names the
+# check it did not perform.
 #
 # Usage: run-gate.sh <gate>
 set -eu
 
 gate="${1:?usage: run-gate.sh <gate>}"
 
-# Nix's pinned cargo must not inherit these either, including when local stable is unconfigured.
+# Nix's pinned cargo must not inherit an opt-in cranelift from the shell (it is not the default,
+# but a developer can turn it on): cranelift's unwind tables abort on C++/Rust-boundary exceptions.
 unset CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
 
 # `nix build .#checks.<system>.<name>` needs the system pair, and hardcoding one would break
@@ -21,21 +22,12 @@ nix_check() {
     nix build ".#checks.${system}.${name}" -L
 }
 
-# Never probe host cargo without the configured stable toolchain. An unconfigured host can still
-# use the existing pinned Nix route; with neither route, the helper refuses rather than skips.
-# Non-Rust gates need no local Rust toolchain. Callers run from the repository root.
-case "$gate" in
-tests | supply-chain | crap)
-    if [ -n "${SUTURA_STABLE_BIN:-}" ] || ! command -v nix >/dev/null 2>&1; then
-        # shellcheck source=nix/stable-env.sh
-        . nix/stable-env.sh
-    fi
-    ;;
-esac
-
+# The local Rust arms probe host cargo - the dev shell's nightly, which is CI's toolchain. A host
+# where the tool is absent falls back to the pinned Nix route; with neither, the arm skips with a
+# notice. Callers run from the repository root.
 case "$gate" in
 tests)
-    if [ -n "${SUTURA_STABLE_BIN:-}" ] && cargo nextest --version >/dev/null 2>&1; then
+    if cargo nextest --version >/dev/null 2>&1; then
         # The Postgres tier, which this arm did NOT bring up - so the two fail-closed postgres
         # cells failed and BLOCKED EVERY COMMIT on a machine where nothing else had started a
         # server. Measured 2026-09-02. Tier 2 below has always provisioned it, through
@@ -48,7 +40,7 @@ tests)
         sutura_tier_up
         cargo nextest run --workspace --all-features
     elif command -v nix >/dev/null 2>&1; then
-        echo "run-gate: local stable nextest unavailable, using nix (same pin as CI)"
+        echo "run-gate: local nextest unavailable, using nix (same pin as CI)"
         nix_check nextest
     else
         echo "run-gate: SKIPPED tests - no cargo-nextest and no nix on this host."
@@ -56,7 +48,7 @@ tests)
     fi
     ;;
 supply-chain)
-    if [ -n "${SUTURA_STABLE_BIN:-}" ] && cargo deny --version >/dev/null 2>&1; then
+    if cargo deny --version >/dev/null 2>&1; then
         # Not `exec`: a failure here has two very different causes and they must not be
         # conflated. `cargo deny check` fetches the RustSec advisory database over the
         # network, and on a host with no direct egress it exits non-zero having checked
@@ -77,7 +69,7 @@ supply-chain)
         fi
         exit "$status"
     elif command -v nix >/dev/null 2>&1; then
-        echo "run-gate: local stable cargo-deny unavailable, using nix (same pin as CI)"
+        echo "run-gate: local cargo-deny unavailable, using nix (same pin as CI)"
         exec nix run .#deny
     else
         echo "run-gate: SKIPPED supply chain - no cargo-deny and no nix on this host."
@@ -102,10 +94,10 @@ secrets)
 crap)
     # The CRAP score. Both tools or nothing: `cargo xtask crap` fails rather than skips when one
     # is missing, which is right for the gate and wrong for a hook, so the tiering happens here.
-    if [ -n "${SUTURA_STABLE_BIN:-}" ] && cargo llvm-cov --version >/dev/null 2>&1 && cargo crap --version >/dev/null 2>&1; then
+    if cargo llvm-cov --version >/dev/null 2>&1 && cargo crap --version >/dev/null 2>&1; then
         exec cargo run -q -p xtask -- crap
     elif command -v nix >/dev/null 2>&1; then
-        echo "run-gate: local stable coverage tools unavailable, using nix (same pin as CI)"
+        echo "run-gate: local coverage tools unavailable, using nix (same pin as CI)"
         exec nix run .#crap
     else
         echo "run-gate: SKIPPED the CRAP score - no cargo-crap/cargo-llvm-cov and no nix here."
@@ -137,13 +129,13 @@ jscpd)
     fi
     ;;
 fmt-parity)
-    # The push-tier format check uses the flake's stable pin. Local Rust gates also require
-    # configured stable tools; no equality between nightly and stable formatter output is assumed.
+    # The push-tier format check goes through the flake's pinned check, the exact verdict CI
+    # reaches. It is a check, not a local tool, so it needs nix.
     #
-    # Through the FLAKE CHECK rather than a local stable rustfmt, which is what makes it cheap:
+    # Through the FLAKE CHECK rather than a local rustfmt, which is what makes it cheap:
     # `checks.fmt` is crane's `cargoFmt` and compiles nothing, so with nix present this is the
     # exact verdict CI reaches for the price of a cache lookup. No second toolchain is installed
-    # and no second target directory is filled.
+    # and no second target directory is filled; the shell's nightly formatter already matches CI.
     if command -v nix >/dev/null 2>&1; then
         system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
         # `--offline` is retried rather than passed always, matching `just ci`. This tree's
@@ -156,8 +148,8 @@ fmt-parity)
             || nix build ".#checks.${system}.fmt" -L --offline
         exit "$?"
     else
-        echo "run-gate: SKIPPED the stable-channel format check - no nix on this host."
-        echo "          Local Rust formatting requires configured stable tools; CI runs its pinned check."
+        echo "run-gate: SKIPPED the format check - no nix on this host."
+        echo "          CI runs its pinned check; a local run (on the nightly shell cargo) still works."
     fi
     ;;
 *)

@@ -5,17 +5,10 @@ use std::path::{Path, PathBuf};
 fn main() {
     let mut build = cc::Build::new();
 
-    let version = if env::var("CARGO_FEATURE_V2").is_ok() {
-        "v2"
-    } else {
-        "v3"
-    };
+    let version = if env::var("CARGO_FEATURE_V2").is_ok() { "v2" } else { "v3" };
 
     let cargo_manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
-    let include_root = Path::new(&cargo_manifest_dir)
-        .join("c_src")
-        .join("mimalloc")
-        .join(version);
+    let include_root = Path::new(&cargo_manifest_dir).join("c_src").join("mimalloc").join(version);
     let include_dir = include_root
         .join("include")
         .to_str()
@@ -59,8 +52,8 @@ fn main() {
     let cargo_debug = env::var("DEBUG")
         .map(|value| value == "true" || value == "1")
         .unwrap_or(false);
-    let debug_enabled = env::var_os("CARGO_FEATURE_DEBUG").is_some()
-        || (env::var_os("CARGO_FEATURE_DEBUG_IN_DEBUG").is_some() && cargo_debug);
+    let debug_enabled =
+        env::var_os("CARGO_FEATURE_DEBUG").is_some() || (env::var_os("CARGO_FEATURE_DEBUG_IN_DEBUG").is_some() && cargo_debug);
 
     if target_family != "windows" {
         build.flag("-Wno-error=date-time");
@@ -72,11 +65,9 @@ fn main() {
         build.std("c++17");
         build.flag_if_supported("/Zc:__cplusplus");
 
-        let wrapper =
-            PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set")).join("mimalloc-static.cc");
+        let wrapper = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set")).join("mimalloc-static.cc");
         let include = static_source.to_string_lossy().replace('\\', "/");
-        fs::write(&wrapper, format!("#include \"{include}\"\n"))
-            .expect("failed to write mimalloc C++ wrapper");
+        fs::write(&wrapper, format!("#include \"{include}\"\n")).expect("failed to write mimalloc C++ wrapper");
         build.file(wrapper);
     } else {
         build.file(&static_source);
@@ -117,9 +108,7 @@ fn main() {
         }
     }
 
-    if (target_os == "linux" || target_os == "android")
-        && env::var_os("CARGO_FEATURE_NO_THP").is_some()
-    {
+    if (target_os == "linux" || target_os == "android") && env::var_os("CARGO_FEATURE_NO_THP").is_some() {
         build.define("MI_NO_THP", "1");
     }
 

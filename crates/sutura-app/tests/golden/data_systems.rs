@@ -33,7 +33,9 @@ where
     let pinned = load::<ReferenceCatalog>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let report = verify_anchors(&pinned, &warehouse);
-    settings(W::NAME).bind(|| insta::assert_yaml_snapshot!("anchor_report", &report));
+    settings(W::NAME).bind(|| {
+        insta::assert_yaml_snapshot!("anchor_report", &report);
+    });
     for (metric, check) in report.checks() {
         assert_eq!(
             *check,

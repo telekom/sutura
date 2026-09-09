@@ -401,6 +401,9 @@ mod tests {
         }
         // And the whole check over the real tree, through the entry point the gate calls, so a
         // problem produced by any of the four arms fails this too.
-        assert!(super::host_mismatches(&root, &files, &text).is_empty());
+        assert!(
+            super::host_mismatches(&root, &files, &text).is_empty(),
+            "no host mismatch is reported by any arm"
+        );
     }
 }

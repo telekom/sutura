@@ -10,11 +10,11 @@
 #
 # NOT imported by devenv.nix, unlike the three modules above: the whole point of this one is that
 # `just api` reaches it with nothing but nix, from outside any dev shell.
-{ pkgs, nightlyToolchain, duckdb }:
+{ pkgs, toolchain, duckdb }:
 
 # WRITES the committed API pages. `checks.api-docs` is the gate that fails when they fall
 # behind; this is the fix it names, and the two must agree byte for byte, so both get their
-# tools from here: `nightlyToolchain` above and a stdlib interpreter out of nixpkgs.
+# tools from here: `toolchain` above and a stdlib interpreter out of nixpkgs.
 #
 # An app rather than a check, because a check cannot write to the source tree - the point
 # of this one is to leave the regenerated file in the worktree for review. It exists because
@@ -40,9 +40,9 @@ pkgs.writeShellApplication {
       echo "run this from the repository root: it resolves docs/ and target/ relatively" >&2
       exit 1
     fi
-    # Nightly for the `cargo rustdoc` child, reached as `checks.api-docs` reaches it, with
-    # a target directory of its own so it cannot invalidate the dev shell's `target/`.
-    export PATH="${nightlyToolchain}/bin:$PATH"
+    # The toolchain's `cargo rustdoc` child, reached exactly as `checks.api-docs` reaches it,
+    # with a target directory of its own so it cannot invalidate the dev shell's `target/`.
+    export PATH="${toolchain}/bin:$PATH"
     export CARGO_TARGET_DIR="''${CARGO_TARGET_DIR:-target}/api-docs"
     # The cranelift backend is INHERITED when this app is run from inside the dev shell,
     # and it cannot build this tree: `utoipa-swagger-ui`'s build script unzips its vendored

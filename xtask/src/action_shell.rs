@@ -265,7 +265,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // having changed shape; a `using: node20` action legitimately has none, so the
             // distinction is read off the file rather than assumed.
             if steps.is_empty() && text.contains("using: composite") {
-                silent.push(source.clone());
+                silent.push(source);
                 continue;
             }
             for (n, step) in steps.iter().enumerate() {
