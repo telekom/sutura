@@ -515,20 +515,19 @@ unsafe_code = "forbid"
 # Doc links, and this table is read by RUSTDOC ONLY - never by `cargo build`, `cargo clippy` or
 # `just lint`.
 #
-# THE VENUE IS `cargo rustdoc` OVER LIBRARY PACKAGES - `just api` and `checks.api-docs` - AND
-# NOTHING ELSE. The doctest lane is NOT one, measured rather than assumed after this comment
-# claimed it was: `cargo test --doc` does hand rustdoc the flag, but rustdoc's `--test` mode never
-# runs the link-resolution pass, so one crate with one unresolvable link and one real doctest is
-# exit 0 with no diagnostic while `cargo doc` over that same crate is exit 101. And it reaches no
-# binary-only member at all - `cargo test --doc -p xtask` answers `no library targets found`.
+# THE VENUE IS `cargo rustdoc` - `just api` and `checks.api-docs` - over every library package
+# (rendering its page) and every metadata-derived binary-only target (judging its links, without
+# generating a page). The doctest lane is NOT one, measured rather than assumed after this
+# comment claimed it was: `cargo test --doc` does hand rustdoc the flag, but rustdoc's `--test`
+# mode never runs the link-resolution pass, so one crate with one unresolvable link and one real
+# doctest is exit 0 with no diagnostic while `cargo doc` over that same crate is exit 101. And it
+# reaches no binary-only member at all - `cargo test --doc -p xtask` answers `no library targets
+# found`. Binaries beside a library, proc-macros, examples, benches and test-only items are
+# outside this venue, not judged clean by it; `xtask/src/api_docs.rs` states that scope.
 #
-# SO 30 ERRORS AT THIS LEVEL SIT IN THIS TREE WITH NO VENUE JUDGING THEM, and that is the limit
-# beside the claim rather than a footnote. `cargo rustdoc` over the three binary-only members, on
-# the nightly pin: `xtask` exit 101 (26 unresolved plus one ambiguity), `sutura-cli` exit 101 (1),
-# `sutura-serve` exit 101 (2). `cargo doc --workspace` went green-to-red on the commit that added
-# this table, and CI stays green only because nothing runs it. Teaching `check-api-docs` to
-# document the binary-only members is the fix; it needs those 30 repaired first, so it is its own
-# change - `github.com/telekom/sutura#418`.
+# `cargo xtask check-api-docs` documents library packages for their pages and each metadata-
+# derived binary-only target for its links under `broken_intra_doc_links = "forbid"`, so nothing
+# at this level sits unsentenced.
 #
 # `cargo xtask check-api-docs` asserts this entry exists and that every workspace member inherits
 # it, because a lint nothing arms is a lint that reports nothing.
