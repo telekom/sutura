@@ -945,8 +945,15 @@ mod tests {
 
         // And the sentence reaches the message an operator sees. Not a second rendering of the same
         // words: `unservable` is what `configured` maps its error through, and a helper tested alone
-        // would say nothing about whether anything calls it.
-        let refusal = unservable(&sutura_config::SettingsError::EnvironmentNotUnicode);
+        // would say nothing about whether anything calls it. `SettingsLoadError::new` is private to
+        // `sutura_config`, so a refused load is the only way the command is handed one - the same
+        // route the loader's own tests take.
+        let refused = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development)
+                .with_overlay("security:\n  inbound:\n    resource: \"https://sutura.example.com\"\n"),
+        )
+        .expect_err("an inbound block with no mode is refused");
+        let refusal = unservable(&refused);
         assert!(refusal.contains(sutura_config::CONFIG_DIR_VARIABLE), "{refusal}");
         assert!(
             refusal.contains("-prefixed environment variable"),
