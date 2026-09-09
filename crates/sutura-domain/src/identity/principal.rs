@@ -92,6 +92,17 @@ pub(crate) fn parse_principal_id(raw: &str) -> Result<String, InvalidPrincipalId
     if trimmed.is_empty() {
         return Err(InvalidPrincipalId::Empty);
     }
+    // Bound the size before either character scan, so an oversized identifier costs one walk to
+    // refuse rather than two: the length ceiling is the availability half, and the character classes
+    // are the forging half. Ordering the bound first also means a value that is both too long and
+    // control-bearing reports its size, which is what its source needs to hear.
+    let len = trimmed.chars().count();
+    if len > MAX_PRINCIPAL_LEN {
+        return Err(InvalidPrincipalId::TooLong {
+            len,
+            limit: MAX_PRINCIPAL_LEN,
+        });
+    }
     if let Some(offending) = trimmed.chars().find(|character| character.is_control()) {
         return Err(InvalidPrincipalId::ControlCharacter {
             code: u32::from(offending),
@@ -103,13 +114,6 @@ pub(crate) fn parse_principal_id(raw: &str) -> Result<String, InvalidPrincipalId
     if let Some(offending) = first_invisible(trimmed) {
         return Err(InvalidPrincipalId::InvisibleCharacter {
             code: u32::from(offending),
-        });
-    }
-    let len = trimmed.chars().count();
-    if len > MAX_PRINCIPAL_LEN {
-        return Err(InvalidPrincipalId::TooLong {
-            len,
-            limit: MAX_PRINCIPAL_LEN,
         });
     }
     Ok(String::from(trimmed))
@@ -694,6 +698,20 @@ mod tests {
         );
         // Exactly the limit is fine, so the bound is the bound and not one off it.
         drop(TaskId::parse("a".repeat(256)).expect("exactly the limit parses"));
+    }
+
+    #[test]
+    fn an_oversized_identifier_is_refused_for_its_size_before_its_characters() {
+        // The length ceiling is checked before the character classes, so a value that is both too
+        // long and control-bearing reports its size rather than the character: the bound is the
+        // availability defence, and ordering it first is what makes an oversized input cost one
+        // walk to refuse instead of two. Reverting the order reports `ControlCharacter` here and
+        // reddens this test.
+        let oversized_and_control = format!("{}\u{0007}", "a".repeat(300));
+        assert_eq!(
+            SubjectId::parse(&oversized_and_control),
+            Err(InvalidPrincipalId::TooLong { len: 301, limit: 256 })
+        );
     }
 
     #[test]
