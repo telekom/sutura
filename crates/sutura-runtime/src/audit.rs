@@ -248,7 +248,7 @@ mod tests {
             TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome, Some(Expiry::NothingExpires)));
         });
         assert!(rendered.contains("answered"), "{rendered}");
-        assert!(rendered.contains("s***@example.com"), "the asker is on the line: {rendered}");
+        assert!(rendered.contains("s***@e***.c***"), "the asker is on the line: {rendered}");
         assert!(
             rendered.contains("\"executed_as\":\"warehouse=shared-service-user\""),
             "the line does not say which identity produced the rows: {rendered}"
@@ -327,7 +327,7 @@ mod tests {
         });
         let rendered = written(&chain);
         assert!(rendered.contains("refused"), "{rendered}");
-        assert!(rendered.contains("s***@example.com"), "{rendered}");
+        assert!(rendered.contains("s***@e***.c***"), "{rendered}");
         assert!(rendered.contains("verified"), "{rendered}");
         assert!(rendered.contains("DimensionNotPermitted"), "{rendered}");
     }

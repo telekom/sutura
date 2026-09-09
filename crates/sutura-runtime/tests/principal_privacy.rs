@@ -47,8 +47,8 @@ mod tests {
         let event = audit_event(&chain);
         assert_eq!(event["level"], 30, "the audit record is still an info event: {event}");
         assert_eq!(event["msg"], "refused", "deleting the event cannot satisfy privacy: {event}");
-        assert_eq!(event["subject"], "f***.l***@company.com", "{event}");
-        assert_eq!(event["actors"], "s***@company.com > s***.b***@company.com", "{event}");
+        assert_eq!(event["subject"], "f***.l***@c***.c***", "{event}");
+        assert_eq!(event["actors"], "s***@c***.c*** > s***.b***@c***.c***", "{event}");
         assert_eq!(
             event["task"], "n***",
             "a non-email principal has the same fixed mask: {event}"
@@ -69,16 +69,25 @@ mod tests {
     fn display_and_debug_mask_while_explicit_access_remains_raw() {
         let id = SubjectId::parse("firstname.lastname@company.com").expect("a test subject is a subject");
 
-        assert_eq!(id.to_string(), "f***.l***@company.com");
-        assert_eq!(format!("{id:?}"), "f***.l***@company.com");
+        assert_eq!(id.to_string(), "f***.l***@c***.c***");
+        assert_eq!(format!("{id:?}"), "f***.l***@c***.c***");
 
         let short = SubjectId::parse("a.bc@example.com").expect("a short test subject is a subject");
-        assert_eq!(short.to_string(), "a***.b***@example.com");
-        assert_eq!(format!("{short:?}"), "a***.b***@example.com");
+        assert_eq!(short.to_string(), "a***.b***@e***.c***");
+        assert_eq!(format!("{short:?}"), "a***.b***@e***.c***");
         assert_eq!(
             id.as_str(),
             "firstname.lastname@company.com",
             "raw access remains explicit and greppable; the type cannot mechanically restrict the caller to TRACE"
         );
+    }
+
+    #[test]
+    fn an_opaque_suffix_after_at_is_masked_too() {
+        let id = SubjectId::parse("opaque@full-secret-id").expect("an opaque test subject is a subject");
+
+        assert_eq!(id.to_string(), "o***@f***");
+        assert_eq!(format!("{id:?}"), "o***@f***");
+        assert!(!id.to_string().contains("full-secret-id"));
     }
 }
