@@ -79,7 +79,7 @@ runs:
         if [ "$n" -gt 0 ]; then mean=$((sum/n)); else mean=0; peak=0; fi
 
         {
-          echo "### Host utilisation — $MEASURE_LABEL"
+          echo "### Host utilisation - $MEASURE_LABEL"
           echo
           echo "| cpus | memory (GiB) | model | nix max-jobs | nix cores | samples | mean CPU-busy | peak CPU-busy |"
           echo "|---|---|---|---|---|---|---|---|"
