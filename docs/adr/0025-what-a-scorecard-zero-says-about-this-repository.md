@@ -110,11 +110,23 @@ The last two points need `releasesHaveProvenance`, whose extension list is one e
 over every subject - but it lands in GitHub's attestation API, not on the release page, so the probe
 cannot see it. **Publishing the provenance bundle as a release asset is a real improvement and not a
 badge move**, for the same reason `docs/adr/0024` gives for signing blobs at all: `gh attestation
-verify` needs the forge and an authenticated client, so provenance today is not verifiable from
-mirrored bytes the way the signatures just were. It is **not done here** because it is a change to
+verify` needs the forge and an authenticated client, so provenance was not verifiable from mirrored
+bytes the way the signatures were.
+
+**DONE, and this paragraph used to say it was not.** It was deferred here because it is a change to
 the release path that no gate in this tree can exercise, and shipping an unverifiable change to
-release signing to gain two points is the trade this record exists to refuse. **`#463`** is where
-it is tracked, with the open questions written out.
+release signing to gain two points is the trade this record exists to refuse. `#463` carried the
+open questions and `#505` answered them rather than assuming: `.github/actions/attest-and-sign`
+makes FIVE `attest-build-provenance` calls and reads `bundle-path` from each, and `cargo xtask
+collect-provenance` validates the five records and the exact unique subject/digest set against the
+frozen release inputs before writing them as `dist/sutura-provenance.intoto.jsonl` - the one
+extension the probe reads. `release.yml`'s `Publish` step refuses to create the draft unless that
+asset is non-empty. So a mirror can now check WHERE the bytes came from, not only what they are.
+
+**The limits that remain, because the deferral's reasoning did not stop being true.**
+`Signed-Releases` reaches 10 only once `v0.2.x` ages out of the five-release window. And no gate in
+this tree runs a tagged release: the export is held by `collect-provenance`'s own tests, not by an
+observed publish, so the first real tag is still where the wiring is seen end to end.
 
 ### Thirteen unsigned checksums: signed, not dropped
 
