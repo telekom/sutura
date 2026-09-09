@@ -107,47 +107,35 @@ block - refuses it. Same family as the brace-counting and fence-scanning defects
 
 ## Never hand-write the cargo line
 
-`just lint` and `just test` ARE the gates' invocations. A hand-written line diverges twice, and
-fixing only the first still fails:
+`just lint` and `just test` ARE the gates' invocations. A hand-written line diverges:
 
-1. This shell's cargo is **nightly** for the cranelift backend and reports lints stable has not got.
-   `nix/stable-env.sh` is the fix.
-2. The gate adds **`-D warnings`**, so a bare run turns a `restriction`-category finding into a
-   warning that a grep for `^error` does not see. It passes locally and fails the gate.
+The gate adds **`-D warnings`**, so a bare run turns a `restriction`-category finding into a
+warning that a grep for `^error` does not see. It passes locally and fails the gate. (This shell's
+bare `cargo` used to be a cranelift nightly while the gates ran on a separate stable toolchain, so
+a hand-written line diverged twice; the stable/nightly split is gone, so that half no longer
+applies - the shell's bare `cargo` IS what the gates and CI run.)
 
-Both were hit in one session by two different agents, after each read the half of the rule that
-named only the first.
-
-The same shell environment **follows cargo into other checkouts and breaks builds there**:
-`CARGO_UNSTABLE_CODEGEN_BACKEND`, `CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` and two DuckDB path
-variables are unscoped. Measured, not theorised: a control build of a C++-linking crate from this
+Another part of the shell environment still **follows cargo into other checkouts and breaks builds
+there**: if a developer has opted into cranelift, `CARGO_UNSTABLE_CODEGEN_BACKEND` and
+`CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` are set, and the two DuckDB path variables are
+unscoped regardless. Measured, not theorised: a control build of a C++-linking crate from this
 shell aborted with an uncaught foreign exception behind millions of unwind-table errors, because
 cranelift's unwind tables cannot carry an exception across the C++/Rust boundary. The same suite is
 green with the four unset. **A red run from this shell in another repo is unexplained until you
 unset them.** No gate can see a build somewhere else, which is exactly why it is written down.
 
-The `ci` profile inherits `dev`, so anything building `--profile ci` locally - the causality gate
-included - hits the same cranelift problem and needs `nix/stable-env.sh` first.
+**Local Rust gates run on the shell's nightly cargo, matching CI.** The formatter, changed-package,
+doctest and clippy hook entries run the same `cargo` as the corresponding `just` tasks - there is no
+separate stable-toolchain indirection anymore, so a recipe cannot diverge from its hook. What holds that is
+execution: the gate-entry regression in `xtask/src/hooks.rs` runs the `fmt`, `lint` and
+`check-changed` recipe bodies against fake tools. `just test` is deliberately outside that
+enumeration because executing its body would provision a database - there the line is held by
+review.
 
-**Local Rust gates require configured stable tools.** The formatter, changed-package, doctest and
-clippy hook entries source `nix/stable-env.sh`, as do the corresponding `just` tasks. That second
-half was FALSE when it was first written - `just check-changed` was the one Rust recipe with no
-`source` line, so the recipe a person types ran the cranelift nightly while its own commit hook ran
-stable. What holds it now is execution rather than the sentence: the gate-entry regression in
-`xtask/src/hooks.rs` runs the `fmt`, `lint` and `check-changed` recipe bodies against a fake
-toolchain. `just test` sources the helper too and is deliberately outside that enumeration, because
-executing its body would provision a database - there the line is held by review. The helper
-terminates the caller when `SUTURA_STABLE_BIN` is absent, empty or lacks a required executable;
-returning an error alone would not stop the hooks' semicolon-separated commands. Enter the dev
-shell to obtain the pinned configuration. This trusts that environment: it is not attestation of
-arbitrary wrappers or compiler overrides. Nightly remains the interactive cranelift toolchain and
-the API JSON writer's requirement, not a second formatter whose output is assumed equal.
-
-**Pinned Nix routes do not require that local variable.** `nix/run-gate.sh` sends unconfigured Rust
-cases to their existing Nix fallback without probing host cargo, and refuses if Nix is absent too.
-It clears the same two inherited cranelift variables before either route. Secret scanning and the
-push-tier format check need no local Rust toolchain. The configured path keeps stable artifacts
-separate from nightly's; this does not make repeated sourcing target-directory-idempotent.
+**Pinned Nix routes do not require the dev shell.** `nix/run-gate.sh` probes host cargo (the
+shell's nightly when one is active) and falls back to the pinned Nix check; it clears the two
+inherited cranelift variables before the Nix route. Secret scanning and the push-tier format check
+need no local Rust toolchain.
 
 ## Direction is per-gate, and each one says so at its own decision
 

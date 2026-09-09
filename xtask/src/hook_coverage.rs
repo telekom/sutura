@@ -608,7 +608,7 @@ mod tests {
     /// fixture would test a format prek does not print.
     const COMMIT_LOG: &str = concat!(
         "cargo fmt.............................................(no files to check)Skipped\n",
-        "cargo clippy (-D warnings, all features, on stable)...(no files to check)Skipped\n",
+        "cargo clippy (-D warnings, all features)...(no files to check)Skipped\n",
         "structural gates.........................................................Dry Run\n",
         "cargo check (changed packages only)...................(no files to check)Skipped\n",
         "cargo nextest (all features).............................................Dry Run\n",
@@ -632,7 +632,7 @@ mod tests {
     /// character-for-character the same lines.
     const REAL_COMMIT_LOG: &str = concat!(
         "cargo fmt.............................................(no files to check)Skipped\n",
-        "cargo clippy (-D warnings, all features, on stable)...(no files to check)Skipped\n",
+        "cargo clippy (-D warnings, all features)...(no files to check)Skipped\n",
         "structural gates..........................................................Passed\n",
         "cargo check (changed packages only)...................(no files to check)Skipped\n",
         "cargo nextest (all features)..............................................Passed\n",
@@ -791,21 +791,21 @@ mod tests {
 
     #[test]
     fn a_name_ending_in_a_parenthesis_is_not_read_as_a_reason() {
-        // Two hooks in this repository are named that way, and the reason is recognised by the DOT
-        // in front of it rather than by the bracket - without that, `cargo clippy (-D warnings,
-        // all features, on stable)` would parse to `cargo clippy` and join to no declared hook.
-        let ran = super::row("cargo clippy (-D warnings, all features, on stable)......................Passed");
+        // The REASON is recognised by the DOT in front of it rather than by the bracket - without
+        // that, `cargo clippy (-D warnings, all features)` would parse to `cargo clippy` and join
+        // to no declared hook.
+        let ran = super::row("cargo clippy (-D warnings, all features)......................Passed");
         assert_eq!(
             ran,
             Some(Row {
-                name: String::from("cargo clippy (-D warnings, all features, on stable)"),
+                name: String::from("cargo clippy (-D warnings, all features)"),
                 coverage: Coverage::Ran,
             })
         );
-        let skipped = super::row("cargo clippy (-D warnings, all features, on stable)...(no files to check)Skipped");
+        let skipped = super::row("cargo clippy (-D warnings, all features)...(no files to check)Skipped");
         assert_eq!(
             skipped.map(|row| row.name).as_deref(),
-            Some("cargo clippy (-D warnings, all features, on stable)")
+            Some("cargo clippy (-D warnings, all features)")
         );
     }
 

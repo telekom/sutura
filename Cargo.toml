@@ -697,23 +697,22 @@ codegen-units = 256
 # under one backend and not the other is a real possibility. CI validating a cranelift build
 # would be validating something we do not ship.
 #
-# Nothing to set here. The backend is nightly-only, so it is enabled where the nightly
-# toolchain lives: devenv.nix exports CARGO_UNSTABLE_CODEGEN_BACKEND and
-# CARGO_PROFILE_DEV_CODEGEN_BACKEND, and devco/rust-toolchain-nightly.toml pins the compiler and
-# the `rustc-codegen-cranelift-preview` component.
+# OPT-IN, not the shell default. The shell's bare `cargo` is the nightly toolchain with the
+# LLVM backend - the same toolchain the gates and CI run, and what makes `cargo-llvm-cov`'s
+# `-C instrument-coverage` work for the CRAP gate. Cranelift is enabled where the nightly
+# toolchain lives and only on demand: a developer sets CARGO_UNSTABLE_CODEGEN_BACKEND and
+# CARGO_PROFILE_DEV_CODEGEN_BACKEND in the shell (or devenv.local.nix), and
+# devco/rust-toolchain-nightly.toml pins the compiler plus the
+# `rustc-codegen-cranelift-preview` component.
 #
 # This comment used to instruct developers to add `[unstable] codegen-backend = true` and set
-# `codegen-backend = "cranelift"` themselves. That could not work: the pinned toolchain is
-# stable, where `-Zcodegen-backend` does not exist. Environment rather than a committed
-# `.cargo/config.toml` for the same reason - an `[unstable]` table there is read by CI too,
-# and would fail every stable build.
+# `codegen-backend = "cranelift"` themselves; it also used to force cranelift as the shell
+# default and gate on a separate stable toolchain. Neither survives: an `[unstable]` table
+# committed here would be read by CI too and break it, and keeping LLVM the default keeps the
+# coverage instrumentation reachable.
 #
-# Consequences, both deliberate:
-#   - The dev shell's bare `cargo` is nightly. Gates are not: they source nix/stable-env.sh,
-#     which puts stable in front, because clippy's lint set differs between channels and this
-#     workspace gates on the whole `restriction` category.
-#   - Stable gets its own target directory. Alternating compilers in one directory
-#     invalidates every artifact in it, which would cost more than cranelift saves.
+# One consequence, deliberate: a single nightly toolchain and a single target directory - the
+# stable/nightly split, and the per-`/stable` target dir it needed, are gone.
 
 [profile.dev.package."*"]
 opt-level = 3

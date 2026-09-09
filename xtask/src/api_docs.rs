@@ -35,21 +35,16 @@
 //!     disagree with `just api`, and then the fix its own message asks for would not make it
 //!     pass. Never inline the rendering here.
 //!
-//! WHAT EXACTLY NEEDS NIGHTLY, because the answer is narrower than it looks and the difference is
-//! worth minutes of CI. `--output-format json` is an unstable rustdoc option, so stable rejects
-//! `-Z` outright and there is no stable route to the JSON - verified on the 1.98.0 pin, whose
-//! `rustdoc --help` offers `--output-format [html]` and nothing else. But this crate has no
-//! `#![feature]` in it, so THIS BINARY compiles on stable, and [`rustdoc_json`] reaches the JSON
-//! by spawning a child. The requirement is the child's. `flake.nix` acts on that: the check that
-//! runs this shares the stable dependency closure with every other gate and hands the child a
-//! nightly `$CARGO`, a `CARGO_TARGET_DIR` of its own so two channels never share artifacts, and
-//! `SUTURA_API_DOCS_PROFILE` so its compile is at opt-level 0.
+//! RUSTDOC JSON NEEDS NIGHTLY. `--output-format json` is an unstable rustdoc option, and the
+//! whole toolchain is nightly now - the shell's bare cargo and every gate run the pinned nightly
+//! (devco/rust-toolchain-nightly.toml) - so it is not a special case next to gates that ran on a
+//! different channel. `flake.nix` hands the check a nightly `$CARGO` and a `CARGO_TARGET_DIR` of
+//! its own so the docs never share artifacts with another run's, and `SUTURA_API_DOCS_PROFILE` so
+//! its compile is at opt-level 0.
 //!
-//! Every other gate is run with `nix/stable-env.sh` sourced first, because clippy's lint set
-//! differs between channels and this workspace gates on the whole `restriction` category. The
-//! `cargo rustdoc` line here must NOT be wrapped that way - wrapping it is the one thing that
-//! breaks it. It is `Kind::Standalone` for the same reason: `cargo xtask hygiene` is a cheap sweep
-//! that runs on hosts with no Rust nightly at all.
+//! Every gate runs on the nightly toolchain now, so the `cargo rustdoc` line here needs no
+//! wrapping or un-wrapping rationale. It is `Kind::Standalone` because `cargo xtask hygiene` is a
+//! cheap sweep that should run on hosts with no Rust nightly at all.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -294,9 +289,9 @@ fn cargo_bin() -> String {
 /// same-code-path reason in this module's header.
 ///
 /// THE ONE STEP THAT NEEDS NIGHTLY, and it is a CHILD PROCESS. `cargo` here is whichever cargo
-/// the caller named - `$CARGO`, which the Nix check sets to the nightly and nothing else in that
-/// build sees. This binary itself is compiled by the stable pin every other gate uses, which is
-/// why the check can share their dependency closure.
+/// the caller named - `$CARGO`, which the Nix check sets to the nightly. This binary itself is
+/// compiled on the same nightly toolchain every gate uses, which is why the check can share their
+/// dependency closure.
 fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
     let profile = std::env::var(PROFILE_ENV).ok();
     let status = std::process::Command::new(cargo)
@@ -325,8 +320,7 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
          `crate::`-qualified inline form `[`x`](crate::path::x)` resolves without an import and \
          the page keeps the code span.\n  \
          Or the TOOLCHAIN: `--output-format json` is unstable, so this gate needs the nightly pin \
-         (devco/rust-toolchain-nightly.toml). Every other gate sources nix/stable-env.sh; this one \
-         must not, because stable rejects `-Z` outright."
+         (devco/rust-toolchain-nightly.toml), which is what the shell's bare `cargo` IS."
     ))
 }
 

@@ -80,8 +80,8 @@ fn records(question: &str) -> Vec<serde_json::Value> {
 /// The set is derived from the three things a load reads, not guessed at: the two exported names,
 /// and the `SUTURA__` prefix the environment layer is built with. Scoped that way rather than to
 /// every `SUTURA`-prefixed name deliberately - `SUTURA_DEV_REQUIRE_TIER` is exported into `just
-/// test` by `nix/with-tier.sh` and `SUTURA_STABLE_BIN` by the dev shell, and a guard that fired on
-/// those would be red on every green machine and deleted within a day.
+/// test` by `nix/with-tier.sh`, and a guard that fired on pre-existing variables would be red on
+/// every green machine and deleted within a day.
 ///
 /// What it does not reach: a configuration DIRECTORY is the only file input and there is no default
 /// location for one, so absence of these names means the embedded defaults and nothing else.

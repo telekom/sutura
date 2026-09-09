@@ -28,38 +28,34 @@
 //! that a pure function over parsed JSON is unit-testable with no tool installed at all, which
 //! is what makes this gate itself tested rather than merely written.
 //!
-//! THE COVERAGE RUN IS ON STABLE, AND THIS TASK MAKES ITSELF SO rather than trusting its caller.
+//! THE COVERAGE RUN IS ON THE NIGHTLY TOOLCHAIN, matching what CI gates on.
 //!
 //! Coverage instrumentation is LLVM-specific: under the cranelift backend `-C
-//! instrument-coverage` does not exist, so a run that inherited the dev shell's nightly-plus-
-//! cranelift cargo would fail - or worse, produce an LCOV with no counters, which would score
-//! every function as uncovered and read as a catastrophe rather than as a broken run. That is a
-//! correctness requirement, not the channel-consistency preference the lints have.
+//! instrument-coverage` does not exist. The dev shell's cargo is nightly and DEFAULTS to LLVM
+//! (cranelift is opt-in), so the shell's bare cargo can instrument coverage - no stable override
+//! is needed. It still must not inherit a cranelift cargo, which would fail or, worse, produce an
+//! LCOV with no counters that would score every function as uncovered and read as a catastrophe
+//! rather than as a broken run. That is a correctness requirement, not a channel preference.
 //!
 //! HOW CRANELIFT ARRIVES HERE, checked rather than assumed. In this repo it is two environment
-//! variables, `CARGO_UNSTABLE_CODEGEN_BACKEND` and `CARGO_PROFILE_DEV_CODEGEN_BACKEND`, set by
-//! `devenv.nix`. There is no `RUSTFLAGS` and no `CARGO_TARGET_*_RUSTFLAGS` in the dev shell at
-//! all - verified by reading the environment on both sides of `nix/stable-env.sh` - and the
-//! per-target tables in `.cargo/config.toml` carry linker and target-feature flags only. So
-//! `stable-env.sh`, which unsets exactly those two variables, already covers this repo's whole
-//! surface. The case it does NOT cover - a `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` variable carrying the
-//! cranelift flag, which unsetting the two variables would leave in place - is real and is why
-//! [`coverage_env`] cleans the rustflag variables in [`RUSTFLAG_VARS`] as well; it is simply not
-//! set anywhere here. What neither covers is a per-target table in `.cargo/config.toml` naming a
-//! backend, because that is a file and not an environment variable - and nothing in this repo's
-//! tables names one. Stated as the mechanism rather than by where the idea came from: an
-//! attribution belongs in `VENDOR.md` with an upstream and a licence, and a bare project name on
-//! a public repo resolves to nothing for a reader.
+//! variables, `CARGO_UNSTABLE_CODEGEN_BACKEND` and `CARGO_PROFILE_DEV_CODEGEN_BACKEND`, opt-in
+//! in the dev shell. There is no `RUSTFLAGS` and no `CARGO_TARGET_*_RUSTFLAGS` in the dev shell
+//! at all, and the per-target tables in `.cargo/config.toml` carry linker and target-feature flags
+//! only. The case the two variables do NOT cover - a `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` variable
+//! carrying the cranelift flag, which unsetting the two variables would leave in place - is real
+//! and is why [`coverage_env`] cleans the rustflag variables in [`RUSTFLAG_VARS`] as well; it is
+//! simply not set anywhere here. What neither covers is a per-target table in `.cargo/config.toml`
+//! naming a backend, because that is a file and not an environment variable - and nothing in this
+//! repo's tables names one.
 //!
 //! [`coverage_env`] hardens it anyway, and the reason is not belt-and-braces: this gate is the
 //! one whose failure mode is a silent empty report, so it must not depend on a caller having
 //! remembered a `source` line. It unsets the two variables, strips the cranelift flag out of any
 //! rustflags variable that does carry it while preserving the linker and library flags beside
-//! it, pins `RUSTUP_TOOLCHAIN` to the channel in `rust-toolchain.toml`, and puts
-//! `SUTURA_STABLE_BIN` in front of `PATH` when the dev shell exported one. The instrumented
-//! profile also gets its own target directory, because it shares nothing with the cranelift
-//! artifacts the inner loop depends on and this repo's target directory is already tens of
-//! gigabytes.
+//! it, and pins `RUSTUP_TOOLCHAIN` to the channel in `devco/rust-toolchain-nightly.toml` for a
+//! bare-rustup host. The instrumented profile also gets its own target directory, because it
+//! shares nothing with the inner-loop artifacts and this repo's target directory is already tens
+//! of gigabytes.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -470,7 +466,8 @@ pub(crate) fn strip_cranelift(value: &str) -> String {
     kept.join(&separator.to_string())
 }
 
-/// The channel from `rust-toolchain.toml`, which is the single source of truth for it.
+/// The channel from `devco/rust-toolchain-nightly.toml`, the local inner-loop pin the coverage
+/// run matches.
 pub(crate) fn pinned_channel(toolchain_toml: &str) -> Option<String> {
     toolchain_toml
         .lines()
@@ -478,12 +475,13 @@ pub(crate) fn pinned_channel(toolchain_toml: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// Put `command` on the stable toolchain with no cranelift, in its own target directory.
+/// Put `command` on the nightly toolchain with no cranelift, in its own target directory.
 ///
 /// Applied to BOTH child processes, because `cargo crap` shells out to `cargo metadata` and an
 /// unstable flag there would fail it just as surely.
 fn coverage_env(command: &mut Command, root: &Path, target_dir: &Path) {
-    // Cranelift, as this repo actually injects it.
+    // Cranelift, as this repo may have injected it (opt-in). The coverage run needs LLVM's
+    // `-C instrument-coverage`.
     command.env_remove("CARGO_UNSTABLE_CODEGEN_BACKEND");
     command.env_remove("CARGO_PROFILE_DEV_CODEGEN_BACKEND");
 
@@ -497,21 +495,12 @@ fn coverage_env(command: &mut Command, root: &Path, target_dir: &Path) {
         }
     }
 
-    // For a bare-rustup host. Inside the dev shell cargo comes from nix and ignores this, which
-    // is why the PATH line below exists as well.
-    if let Ok(text) = std::fs::read_to_string(root.join("rust-toolchain.toml"))
+    // For a bare-rustup host. Inside the dev shell cargo comes from nix and ignores this - the
+    // shell's bare cargo IS the nightly toolchain, so the coverage child inherits it directly.
+    if let Ok(text) = std::fs::read_to_string(root.join("devco/rust-toolchain-nightly.toml"))
         && let Some(channel) = pinned_channel(&text)
     {
         command.env("RUSTUP_TOOLCHAIN", channel);
-    }
-    if let Ok(stable_bin) = std::env::var("SUTURA_STABLE_BIN")
-        && !stable_bin.is_empty()
-    {
-        let path = std::env::var("PATH").unwrap_or_default();
-        command.env(
-            "PATH",
-            format!("{stable_bin}{}{path}", if path.is_empty() { "" } else { ":" }),
-        );
     }
 
     // Its own directory. The instrumented profile shares nothing with the cranelift artifacts the
@@ -833,14 +822,15 @@ mod tests {
     fn the_pinned_channel_is_read_from_the_toolchain_file() {
         use super::pinned_channel;
         let root = crate::repo::root().expect("repo root");
-        let text = std::fs::read_to_string(root.join("rust-toolchain.toml")).expect("toolchain");
-        let channel = pinned_channel(&text).expect("rust-toolchain.toml must name a channel");
-        // A stable channel, because coverage instrumentation is what this pins the run to. A
-        // nightly here would mean the gate had quietly moved back onto the inner-loop compiler,
-        // where `-C instrument-coverage` does not exist at all.
+        let text =
+            std::fs::read_to_string(root.join("devco/rust-toolchain-nightly.toml")).expect("toolchain");
+        let channel = pinned_channel(&text).expect("devco/rust-toolchain-nightly.toml must name a channel");
+        // A nightly channel, because the coverage run matches CI's nightly gate. The nightly's
+        // default backend is LLVM, so `-C instrument-coverage` is available here - cranelift is
+        // what would break it, and `coverage_env` strips that.
         assert!(
-            !channel.contains("nightly"),
-            "the coverage run must not be pinned to {channel}"
+            channel.contains("nightly"),
+            "the coverage run must be pinned to a nightly, not {channel}"
         );
         assert!(pinned_channel("[toolchain]\nprofile = \"minimal\"\n").is_none());
     }
