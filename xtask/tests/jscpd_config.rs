@@ -11,19 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-const CONFIG: &str = r#"{
-  "ignore": [
-    "target/**",
-    "site/**",
-    "result/**",
-    "result-*/**",
-    ".pixi/**",
-    ".sutura-dev/**",
-    "report/**",
-    "**/.prek-cache/**"
-  ]
-}
-"#;
+const CONFIG: &str = "{ \"ignore\": [] }\n";
 
 const JSCPD: &str = r#"
 set -eu
