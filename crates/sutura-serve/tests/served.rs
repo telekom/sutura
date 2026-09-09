@@ -524,7 +524,7 @@ mod tests {
             "the record for an answered question does not say a caller was verified:\n{answered}"
         );
         assert!(
-            answered.contains(r#""subject":"user@example.com""#),
+            answered.contains(r#""subject":"u***@e***.c***""#),
             "the record names a different subject from the one the token carried:\n{answered}"
         );
 

@@ -37,11 +37,18 @@
 # outputs are therefore not GC roots, so bounding the entry that way would throw away exactly what
 # is worth saving. If a save is refused, the summary line below says so on every `main` push.
 #
-# AND THERE IS NO SECOND CARRIER BEHIND IT. `docs/adr/0026` retired the third-party binary cache
-# this file used to name as its fallback: that wiring was gated on repository secrets and variables
-# that never existed, so its populate step was `completed/skipped` on every `main` push it ever ran
-# on - silently, and green. This action is now the whole mechanism, and if its save is refused the
-# next run compiles. `cargo xtask check-workflows` refuses a secret-gated writer coming back.
+# THE SECOND CARRIER IS NOT THIS ACTION, and the two are different kinds of carrier. `docs/adr/0026`
+# retired a third-party binary cache that this file used to name as its fallback - that wiring was
+# gated on repository secrets and variables that never existed here, so its populate step was
+# `completed/skipped` on every `main` push it ever ran on, silently, and green. `docs/adr/0027`
+# then provisioned this repository's own OSS binary cache, `sutura.cachix.org`, which every
+# installer in `.github/workflows` already names as a substituter with its public key committed.
+# That cache substitutes a large share of the store a run restores - measured at ~71-74% of
+# substituted paths - so this Actions entry is NOT the whole mechanism: if ITS save is refused,
+# the next run still substitutes what `sutura.cachix.org` serves and compiles the rest. This
+# action is the write-half for the `main`-gate, per-scope store entry; `sutura.cachix.org` is the
+# live second carrier behind it. `cargo xtask check-workflows` refuses a secret-gated writer coming
+# back.
 name: nix-store-cache
 description: Restore /nix/store from the Actions cache on every event; write it only from a push to main.
 

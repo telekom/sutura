@@ -109,8 +109,21 @@ struct FileFacts {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::SerdeParse)) {
-        Ok(listing) => listing,
+    // `Census::inspect` RATHER THAN `into_listing`, and that is `github.com/telekom/sutura#412`
+    // and `#414` meeting in one loop. What stood here was:
+    //
+    //     let Ok(text) = std::fs::read_to_string(root.join(rel)) else { continue; };
+    //     scanned = scanned.saturating_add(1);
+    //
+    // so a Rust file this gate is meant to read and could not was neither judged nor reported -
+    // `problems` stayed empty and the verdict printed `ok - N file(s)` with N one lower than the
+    // tree. The only tell was a number nothing compared, and it could not be that tell because
+    // `scanned` was incremented by the very loop the drop happened in: the witness moved with the
+    // walk. Both halves are the census's now. It performs the read, so an unreadable in-scope file
+    // is `Refusal::Unreachable` ahead of any rule of this gate's, and it counts the subjects
+    // OFFERED by a different predicate than the one that judges them.
+    let census = match repo::all_files() {
+        Ok(census) => census,
         Err(why) => {
             eprintln!("xtask check-serde-parse: FAILED - {}", why.describe());
             return Verdict::Fail;
@@ -120,29 +133,42 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let mut problems: Vec<String> = Vec::new();
     let mut scanned = 0_usize;
     let mut declarations = 0_usize;
-    for rel in &files {
-        if !in_scope(rel) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
+    // `must_judge` is empty: this gate's subject is a KIND of file, so there is no one path whose
+    // absence is a broken scan, and the empty-scope arm below is what refuses that instead.
+    let scope: repo::Scope = in_scope;
+    let counted = census.inspect(&[], scope, |rel, bytes| {
+        // Lossy rather than a UTF-8 read. A file the census opened is a file this gate judges, and
+        // turning a decode failure back into an unread file would rebuild the drop this migration
+        // removed - `sutura/gates` records `check-shipped-binaries` shipping `ok` at exit 0 over a
+        // non-UTF-8 page for exactly that reason.
+        let text = String::from_utf8_lossy(bytes);
         scanned = scanned.saturating_add(1);
         let facts = facts_of(&text);
         declarations = declarations.saturating_add(facts.declared.len());
         problems.extend(bypassed_constructors(rel, &facts));
         problems.extend(asymmetric_serde(rel, &facts));
         problems.extend(open_input_structs(rel, &facts));
-    }
+    });
+    let counted = match counted {
+        Ok(counted) => counted,
+        Err(why) => {
+            eprintln!("xtask check-serde-parse: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
 
     if scanned == 0 {
-        // A gate that silently checked nothing is the failure mode a gate exists to prevent.
+        // A gate that silently checked nothing is the failure mode a gate exists to prevent. Kept
+        // beside the census's own `NothingJudged` rather than deleted as its duplicate: that arm
+        // counts files the SCOPE admitted, and this one counts files this closure actually judged,
+        // which are two numbers from two places.
         eprintln!("xtask check-serde-parse: no Rust source in scope - this gate would check nothing");
         return Verdict::Fail;
     }
     if problems.is_empty() {
         println!(
-            "xtask check-serde-parse: ok - {declarations} struct or enum declaration(s) in {scanned} file(s), serde route rules satisfied"
+            "xtask check-serde-parse: ok - {declarations} struct or enum declaration(s) in {scanned} file(s), serde route rules satisfied; {}",
+            counted.verdict()
         );
         return Verdict::Pass;
     }

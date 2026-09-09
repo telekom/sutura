@@ -241,7 +241,6 @@ pub async fn require_token(State(state): State<ServiceState>, request: Request, 
         return next.run(request).await;
     }
     tracing::warn!(
-        path = %request.uri().path(),
         presented = presented.is_some(),
         "rejected a request with no valid bearer token"
     );
@@ -335,12 +334,10 @@ fn layer(quota: Quota, tier: &'static str, key: ClientAddress) -> BuiltTier {
 /// already handed to the blocking pool keeps running until the data system answers it. Cancelling
 /// that needs a cancellation token the `Warehouse` port does not have.
 pub async fn enforce_timeout(State(bound): State<Duration>, request: Request, next: Next) -> Response {
-    let path = String::from(request.uri().path());
     match tokio::time::timeout(bound, next.run(request)).await {
         Ok(response) => response,
         Err(_elapsed) => {
             tracing::warn!(
-                path = %path,
                 timeout_seconds = bound.as_secs(),
                 "gave up on a request that exceeded the configured bound"
             );

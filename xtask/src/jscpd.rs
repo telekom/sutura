@@ -27,11 +27,13 @@
 //!
 //! LIMIT, NEXT TO THE CLAIM. This scans the whole tree's Rust (`--format rust`) and cannot tell
 //! an intentional pattern from an accidental one - that is what the allowlist's written reasons
-//! are for. It does not see duplication in other languages. Thresholds (lines/tokens) are
-//! constants here; changing what trips the gate is a source change, reviewed.
+//! are for. It does not see duplication in other languages. `devco/jscpd.json` owns the ignore
+//! set; thresholds (lines/tokens) are constants here. Changing either is reviewed source.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use serde::Deserialize;
 
 use crate::{Verdict, repo, repo::Unmigrated};
 
@@ -49,10 +51,10 @@ const MIN_TOKENS: usize = 250;
 const FORMAT: &str = "rust";
 /// The allowlist policy file, granting auditable reasons for intentional clones.
 const IGNORE_FILE: &str = "devco/dup-ignore";
-/// Generated/build output jscpd must never scan, as comma-separated globs (`--ignore`).
+/// Generated/build output jscpd must never scan.
 /// `wholeTree` in the nix sandbox carries `target/` build artifacts, so relying on gitignore (a
 /// `.git`-less source does not apply it) would let a 250-line generated CRC table flag itself.
-const IGNORE_GLOBS: &str = "target/**,site/**,result/**,result-*/**,.pixi/**,.sutura-dev/**,report/**,**/.prek-cache/**";
+const CONFIG_FILE: &str = "devco/jscpd.json";
 /// First-party source that the allowlist may never excuse, mirroring `max_lines::is_unexemptable`
 /// (there under `UNEXEMPTABLE_PREFIXES`): an exemption list that can swallow `crates/` or `xtask/`
 /// is a gate that has quietly stopped gating.
@@ -74,16 +76,33 @@ struct Duplicate {
     tokens: u64,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JscpdConfig {
+    ignore: Vec<String>,
+}
+
+type LoadedConfig = (Vec<u8>, JscpdConfig);
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-jscpd: could not determine the repo root");
         return Verdict::Fail;
     };
 
-    // Single owner of the scan set and thresholds: `nix/run-gate.sh`'s tier-2 jscpd arm carries
-    // an inline `--ignore` list and `--min-lines`/`--min-tokens`/`--format` it cannot import, so
-    // this gate re-parses that invocation line and refuses any drift.
-    if let Err(msg) = check_run_gate_globs(&root) {
+    let (config_bytes, config) = match load_config(&root) {
+        Ok(config) => config,
+        Err(msg) => {
+            eprintln!("xtask check-jscpd: FAILED - {msg}");
+            return Verdict::Fail;
+        }
+    };
+
+    // Single owner of the thresholds: `nix/run-gate.sh`'s tier-2 jscpd arm carries inline
+    // `--min-lines`/`--min-tokens`/`--format` it cannot import (the ignore globs are single-owned
+    // by `devco/jscpd.json`, which this gate and the tier-2 arm both read), so re-parse that
+    // invocation line and refuse any threshold drift.
+    if let Err(msg) = check_run_gate_thresholds(&root) {
         eprintln!("xtask check-jscpd: FAILED - {msg}");
         return Verdict::Fail;
     }
@@ -107,7 +126,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
     let rs_files: Vec<&str> = files.iter().map(String::as_str).filter(|f| is_rust(f)).collect();
-    if let Err(msg) = check_census(&rs_files, IGNORE_GLOBS) {
+    if let Err(msg) = check_census(&rs_files, &config.ignore) {
         eprintln!("xtask check-jscpd: FAILED - {msg}");
         return Verdict::Fail;
     }
@@ -134,7 +153,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
 
-    let clones = match scan(&root, &jscpd) {
+    let clones = match scan(&root, &jscpd, &config_bytes) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("xtask check-jscpd: FAILED - {e}");
@@ -157,23 +176,31 @@ fn is_rust(path: &str) -> bool {
 /// in-scope `.rs` (or a clone there could never be reported). Pure and unit-tested, so a mutation
 /// that drops or weakens it reddens the suite. `git ls-files '*.rs'` is the independent oracle -
 /// `report.statistics.total.sources` drops sub-`--min-tokens` files and would not be a floor.
-fn check_census(rs_files: &[&str], ignore_globs: &str) -> Result<(), String> {
+fn check_census(rs_files: &[&str], ignore_globs: &[String]) -> Result<(), String> {
     if rs_files.is_empty() {
         return Err(String::from(
             "found zero in-scope `.rs` files, so this gate would attest over no Rust at all",
         ));
     }
-    let globs: Vec<&str> = ignore_globs.split(',').map(str::trim).collect();
+    let globs: Vec<&str> = ignore_globs.iter().map(String::as_str).collect();
     if let Some(hidden) = rs_files.iter().copied().find(|f| repo::matches_any(&globs, f)) {
         return Err(format!(
-            "`{ignore_globs}` matches {hidden}, so a clone in that file could never be reported"
+            "the ignore set in {CONFIG_FILE} matches {hidden}, so a clone in that file could never be reported"
         ));
     }
     Ok(())
 }
 
+fn load_config(root: &Path) -> Result<LoadedConfig, String> {
+    let path = root.join(CONFIG_FILE);
+    let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {CONFIG_FILE}: {e}"))?;
+    let config = serde_json::from_slice(&bytes).map_err(|e| format!("cannot parse {CONFIG_FILE}: {e}"))?;
+    Ok((bytes, config))
+}
+
 /// The marker token that identifies the tier-2 jscpd invocation line in `nix/run-gate.sh` - the
-/// single line whose `--ignore`, `--min-lines`, `--min-tokens` and `--format` this gate owns.
+/// single line whose `--min-lines`, `--min-tokens` and `--format` mirror [`MIN_LINES`] /
+/// [`MIN_TOKENS`] / [`FORMAT`].
 const RUN_GATE_TIER2_TOKEN: &str = "nix run .#jscpd";
 
 /// The tier-2 jscpd invocation line of `nix/run-gate.sh` - the first non-comment line whose
@@ -188,8 +215,9 @@ fn tier2_line(run_gate_text: &str) -> Option<&str> {
     })
 }
 
-/// The value a `--flag` carries on the tier-2 invocation line: the single-quoted body of
-/// `--ignore '<globs>'`, or the bare token of `--min-lines` / `--min-tokens` / `--format`.
+/// The value a `--flag` carries on the tier-2 invocation line: the bare token of `--min-lines` /
+/// `--min-tokens` / `--format` (a `--ignore '<globs>'` single-quoted body is handled too, though
+/// the globs now live in [`CONFIG_FILE`]).
 fn tier2_value<'a>(line: &'a str, flag: &str) -> Option<&'a str> {
     let needle = format!("{flag} ");
     let rest = line.split_once(&needle)?.1.trim_start();
@@ -202,54 +230,30 @@ fn tier2_value<'a>(line: &'a str, flag: &str) -> Option<&'a str> {
     )
 }
 
-/// The glob list the tier-2 jscpd arm of `nix/run-gate.sh` carries, between `--ignore '` and the
-/// closing quote on the anchored invocation line - the ONLY source of truth for that tier's
-/// `--ignore`.
-fn tier2_globs(line: &str) -> Option<&str> {
-    tier2_value(line, "--ignore")
-}
-
-/// Does `nix/run-gate.sh`'s tier-2 jscpd arm agree with the gate's declared set - the `--ignore`
-/// list AND the `--min-lines` / `--min-tokens` / `--format` thresholds?
+/// Does `nix/run-gate.sh`'s tier-2 jscpd arm agree with the gate's declared thresholds - the
+/// `--min-lines` / `--min-tokens` / `--format` values on the anchored invocation line?
 ///
-/// run-gate.sh cannot import the Rust constants, so its inline copies would silently drift (one
-/// side adds `result-*/**`, the other does not, and the two tiers scan different trees; a
-/// `--min-lines 900` here would quietly scan a laxer tree than the gate). This gate is the single
-/// owner: it re-parses the anchored invocation line and refuses any drift, held by a unit test.
-fn check_run_gate_globs(root: &Path) -> Result<(), String> {
+/// run-gate.sh cannot import the Rust constants, so its inline copies would silently drift (a
+/// `--min-lines 900` on the tier-2 arm scans a laxer standard than the gate attests). The ignore
+/// globs are single-owned by `devco/jscpd.json` (both this gate and the tier-2 arm read it), so
+/// only the thresholds remain inline. This gate is the single owner: it re-parses the anchored
+/// invocation line and refuses a drift, held by a unit test.
+fn check_run_gate_thresholds(root: &Path) -> Result<(), String> {
     let path = root.join("nix/run-gate.sh");
     let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    globs_agree(&text).map_err(|e| format!("{}: {e}", path.display()))
+    thresholds_agree(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// The pure comparison: does the tier-2 jscpd arm equal the gate's [`IGNORE_GLOBS`] list and its
-/// [`MIN_LINES`] / [`MIN_TOKENS`] / [`FORMAT`] thresholds?
-fn globs_agree(run_gate_text: &str) -> Result<(), String> {
+/// The pure comparison: does the tier-2 jscpd arm equal the gate's [`MIN_LINES`] / [`MIN_TOKENS`]
+/// / [`FORMAT`] thresholds on the anchored invocation line?
+fn thresholds_agree(run_gate_text: &str) -> Result<(), String> {
     let Some(line) = tier2_line(run_gate_text) else {
         return Err(String::from(
-            "run-gate.sh has no non-comment tier-2 `nix run .#jscpd` invocation line, so its scan set and thresholds cannot be verified",
-        ));
-    };
-    let Some(listed) = tier2_globs(line) else {
-        return Err(String::from(
-            "the tier-2 jscpd arm no longer passes `--ignore '<globs>'`, so its scan set cannot be verified against IGNORE_GLOBS",
+            "run-gate.sh has no non-comment tier-2 `nix run .#jscpd` invocation line, so its thresholds cannot be verified",
         ));
     };
 
     let mut problems: Vec<String> = Vec::new();
-
-    let gate: std::collections::BTreeSet<&str> = IGNORE_GLOBS.split(',').map(str::trim).filter(|g| !g.is_empty()).collect();
-    let tier2: std::collections::BTreeSet<&str> = listed.split(',').map(str::trim).filter(|g| !g.is_empty()).collect();
-    if gate != tier2 {
-        let missing: Vec<&str> = gate.difference(&tier2).copied().collect();
-        let extra: Vec<&str> = tier2.difference(&gate).copied().collect();
-        problems.push(format!(
-            "`--ignore` drifted from IGNORE_GLOBS (missing {missing:?}, extra {extra:?})"
-        ));
-    }
-
-    // The three thresholds on the same line are inline copies of MIN_LINES / MIN_TOKENS / FORMAT;
-    // hold them to the constants so a laxer shell copy refuses instead of silently passing.
     for (flag, expect) in [
         ("--min-lines", MIN_LINES.to_string()),
         ("--min-tokens", MIN_TOKENS.to_string()),
@@ -270,7 +274,7 @@ fn globs_agree(run_gate_text: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "the tier-2 jscpd arm drifted from the gate's declared set ({}); keep the two in agreement",
+            "the tier-2 jscpd arm drifted from the gate's declared thresholds ({}); keep the two in agreement",
             problems.join("; ")
         ))
     }
@@ -338,9 +342,9 @@ impl TempWorkDir {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs())
         ));
-        // A stale directory can share the freshly derived name (a crashed pid in the same second
-        // with the same sequence); create_dir_all would silently leave its contents in place, so
-        // clear any pre-existing dir first for a genuinely fresh working tree.
+        // A stale directory can share this name (a crashed pid in the same second with the same
+        // sequence); create_dir_all would silently leave its contents in place, so clear any
+        // pre-existing dir first for a genuinely fresh working tree.
         if out.exists() {
             std::fs::remove_dir_all(&out).map_err(|e| format!("could not clear stale temp dir: {e}"))?;
         }
@@ -362,9 +366,11 @@ impl Drop for TempWorkDir {
 }
 
 /// Run jscpd over [`SCAN`] and return the clones it found.
-fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
+fn scan(root: &Path, jscpd: &Path, config: &[u8]) -> Result<Vec<Duplicate>, String> {
     let work = TempWorkDir::create()?;
     let out = work.path();
+    let config_path = out.join("jscpd.json");
+    std::fs::write(&config_path, config).map_err(|e| format!("could not snapshot {CONFIG_FILE}: {e}"))?;
 
     let mut cmd = Command::new(jscpd);
     cmd.arg("--silent")
@@ -379,8 +385,8 @@ fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
         .arg(MIN_LINES.to_string())
         .arg("--min-tokens")
         .arg(MIN_TOKENS.to_string())
-        .arg("--ignore")
-        .arg(IGNORE_GLOBS)
+        .arg("--config")
+        .arg(config_path)
         // Scan the whole tree's Rust. Since paths then report relative to the scan root, the
         // allowlist's `path:start` entries are repo-relative (`crates/...`, `xtask/...`).
         .arg(root);
@@ -400,9 +406,7 @@ fn scan(root: &Path, jscpd: &Path) -> Result<Vec<Duplicate>, String> {
     parse_report(&value)
 }
 
-/// Parse jscpd's `json` report into [`Duplicate`]s. Hand-parsed over `serde_json::Value`
-/// rather than `#[derive(Deserialize)]` because the derive would add `serde` as an xtask
-/// dependency for one struct; this shape is stable enough that the read is worth the lines.
+/// Parse the narrow fields this verdict needs while tolerating additions to jscpd's report.
 fn parse_report(value: &serde_json::Value) -> Result<Vec<Duplicate>, String> {
     let duplicates = value
         .get("duplicates")
@@ -656,20 +660,23 @@ mod tests {
 
     #[test]
     fn census_refuses_an_empty_scan() {
-        assert!(check_census(&[], IGNORE_GLOBS).is_err());
+        assert!(check_census(&[], &[]).is_err());
     }
 
     #[test]
     fn census_refuses_an_ignore_glob_that_matches_source() {
-        // The trap the floor closes: widening `IGNORE_GLOBS` so it covers real `.rs` would make a
+        // The trap the floor closes: widening the config so it covers real `.rs` would make a
         // clone in the skipped half invisible. This must refuse.
-        assert!(check_census(&["crates/sutura-domain/src/lib.rs"], "crates/**").is_err());
-        assert!(check_census(&["dev/a.rs"], "dev/**").is_err());
+        assert!(check_census(&["crates/sutura-domain/src/lib.rs"], &[String::from("crates/**")]).is_err());
+        assert!(check_census(&["dev/a.rs"], &[String::from("dev/**")]).is_err());
     }
 
     #[test]
     fn census_passes_on_real_rust_outside_the_ignore_globs() {
-        assert_eq!(check_census(&["crates/a.rs", "dev/b.rs"], IGNORE_GLOBS), Ok(()));
+        assert_eq!(
+            check_census(&["crates/a.rs", "dev/b.rs"], &[String::from("target/**")]),
+            Ok(())
+        );
     }
 
     #[test]
@@ -684,46 +691,82 @@ mod tests {
         assert!(!path.exists(), "the temp working dir must be removed when the guard drops");
     }
 
-    #[test]
-    fn run_gate_tier2_globs_match_the_gate_owner() {
-        // The tier-2 arm must hand `IGNORE_GLOBS` AND the MIN_LINES / MIN_TOKENS / FORMAT
-        // thresholds to bare jscpd; a subset silently scans a different tree, and a laxer
-        // threshold scans a different standard. `nix/run-gate.sh` cannot import the consts, so
-        // this gate re-parses the anchored invocation line and refuses a drift.
-        //
-        // The agreeing fixture is BUILT from `IGNORE_GLOBS` and the threshold consts (not a third
-        // hardcoded copy), so widening the const in both real owners stays green here - the drift
-        // assertions below are where the real owners are held, not in a literal that duplicates
-        // the list.
-        let agreeing = format!(
+    /// The tier-2 arm must hand `MIN_LINES` / `MIN_TOKENS` / `FORMAT` to bare jscpd; a laxer
+    /// threshold scans a different standard than the gate. `nix/run-gate.sh` cannot import the
+    /// consts, so this gate re-parses the anchored invocation line and refuses a drift. The
+    /// agreeing fixture is BUILT from the consts (not a third hardcoded copy), so retuning the
+    /// const in both real owners stays green here.
+    fn agreeing_run_gate_line() -> String {
+        format!(
             "exec nix run .#jscpd -- --silent --no-colors --format {FORMAT} --min-lines {MIN_LINES} \
-             --min-tokens {MIN_TOKENS} --ignore '{IGNORE_GLOBS}' .\n"
-        );
-        globs_agree(&agreeing).expect("the agreeing set must pass");
+             --min-tokens {MIN_TOKENS} --config devco/jscpd.json .\n"
+        )
+    }
 
-        // The old subset that #483 shipped (missing `result-*/**` and `**/.prek-cache/**`) IS the
-        // glob drift this holds: either side diverging must refuse.
-        let drifted = "exec nix run .#jscpd -- --silent --no-colors --format rust --min-lines 30 \
-                       --min-tokens 250 --ignore 'target/**,site/**,result/**,.pixi/**,.sutura-dev/**,report/**' .\n";
-        assert!(globs_agree(drifted).is_err());
+    #[test]
+    fn the_anchored_thresholds_must_agree() {
+        thresholds_agree(&agreeing_run_gate_line()).expect("the agreeing thresholds must pass");
+    }
 
-        // A mutation to a laxer threshold on the SAME line must also refuse - previously a silent
-        // pass, because only the `--ignore` list was compared (#506).
-        let lax_threshold = format!(
+    // The threshold drift this holds: any one of the three inline values diverging must refuse,
+    // not silently pass (#506).
+    #[test]
+    fn a_laxer_min_lines_refuses() {
+        let lax = format!(
             "exec nix run .#jscpd -- --silent --no-colors --format {FORMAT} --min-lines 900 \
-             --min-tokens {MIN_TOKENS} --ignore '{IGNORE_GLOBS}' .\n"
+             --min-tokens {MIN_TOKENS} --config devco/jscpd.json .\n"
         );
-        assert!(globs_agree(&lax_threshold).is_err(), "a laxer --min-lines must refuse");
+        assert!(thresholds_agree(&lax).is_err(), "a laxer --min-lines must refuse");
+    }
 
-        // The anchor must be the INVOCATION LINE, not a whole-file `find`: a comment above the arm
-        // that quotes the same flag (or any decoy in another arm) must not move the parse.
-        let comment_above = format!("# nix run .#jscpd -- --format rust --min-lines 900 --ignore '{IGNORE_GLOBS}'\n{agreeing}");
-        globs_agree(&comment_above).expect("a comment carrying the same tokens must be ignored");
-        let decoy_arm = format!("exec other-tool -- --format rust --min-lines 900 --ignore 'decoy/**' .\n{agreeing}");
-        globs_agree(&decoy_arm).expect("a decoy arm carrying a laxer line must be ignored");
+    #[test]
+    fn a_laxer_min_tokens_refuses() {
+        let lax = format!(
+            "exec nix run .#jscpd -- --silent --no-colors --format {FORMAT} --min-lines {MIN_LINES} \
+             --min-tokens 9999 --config devco/jscpd.json .\n"
+        );
+        assert!(thresholds_agree(&lax).is_err(), "a laxer --min-tokens must refuse");
+    }
 
-        // An arm that no longer passes `--ignore '<globs>'` cannot be verified at all.
-        assert!(globs_agree("exec nix run .#jscpd -- .\n").is_err());
+    #[test]
+    fn a_different_format_refuses() {
+        let wrong = format!(
+            "exec nix run .#jscpd -- --silent --no-colors --format go --min-lines {MIN_LINES} \
+             --min-tokens {MIN_TOKENS} --config devco/jscpd.json .\n"
+        );
+        assert!(thresholds_agree(&wrong).is_err(), "a different --format must refuse");
+    }
+
+    #[test]
+    fn a_missing_threshold_refuses_fail_closed() {
+        let missing = "exec nix run .#jscpd -- --silent --no-colors --config devco/jscpd.json .\n";
+        assert!(thresholds_agree(missing).is_err(), "a dropped threshold must refuse");
+    }
+
+    // The anchor must be the INVOCATION LINE, not a whole-file `find`: a comment above the arm
+    // that quotes the same flags (or any decoy in another arm) must not move the parse.
+    #[test]
+    fn a_comment_above_the_arm_is_ignored() {
+        let comment_above = format!(
+            "# nix run .#jscpd -- --format rust --min-lines 900 --min-tokens 9999\n{}",
+            agreeing_run_gate_line()
+        );
+        thresholds_agree(&comment_above).expect("a comment carrying the same tokens must be ignored");
+    }
+
+    #[test]
+    fn a_decoy_arm_is_ignored() {
+        let decoy_arm = format!(
+            "exec other-tool -- --format rust --min-lines 900 --min-tokens 9999 .\n{}",
+            agreeing_run_gate_line()
+        );
+        thresholds_agree(&decoy_arm).expect("a decoy arm carrying a laxer line must be ignored");
+    }
+
+    #[test]
+    fn the_absence_of_a_tier2_line_refuses() {
+        let no_arm = "exec other-tool -- something else entirely\n";
+        assert!(thresholds_agree(no_arm).is_err(), "no tier-2 arm must refuse");
     }
 
     #[test]
