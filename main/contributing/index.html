@@ -2812,6 +2812,9 @@ than it looks are all in
 <p><strong><code>main</code> is the sole trunk.</strong> Pull requests are squashed, leaving one conventional commit for
 <code>git-cliff</code>. A branch behind <code>main</code> is <strong>rebased</strong>, never merged: a merge commit from <code>main</code> into a
 topic branch comes back as a rebase request in review.</p>
+<p>That history requirement is not authorization to rewrite a published branch. Obtain explicit
+authorization before rebasing or restacking any published branch and force-pushing its replacement,
+even if you alone own it (<code>AGENTS.md</code>). Without it, ask; do not merge <code>main</code> as a workaround.</p>
 <p><strong>We prefer stacked pull requests, and we recommend <a href="https://github.com/cesarferreira/stax"><code>stax</code></a>
 (<code>st</code>) for them.</strong> A chain of dependent changes ships as one reviewable pull request per link, not
 one branch that grows until nobody can review it. <code>stax</code> is in the dev shell at a pinned version
@@ -2831,7 +2834,7 @@ forge, so a machine set up for a different one cannot submit stacks there.</p>
   that wrong picture, and <code>st stack submit</code> will plan a <em>duplicate</em> PR for a branch that already has
   one. Always <code>st ss --dry-run</code> before submitting a stack you did not create with <code>st</code>.</li>
 <li><strong>Never hand-<code>git rebase</code> a branch that belongs to a stack.</strong> Restacking rewrites history by
-  design, so ask before force-pushing a branch somebody else has.</li>
+  design; published branches need the explicit authorization above.</li>
 </ul>
 <p>Run <code>just ship-check</code> <strong>per branch</strong> rather than once for the stack, since each pull request is
 reviewed alone and so has to be green alone, and land bottom-up. Each link can sit in its own
