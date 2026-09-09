@@ -715,6 +715,8 @@ async fn the_interface_description_is_behind_the_token_when_one_is_configured() 
 // `SUTURA_TEST_LOG=1` also prints it, which is what makes a failure here readable. See
 // `sutura_runtime::testing::Capture`.
 
+mod logging;
+
 /// Runs one request through `app` with a subscriber over a buffer, and returns what was written.
 ///
 /// A `Runtime` built here rather than `#[tokio::test]`, and that is load-bearing:
