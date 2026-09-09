@@ -97,10 +97,7 @@ mod cross_link;
 // declare, and did it close*, for four callers. See its header.
 mod nix_block;
 pub(crate) use nix_block::declared_block;
-// `block_source` is read only by `crate::compose::file`, which is a `#[cfg(test)] mod` - so in the
-// binary it is dead code the compiler is right to refuse, and the gate on the re-export has to
-// match the gate on the item.
-#[cfg(test)]
+// Raw bodies also let check-scope compare literal nextest selectors without a second Nix lexer.
 pub(crate) use nix_block::block_source;
 
 /// Which output namespace a reference points into.
