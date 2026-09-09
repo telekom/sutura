@@ -222,8 +222,17 @@
           (crane.mkLib pkgs).overrideToolchain
             (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
 
+        # The SAME lib over the NIGHTLY toolchain, for the checks: gates now run on the same
+        # pinned nightly the dev shell uses, so a local green is a CI green. It mirrors the
+        # toolchain pair in `nix/toolchains.nix` - one code path was tried and the fork over a
+        # toolchain FILE is the smallest seam (rust-bin resolves each from its own toml).
+        craneLibNightlyFor = sys:
+          (crane.mkLib pkgs).overrideToolchain
+            (p: p.rust-bin.fromRustupToolchainFile ./devco/rust-toolchain-nightly.toml);
+
         # Native build: what `nix build` and `nix flake check` use.
         craneLib = craneLibFor system;
+        craneLibNightly = craneLibNightlyFor system;
 
         # The copy/paste detector (issue #474); body in nix/jscpd.nix.
         jscpd = import ./nix/jscpd.nix { inherit pkgs craneLib inheritedArtifacts; src = jscpd-src; };
@@ -329,6 +338,19 @@
         # real trade against a cache that is already over its allocation - so this is the change to
         # re-measure first if the hit rate moves the wrong way.
         ciArtifacts = craneLib.buildDepsOnly (
+          ciArgs
+          // {
+            doCheck = true;
+            cargoExtraArgs = "--workspace --all-features";
+          }
+        );
+
+        # The checks' dependency closure, on the NIGHTLY toolchain - one closure for every check
+        # that now gates on nightly, exactly the role `ciArtifacts` plays for the stable path,
+        # and with the same --all-features so feature-gated deps stay inside it (see above).
+        # The release, cross and shipped builds and the ONE stable check keep the stable
+        # `ciArtifacts`.
+        ciArtifactsNightly = craneLibNightly.buildDepsOnly (
           ciArgs
           // {
             doCheck = true;
@@ -444,11 +466,11 @@
           # adapters are feature-gated and default-off, so the default feature set is
           # nearly empty. Without it, clippy and the tests would cover none of them and
           # would still report success.
-          clippy = craneLib.cargoClippy (ciArgs // inheritedArtifacts ciArtifacts // {
+          clippy = craneLibNightly.cargoClippy (ciArgs // inheritedArtifacts ciArtifactsNightly // {
             cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
           });
 
-          nextest = craneLib.cargoNextest ((ciArgs // inheritedArtifacts ciArtifacts // {
+          nextest = craneLibNightly.cargoNextest ((ciArgs // inheritedArtifacts ciArtifactsNightly // {
             # THE UNFILTERED TREE, and this is what ends a bug class rather than patching its
             # fourth instance. `xtask` is a repo-inspection tool, so its tests read repo files
             # BY DESIGN - `nix/crap.nix` against `docs/crap.md`, `devco/max-lines-ignore`, the
@@ -514,14 +536,14 @@
 
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
-          doctest = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts checks.nextest // {
+          doctest = craneLibNightly.mkCargoDerivation (ciArgs // inheritedArtifacts checks.nextest // {
             pnameSuffix = "-doctest";
             src = wholeTree;
             doCheck = false;
             buildPhaseCargoCommand = "cargo test --doc --workspace --all-features --profile \"$CARGO_PROFILE\"";
           });
 
-          fmt = craneLib.cargoFmt {
+          fmt = craneLibNightly.cargoFmt {
             inherit src;
             inherit (commonArgs) pname version;
           };
@@ -548,7 +570,7 @@
           # paid the same tax more quietly. The derivation graph showed one shared closure the
           # whole time - `nix eval` agreed - because sharing an input is not the same as
           # compiling into it.
-          hygiene = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
+          hygiene = craneLibNightly.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifactsNightly // {
             src = wholeTree;
             pnameSuffix = "-hygiene";
             doCheck = false;
@@ -597,7 +619,7 @@
           # --profile ci -Z unstable-options --unit-graph` reports, summed over the ten documented
           # libs and deduplicated on (package, target, mode): 482 units, of which 291 are `check`
           # and exactly 10 are the `doc` units themselves.
-          api-docs = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
+          api-docs = craneLibNightly.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifactsNightly // {
             src = wholeTree;
             pnameSuffix = "-api-docs";
             doCheck = false;
@@ -609,9 +631,12 @@
               xtask="''${CARGO_TARGET_DIR:-target}/$CARGO_PROFILE/xtask"
               # The binary directly: `cargo run` would have to BE the nightly cargo for the child
               # to inherit nightly, and then nightly would compile `xtask`.
+              # The child shares the derivation's own target dir (api-docs nightly dependency
+              # producer): the derivation is nightly, so there is no alternating compiler to
+              # separate from, and ciArtifactsNightly was decompressed here - the child reuses
+              # its artifacts instead of rebuilding the 482 rustdoc units (291 rmeta) each run.
               CARGO="${nightlyToolchain}/bin/cargo" \
               PATH="${nightlyToolchain}/bin:$PATH" \
-              CARGO_TARGET_DIR="$TMPDIR/api-docs-rustdoc" \
               SUTURA_API_DOCS_PROFILE="$CARGO_PROFILE" \
                 "$xtask" check-api-docs
             '';
@@ -638,7 +663,7 @@
           #
           # `HOME` because cargo-llvm-cov writes there and a build sandbox has no home directory -
           # without it the run fails on a path it cannot create.
-          crap = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
+          crap = craneLibNightly.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifactsNightly // {
             src = wholeTree;
             pnameSuffix = "-crap";
             doCheck = false;
