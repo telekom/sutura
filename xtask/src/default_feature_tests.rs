@@ -27,7 +27,7 @@
 //! joined the dead zone in silence.
 //!
 //! **Same package list, same declaration, one owner.** The packages are `nix/shipped.nix`'s
-//! `binaries` block, read by [`shipped_packages`], which is the parser `check-default-features`
+//! `binaries` block, read by [`super::default_features::shipped_packages`], which is the parser `check-default-features`
 //! already uses - so a binary added there is covered here without anybody remembering, and a rename
 //! fails rather than silently dropping out. FAIL CLOSED on parsing none, for that gate's reason: a
 //! parser that silently sees half a file is worse than no parser.
@@ -64,8 +64,8 @@
 //! mechanism, not the directory's name - and `just gates` stays on the developer's default profile
 //! with no argument at all.
 //!
-//! **The two literals the profile is derived from belong to `check-warm-start`.** [`STAMP`] and
-//! [`WARM_PROFILE`] are read from `warm_start`, and so is the pair of facts that makes reading them
+//! **The two literals the profile is derived from belong to `check-warm-start`.** [`crate::warm_start::STAMP`] and
+//! [`crate::warm_start::WARM_PROFILE`] are read from `warm_start`, and so is the pair of facts that makes reading them
 //! sound - the warmer writes the stamp into the directory it exports, and `flake.nix` builds the
 //! artifacts at that profile. Both were `contains` assertions in this module's test module, where a
 //! commented-out write satisfied one and a stamp moved out of the exported directory satisfied it

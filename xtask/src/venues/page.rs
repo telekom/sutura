@@ -42,7 +42,7 @@ pub(super) const STRUCTURAL: &[&str] = &["The venues", "Which venue answers whic
 /// **Neither `unrun` nor `wired` is a softer `can`.** A `can` cell points at evidence somewhere
 /// else; those two point at none. Only `yes` and `can` may be cited for a claim, and `unrun`,
 /// `wired` and those two are what count as a venue having a reason to be in the table - see
-/// [`page_problems`].
+/// [`crate::venues::page_problems`].
 ///
 /// **`wired` is not a softer `unrun` either, and the two are exclusive by mechanism rather than by
 /// convention:** `unrun` is refused once CI invokes the venue's `Reached by` task and `wired` is

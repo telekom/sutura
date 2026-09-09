@@ -58,7 +58,7 @@ mod retired;
 /// accepted, because `A && B && C` is strictly narrower than `A && B` for any `C` (`!cancelled()`
 /// is the plausible one), and a `||` anywhere in the remainder is refused because it can widen.
 /// The conjunct that USED to be here - `vars.NIX_CACHE_NAME != ''` on the retired populate step -
-/// is now refused a layer up by [`UNOBSERVABLE`]: narrower is not the same as observable.
+/// is now refused a layer up by `retired::UNOBSERVABLE`: narrower is not the same as observable.
 const MAIN_PUSH: &str = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 
 /// Actions that write a cache, and are therefore only allowed behind [`MAIN_PUSH`].
@@ -74,7 +74,7 @@ const WRITERS: [&str; 2] = ["nix-community/cache-nix-action", "actions/cache"];
 /// correctly, and inert while unprovisioned - satisfied it on their own. Deleting the store cache
 /// outright then left the gate GREEN, which is the shape this tree calls a floor counted off the
 /// same derivation as its own loop. Measured by provocation, not reasoned. Those two steps are
-/// deleted now and [`HOSTED`] refuses their return, so the tree can no longer show it either -
+/// deleted now and `retired::HOSTED` refuses their return, so the tree can no longer show it either -
 /// which is why `a_gated_writer_that_is_not_the_store_cache_does_not_satisfy_the_anchor` holds it
 /// on `actions/cache` in a fixture instead.
 const STORE_CACHE: &str = "nix-community/cache-nix-action";

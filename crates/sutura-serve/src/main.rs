@@ -516,7 +516,7 @@ enum OpenedSources {
     /// A `BigQuery` dataset per source, reached over the wire.
     ///
     /// Nothing is attached, so there is no table set beside it - see the note at the call site of
-    /// [`refuse_unattached`], which states what that costs.
+    /// [`boot::refuse_unattached`], which states what that costs.
     #[cfg(feature = "bigquery")]
     BigQuery(sutura_app::Warehouses<BigQuerySource>),
 }
@@ -570,7 +570,7 @@ where
 /// and a CSV has to be sniffed.
 ///
 /// The set of tables comes back with the engine because it is evidence rather than bookkeeping: it is
-/// what [`refuse_unattached`] compares the SERVED bundle against, and the two bundles are two loads.
+/// what [`boot::refuse_unattached`] compares the SERVED bundle against, and the two bundles are two loads.
 ///
 /// **`with_worker_threads` and not `new`, and that is the whole of what `runtime.engine_worker_threads`
 /// does.** The engine drives its own runtime and every request `block_on`s it from a blocking-pool
