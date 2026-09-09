@@ -622,6 +622,14 @@ pub_without_shorthand       = "allow"
 # it is what stops an unused item from being kept alive by a `pub` that reaches nowhere.
 # This is the side that loses.
 redundant_pub_crate         = "allow"
+# `rest_pattern_accessible_field` is a NEW restriction lint (nightly-2026-09-08) that fires on
+# `..` in a struct pattern whenever the remaining fields are accessible, demanding each be written
+# as `field: _`. The always-on default lint `unneeded_field_pattern` (kept at its workspace deny)
+# demands the exact opposite - collapse an all-wildcard tail back to `..`. The two cannot both be
+# satisfied by any source form, so this is the same contradictory-pair carve-out as the rows above,
+# and `..` is the side this repo keeps (it is what `unneeded_field_pattern` wants and what every
+# match arm here already writes).
+rest_pattern_accessible_field = "allow"
 
 # --- restriction: fights idiomatic Rust ------------------------------------
 implicit_return          = "allow" # tail expressions are the language, not an omission
