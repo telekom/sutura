@@ -423,10 +423,7 @@ mod tests {
                 "        run: nix build --option substituters https://sutura.cachix.org .#xtask\n",
             ),
         ] {
-            assert!(
-                !super::trusted_stores("ci.yml", text).is_empty(),
-                "still refused: {why}"
-            );
+            assert!(!super::trusted_stores("ci.yml", text).is_empty(), "still refused: {why}");
         }
     }
 
