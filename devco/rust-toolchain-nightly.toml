@@ -28,7 +28,7 @@
 # Stable is the authority for everything else: rust-toolchain.toml. See the canonical-sources table
 # in AGENTS.md, which states the same split.
 [toolchain]
-channel = "nightly-2026-08-29"
+channel = "nightly-2026-09-08"
 # rustc-codegen-cranelift-preview is the whole reason this file exists. The rest match
 # rust-toolchain.toml so the inner loop has the same tools, plus the two that wire the
 # LANGUAGE SERVER to this same pin: rust-analyzer (the binary, first on PATH in the dev
