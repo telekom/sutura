@@ -136,7 +136,9 @@ pub(super) fn problems(root: &Path, ci: &OrdinaryCi) -> Vec<String> {
     }
     for entry in &advisory {
         if !jobs.iter().any(|job| job.declared_as == *entry) {
-            problems.push(format!("{DECLARATION} lists `{entry}` as advisory and no such job exists"));
+            problems.push(format!(
+                "{DECLARATION} lists `{entry}` as advisory, but no gating job matches it - either the job does not exist or its workflow gates on neither `pull_request` nor `merge_group`"
+            ));
         }
     }
     for job in &jobs {
@@ -633,6 +635,38 @@ mod tests {
         assert_eq!(
             reports,
             vec![("ci.yml:ci", true), ("ci.yml:sharded", false), ("ci.yml:titled", false)]
+        );
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
+    }
+
+    #[test]
+    fn an_unseen_advisory_names_both_possible_causes() {
+        let scratch = std::env::temp_dir().join(format!("sutura-advisory-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("the scratch tree");
+        std::fs::create_dir_all(scratch.join("devco")).expect("the devco directory");
+        std::fs::write(
+            workflows.join("ci.yml"),
+            "on:\n  pull_request:\njobs:\n  ci:\n    runs-on: ubuntu-latest\n",
+        )
+        .expect("the gating workflow");
+        std::fs::write(
+            workflows.join("manual.yml"),
+            "on:\n  workflow_dispatch:\njobs:\n  probe:\n    runs-on: ubuntu-latest\n",
+        )
+        .expect("the non-gating workflow");
+        std::fs::write(
+            scratch.join(super::DECLARATION),
+            "[required]\nci\n\n[advisory]\nmanual.yml:probe\n",
+        )
+        .expect("the declaration");
+
+        let problems = super::problems(&scratch, &super::OrdinaryCi::read(&scratch));
+        assert_eq!(
+            problems,
+            [
+                "devco/required-contexts lists `manual.yml:probe` as advisory, but no gating job matches it - either the job does not exist or its workflow gates on neither `pull_request` nor `merge_group`"
+            ]
         );
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }

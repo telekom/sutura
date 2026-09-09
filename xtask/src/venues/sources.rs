@@ -23,7 +23,7 @@
 //! resolved one layer down. [`command_spans`] tracks the quoting, and its documentation carries the
 //! five shapes measured on the merged tree.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// Every test function in the workspace, by name.
@@ -143,6 +143,15 @@ pub(super) fn command_spans(line: &str) -> Vec<&str> {
             (Quoting::Single, '\'') | (Quoting::Double, '"') => Some((one, false, Quoting::Bare)),
             (Quoting::Single, _) | (Quoting::Bare, '\'') => Some((one, false, Quoting::Single)),
             (Quoting::Bare, '"') => Some((one, false, Quoting::Double)),
+            // A backslash inside `"…"` makes the NEXT byte a literal, so an ESCAPED backtick is
+            // one somebody printed and not a substitution that runs something. Without this arm,
+            // an `echo` that quotes a task name in escaped backticks resolved that task - the
+            // same prose hole one escape deeper, and the shape a recipe's own `echo` uses.
+            (Quoting::Double, '\\') => Some((
+                one.saturating_add(rest.chars().nth(1).map_or(0, char::len_utf8)),
+                false,
+                Quoting::Double,
+            )),
             // A substitution runs a command wherever it is written, so it opens one - and its
             // close puts the scan back in the quoting the opener was written in.
             (Quoting::Bare | Quoting::Double, '$') if rest.starts_with("$(") => {
@@ -234,6 +243,16 @@ const WRAPPERS: &[(&str, &str)] = &[
 /// this reader silently lost `devenv shell -- just setup`, which is why [`WRAPPERS`] exists and why
 /// the count this gate prints is worth reading on a change to either.
 pub(super) fn starts_a_command(segment: &str) -> Option<&str> {
+    invocation(command_of(segment))
+}
+
+/// The command one span actually runs, with the prefixes and wrappers in front of it removed.
+///
+/// Split out of [`starts_a_command`] so that *what does this span run* has ONE reader. The second
+/// caller is [`test_tasks`], which asks whether a recipe's own command runs this workspace's
+/// tests; asking that of the raw line instead would have read the three `echo` lines every venue
+/// recipe opens with, which is the prose hole this module exists to close.
+fn command_of(segment: &str) -> &str {
     let mut command = segment.trim_start();
     loop {
         if let Some(rest) = PREFIXES.iter().find_map(|word| command.strip_prefix(word)) {
@@ -253,7 +272,7 @@ pub(super) fn starts_a_command(segment: &str) -> Option<&str> {
             None => break,
         }
     }
-    invocation(command)
+    command
 }
 
 /// Every `just` task and `nix run .#` app CI invokes, by bare name.
@@ -294,6 +313,157 @@ pub(super) fn invoked(root: &Path) -> Option<BTreeSet<String>> {
         }
     }
     Some(out)
+}
+
+/// The file every task this page cites is defined in.
+const JUSTFILE: &str = "justfile";
+
+/// The commands that RUN this workspace's tests.
+///
+/// Whole commands rather than words, and read through [`command_of`] rather than off the raw line,
+/// because a venue recipe opens with three `echo` lines that name tasks in prose. Two entries are
+/// enough for the one question asked of this list - *does this task run a test at all* - and a
+/// task running neither, transitively, runs none.
+const TEST_COMMANDS: &[&str] = &["cargo nextest run", "cargo test"];
+
+/// One `just` recipe, reduced to the two things the anchor rule asks of it.
+struct Recipe {
+    /// Does its own body start a command from [`TEST_COMMANDS`]?
+    runs_tests: bool,
+    /// Every task it invokes: its header's dependencies, and the invocations in its body.
+    delegates: BTreeSet<String>,
+}
+
+/// A recipe's header line, reduced to the two things [`recipes`] needs from it.
+struct Header {
+    /// The recipe's name.
+    name: String,
+    /// The tasks it depends on, which `just` runs before its body.
+    deps: BTreeSet<String>,
+}
+
+/// Is this line a recipe header, and if so its name and its dependencies?
+///
+/// A header sits at column zero and its name is followed by parameters, then a `:`. The two shapes
+/// deliberately excluded are an assignment (`x := y`, which contains the `:` a header ends with)
+/// and a `set`/`export` setting - both are column-zero lines with a colon and neither runs
+/// anything.
+///
+/// **A parameter DEFAULT is why the name is taken off the head rather than by pattern**, measured
+/// against `just --list` over this repository's own justfile: six recipes carry a default such as
+/// `base="origin/main"`, and a reader that refused an `=` before the colon lost all six.
+fn header(line: &str) -> Option<Header> {
+    if line.starts_with(char::is_whitespace) || line.starts_with('#') || line.contains(":=") {
+        return None;
+    }
+    let (head, deps) = line.split_once(':')?;
+    let name = head.split_whitespace().next()?;
+    let shaped = name.starts_with(|c: char| c.is_ascii_lowercase())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+    if !shaped || ["set", "export", "alias", "import"].contains(&name) {
+        return None;
+    }
+    let deps = deps
+        .split_whitespace()
+        .map(|word| word.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_')))
+        .filter(|word| !word.is_empty())
+        .map(str::to_owned)
+        .collect();
+    Some(Header {
+        name: name.to_owned(),
+        deps,
+    })
+}
+
+/// Every recipe [`JUSTFILE`] defines, by name.
+fn recipes(text: &str) -> BTreeMap<String, Recipe> {
+    let mut out: BTreeMap<String, Recipe> = BTreeMap::new();
+    let mut current: Option<String> = None;
+    for line in text.lines() {
+        if let Some(Header { name, deps }) = header(line) {
+            out.insert(
+                name.clone(),
+                Recipe {
+                    runs_tests: false,
+                    delegates: deps,
+                },
+            );
+            current = Some(name);
+            continue;
+        }
+        // A body line is indented, and a column-zero line that is not a header ends the recipe.
+        if !line.trim().is_empty() && !line.starts_with(char::is_whitespace) {
+            current = None;
+            continue;
+        }
+        let Some(recipe) = current.as_ref().and_then(|name| out.get_mut(name)) else {
+            continue;
+        };
+        for span in command_spans(line) {
+            let command = command_of(span);
+            if TEST_COMMANDS.iter().any(|verb| command.starts_with(verb)) {
+                recipe.runs_tests = true;
+            }
+            if let Some(name) = invocation(command) {
+                recipe.delegates.insert(name.to_owned());
+            }
+        }
+    }
+    out
+}
+
+/// Every task that RUNS a test, through the tasks it delegates to as well as its own body.
+///
+/// **What this is the anchor for.** A `Reached by` cell earns its venue a citable verdict by naming
+/// a task CI invokes - and CI invokes lints, builds and doc jobs too. Measured and recorded on the
+/// page before this existed: pointing the two-keys row at a real, CI-invoked, entirely unrelated
+/// lint and moving its cell passed at exit 0. A task that runs no test cannot be what reaches a
+/// venue whose venue-hood is a test, so this is resolved beside `invoked` and both are required.
+///
+/// **The direction it is wrong in.** A task this cannot see runs no test as far as the gate is
+/// concerned, so the verdict is REFUSED - a false negative, which is the direction the rules built
+/// on this can afford. The two shapes it cannot see: a task whose test run happens inside a `nix`
+/// derivation rather than in its own recipe (`just validate` is one), and a flake app with no
+/// same-named recipe. Both are refusals of an honest cell rather than acceptances of a false one.
+///
+/// **What it does NOT reach, stated where the claim is.** It holds that the cited task runs tests,
+/// never that it runs THIS venue's tests. Pointing a row at another venue's test task still
+/// passes, and that residue is review's - narrowed from *any CI-invoked task* to *any CI-invoked
+/// task that runs tests*.
+///
+/// `None` when the justfile cannot be read or defines no test task at all, which its caller turns
+/// into a failure: a set that found nothing would refuse every citable cell, and a scan that
+/// passes - or fails - by finding nothing is what a text gate is most prone to.
+pub(super) fn test_tasks(root: &Path) -> Option<BTreeSet<String>> {
+    let text = std::fs::read_to_string(root.join(JUSTFILE)).ok()?;
+    let found = test_tasks_in(&text);
+    (!found.is_empty()).then_some(found)
+}
+
+/// [`test_tasks`] over the justfile's TEXT, so the reader has a venue of its own.
+fn test_tasks_in(text: &str) -> BTreeSet<String> {
+    let defined = recipes(text);
+    let mut out: BTreeSet<String> = defined
+        .iter()
+        .filter(|(_, recipe)| recipe.runs_tests)
+        .map(|(name, _)| name.clone())
+        .collect();
+    // Delegation is transitive, and the fixpoint is bounded by the recipe count: each pass adds at
+    // least one name or stops.
+    loop {
+        let grown: Vec<String> = defined
+            .iter()
+            .filter(|(name, recipe)| !out.contains(name.as_str()) && recipe.delegates.iter().any(|task| out.contains(task)))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if grown.is_empty() {
+            break;
+        }
+        out.extend(grown);
+    }
+    out
 }
 
 /// The task and app names a `Reached by` cell cites, by bare name.
@@ -360,6 +530,35 @@ mod tests {
     }
 
     #[test]
+    fn a_test_command_inside_a_recipe_s_own_echo_is_not_a_test_run() {
+        // The anchor rule asks the justfile *does this task run a test*, and the recipes it asks
+        // that of open with three `echo` lines that name tasks and commands in prose - including
+        // in ESCAPED backticks, which is the shape this file's own quoting reader gained an arm
+        // for. So the same command reader `invoked` uses is what answers here.
+        let justfile = concat!(
+            "# A lint, which CI really does invoke.\n",
+            "lint-workflows:\n",
+            "    echo \"this is NOT a gate - run \\`cargo nextest run\\` for the whole suite\"\n",
+            "    nix run .#actionlint\n",
+            "\n",
+            "two-principals:\n",
+            "    echo \"CI runs it through \\`nix run .#two-principals\\`, in its own job.\"\n",
+            "    cargo nextest run -p sutura-exec-bigquery -E 'binary(two_principals)'\n",
+            "\n",
+            "gates: two-principals\n",
+            "    nix build .#checks\n",
+        );
+        let found = super::test_tasks_in(justfile);
+        // The real command counts, wherever in the body it is.
+        assert!(found.contains("two-principals"), "{found:?}");
+        // A dependency runs before the body, so a task that depends on a test task runs tests.
+        assert!(found.contains("gates"), "{found:?}");
+        // And the one the whole rule exists for: a lint that only TALKS about a test run is not a
+        // venue anything is proven in. Without the escaped-quote arm this line reads as a test.
+        assert!(!found.contains("lint-workflows"), "{found:?}");
+    }
+
+    #[test]
     fn a_separator_inside_somebody_s_quoted_sentence_is_not_a_command_boundary() {
         // The first five moved the invocation count from 18 to 19 on the merged tree, which refuses
         // the honest `unrun` cell and instructs `wired` - measured one appended `ci.yml` line at a
@@ -371,6 +570,9 @@ mod tests {
             "      - run: echo \"run it by hand (just bigquery-two-principals) for now\"",
             "      - run: printf '| a venue | just bigquery-two-principals |\\n'",
             "      - run: echo 'nothing runs `nix run .#bigquery-two-principals` yet'",
+            // An ESCAPED backtick inside double quotes is a printed backtick, not a substitution -
+            // and it is the shape a recipe's own `echo` lines are written in.
+            "      - run: echo \"run \\`just bigquery-two-principals\\` by hand for now\"",
             "      - run: nix build .#checks.x86_64-linux.hygiene # just bigquery-two-principals",
             "      # just bigquery-two-principals is the task",
             "        name: Run `just bigquery-two-principals`",

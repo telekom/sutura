@@ -81,3 +81,130 @@ jobs:
             .#checks.x86_64-linux.nextest \
             .#checks.x86_64-linux.clippy \
             .#checks.x86_64-linux.hygiene
+
+  # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
+  # (`sutura-cross-build` / `sutura-fuzzing` / `sutura-connectors`), each with its own 5 GB bucket,
+  # so one consumer's publish never crowds another's or the shared `sutura` cache. Each job restores
+  # ONLY its consumer's scope(s), then cachix-action pushes that restoration to that consumer's cache
+  # with that consumer's token. cachix-action pushes EVERY store path matching `pushFilter`, so a job
+  # that restored another consumer's scope would dump that closure in too - the separate jobs are
+  # what keeps each cache to its own consumer.
+  #
+  # THE TOKENS LIVE IN ENV `cachix-push-mixed`: each job declares it and spends exactly its own
+  # secret. The `push` job above keeps the shared closure and its token in env `cachix-push`
+  # untouched. The runner is the same big one `push` uses, because realising these closures (the
+  # cross build most of all) is the disc-heavy half of a publish.
+  #
+  # NONE OF THESE CACHES IS TRUSTED IN TEXT: cachix-action configures `name:` as a substituter at
+  # RUNTIME, which a text rule cannot see, and every job below still installs nix with only
+  # `sutura.cachix.org` trusted - the main resolver is unchanged. The per-consumer keys are therefore
+  # not added to `xtask/src/workflows/cache_scope/retired.rs::ALLOWED`; nothing here NAMES them as a
+  # substituter.
+
+  cross-build:
+    name: push the cross-build closure
+    runs-on: rust-mcp-32core
+    environment: cachix-push-mixed
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The four triples `cross-link.yml` builds on `main`. cachix-push only ever runs on a push to
+        # the default branch, so this is main's four, not the pull-request pair.
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-gnu
+          - aarch64-unknown-linux-musl
+    steps:
+      # Same skeleton as the `push` job: the store is what fills, so `reclaim-disk` first.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+      # Restore ONLY this leg's scope - the same per-triple entry `cross-link.yml` writes. A shared
+      # key would have the four legs overwrite each other.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ${{ matrix.target }}
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura-cross-build
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN_CROSS_BUILD }}
+          pushFilter: "(-source$|nixpkgs)"
+      # `cross` is the largest closure - four triples x two shipped binaries - so it is the one to
+      # watch first against its 5 GB bucket.
+      - name: Realise and publish this triple's cross-build closure
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          # The two shipped binaries, the exact set `cross-link.yml` realises on `main`.
+          for bin in sutura sutura-serve; do
+            nix build --print-build-logs ".#${bin}-${TARGET}-ci"
+          done
+
+  connectors:
+    name: push the connectors closure
+    runs-on: rust-mcp-32core
+    environment: cachix-push-mixed
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+      # Restore the `bq` scope the acceptance job wrote on `main` - the closure `nix run
+      # .#bigquery-acceptance` needs. The acceptance crate itself is a cargo build from that
+      # restored closure, so the publish here is the restored store, not a freshly-built app.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: bq
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura-connectors
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN_CONNECTORS }}
+          pushFilter: "(-source$|nixpkgs)"
+
+  fuzz:
+    name: push the fuzz toolchain closure
+    runs-on: rust-mcp-32core
+    environment: cachix-push-mixed
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+      # Restore the `fuzz` scope the fuzz workflow wrote on `main` - the pinned nightly + cargo-fuzz
+      # + C toolchain `.#fuzz` runs. The harness binaries themselves are a RUNTIME cargo build into
+      # `target/fuzz` (see `fuzz.yml`), never the store, so they are not - and cannot be - published.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: fuzz
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura-fuzzing
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN_FUZZING }}
+          pushFilter: "(-source$|nixpkgs)"

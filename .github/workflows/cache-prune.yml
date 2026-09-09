@@ -20,9 +20,12 @@
 # 800-deletion budget is deliberately NOT raised: it exists to stay under the hourly API limit, not
 # to keep up with volume. `main`'s entries are not prune candidates here at all - the ref parser
 # below returns no number for `refs/heads/main` - so there is nothing for a higher budget to
-# protect. There is also no second, non-ref-scoped carrier standing behind this: `docs/adr/0026`
-# retired the third-party binary cache, so the entries this file spares ARE what a pull request
-# restores from.
+# protect. There IS a second, non-ref-scoped carrier behind this: `docs/adr/0027` provisioned this
+# repository's own `sutura.cachix.org`, which every workflow installer names as a substituter, so a
+# pull request substitutes what that cache serves in addition to restoring these `main` entries. The
+# entries this file spares are still what the Actions store cache restores - the full /nix/store
+# closure a ref does not have cached anywhere else - while `sutura.cachix.org` carries the share of
+# the closure its own publish path realised.
 #
 # WHAT IS NOT MEASURABLE FROM OUTSIDE, and the reason no budget change is proposed with a number
 # beside it: `orgs/{org}/actions/cache/usage` needs `admin:org` and answers 403 without it, so the

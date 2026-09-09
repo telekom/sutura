@@ -218,7 +218,7 @@ enum Outside {
 ///
 /// Every field is private and [`Self::read`] is the only constructor that ships, so no caller can
 /// state a number the walk did not reach - the shape `check-warm-start`'s `Swept` already uses,
-/// generalised no further than this gate needs. `#[cfg(test)]` adds [`Self::fixture`] so the pure
+/// generalised no further than this gate needs. `#[cfg(test)]` adds `Self::fixture` so the pure
 /// verdict arms stay testable without a checkout; that is a test-only door, and the property this
 /// type exists for is a property of every production caller.
 #[derive(Debug)]

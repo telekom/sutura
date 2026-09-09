@@ -4942,6 +4942,7 @@ dependencies = [
 name = "xtask"
 version = "0.4.1"
 dependencies = [
+ "serde",
  "serde_json",
  "sha2",
  "sutura-dev",

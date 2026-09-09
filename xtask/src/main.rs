@@ -43,6 +43,7 @@ mod line_endings;
 mod markdown;
 mod max_lines;
 mod newtype_leaks;
+mod nix_platform;
 mod one_bound;
 mod pins;
 mod refusals;
@@ -98,6 +99,16 @@ const TASKS: &[Task] = &[
         description: "no tool is pinned by both nix and pixi",
         kind: Kind::Hygiene(Reads::Code),
         run: pins::run,
+    },
+    Task {
+        // Beside `check-pins` because the subject is the same tree of nix expressions, read as
+        // text. It exists because a deprecated `stdenv.is<Platform>` STILL EVALUATES: nixpkgs
+        // warns and carries on, so one site survived here while every other had moved and nothing
+        // failed. `Reads::Code`: no `docs/*.md` diff can change a nix file.
+        name: "check-nix-platform",
+        description: "no nix file reads a platform predicate off the deprecated stdenv alias",
+        kind: Kind::Hygiene(Reads::Code),
+        run: nix_platform::run,
     },
     Task {
         // Beside `check-pins` because it is the same shape of gate: two files, read as text
@@ -194,7 +205,7 @@ const TASKS: &[Task] = &[
         // same kind of check - and this one is about the ERROR principle rather than the newtype
         // one. Name coverage is narrower than proving a test actually provokes the refusal.
         name: "check-refusal-coverage",
-        description: "every variant of the 3 ENROLLED refusal enums is named, or separately excused with a date and reason",
+        description: "every variant of an enrolled refusal enum is named, or separately excused with a date and reason",
         kind: Kind::Hygiene(Reads::Code),
         run: refusals::run,
     },
