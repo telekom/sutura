@@ -75,9 +75,9 @@ conformance test is that what it declared is exactly what it produced.
 [What DataHub can carry](adr/0016-what-datahub-can-carry.md) is the measurement this came from.
 
 **This sentence used to say lineage arrives through that port too, and it does not.** There is no
-lineage type anywhere in the workspace and none is planned: a plan resolves to one source, a measure
-reads columns a model declares, and where a column came from upstream changes neither. It is real
-metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md)
+lineage type anywhere in the workspace and none is planned: a plan reads at most two data systems, a
+measure reads columns a model declares, and where a column came from upstream changes neither. It is
+real metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md)
 reads three lineage aspects out of one of them - and this port has no shape to put it in.
 
 The catalogue may be outside this repository or in it, and
@@ -392,8 +392,11 @@ a refusal naming the argument that failed.
 
 **Plan.** The resolved question becomes a plan: which data system owns the metric, the projection, the
 grouping keys, the date predicate and its bounds, and which values become bind parameters. Two things
-are settled here and nowhere else. The plan names exactly one source, so a question that would need
-two identities is refused before anything runs. And every value from the question becomes a parameter,
+are settled here and nowhere else. The plan names one source per leg and at most two legs, so a
+question that would read from a third data system is refused before anything runs - and whether those
+two legs would decide identity the same way is not a plan-stage fact at all, because a posture belongs
+to an opened adapter rather than to a plan; that is refused where the legs are assembled, above the
+credential mint. And every value from the question becomes a parameter,
 so no caller-supplied value reaches the next stage as text. The plan also records where each predicate
 came from, definitional or requested, because a predicate that is part of what a metric means is not
 one a caller chose and must not be removable. The plan holds no SQL, its type is a domain type because

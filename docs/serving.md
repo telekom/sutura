@@ -317,6 +317,7 @@ depends on why:
 | `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
 | `credential_unavailable` | `403` | Nothing you can send. You have no access to that data system, and this deployment will not read it as itself instead - the missing grant is at the data system |
+| `legs_decide_identity_differently` | `409` | Ask the same metric without the dimension on the second data system. The two data systems decide who is asking in two different ways, and a total made of rows read under two identities is a number neither is entitled to. No published build can reach it - every linked adapter serves everyone as one identity |
 
 **The refusal `403`s are not about your credential.** No token and no scope widens a metric's
 dimension set; a refusal `403` is the catalog's answer to "may this be asked of this metric", and the
@@ -947,7 +948,7 @@ listener opened, and the sentence `sutura_config` renders for that deployment. `
 it. `crates/sutura-http/src/harness.rs` asserts the
 envelope one status at a time, in process and with no socket: the token gate, `sql` in a body as a
 `400` naming the field, the bounds, the rate-limit tiers, and the interface description served in
-development and not in production. It reaches ten of the seventeen refusal reasons; the exhaustive
+development and not in production. It reaches ten of the eighteen refusal reasons; the exhaustive
 one is `crates/sutura-http/src/wire/refusal.rs`, which lists every variant's status and `code` and
 assigns them in a match with no wildcard arm, so a new refusal is a compile error until somebody
 decides what it is on the wire.

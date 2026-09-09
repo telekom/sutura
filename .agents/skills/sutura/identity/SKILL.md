@@ -51,7 +51,19 @@ proof of impersonation.
   credential while provenance reported the answer as impersonated.
 - **Recording is not a control**, and the field's own documentation says so: it reaches a caller
   after the rows did. sutura retains nothing, so a record is worth what the deployment's sink is
-  worth.
+  worth. **And *disclose instead of refuse* is not the third option it reads as**: `ToolOutcome` has
+  two variants, both transports serialize `executed_as` and `rows` in one body per call, and there
+  is no streaming and no second message - so the only outcome that reaches a caller without rows is a
+  `Refusal`. That is why a federated answer whose legs decide identity differently is refused rather
+  than labelled (`ExecutedAs::uniform`, and the `UniformlyExecuted` that
+  `PinnedDefinitions::provenance` takes), and why the per-leg record still ships beside it: the
+  record documents a disclosure that happened, which is a different job.
+- **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
+  `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
+  every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
+  Same reason: **compare the posture VARIANT and never the value** - the acknowledgement resolves per
+  source, so two ordinary shared legs are two unequal values and one posture, and a `!=` would refuse
+  the only federating shape that ships.
 - **`Expiry` used to be read by nothing; the FLOOR now lands it in the broker.** The domain reads no
   clock - `Expiry::passed_by` takes the instant as an argument and `Minted::agreeing_with` makes the
   already-dead check there. The FLOOR (`docs/adr/0008` part 6) - *is there enough life left for what

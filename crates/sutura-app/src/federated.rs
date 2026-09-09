@@ -19,6 +19,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{Executable, FederatedFailure, FederatedPlan, LegPlan};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
+use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::{RowSet, Warehouse};
 
 use crate::{Answered, Answering, ServiceError, Warehouses, exceeds_row_cap, now_in_unix_seconds};
@@ -97,21 +98,16 @@ where
     let Some(lookup_warehouse) = warehouses.get(plan.lookup().source()) else {
         return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
     };
-    // Execution records for BOTH legs, so provenance names both identities. `FederatedPlan::new`
-    // refuses same-source legs, so the two records belong to distinct sources and `and` cannot
-    // collide; the Err arm of `and` is kept (rather than an expect) because the compile cannot know
-    // that, and nothing can answer for a splitter invariant that changed.
-    let Some(fact_record) = warehouses.executed_on(plan.fact().source()) else {
-        return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
-    };
-    let Some(lookup_record) = warehouses.executed_on(plan.lookup().source()) else {
-        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
-    };
-    let Some(lookup_posture) = lookup_record.posture(plan.lookup().source()).cloned() else {
-        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
-    };
-    let executed_as = match fact_record.and(plan.lookup().source().clone(), lookup_posture) {
-        Ok(executed_as) => executed_as,
+    // Execution records for BOTH legs, so provenance names both identities. Read off the two
+    // adapters this answer would run on rather than off a settings tree, for the reason
+    // `Warehouse::posture` gives. `FederatedPlan::new` refuses same-source legs, so the two records
+    // belong to distinct sources and `and` cannot collide; the Err arm of `and` is kept (rather than
+    // an expect) because the compile cannot know that, and nothing can answer for a splitter
+    // invariant that changed.
+    let record = match ExecutedAs::of(plan.fact().source().clone(), fact_warehouse.posture().clone())
+        .and(plan.lookup().source().clone(), lookup_warehouse.posture().clone())
+    {
+        Ok(record) => record,
         Err(_collision) => {
             // The splitter refuses same-source legs, so a collision is a splitter invariant that
             // changed and nothing can answer for it.
@@ -125,6 +121,26 @@ where
                     label: String::from(metric),
                 },
             });
+        }
+    };
+    // **The one verdict only a two-leg answer needs, and it is HERE - above the mint and above
+    // either leg - on purpose.** One answer is one asker: rows a shared identity was permitted to
+    // see, added to rows the asking subject was permitted to see, make a total no identity is
+    // entitled to, carrying a certified metric name and valid provenance. Refused before a
+    // credential exists, so nothing is minted and nothing is read; the `UniformlyExecuted` this
+    // returns is then the only thing `pinned.provenance` accepts, which is what stops the rows
+    // reaching a caller if this line is ever moved below execution.
+    //
+    // The refusal carries the posture LABELS. It must never carry a `SourcePosture`: the shared
+    // variant holds the operator's acknowledgement prose and both types are `Serialize`.
+    let executed_as = match record.uniform() {
+        Ok(uniform) => uniform,
+        Err(differently) => {
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+                reason: RefusalReason::LegsDecideIdentityDifferently {
+                    postures: differently.into_postures(),
+                },
+            }));
         }
     };
 
@@ -499,6 +515,109 @@ mod tests {
                 }
             ),
             "a combined answer over the ceiling is a governance refusal, not {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn an_answer_whose_legs_would_run_under_two_postures_is_refused_before_minting() {
+        // **The refusal this whole change is, and the assertion that matters is the mint count.**
+        // Two leg-executing adapters, one `shared-service-user` and one `impersonation-at-source`,
+        // so combining them would add rows one identity was permitted to see to rows another
+        // identity was permitted to see - a total neither is entitled to, under a certified metric
+        // name and with valid provenance. Refused above the mint, so no credential exists and
+        // neither leg runs.
+        //
+        // A registration rather than a new fake: `LegsWarehouse::answering` already takes a posture
+        // per instance, which is the whole of what a mixed deployment is.
+        let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+            SourceName::parse("facts").expect("a test source"),
+            shared(),
+            federated_fact_rows(),
+        ))
+        .and(crate::tests_support::LegsWarehouse::answering(
+            SourceName::parse("geo").expect("a test source"),
+            sutura_domain::source::SourcePosture::ImpersonationAtSource,
+            federated_lookup_rows(),
+        ))
+        .expect("two sources, one registry");
+
+        let broker = crate::tests_support::CountingBroker::default();
+        let plan = federated_plan();
+        let outcome = answer_federated(&bundle(), &plan, &asked_by_a_person(), &broker, &warehouses, FEDERATED_BUDGET)
+            .expect("a refusal is an Ok")
+            .into_outcome();
+        let ToolOutcome::Refusal {
+            reason: RefusalReason::LegsDecideIdentityDifferently { postures },
+        } = outcome
+        else {
+            panic!("two postures in one answer is refused, not {outcome:?}");
+        };
+        assert_eq!(
+            postures.iter().copied().collect::<Vec<&str>>(),
+            vec!["impersonation-at-source", "shared-service-user"],
+            "the refusal names both postures, by label"
+        );
+        assert_eq!(
+            broker.asked(),
+            0,
+            "the verdict is above the mint, so no credential is minted for an answer that will not be given"
+        );
+        // And the operator's acknowledgement prose never leaves the deployment. `Debug` is the
+        // rendering that reaches a log by accident; the serialized body is asserted in
+        // `sutura_domain::query`, which has a format parser.
+        let rendered = format!("{:?}", RefusalReason::LegsDecideIdentityDifferently { postures });
+        assert!(!rendered.contains("a directory of CSVs"), "{rendered}");
+    }
+
+    #[test]
+    fn two_shared_sources_with_different_acknowledgements_are_still_answered() {
+        // **The strand guard, at the orchestrator.** `SourcePosture` derives `PartialEq` and the
+        // acknowledgement is resolved per source, so a predicate comparing VALUES would refuse this
+        // - and this is the only federating shape that ships today, since every adapter a release
+        // links declares it has nowhere for a subject to arrive. The domain's own cell asserts the
+        // same property one layer down; this one asserts that the answer path still answers.
+        let acknowledged = |text: &str| sutura_domain::source::SourcePosture::SharedServiceUser {
+            declared: sutura_domain::source::SharedIdentityDeclared::of(
+                sutura_domain::source::AcknowledgementReason::parse(text).expect("a test reason is a reason"),
+            ),
+        };
+        let facts = SourceName::parse("facts").expect("a test source");
+        let geo = SourceName::parse("geo").expect("a test source");
+        let postures = [
+            (facts.clone(), acknowledged("a directory of CSVs this deployment owns")),
+            (geo.clone(), acknowledged("a reference dataset every team reads")),
+        ];
+        let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+            facts,
+            postures[0].1.clone(),
+            federated_fact_rows(),
+        ))
+        .and(crate::tests_support::LegsWarehouse::answering(
+            geo,
+            postures[1].1.clone(),
+            federated_lookup_rows(),
+        ))
+        .expect("two sources, one registry");
+
+        // Per-source witnesses, because `Presented::agrees_with` compares the acknowledgement prose
+        // by equality - so a broker minting ONE witness for both sources is refused here by that
+        // guard rather than by the one under test, which is exactly the confusion this fake removes.
+        let broker = crate::tests_support::AcknowledgingBroker::over(&postures);
+        let plan = federated_plan();
+        let outcome = answer_federated(&bundle(), &plan, &asked_by_a_person(), &broker, &warehouses, FEDERATED_BUDGET)
+            .expect("two shared legs are answered")
+            .into_outcome();
+        let ToolOutcome::Answer { provenance, .. } = outcome else {
+            panic!("two shared legs are one posture, so this is answered, not {outcome:?}");
+        };
+        assert_eq!(
+            provenance
+                .executed_as()
+                .legs()
+                .map(|(_, posture)| posture.as_str())
+                .collect::<Vec<&str>>(),
+            vec!["shared-service-user", "shared-service-user"],
+            "both legs record the same posture, with two different acknowledgements behind them"
         );
     }
 

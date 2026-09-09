@@ -167,6 +167,21 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
                  access to `{source}` is what would be needed."
             ),
         ),
+        // Written for an agent: there is a narrower question, and it is a specific one - drop the
+        // dimension that pulls in the second data system. The sentence names the posture labels and
+        // never a `SourcePosture`, whose shared variant carries the operator's own acknowledgement
+        // prose; this reader is an agent's context, which is the last place that belongs.
+        RefusalReason::LegsDecideIdentityDifferently { ref postures } => (
+            "legs_decide_identity_differently",
+            format!(
+                "this question spans two data systems that decide who is asking differently ({}), \
+                 so one answer would add rows read under one identity to rows read under another - \
+                 a total neither is entitled to. Retrying will not help. Ask the same metric \
+                 without the dimension on the second data system, or say so to the person you are \
+                 acting for.",
+                postures.iter().copied().collect::<Vec<&str>>().join(" and ")
+            ),
+        ),
     }
 }
 
@@ -232,6 +247,9 @@ mod tests {
             },
             RefusalReason::CredentialUnavailable {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::LegsDecideIdentityDifferently {
+                postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
             },
         ]
     }

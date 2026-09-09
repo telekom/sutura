@@ -839,7 +839,7 @@ pub fn each(&self) -> impl Iterator<Item>
 Every open data system, in source order.
 
 ```rust
-pub fn executed_on(&self, source: &SourceName) -> Option<ExecutedAs>
+pub fn executed_on(&self, source: &SourceName) -> Option<UniformlyExecuted>
 ```
 
 The execution record for an answer that ran on `source` and nowhere else.
@@ -847,6 +847,11 @@ The execution record for an answer that ran on `source` and nowhere else.
 The one place a mono-source answer's provenance comes from, so the posture in an answer is the
 posture the adapter that executed it was holding. `None` when nothing is open for that source,
 which is the case the caller has already turned into a refusal by the time it asks.
+
+`UniformlyExecuted` rather than `ExecutedAs`, and it needs no verdict on the way: one leg
+cannot decide identity two ways, so the mono answer path has no arm for a refusal it could
+never provoke. The federated path builds its own record from both adapters and asks
+`ExecutedAs::uniform` for the verdict.
 
 ```rust
 pub fn get(&self, source: &SourceName) -> Option<&W>

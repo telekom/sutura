@@ -395,6 +395,33 @@ pub enum RefusalReason {
     /// system's to say, and guessing it here would be this deployment holding a second opinion about
     /// somebody else's authorization.
     CredentialUnavailable { source: SourceName },
+    /// The legs of one answer would not all decide identity the same way.
+    ///
+    /// **Not a source count, and that distinction is the whole variant.**
+    /// [`PlanSpansTooManySources`](RefusalReason::PlanSpansTooManySources) bounds a fan-out and says
+    /// *sources*; this says what a combined number would be made of. Two sources under one posture
+    /// are answered - that is the shape that ships - and two sources deciding identity two different
+    /// ways are refused, because adding rows one identity was permitted to see to rows another
+    /// identity was permitted to see produces a total no identity is entitled to, under a certified
+    /// metric name and with valid provenance attached.
+    ///
+    /// Refused rather than disclosed, and *disclosed* is not the third option it reads as: an answer
+    /// carries `executed_as` and `rows` in one body on both transports, with no streaming and no
+    /// second message, so the only outcome that reaches a caller before the rows is a refusal. The
+    /// per-leg record still ships and is still worth having - it documents a disclosure that
+    /// happened, which is a different job from preventing one.
+    ///
+    /// **Carries the posture LABELS and never a `SourcePosture`.** That type's shared variant holds
+    /// the operator's own acknowledgement text and both are `Serialize`, so a value here would
+    /// publish operator prose to every caller, log and agent context - the same rule
+    /// [`PlanTablesShareAnIdentifier`](RefusalReason::PlanTablesShareAnIdentifier) follows when it
+    /// carries the identifier and neither path. The labels come from a closed set of two.
+    ///
+    /// **What it cannot decide, stated with the claim.** *Same posture* is decidable and *same
+    /// asker* is not: nothing in this workspace names WHICH shared identity a source is read as, so
+    /// two `shared-service-user` legs may be two different deployment-held identities and this
+    /// passes them.
+    LegsDecideIdentityDifferently { postures: BTreeSet<&'static str> },
 }
 
 /// Which bound a result was too large for.
@@ -541,6 +568,29 @@ mod tests {
         };
         assert!(outcome.is_refusal());
         assert!(matches!(outcome.refusal(), Some(&RefusalReason::MetricUnknown { .. })));
+    }
+
+    #[test]
+    fn a_mixed_posture_refusal_carries_the_labels_and_no_acknowledgement_text() {
+        // **The disclosure rule for OPERATOR text, which this enum's own note states for CALLER
+        // text.** `SourcePosture::SharedServiceUser` carries a `SharedIdentityDeclared` ->
+        // `AcknowledgementReason`, and both derive `Serialize` - so a posture VALUE in this variant
+        // would publish the sentence an operator wrote on a source's entry to every caller, every
+        // log and every agent's context. The variant carries labels off a closed set of two instead.
+        //
+        // Asserted on the serialized body as well as on `Debug`, because the body is what a
+        // transport hands out and `Debug` is what reaches a log by accident.
+        let reason = RefusalReason::LegsDecideIdentityDifferently {
+            postures: crate::source::SourcePosture::NAMES.iter().copied().collect(),
+        };
+        let serialized = serde_json::to_string(&reason).expect("a refusal serializes");
+        for rendered in [format!("{reason:?}"), serialized] {
+            assert!(rendered.contains("shared-service-user"), "{rendered}");
+            assert!(rendered.contains("impersonation-at-source"), "{rendered}");
+            // No route to operator prose: the type the labels came from has none in it.
+            assert!(!rendered.contains("acknowledg"), "{rendered}");
+            assert!(!rendered.contains("declared"), "{rendered}");
+        }
     }
 
     #[test]

@@ -14,7 +14,7 @@
 # What counts as provoked, so an entry is not added for something already covered: a
 # `RefusalReason::<Variant>` in test code under `crates/`, or a committed snapshot naming it. A file
 # naming EVERY variant is a census and counts for none of them - which is not a technicality: the
-# rendered prompt in `crates/sutura-cli/tests/snapshots/example_prompt.snap` lists all seventeen
+# rendered prompt in `crates/sutura-cli/tests/snapshots/example_prompt.snap` lists all eighteen
 # refusal guides by name, and without that rule it alone would make the whole enum look covered.
 #
 # The gate is a RATCHET in both directions. An entry for a variant that IS provoked now fails, and

@@ -144,10 +144,19 @@ const TAG: &str = "query";
         (status = 408, description = "The request exceeded this service's time bound.", body = crate::problem::ProblemBody),
         (
             status = 409,
-            description = "REFUSED - `outcome: refusal`, `code: federation_not_executable`. The \
-                           question is answerable in principle and this build has no adapter that \
-                           can execute one half of a question spanning two data systems, so it is \
-                           refused rather than run partly.",
+            description = "REFUSED - `outcome: refusal`. The question is answerable in principle \
+                           and this deployment will not answer it, so `code` says which of five \
+                           things stands in the way. `federation_not_executable`: this build has no \
+                           adapter that can execute one half of a question spanning two data \
+                           systems. `plan_spans_too_many_sources`: it would read from more data \
+                           systems than one answer may. `federation_link_ambiguous`: the remote \
+                           dimensions join through more than one relationship. \
+                           `measure_does_not_federate`: the measure's aggregate cannot be \
+                           recombined above two legs. `legs_decide_identity_differently`: the two \
+                           data systems decide who is asking in two different ways, and a total \
+                           made of rows read under two identities is a number neither is entitled \
+                           to. None is an outage and none is worth retrying unchanged; asking \
+                           without the dimension on the second data system is what sometimes helps.",
             body = OutcomeBody
         ),
         (
