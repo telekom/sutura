@@ -56,7 +56,7 @@ jobs:
   # The deterministic half. Every committed seed executed once, no mutation, so the verdict is a
   # function of the files in the tree - which is what makes it safe to run on a pull request.
   smoke:
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # A cold nightly build with a sanitizer over this dependency graph is the cost here, not the
     # replay: the replay itself is a few hundred executions.
     timeout-minutes: 90
@@ -86,7 +86,7 @@ jobs:
   # series, and so a crash names its target in the job list.
   fuzz:
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 120
     strategy:
       # No fail-fast: a crash in one target must not cancel the budget of the other.

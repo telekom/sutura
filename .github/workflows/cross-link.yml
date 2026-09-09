@@ -102,7 +102,7 @@ env:
 
 jobs:
   link:
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # 120 for the same reason as `ci`, with more of it: each target in the matrix compiles that
     # same large closure again for its own triple, and none of them shares the host's artifacts.
     timeout-minutes: 120

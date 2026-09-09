@@ -187,7 +187,7 @@ jobs:
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
     # promotion PR whose tip happens to be a release commit is still gated.
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
     # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
@@ -749,7 +749,10 @@ jobs:
       github.event_name == 'pull_request' &&
       needs.ci.outputs.crap_delta == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: rust-mcp
+    # `ubuntu-latest`, AND IT COMPILES NOTHING - `gh` and `jq` are its whole toolchain and both
+    # ship on the hosted runner, which the step below already says. Measured at 9-10 s per run,
+    # so what the Rust runner bought here was a large machine holding a comment.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       # Posting or editing the one comment. Nothing else is granted: `contents` is absent because
@@ -832,7 +835,7 @@ jobs:
   bigquery-acceptance:
     needs: [ci]
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
     timeout-minutes: 60
