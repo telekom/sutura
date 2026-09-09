@@ -46,8 +46,8 @@ const MAX_PRINCIPAL_LEN: usize = 256;
 
 /// Why an identifier naming a principal was rejected.
 ///
-/// One error for all three newtypes below, because they are one parse. The variants carry the
-/// offending input as typed fields; the `#[error]` text is a convenience for a human.
+/// One error for all three newtypes below, because they are one parse. The variants carry only the
+/// shape of the rejected input; the principal itself is personal data and this error reaches logs.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidPrincipalId {
     /// Empty or whitespace-only. An unnamed principal must not be able to claim it is one - the
@@ -58,8 +58,8 @@ pub enum InvalidPrincipalId {
     /// Holds a control character. This is the one that matters: the record a call is written to is
     /// one line, so a newline here appends a record nobody wrote - a forged attribution, in the one
     /// artifact whose entire job is attribution.
-    #[error("a principal identifier must not contain control characters: {value:?}")]
-    ControlCharacter { value: String },
+    #[error("a principal identifier must not contain the control character {code:#06x}")]
+    ControlCharacter { code: u32 },
     /// Holds an invisible or direction-changing code point. The second half of the reason the
     /// variant above exists: `char::is_control` is false for every one of these - general category
     /// `Cf`, not `Cc` - so the check that refuses a newline cannot see a right-to-left override.
@@ -72,8 +72,8 @@ pub enum InvalidPrincipalId {
     /// would print as though it were correct.
     #[error("a principal identifier must not contain the invisible or direction-changing character {code:#06x}")]
     InvisibleCharacter { code: u32 },
-    #[error("a principal identifier may be at most {limit} characters, {value:?} has {len}")]
-    TooLong { value: String, len: usize, limit: usize },
+    #[error("a principal identifier may be at most {limit} characters, found {len}")]
+    TooLong { len: usize, limit: usize },
 }
 
 /// Parses one principal identifier, rejecting anything that is not one.
@@ -92,9 +92,9 @@ pub(crate) fn parse_principal_id(raw: &str) -> Result<String, InvalidPrincipalId
     if trimmed.is_empty() {
         return Err(InvalidPrincipalId::Empty);
     }
-    if trimmed.chars().any(char::is_control) {
+    if let Some(offending) = trimmed.chars().find(|character| character.is_control()) {
         return Err(InvalidPrincipalId::ControlCharacter {
-            value: String::from(trimmed),
+            code: u32::from(offending),
         });
     }
     // Beside the control-character check rather than folded into it, because it is a second
@@ -105,10 +105,10 @@ pub(crate) fn parse_principal_id(raw: &str) -> Result<String, InvalidPrincipalId
             code: u32::from(offending),
         });
     }
-    if trimmed.chars().count() > MAX_PRINCIPAL_LEN {
+    let len = trimmed.chars().count();
+    if len > MAX_PRINCIPAL_LEN {
         return Err(InvalidPrincipalId::TooLong {
-            value: String::from(trimmed),
-            len: trimmed.chars().count(),
+            len,
             limit: MAX_PRINCIPAL_LEN,
         });
     }
@@ -126,7 +126,7 @@ macro_rules! principal_newtype {
         ///
         /// Construct it with `parse`. There is no other way in: the field is private, there is no
         /// `Deserialize`, and `TryFrom<String>` delegates to the same constructor.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(String);
 
         impl $name {
@@ -152,10 +152,36 @@ macro_rules! principal_newtype {
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(&self.0)
+                mask_principal(&self.0, f)
+            }
+        }
+
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                mask_principal(&self.0, f)
             }
         }
     };
+}
+
+/// Writes a stable pseudonymous form without copying the principal.
+fn mask_principal(raw: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let (local, domain) = raw
+        .split_once('@')
+        .map_or((raw, None), |(local, domain)| (local, Some(domain)));
+    for (position, segment) in local.split('.').enumerate() {
+        if position > 0 {
+            f.write_str(".")?;
+        }
+        if let Some(initial) = segment.chars().next() {
+            write!(f, "{initial}")?;
+        }
+        f.write_str("***")?;
+    }
+    if let Some(domain) = domain {
+        write!(f, "@{domain}")?;
+    }
+    Ok(())
 }
 
 principal_newtype! {
@@ -588,7 +614,7 @@ mod tests {
         );
         assert_eq!(chain.count(), 3);
         // The rendering an audit record carries, in the same order.
-        assert_eq!(chain.to_string(), "orchestrator > planner > query_agent");
+        assert_eq!(chain.to_string(), "o*** > p*** > q***");
     }
 
     #[test]
@@ -598,7 +624,7 @@ mod tests {
         let chain = ActorChain::of(actor("query_agent"));
         assert_eq!(chain.outermost(), chain.immediate());
         assert_eq!(chain.count(), 1);
-        assert_eq!(chain.to_string(), "query_agent");
+        assert_eq!(chain.to_string(), "q***");
     }
 
     #[test]
@@ -652,9 +678,7 @@ mod tests {
         // The refusal that matters most: the record is one line, so a newline is a second record.
         assert_eq!(
             SubjectId::parse("someone@example.com\nsubject=admin"),
-            Err(InvalidPrincipalId::ControlCharacter {
-                value: String::from("someone@example.com\nsubject=admin"),
-            })
+            Err(InvalidPrincipalId::ControlCharacter { code: 0x0A })
         );
         // And the class a control-character check provably cannot see.
         assert_eq!(
@@ -666,11 +690,7 @@ mod tests {
         let long = "a".repeat(257);
         assert_eq!(
             TaskId::parse(&long),
-            Err(InvalidPrincipalId::TooLong {
-                value: long,
-                len: 257,
-                limit: 256,
-            })
+            Err(InvalidPrincipalId::TooLong { len: 257, limit: 256 })
         );
         // Exactly the limit is fine, so the bound is the bound and not one off it.
         drop(TaskId::parse("a".repeat(256)).expect("exactly the limit parses"));
@@ -687,9 +707,7 @@ mod tests {
         assert_eq!(parsed.as_str(), "someone@example.com");
         assert_eq!(
             SubjectId::try_from(String::from("bad\u{0007}")),
-            Err(InvalidPrincipalId::ControlCharacter {
-                value: String::from("bad\u{0007}")
-            })
+            Err(InvalidPrincipalId::ControlCharacter { code: 0x07 })
         );
     }
 }

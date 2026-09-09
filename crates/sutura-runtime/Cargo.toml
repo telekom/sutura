@@ -56,5 +56,9 @@ tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "test-
 name = "blocking_span"
 required-features = ["test-capture"]
 
+[[test]]
+name = "principal_privacy"
+required-features = ["test-capture"]
+
 [lints]
 workspace = true
