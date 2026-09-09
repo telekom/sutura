@@ -678,6 +678,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Verifying a release asset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#provenance-from-mirrored-bytes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance from mirrored bytes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2513,6 +2530,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Verifying a release asset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#provenance-from-mirrored-bytes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance from mirrored bytes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2580,9 +2614,9 @@
 
 
 <h1 id="verifying-a-release">Verifying a release<a class="headerlink" href="#verifying-a-release" title="Permanent link">&para;</a></h1>
-<p>Every artefact a tagged release publishes is signed, and every one carries SLSA provenance. This
-page is what the signatures mean, the commands that check them, and - the part that matters more -
-what they do <strong>not</strong> say.</p>
+<p>The tagged-release workflow signs artefacts and records SLSA provenance as described below.
+Signature and provenance bundles carry the evidence; they do not recursively attest themselves.
+This page explains the checks and, just as importantly, what they do <strong>not</strong> say.</p>
 <h2 id="read-this-part-first">Read this part first<a class="headerlink" href="#read-this-part-first" title="Permanent link">&para;</a></h2>
 <p><strong>A signature answers "did this pipeline produce these bytes". It does not answer "are these bytes
 good".</strong> Provenance is an <em>identity</em> claim, and the whole of what it establishes is that the file in
@@ -2700,6 +2734,12 @@ the two documents answers is under <a href="#the-licence-statement">The licence 
 <td>n/a</td>
 <td><code>cosign attest --type cyclonedx</code></td>
 </tr>
+<tr>
+<td><code>sutura-provenance.intoto.jsonl</code></td>
+<td>five existing signed attestation bundles</td>
+<td>not recursively attested</td>
+<td>n/a</td>
+</tr>
 </tbody>
 </table>
 <p>Every count in that table is two binaries times four triples, or its consequence. A leaf and the SBOM
@@ -2719,11 +2759,10 @@ produced it.</p>
 <code>docker pull</code> resolves and what the release notes tell you to pin. The leaves are what a list points
 at, they are signed by <code>cosign</code> individually, and pinning one means asking for a single architecture
 on purpose. There are four lists rather than two now, because there are two binaries.</p>
-<p><strong>The images get <code>cosign</code> and the assets get a bundle, and the reason is who can verify.</strong>
-<code>gh attestation verify</code> asks GitHub's API - it needs reach to the forge and an authenticated <code>gh</code>.
-<code>cosign verify-blob</code> needs the file, its bundle and Sigstore's trust root, so an artefact you
-mirrored into your own storage six months ago is still verifiable from the bytes you mirrored, with
-no account anywhere. That is the case a release asset exists for.</p>
+<p><strong>The images get <code>cosign</code> and the assets get a bundle.</strong> By default, <code>gh attestation verify</code>
+fetches provenance from GitHub. With <code>--bundle</code>, it reads the exported JSONL instead; retain that
+asset alongside mirrored files. Verification still needs an independently trusted Sigstore root
+and an explicit signer/source policy, not merely a bundle supplied by the same mirror.</p>
 <h2 id="there-is-no-key">There is no key<a class="headerlink" href="#there-is-no-key" title="Permanent link">&para;</a></h2>
 <p>Signing is <strong>keyless</strong>, and no signing key exists in this repository, in its secrets, or on any
 machine. The release job mints a short-lived OpenID Connect token that states which repository,
@@ -2750,26 +2789,57 @@ Omitting them verifies that <em>somebody</em> signed the file, which is not a cl
 <p>The second prints the workflow, the ref and the commit the artefact was built from. Read them: an
 attestation from a <em>different</em> ref of this repository verifies perfectly well and is still not the
 release you meant to download.</p>
+<h3 id="provenance-from-mirrored-bytes">Provenance from mirrored bytes<a class="headerlink" href="#provenance-from-mirrored-bytes" title="Permanent link">&para;</a></h3>
+<p>For releases made by the exporting workflow, retain <code>sutura-provenance.intoto.jsonl</code> with the
+original assets. It contains five Sigstore bundles: one multi-subject asset attestation and four
+manifest-list attestations. It is not a new signing policy. The collector checks required
+JSON/DSSE/SLSA fields and exact unique name/digest pairs against <code>subjects.sha256</code> and
+<code>image-digests.txt</code>, then writes the asset only after all inputs pass. It does <strong>not</strong> verify
+signatures, certificates or transparency proofs. A missing export blocks draft publication.</p>
+<p>Choose the expected tag and full source commit independently of the downloaded bundle. Supply a
+trusted-root file obtained through your trusted distribution channel; do not trust one merely
+because a mirror placed it beside the artefact. For example, with those values already set:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>sutura-x86_64-unknown-linux-gnu.tar.gz<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--bundle<span class="w"> </span>sutura-provenance.intoto.jsonl<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--custom-trusted-root<span class="w"> </span><span class="s2">"</span><span class="nv">$TRUSTED_ROOT</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--repo<span class="w"> </span>telekom/sutura<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--signer-workflow<span class="w"> </span>telekom/sutura/.github/workflows/release.yml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>--source-ref<span class="w"> </span><span class="s2">"refs/tags/</span><span class="nv">$TAG</span><span class="s2">"</span><span class="w"> </span>--source-digest<span class="w"> </span><span class="s2">"</span><span class="nv">$SOURCE_COMMIT</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span>--cert-identity<span class="w"> </span><span class="s2">"https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/</span><span class="nv">$TAG</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span>--cert-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span>--predicate-type<span class="w"> </span>https://slsa.dev/provenance/v1
+</span></code></pre></div>
+<p>The <a href="https://cli.github.com/manual/gh_attestation_verify">verifier's bundle mode</a> accepts JSONL
+without fetching attestations from the forge. Test the command with network access disabled to
+establish the fully mirrored-byte claim for your verifier and trust-root distribution. An OCI
+reference can still require registry access; this file example does not prove offline image
+retrieval or verification.</p>
+<p><strong>Venue limit:</strong> PR CI can exercise fake bundle output and refusal paths, not the tagged job's
+OIDC signing, real bundle export or release upload. After merge, the first intended tagged release
+must demonstrate the five-record asset, successful verification of the mirrored original bytes
+under the policy above, and rejection of altered bytes and a wrong source ref. Until that tagged
+run and mirror-only check are recorded, those outcomes remain unproven; older releases need not
+contain the export. No tag or release is created merely to make a PR check green.</p>
 <h2 id="verifying-an-image">Verifying an image<a class="headerlink" href="#verifying-an-image" title="Permanent link">&para;</a></h2>
 <p>Take the digest from the release notes, or from <code>image-digests.txt</code>. <strong>Verify by digest, not by
 tag</strong> - <code>:latest</code> moves, and a verification against a name is a verification of whatever that name
 meant when you ran it.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>cosign<span class="w"> </span>verify<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>cosign<span class="w"> </span>verify<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
 </span></code></pre></div>
 <p>For the manifest lists, GitHub's provenance works on the same digest:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>oci://ghcr.io/telekom/sutura:0.1.0<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>oci://ghcr.io/telekom/sutura:0.1.0-serve<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>oci://ghcr.io/telekom/sutura:0.1.0<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>gh<span class="w"> </span>attestation<span class="w"> </span>verify<span class="w"> </span>oci://ghcr.io/telekom/sutura:0.1.0-serve<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura
 </span></code></pre></div>
 <h2 id="what-the-sbom-covers">What the SBOM covers<a class="headerlink" href="#what-the-sbom-covers" title="Permanent link">&para;</a></h2>
 <p>Each leaf image ships two inventories of the same scan - CycloneDX and SPDX, so the two cannot
 disagree - attached to the release and, for CycloneDX, attached to the image itself:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>cosign<span class="w"> </span>verify-attestation<span class="w"> </span>--type<span class="w"> </span>cyclonedx<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cosign<span class="w"> </span>verify-attestation<span class="w"> </span>--type<span class="w"> </span>cyclonedx<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>ghcr.io/telekom/sutura@sha256:...<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com
 </span></code></pre></div>
 <p>It covers two things, and they come from two places.</p>
 <p><strong>The files in the image</strong> - the binary, the CA certificate bundle and tzdata. There is no shell and
@@ -2822,11 +2892,11 @@ runs in CI on every dependency change and weekly regardless - a run, not a prope
 </tbody>
 </table>
 <p>It is signed and carries provenance, so it verifies exactly like a binary tarball:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--bundle<span class="w"> </span>sutura-attribution.md.sigstore.json<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>sutura-attribution.md
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--bundle<span class="w"> </span>sutura-attribution.md.sigstore.json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github.com/telekom/sutura/'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span>sutura-attribution.md
 </span></code></pre></div>
 <p><strong>The attribution document is deliberately WIDER than the SBOM, and that is not a contradiction.</strong>
 The SBOM says what is <em>in</em> one binary, so overstating it would be a false statement about the file
