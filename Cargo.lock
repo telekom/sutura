@@ -3748,8 +3748,11 @@ dependencies = [
 name = "sutura-conformance"
 version = "0.4.1"
 dependencies = [
+ "serde_json",
  "sutura-dev",
  "sutura-domain",
+ "sutura-semantic",
+ "sutura-sql",
  "thiserror 2.0.20",
 ]
 
