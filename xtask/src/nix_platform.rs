@@ -64,8 +64,10 @@ const fn continues_a_name(byte: u8) -> bool {
 ///
 /// Whitespace-tolerant between the three parts, because the formatter may put the `.` or the
 /// attribute on the next line and a line-based scan would then report the absence of something
-/// that is present. The attribute has to start `is` followed by an UPPERCASE letter, which is what
-/// separates the platform family from `stdenv.isX`-shaped names that are not predicates.
+/// that is present. The attribute has to start `is` followed by any ASCII-alphabetic letter:
+/// nixpkgs' real deprecation list (`pkgs/stdenv/generic/default.nix`) reaches all the way down to
+/// `isx86_64`, `isi686` and `isx86_32`, so no letter after `is` is safe, and no correct code writes
+/// `stdenv.is*` at all - failing closed costs nothing.
 pub(crate) fn deprecated(text: &str) -> Vec<Deprecated> {
     let bytes = text.as_bytes();
     let mut found = Vec::new();
@@ -85,7 +87,7 @@ pub(crate) fn deprecated(text: &str) -> Vec<Deprecated> {
         let Some(after_is) = rest.strip_prefix("is") else {
             continue;
         };
-        if !after_is.starts_with(|c: char| c.is_ascii_uppercase()) {
+        if !after_is.starts_with(|c: char| c.is_ascii_alphabetic()) {
             continue;
         }
         let attribute: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
@@ -245,11 +247,35 @@ mod tests {
 
     #[test]
     fn an_attribute_that_is_not_a_platform_predicate_is_left_alone() {
-        // `is` followed by a LOWERCASE letter is not the family: `stdenv.isCrossCompiling` would be
-        // one and `stdenv.island` is not, and the uppercase requirement is what separates them.
-        assert_eq!(deprecated("stdenv.island"), Vec::new());
+        // With the whole `stdenv.is*` family refused, the only spelling left alone is one with no
+        // `is` at all - `stdenv.mkDerivation`. `stdenv.island` was once the counter-example that
+        // justified an uppercase-only check, but no nixpkgs predicate is spelt that way, so `is`
+        // followed by any alphabetic letter is now the family and `island` is a finding too.
         assert_eq!(deprecated("stdenv.mkDerivation"), Vec::new());
+        assert_eq!(deprecated("stdenv.island").len(), 1);
         assert_eq!(deprecated("stdenv.isCrossCompiling").len(), 1);
+    }
+
+    #[test]
+    fn the_lowercase_second_letter_family_is_found() {
+        // nixpkgs' real deprecation list has three spellings whose letter after `is` is LOWERCASE -
+        // `isx86_64`, `isi686`, `isx86_32` - and the old uppercase-only scan let all three through
+        // at exit 0. Any ASCII-alphabetic letter after `is` is the family.
+        for line in [
+            "pkgs.stdenv.isx86_64",
+            "buildInputs = pkgs.stdenv.isi686;",
+            "pkgs.stdenv.isx86_32",
+        ] {
+            assert_eq!(deprecated(line).len(), 1, "missed the deprecated spelling: {line}");
+        }
+    }
+
+    #[test]
+    fn a_lowercase_second_letter_spelling_is_refused_not_accepted() {
+        // Both directions: the deprecated `stdenv.isx86_64` is a finding, and the supported
+        // `stdenv.hostPlatform.isx86_64` is not.
+        assert_eq!(deprecated("stdenv.isx86_64").len(), 1);
+        assert_eq!(deprecated("stdenv.hostPlatform.isx86_64"), Vec::new());
     }
 
     #[test]
