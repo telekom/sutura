@@ -560,7 +560,7 @@ impl FederatedPlan {
         let mut rows: Vec<Vec<Value>> = Vec::with_capacity(groups.len());
         for group in groups.into_values() {
             let leaves = Leaves::of(&self.federation, &group.leaves, &self.metric)?;
-            let measure = leaves.measure(self.federation.above(), &self.metric)?;
+            let measure = leaves.measure(&self.metric)?;
             let measure_bytes = value_bytes(&measure);
             let mut row = group.cells;
             row.push(measure);
