@@ -296,7 +296,7 @@ fn what_a_failure_says_names_the_subject_the_way_a_record_does_and_carries_no_ma
         granted: Subject::TheDeploymentItself,
     }
     .to_string();
-    assert!(rendered.contains("a verified subject `s***@example.com`"), "{rendered}");
+    assert!(rendered.contains("a verified subject `s***@e***.c***`"), "{rendered}");
     assert!(rendered.contains("a deployment subject"), "{rendered}");
     // No variant of this enum holds credential material, so there is nothing here to redact - which
     // is a property of the shape rather than of the sentence.

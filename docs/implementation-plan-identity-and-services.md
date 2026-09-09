@@ -980,6 +980,7 @@ economise.
    | `check-boundaries` | the domain crate's manifest and the Rust under `crates/` |
    | `check-jscpd` | the Rust under `crates/` and `xtask/`, plus `devco/dup-ignore`, for copied blocks (#474) |
    | `check-pins` | `flake.nix` and `pixi.toml` |
+   | `check-nix-platform` | every `.nix` file this repository tracks, for a platform predicate read off the deprecated `stdenv` alias |
    | `check-warm-start` | `xtask/src/causality.rs`, `nix/purge-baked-out-dirs.sh`, every `.nix` file |
    | `unused-deps` | every member manifest and that member's own Rust |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |

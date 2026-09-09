@@ -77,7 +77,11 @@ pub(super) const NOWHERE: &str = "nowhere";
 /// this - and that is the same limit the page already states beside `Reached by`, where pointing a
 /// row at an unrelated CI-invoked app is review's to catch. What is closed is the SYNONYM, which is
 /// the form that reads as a copy-edit rather than as a claim.
-pub(super) const RUN_SITES: &[&str] = &["a github environment", "in process", NOWHERE];
+pub(super) const RUN_SITES: &[&str] = &[ON_DEMAND, "in process", NOWHERE];
+
+/// The run site that means *a job has to demand this*, which is what makes CI's invocation set
+/// load-bearing for it and not for an `in process` venue - see `verdicts::anchor_problems`.
+pub(super) const ON_DEMAND: &str = "a github environment";
 
 /// One row of the venues table.
 pub(super) struct Venue {
