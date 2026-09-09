@@ -783,7 +783,7 @@
         apps.bigquery-cross-dataset = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-cross-dataset" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
@@ -793,7 +793,7 @@
         apps.bigquery-cross-project = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-cross-project" ''
-            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
