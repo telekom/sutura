@@ -771,6 +771,8 @@
       
         
       
+        
+      
     
     
     
@@ -1528,6 +1530,34 @@
     
   
     No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An OSS binary cache for this repository's own paths
   
 
     
@@ -2709,10 +2739,10 @@ mirror cannot substitute different content undetected.</p>
 </span></code></pre></div>
 <p><code>sparse+</code> is required and the trailing slash matters. Without them cargo expects a git index and
 fails with a confusing clone error.</p>
-<p><code>rustup</code> is not involved in the Nix path. <code>flake.nix</code> and <code>devenv.nix</code> resolve both pinned
-toolchains through rust-overlay - <code>rust-toolchain.toml</code>, and <code>devco/rust-toolchain-nightly.toml</code>
-for the local inner loop - so the compilers come from the Nix cache and the crates mirror above is
-all this section needs.</p>
+<p><code>rustup</code> is not involved in the Nix path. <code>flake.nix</code> and <code>devenv.nix</code> resolve the single pinned
+toolchain through rust-overlay from <code>devco/rust-toolchain-nightly.toml</code> (the top-level
+<code>rust-toolchain.toml</code> is the rustup-facing copy of the same pin) - so the compilers come from the
+Nix cache and the crates mirror above is all this section needs.</p>
 <p>If you do use rustup, set <code>RUSTUP_DIST_SERVER</code> and <code>RUSTUP_UPDATE_ROOT</code>. An exact version pin needs
 that version to exist on the mirror, and a lazily-caching remote <code>404</code>s until something asks, which
 reads as "no such version".</p>

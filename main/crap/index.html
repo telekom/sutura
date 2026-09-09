@@ -771,6 +771,8 @@
       
         
       
+        
+      
     
     
     
@@ -1528,6 +1530,34 @@
     
   
     No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An OSS binary cache for this repository's own paths
   
 
     
@@ -2372,10 +2402,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#coverage-runs-on-stable-and-the-gate-makes-itself-so" class="md-nav__link">
+  <a href="#coverage-runs-on-the-nightly-toolchains-llvm-backend-and-the-gate-makes-itself-so" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Coverage runs on stable, and the gate makes itself so
+        Coverage runs on the nightly toolchain's LLVM backend, and the gate makes itself so
       
     </span>
   </a>
@@ -2624,10 +2654,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#coverage-runs-on-stable-and-the-gate-makes-itself-so" class="md-nav__link">
+  <a href="#coverage-runs-on-the-nightly-toolchains-llvm-backend-and-the-gate-makes-itself-so" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Coverage runs on stable, and the gate makes itself so
+        Coverage runs on the nightly toolchain's LLVM backend, and the gate makes itself so
       
     </span>
   </a>
@@ -2931,22 +2961,21 @@ of build for a tool that reads files. A <code>fetchurl</code> hash is the same p
 not mid-branch.</p>
 <p>The dev shell echoes both versions on entry. <code>cargo xtask check-crap</code> fails if the version
 <code>nix/crap.nix</code> pins is not the version this page states.</p>
-<h2 id="coverage-runs-on-stable-and-the-gate-makes-itself-so">Coverage runs on stable, and the gate makes itself so<a class="headerlink" href="#coverage-runs-on-stable-and-the-gate-makes-itself-so" title="Permanent link">&para;</a></h2>
-<p>The dev shell's bare <code>cargo</code> is a nightly with the cranelift codegen backend, because that is
-what makes the inner loop fast. Coverage cannot use it: <code>-C instrument-coverage</code> is LLVM-specific
-and does not exist under cranelift. This is not the channel-consistency argument the lints have -
-it is that the instrumentation is absent.</p>
+<h2 id="coverage-runs-on-the-nightly-toolchains-llvm-backend-and-the-gate-makes-itself-so">Coverage runs on the nightly toolchain's LLVM backend, and the gate makes itself so<a class="headerlink" href="#coverage-runs-on-the-nightly-toolchains-llvm-backend-and-the-gate-makes-itself-so" title="Permanent link">&para;</a></h2>
+<p>The dev shell's bare <code>cargo</code> is the nightly toolchain and DEFAULTS to the LLVM codegen backend
+(cranelift is opt-in), which is what CI gates on too. Coverage uses it: <code>-C instrument-coverage</code>
+is LLVM-specific and would not exist under cranelift, but the default backend supports it - so a
+run matches CI without any channel override. It must still not inherit a cranelift cargo.</p>
 <p>In this repo cranelift arrives as two environment variables,
-<code>CARGO_UNSTABLE_CODEGEN_BACKEND</code> and <code>CARGO_PROFILE_DEV_CODEGEN_BACKEND</code>, which
-<code>nix/stable-env.sh</code> unsets. There is no <code>RUSTFLAGS</code> and no <code>CARGO_TARGET_*_RUSTFLAGS</code> anywhere in
-the dev shell, and the per-target tables in <code>.cargo/config.toml</code> carry linker and target-feature
-flags only.</p>
-<p><code>cargo xtask crap</code> does not rely on its caller having sourced that file. It unsets the two
+<code>CARGO_UNSTABLE_CODEGEN_BACKEND</code> and <code>CARGO_PROFILE_DEV_CODEGEN_BACKEND</code>, opt-in in the dev
+shell. There is no <code>RUSTFLAGS</code> and no <code>CARGO_TARGET_*_RUSTFLAGS</code> anywhere in the dev shell, and
+the per-target tables in <code>.cargo/config.toml</code> carry linker and target-feature flags only.</p>
+<p><code>cargo xtask crap</code> does not rely on its caller having exported anything. It unsets the two
 variables itself, strips the cranelift flag out of any rustflags variable that carries one while
 keeping the linker and library flags beside it, pins <code>RUSTUP_TOOLCHAIN</code> to the channel in
-<code>rust-toolchain.toml</code>, and gives the instrumented profile its own target directory under
-<code>target/crap</code>. A gate whose failure mode is a silently empty report must not depend on a <code>source</code>
-line somebody could forget.</p>
+<code>devco/rust-toolchain-nightly.toml</code> for a bare-rustup host, and gives the instrumented profile
+its own target directory under <code>target/crap</code>. A gate whose failure mode is a silently empty
+report must not depend on a <code>source</code> line somebody could forget.</p>
 <h2 id="reading-the-current-state">Reading the current state<a class="headerlink" href="#reading-the-current-state" title="Permanent link">&para;</a></h2>
 <p><strong>There is deliberately no report pasted here.</strong> There used to be one - a function count and the
 four highest-scoring functions with their <code>file:line</code> - and it rotted the way a pasted report
