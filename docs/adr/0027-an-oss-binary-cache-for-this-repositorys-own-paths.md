@@ -9,6 +9,16 @@ Status: **accepted**, 2026-09-09. **Supersedes `docs/adr/0026` (No third-party b
 record is not wrong about what it decided or why; two of its inputs changed on the same day, and this
 is the re-decision plus what changed.
 
+**Amendment, 2026-09-10 (CI-speed half a):** the store inventory above is now *two stores on two
+paths*, not one store on every path. `sutura-prs` is an **additive, pull-request-path-only** cache:
+pull-request runs publish their own realised store paths to it and trust its key **in addition to**
+`sutura`, while the **default branch trusts only `sutura` and never lists `sutura-prs`'s key**. The
+security bound is that key boundary, not the text gate: even a compromised PR run that poisoned
+`sutura-prs` is read by no merged-main resolver, because main's resolver never names that store. This
+amendment is the `xtask` trust rule's counterpart and is enforced by it - see
+`xtask/src/workflows/cache_scope/retired.rs`, which pins both value lists ([`ALLOWED`] / the
+PR-gated pair) so the records and the gate cannot disagree.
+
 ## What changed, and it is two things rather than a preference
 
 **1. The repository is public**, so an OSS tier exists that did not apply to the question 0026

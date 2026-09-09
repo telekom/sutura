@@ -30,6 +30,11 @@
 //!   `${{ }}` interpolations inside `install-nix-action`'s `extra_nix_config` VALUE, neither a gate
 //!   nor a step. That half is the supply-chain surface - a substituter plus a trusted key means CI
 //!   fetches paths signed by a key held elsewhere - so it is refused as a LINE.
+//! * **The one store on every path, and the additive PR-only pair** ([`ALLOWED`] and
+//!   [`ALLOWED_PRS`]). Half (a) lets a pull request trust its own additive cache in addition to
+//!   sutura: the singleton is permitted anywhere, the two-store list ONLY in a step whose `if:`
+//!   forces `pull_request` ([`narrower_than_pr`]). Main's resolver never lists the PR cache's key,
+//!   the real security bound; this text rule keeps that key out of a main-run install.
 //! * **And the record itself.** Missing or empty is refused, for `sast`'s reason: a refusal
 //!   enforcing a decision nobody wrote down is a rule with no reason.
 //!
@@ -72,6 +77,65 @@ const HOSTED: [&str; 2] = ["cachix/cachix-action", "DeterminateSystems/flakehub-
 ///
 /// The other entry in [`HOSTED`] has no permitted file and is refused wherever it appears.
 const PUBLISH: (&str, &str) = ("cachix/cachix-action", ".github/workflows/cachix-push.yml");
+
+/// The environment a ci.yml pull-request job must declare to host a `cachix/cachix-action` step.
+///
+/// Half (a) adds a second, additive cache on the pull-request path, so cachix-action must also run
+/// in `ci.yml` - but ONLY in a job whose `environment:` is `cachix-push-pr` AND whose gate is
+/// pull_request-only ([`in_pr_publish_job`]). The credential behind that environment is a PR-token
+/// (Write on the PR cache, no Write on `sutura`); the environment is the security boundary the gate
+/// cannot verify, and this pairing is the text side that keeps it as narrow as the forge allows.
+const PUBLISH_PRS: &str = "cachix-push-pr";
+
+/// Whether a cachix-action step's JOB in `ci.yml` is the PR publish write-half: it declares
+/// `environment: cachix-push-pr` and its job-level `if:` is PR-only. The job block owns the step;
+/// a step outside such a job (main `ci`, `crap-comment`, `bigquery-acceptance`, any other workflow)
+/// stays refused by the pairing.
+fn in_pr_publish_job(text: &str, step_line: usize) -> bool {
+    let lines: Vec<&str> = text.lines().collect();
+    // Find the job block owning `step_line`: scan two-space job keys; its end is the next key no
+    // deeper than two spaces. Comment blocks at two spaces precede a job key and do not own steps.
+    let mut spans = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if line.len().saturating_sub(trimmed.len()) == 2 && trimmed.ends_with(':') {
+            let end = lines
+                .iter()
+                .enumerate()
+                .skip(i + 1)
+                .find(|(_, next)| {
+                    let nt = next.trim_start();
+                    !nt.is_empty() && next.len().saturating_sub(nt.len()) <= 2 && nt.ends_with(':')
+                })
+                .map_or(lines.len(), |(j, _)| j);
+            spans.push((i, end.min(lines.len())));
+        }
+    }
+    let Some((start, end)) = spans.iter().copied().find(|(s, e)| *s < step_line && step_line < *e) else {
+        return false;
+    };
+    let end = end.min(lines.len());
+
+    // The environment must be declared at the job's own key depth.
+    let has_env = (start..end).any(|at| {
+        lines.get(at).is_some_and(|line| {
+            key_of(line).is_some_and(|k| {
+                k.trim_start()
+                    .strip_prefix("environment:")
+                    .is_some_and(|v| v.trim() == PUBLISH_PRS)
+            })
+        })
+    });
+    if !has_env {
+        return false;
+    }
+    // And the job's own `if:` must be PR-only (a PR job declared at the job, not the step, level).
+    (start..end).any(|at| {
+        lines.get(at).is_some_and(|line| {
+            key_of(line).is_some_and(|k| k.trim_start().strip_prefix("if:").is_some_and(|v| narrower_than_pr(v.trim())))
+        })
+    })
+}
 
 /// Contexts a workflow cannot observe, and therefore may not decide a step on.
 ///
@@ -205,10 +269,14 @@ fn retired(files: &[(String, String)]) -> Vec<String> {
                     .find(|name| uses.starts_with(**name))
                     .map(|name| String::from(*name))
             }) {
-                let here = publisher == PUBLISH.0 && label.ends_with(PUBLISH.1);
+                // cachix-action is permitted in its one write workflow as before, OR in a ci.yml
+                // pull-request job that declares environment `cachix-push-pr` - the PR write half.
+                // Both are bounded by the credential's environment policy, which the gate cannot
+                // verify but the forge holds. The other HOSTED entries stay refused everywhere.
+                let here = publisher == PUBLISH.0 && (label.ends_with(PUBLISH.1) || in_pr_publish_job(text, step.line));
                 if !here {
                     out.push(format!(
-                        "{label}:{}  {publisher} publishes to a store outside this repository. Only `{}` may, and only in `{}`, where the trigger and the environment both admit one branch - see docs/adr/0027",
+                        "{label}:{}  {publisher} publishes to a store outside this repository. Only `{}` may, and only in `{}` (or a pull_request ci.yml job declaring environment `{PUBLISH_PRS}`), where the trigger and the environment both admit one branch - see docs/adr/0027",
                         step.line, PUBLISH.0, PUBLISH.1
                     ));
                 }
@@ -301,7 +369,45 @@ const ALLOWED: [(&str, &str); 2] = [
     ),
 ];
 
-/// Whether one line assigns `setting` to exactly the permitted value and to nothing else.
+/// The additive PR-path pair: sutura plus the repository's PR cache. Permitted ONLY in a step whose
+/// `if:` forces the `pull_request` event ([`narrower_than_pr`]). FIXED store name, so the gate pins
+/// the exact two-store value list and a third store appended still refuses.
+///
+/// The security bound is the KEY, not this text: main never lists `sutura-prs`'s key here, so even
+/// a compromised PR run that wrote attacker paths to `sutura-prs` is read only by PR-gated runs,
+/// never by a merged-main resolver. A PR run still needs `sutura`'s key to restore the shared
+/// closure, which is why the pair carries both.
+const ALLOWED_PRS: [(&str, &str); 2] = [
+    ("substituters", "https://sutura.cachix.org https://sutura-prs.cachix.org"),
+    (
+        "trusted-public-keys",
+        "sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=",
+    ),
+];
+
+/// The pull-request gate, token for token - the ONLY place [`ALLOWED_PRS`] is permitted.
+const PR_EVENT: &str = "github.event_name == 'pull_request'";
+
+/// Is `gate` PR-only, mirroring [`super::narrower_than_main_push`] for the `pull_request` event?
+///
+/// Exact `github.event_name == 'pull_request'`, or plus `&&` conjuncts that cannot widen back to
+/// main: no `||`, and none of `github.event_name == 'push'`, `github.ref == 'refs/heads/main'`, or a
+/// `vars.`/`secrets.` read (unobservable, separately refused).
+fn narrower_than_pr(gate: &str) -> bool {
+    let Some(rest) = gate.strip_prefix(PR_EVENT) else {
+        return false;
+    };
+    rest.strip_prefix(" && ").map_or(rest.is_empty(), |extra| {
+        !extra.is_empty()
+            && !extra.contains("||")
+            && !extra.contains("github.event_name == 'push'")
+            && !extra.contains("github.ref == 'refs/heads/main'")
+            && !extra.contains("vars.")
+            && !extra.contains("secrets.")
+    })
+}
+
+/// Whether one line assigns `setting` to exactly a permitted value and to nothing else.
 ///
 /// **Only the additive assignment form is permitted** - `extra-substituters`, never plain
 /// `substituters`, and never a flag. Three narrowings, each for its own reason: the allowance exists
@@ -311,7 +417,13 @@ const ALLOWED: [(&str, &str); 2] = [
 /// because it replaces nix's default substituter list instead of adding to it. The comparison is
 /// against the WHOLE value list, so appending a second store to an otherwise-permitted line is still
 /// a refusal.
-fn permitted(code: &str, setting: &str) -> bool {
+///
+/// [`ALLOWED`] (the singleton `sutura`) is permitted on EVERY path. [`ALLOWED_PRS`] (the two-store
+/// list) is permitted ONLY when `is_pr_gated_config_line` - the value line sits inside a
+/// `cachix/install-nix-action` step's `extra_nix_config` whose `if:` is PR-only ([`narrower_than_pr`]).
+/// The ungated/on-main two-store list is refused, so removing the `if:` reopens main = red: the
+/// value list AND its PR-only placement are the gate, not the list alone.
+fn permitted(code: &str, setting: &str, is_pr_gated_config_line: bool) -> bool {
     let Some((name, value)) = code.split_once('=') else {
         return false;
     };
@@ -323,10 +435,50 @@ fn permitted(code: &str, setting: &str) -> bool {
     if name.trim() != format!("extra-{setting}") {
         return false;
     }
-    ALLOWED
+    let in_main = ALLOWED
         .iter()
         .find(|(named, _)| *named == setting)
-        .is_some_and(|(_, allowed)| value.split_whitespace().eq(std::iter::once(*allowed)))
+        .is_some_and(|(_, allowed)| value.split_whitespace().eq(std::iter::once(*allowed)));
+    if in_main {
+        return true;
+    }
+    is_pr_gated_config_line
+        && ALLOWED_PRS
+            .iter()
+            .find(|(named, _)| *named == setting)
+            .is_some_and(|(_, allowed)| value.split_whitespace().eq(allowed.split_whitespace()))
+}
+
+/// Line indices (0-based) inside a PR-gated install-nix-action step's `extra_nix_config` block -
+/// the only container where the two-store [`ALLOWED_PRS`] list is law (installer step AND PR-only
+/// `if:`; a bare/moved/ungated line is not, so the list there is refused).
+fn pr_gated_config_lines(text: &str) -> BTreeSet<usize> {
+    let mut out = BTreeSet::new();
+    for step in steps(text) {
+        let is_installer = step.uses().as_deref() == Some("cachix/install-nix-action");
+        let pr_only = step.gate().is_some_and(|g| narrower_than_pr(&g));
+        if !is_installer || !pr_only {
+            continue;
+        }
+        let base = step.line.saturating_sub(1); // 0-based start of the step
+        let mut opened: Option<usize> = None; // the `extra_nix_config:` opener's indentation
+        for (j, line) in step.lines.iter().enumerate() {
+            let indent = line.len().saturating_sub(line.trim_start().len());
+            if opened.is_none() {
+                if key_of(line).is_some_and(|k| k.trim_start().strip_prefix("extra_nix_config:").is_some()) {
+                    opened = Some(indent);
+                }
+                continue;
+            }
+            // A line no deeper than the opener ends the block.
+            if !line.trim().is_empty() && indent <= opened.unwrap_or(0) {
+                opened = None;
+                continue;
+            }
+            out.insert(base + j);
+        }
+    }
+    out
 }
 
 /// Every line of one file that would make CI trust a store outside this repository.
@@ -338,12 +490,15 @@ fn permitted(code: &str, setting: &str) -> bool {
 /// action's input still pass unseen**, and no text rule can close that. `zizmor` and review are
 /// what cover it.
 fn trusted_stores(label: &str, text: &str) -> Vec<String> {
+    // The PR-gated install line indices, computed once so substituter lines there are admitted to
+    // the two-store comparison; everywhere else is refused.
+    let pr_config = pr_gated_config_lines(text);
     let mut out = Vec::new();
     for (index, line) in text.lines().enumerate() {
         let Some(code) = key_of(line) else { continue };
         for setting in SUBSTITUTER {
             let Some(named) = names(code, setting) else { continue };
-            if named == Names::Assigned && permitted(code, setting) {
+            if named == Names::Assigned && permitted(code, setting, pr_config.contains(&index)) {
                 continue;
             }
             let how = match named {
@@ -351,7 +506,7 @@ fn trusted_stores(label: &str, text: &str) -> Vec<String> {
                 Names::Flag => format!("passes `{setting}` as a command-line option, so that nix invocation trusts it"),
             };
             out.push(format!(
-                "{label}:{}  {how} - a store outside this repository, and {RECORD} records the Actions cache as the only carrier, so update that record rather than this gate",
+                "{label}:{}  {how} - a store outside this repository, and {RECORD} records the main resolver as trusting only sutura (an additive PR-only cache is permitted only behind a pull_request gate), so update that record rather than this gate",
                 index.saturating_add(1)
             ));
         }
@@ -398,6 +553,54 @@ mod tests {
         );
     }
 
+    /// Half (a) widens the write pairing: cachix-action may ALSO run in a ci.yml PULL-REQUEST job
+    /// declaring `environment: cachix-push-pr`, and stays red in the ungated main `ci` job.
+    #[test]
+    fn the_publisher_is_permitted_in_the_pr_write_job_and_refused_in_the_main_job() {
+        // The PR write job: cachix-action under `environment: cachix-push-pr`, gated to pull_request.
+        let pr_job = concat!(
+            "  ci:\n",
+            "    steps:\n",
+            "      - uses: cachix/install-nix-action@13d8dd58 # v31.11.1\n",
+            "        if: github.event_name == 'pull_request'\n",
+            "  pr-cache:\n",
+            "    needs: [ci]\n",
+            "    if: github.event_name == 'pull_request'\n",
+            "    environment: cachix-push-pr\n",
+            "    steps:\n",
+            "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n",
+            "        with:\n",
+            "          name: sutura-prs\n",
+            "          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}\n",
+        );
+        assert!(
+            super::retired(&owned(".github/workflows/ci.yml", pr_job)).is_empty(),
+            "the PR write job is the one ci.yml context cachix-action may run in"
+        );
+
+        // The SAME cachix-action step in the ungated main `ci` job stays refused.
+        let main_job = concat!(
+            "  ci:\n",
+            "    steps:\n",
+            "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n",
+            "        with:\n",
+            "          name: sutura-prs\n",
+            "          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}\n",
+        );
+        let found = super::retired(&owned(".github/workflows/ci.yml", main_job));
+        assert!(!found.is_empty(), "{found:#?}");
+
+        // And the environment name alone is not enough - no PR gate is refused.
+        let ungated_env = pr_job.replace(
+            "    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n",
+            "    environment: cachix-push-pr\n",
+        );
+        assert!(
+            !super::retired(&owned(".github/workflows/ci.yml", &ungated_env)).is_empty(),
+            "cachix-push-pr with no PR gate is not the PR write half and is refused"
+        );
+    }
+
     /// The allowance is the whole risk of enabling a binary cache: it has to admit exactly one store
     /// and refuse every neighbouring shape, or it reads as coverage while trusting anything.
     #[test]
@@ -434,8 +637,77 @@ mod tests {
                 "the permitted store via --option",
                 "        run: nix build --option substituters https://sutura.cachix.org .#xtask\n",
             ),
+            (
+                "a literal per-consumer store on the main path (-a)",
+                "        extra-substituters = https://sutura-cross-build.cachix.org\n",
+            ),
+            (
+                "the PR two-store list UNGATED on the main path (-a2) - a merged main run must not",
+                "        extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org\n",
+            ),
         ] {
             assert!(!super::trusted_stores("ci.yml", text).is_empty(), "still refused: {why}");
+        }
+    }
+
+    /// The trust rule is PATH-aware: the two-store list is law ONLY inside an install step whose
+    /// `if:` is PR-only (green there, red on a third store).
+    #[test]
+    fn the_pr_path_allows_its_two_store_list_and_refuses_a_third() {
+        // (-b): the exact two-store list inside a PR-gated install step is GREEN.
+        let pr_step = concat!(
+            "      - uses: cachix/install-nix-action@13d8dd58 # v31.11.1\n",
+            "        if: github.event_name == 'pull_request'\n",
+            "        with:\n",
+            "          extra_nix_config: |\n",
+            "            extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org\n",
+            "            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=\n",
+        );
+        assert!(
+            super::trusted_stores("ci.yml", pr_step).is_empty(),
+            "the PR path accepts its own additive cache behind a pull_request gate"
+        );
+        // (-b2): a THIRD store appended to the PR list is still refused.
+        let third = pr_step.replace(
+            "https://sutura.cachix.org https://sutura-prs.cachix.org",
+            "https://sutura.cachix.org https://sutura-prs.cachix.org https://evil.cachix.org",
+        );
+        assert!(
+            !super::trusted_stores("ci.yml", &third).is_empty(),
+            "a third store appended to the PR list is still refused"
+        );
+    }
+
+    /// THE LOAD-BEARING ROW: dropping (or weakening) the PR gate reopens main = red - the identical
+    /// two-store lines with the `if:` gone are a main-run installer and must be refused.
+    #[test]
+    fn removing_the_pr_gate_reopens_main_and_is_refused() {
+        let ungated = concat!(
+            "      - uses: cachix/install-nix-action@13d8dd58 # v31.11.1\n",
+            "        with:\n",
+            "          extra_nix_config: |\n",
+            "            extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org\n",
+            "            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=\n",
+        );
+        assert!(
+            !super::trusted_stores("ci.yml", ungated).is_empty(),
+            "the two-store list UNGATED is a merged-main installer and must be refused"
+        );
+
+        // Weakening the gate to not-PR-only is the same re-opening and the same red.
+        for weakened in [
+            "github.event_name == 'push'",
+            "github.event_name == 'pull_request' || github.event_name == 'push'",
+            "github.ref == 'refs/heads/main'",
+        ] {
+            let fuzzed = ungated.replace(
+                "        with:\n          extra_nix_config:",
+                &format!("        if: {weakened}\n        with:\n          extra_nix_config:"),
+            );
+            assert!(
+                !super::trusted_stores("ci.yml", &fuzzed).is_empty(),
+                "a fuzzed PR gate ({weakened}) reopens main and is refused"
+            );
         }
     }
 
