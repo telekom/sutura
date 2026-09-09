@@ -1,0 +1,101 @@
+# WHAT A RUNNER LABEL RESOLVES TO, AND HOW MUCH OF IT A BUILD ACTUALLY USES.
+#
+# Two questions nothing in this repository could answer, and the second is why the first is not
+# enough. `runs-on:` names a label; the cores, memory and disk behind it are a property of a runner
+# group, which is a GitHub-side permission and unreadable from the tree - no run here has ever
+# printed `nproc`. And nix's own `max-jobs`/`cores` pair decides whether those cores are offered to
+# a build at all, so a wall clock on its own cannot tell a bigger host from a better-configured
+# one. `max-jobs` is how many derivations build at once; `cores` is how many cores each is offered,
+# where 0 means every core. They MULTIPLY: `max-jobs = auto` with `cores = 0` on a 32-core host is
+# up to 32 derivations each told to use 32 cores.
+#
+# A COMPOSITE ACTION RATHER THAN A STEP BLOCK, because a comparison needs its arms to run the same
+# thing, and because `runs-on: ${{ matrix.label }}` would take the labels out of
+# `.github/actionlint.yaml`'s sight - that file is what makes an unserved label a failed lint
+# instead of a job that queues for a day. So each arm is a job with a LITERAL label that calls this.
+#
+# NO STORE CACHE HERE, DELIBERATELY. Every arm starts from an empty store, so the arms are paired by
+# construction - miss against miss - which is the pairing the `ci` timings cannot offer while the
+# repository's cache allocation is evicting that scope (issue #512). It also means no arm writes an
+# entry, so measuring cannot make that pressure worse.
+name: host-probe
+description: Report what a runner label resolves to, then time one cold nix build on it and sample how much of the host it used.
+
+inputs:
+  workload:
+    description: The flake output to build.
+    required: true
+  arm:
+    description: A name for this arm, so two jobs' lines are distinguishable in a log.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Host shape and the nix job settings in force
+      shell: bash
+      env:
+        ARM: ${{ inputs.arm }}
+      run: |
+        set -eu
+        cores="$(nproc)"
+        model="$(awk -F': ' '/model name/{print $2; exit}' /proc/cpuinfo)"
+        mem="$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo)"
+        disk="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
+        # `nix config show` is the AUTHORITY on the pair rather than the installer's documentation:
+        # what reaches a build is whatever /etc/nix/nix.conf and NIX_CONFIG resolve to together.
+        maxjobs="$(nix config show max-jobs 2>/dev/null || echo unread)"
+        nixcores="$(nix config show cores 2>/dev/null || echo unread)"
+        {
+          printf '### host-probe (%s)\n\n' "$ARM"
+          printf '| | |\n| --- | --- |\n'
+          printf '| nproc | %s |\n| model | %s |\n| memory | %s GiB |\n| disk free | %s GB |\n' \
+            "$cores" "$model" "$mem" "$disk"
+          printf '| nix max-jobs | %s |\n| nix cores | %s |\n' "$maxjobs" "$nixcores"
+        } >> "$GITHUB_STEP_SUMMARY"
+        printf 'host-probe(%s): nproc=%s mem=%sGiB disk=%sGB max-jobs=%s cores=%s\n' \
+          "$ARM" "$cores" "$mem" "$disk" "$maxjobs" "$nixcores"
+
+    - name: Timed cold build, with utilisation sampled
+      shell: bash
+      env:
+        ARM: ${{ inputs.arm }}
+        WORKLOAD: ${{ inputs.workload }}
+      run: |
+        set -eu
+        # WHY SAMPLE AT ALL: a run that finishes in the same wall clock at 40% CPU has headroom
+        # nobody has spent, and a wall clock cannot tell that from a saturated host - while a run
+        # at 100% that is SLOWER is thrashing. The busy fraction comes from /proc/stat, which
+        # counts every core, so 100% means every core was doing work for the whole interval.
+        snapshot() { awk '/^cpu /{idle=$5+$6; tot=0; for (i=2; i<=NF; i++) tot+=$i; print tot, idle}' /proc/stat; }
+        samples="$RUNNER_TEMP/host-probe-util"
+        : > "$samples"
+        (
+          prev="$(snapshot)"
+          while :; do
+            sleep 5
+            cur="$(snapshot)"
+            printf '%s %s\n' "$prev" "$cur" |
+              awk '{ dt=$3-$1; di=$4-$2; if (dt>0) printf "%.1f\n", 100*(dt-di)/dt }' >> "$samples"
+            prev="$cur"
+          done
+        ) &
+        sampler=$!
+        before="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
+        start="$(date +%s)"
+        nix build "$WORKLOAD"
+        end="$(date +%s)"
+        kill "$sampler" 2>/dev/null || true
+        after="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
+        wall="$((end - start))"
+        mean="$(awk '{s+=$1; n++} END{ if (n) printf "%.1f", s/n; else printf "unsampled" }' "$samples")"
+        peak="$(awk 'BEGIN{m=0} {if ($1>m) m=$1} END{printf "%.1f", m}' "$samples")"
+        taken="$(wc -l < "$samples" | tr -d ' ')"
+        {
+          printf "| workload | \`%s\` |\n" "$WORKLOAD"
+          printf '| wall clock | %s s |\n| mean CPU busy | %s%% |\n| peak CPU busy | %s%% |\n' \
+            "$wall" "$mean" "$peak"
+          printf '| samples | %s at 5 s |\n| store paths | %s -> %s |\n' "$taken" "$before" "$after"
+        } >> "$GITHUB_STEP_SUMMARY"
+        printf 'host-probe(%s): %s s wall, mean %s%% busy, peak %s%%, %s sample(s), %s -> %s store paths\n' \
+          "$ARM" "$wall" "$mean" "$peak" "$taken" "$before" "$after"

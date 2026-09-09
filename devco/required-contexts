@@ -154,6 +154,14 @@ docs.yml:publish
 # would need a `merge_group` trigger added here.
 security-audit.yml:audit
 
+# The runner probe. Three arms of one measurement - what a runner label resolves to, and which
+# `max-jobs`/`cores` pair uses it - so nothing here has a verdict to gate with. It runs only on a
+# dispatch and on a pull request that touches the probe or the composite action it calls, which is
+# when a reviewer needs its numbers; `.github/workflows/runner-probe.yml` carries the design.
+runner-probe.yml:reference
+runner-probe.yml:one-job
+runner-probe.yml:bounded
+
 # Generated input against the parsers that read untrusted input. BOTH jobs advisory, and the
 # `fuzz` matrix does not report on a pull request at all - `.github/workflows/fuzz.yml` argues why
 # a time-budgeted fuzz run must not gate a merge, and the entry is here so that argument is a

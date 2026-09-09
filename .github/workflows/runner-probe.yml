@@ -1,0 +1,118 @@
+# IS THE HOST BEING USED, AND WHICH `max-jobs`/`cores` PAIR USES IT BEST?
+#
+# THE FINDING THIS EXISTS FOR: nothing in this repository has ever measured either half. CI installs
+# nix through `cachix/install-nix-action`, whose own `install-nix.sh` writes `max-jobs = auto` and
+# nothing else, and no workflow, composite action or script under `nix/` sets `cores`, `NIX_CONFIG`
+# or `--max-jobs` - so ordinary CI runs at `max-jobs = auto, cores = 0`, which is *every derivation
+# offered every core*. Whether that saturates the host or thrashes it was argued and never read.
+#
+# WHY THE PAIR AND NOT ONE OF THEM. They multiply. `max-jobs` is how many derivations build at once
+# and `cores` is how many cores each is offered (0 = all), so `auto`/`0` on a 32-core host is up to
+# 32 x 32. The two coherent shapes are one derivation with the whole host, or N derivations each
+# bounded to a share - and which wins is empirical, because it depends on how much of the wall clock
+# is one big `cargo` invocation (crane exports `CARGO_BUILD_JOBS=$NIX_BUILD_CORES`, so cargo's own
+# parallelism IS `cores`) against many small derivations, where `max-jobs` is what fills the host.
+#
+# ARMS DIFFER FROM `reference` IN ONE FACTOR EACH, and the reason is this repository's own history:
+# three CI diagnoses were refuted after a combined change produced a number nobody could attribute.
+# `one-job` moves `max-jobs` alone. `bounded` is the other coherent SHAPE and moves both, which is
+# stated rather than hidden - it is a third point, not a controlled contrast with `one-job`.
+#
+# IT GATES NOTHING AND REPORTS EVERYTHING. `devco/required-contexts` classifies all three jobs
+# `[advisory]`. It runs on a dispatch and on a pull request that touches this file or the action it
+# calls - which is exactly when its numbers are what a reviewer needs.
+#
+# WHAT IT CANNOT ANSWER: cost. A runner's price per minute is in no API this repository can read, so
+# a latency-per-cost verdict needs that number from the billing side. This file supplies latency and
+# utilisation, on a stated cache state, and nothing more.
+name: runner-probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/runner-probe.yml"
+      - ".github/actions/host-probe/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # THE REFERENCE ARM: the pinned host, exactly the settings ordinary CI uses today.
+  reference:
+    runs-on: rust-mcp-32core
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The one line ordinary CI passes, and no substituter: `cargo xtask check-workflows`
+          # refuses one, and a probe is not the place to widen what CI trusts.
+          extra_nix_config: |
+            fallback = true
+
+      - uses: ./.github/actions/host-probe
+        with:
+          arm: 32core-reference-auto-jobs
+          workload: .#checks.x86_64-linux.clippy
+
+  # ONE FACTOR: `max-jobs`. Everything else is the reference.
+  one-job:
+    runs-on: rust-mcp-32core
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            max-jobs = 1
+
+      - uses: ./.github/actions/host-probe
+        with:
+          arm: 32core-one-job
+          workload: .#checks.x86_64-linux.clippy
+
+  # THE OTHER COHERENT SHAPE: four derivations, each bounded to a quarter of a 32-core host. Two
+  # factors from the reference, deliberately, because the shape is the point rather than the contrast.
+  bounded:
+    runs-on: rust-mcp-32core
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            max-jobs = 4
+            cores = 8
+
+      - uses: ./.github/actions/host-probe
+        with:
+          arm: 32core-four-jobs-eight-cores
+          workload: .#checks.x86_64-linux.clippy
