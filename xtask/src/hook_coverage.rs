@@ -58,7 +58,7 @@
 //!   every surface covered and `ok`, exit 0 - **character for character** the lines this branch's
 //!   real `ship-check` run printed, with not one hook having executed. It is its own
 //!   [`Coverage::DryRun`] and a FAILED verdict now: a dry run is neither *ran* nor *filtered out*.
-//! * **A hook that decides for itself not to run prints `Passed`.** Eight of the seventeen do.
+//! * **A hook that decides for itself not to run prints `Passed`.** Eight of the fifteen do.
 //!   [`abstain`] carries that, the measurement, and why the notice cannot be the mechanism.
 //!
 //! # What this does NOT reach
@@ -682,8 +682,8 @@ mod tests {
     #[test]
     fn a_hook_that_could_not_have_run_here_is_not_coverage_whatever_its_row_said() {
         // MEASURED: the `shellcheck` entry verbatim with `nix` off PATH prints its notice and
-        // exits 0, so prek prints a pass. Eight of the seventeen declared hooks are written that
-        // way, three of the four on push - so on a host with no nix the verdict was
+        // exits 0, so prek prints a pass. Eight of the fifteen declared hooks are written that
+        // way, both of the two on push - so on a host with no nix the verdict was
         // `pre-push - 4 of 4 declared hook(s) ran` over hooks that announced their own skip.
         let declared = declared();
         let rows = super::rows(REAL_COMMIT_LOG);

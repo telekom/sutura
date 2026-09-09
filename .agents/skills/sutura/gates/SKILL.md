@@ -133,8 +133,8 @@ review.
 
 **Pinned Nix routes do not require the dev shell.** `nix/run-gate.sh` probes host cargo (the
 shell's nightly when one is active) and falls back to the pinned Nix check; it clears the two
-inherited cranelift variables before the Nix route. Secret scanning and the push-tier format check
-need no local Rust toolchain.
+inherited cranelift variables before the Nix route. The two push-tier checks - secret scanning and
+the supply-chain gate - need no local Rust toolchain.
 
 ## Direction is per-gate, and each one says so at its own decision
 
@@ -157,20 +157,20 @@ need no local Rust toolchain.
 
 **Neither direction is a default. What a wrong answer costs decides it, per gate.**
 
-## Hooks, and why clippy runs twice
+## Hooks, and why the push stage is security-only
 
-The push stage repeats the commit stage's compiling hook because **`git rebase` and
-`git rebase --continue` run no commit hook at all**, and a conflict resolution used to reach the
-remote with nothing having compiled it. `check-hook-tiers` holds two things: the push stage runs a
-hook that COMPILES, and that hook's entry is the commit stage's **own** - the second because cargo
-keys its fingerprints on the invocation, so a push command differing by one flag rebuilds the
-workspace instead of reusing what the commit hook built.
+The push stage runs ONLY the two whole-tree security checks - `secret-sweep`
+(`nix/run-gate.sh secrets`) and `cargo-deny` (`nix/run-gate.sh supply-chain`) - and nothing that
+compiles first-party code. It used to repeat the commit stage's clippy hook so that
+**`git rebase` and `git rebase --continue`, which run no commit hook at all**, could not push a
+conflict resolution nobody had compiled. That push-compile tier is **deliberately retired**: the
+compile is a commit-stage concern, and an uncompiled rebase now reaches CI rather than being
+caught locally. `check-hook-tiers` holds the new shape - every `pre-push` hook is one of the two
+security checks, and none of it compiles.
 
 Tiers are bypassable with `--no-verify`, so none of this is an invariant. What the gate holds is
-that the tiers documented here are the tiers `.pre-commit-config.yaml` declares. It expresses the
-repeated run as a YAML anchor rather than a second copy, because a gate that makes `git push` slow
-gets bypassed and then guards nothing: measured, the push clippy is ~1 s after a warm commit hook
-and ~76 s into an empty target directory, which the first commit in a fresh clone pays anyway.
+that the tiers documented here are the tiers `.pre-commit-config.yaml` declares, in both
+directions: a push hook that compiles OR that is outside the security-only set fails the gate.
 
 **The CRAP gate** scores cyclomatic complexity weighted by the tests covering it - the combination
 neither a complexity limit nor a coverage percentage catches alone. Split by cost: `check-crap`
@@ -698,7 +698,7 @@ seeds and a finite budget did not find anything, never that a parser is panic-fr
   every surface covered and `ok`, exit 0 - **character for character** the lines the real run
   printed, with nothing having executed. And the only end-to-end fixture for the counting rule was
   itself a `--dry-run` capture under a doc comment calling it a real run. (3) **Eight of the fifteen
-  declared hooks print `Passed` after deciding not to run** - three of the four on push - because a
+  declared hooks print `Passed` after deciding not to run** - both of the two on push - because a
   self-skip on a missing tool exits 0. Measured with the `shellcheck` entry verbatim and `nix` off
   `PATH`: notice printed, exit 0. So on any host without nix the verdict was a green run over hooks
   that announced their own abstention.
