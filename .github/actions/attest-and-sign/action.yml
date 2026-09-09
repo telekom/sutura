@@ -77,6 +77,20 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Refuse a previous provenance export
+      shell: bash
+      env:
+        ASSETS: ${{ inputs.assets-dir }}
+      run: |
+        set -eu
+        # Neither a previous export nor an interrupted stage may enter the unchanged snapshot.
+        for path in "$ASSETS/sutura-provenance.intoto.jsonl" "$ASSETS/.sutura-provenance.intoto.jsonl.tmp"; do
+          if [ -e "$path" ] || [ -L "$path" ]; then
+            echo "::error::provenance export or staging file already exists; require fresh release inputs"
+            exit 1
+          fi
+        done
+
     # A SIGNATURE PER IMAGE, and an SBOM attached to each one that a registry client can fetch
     # without the release page.
     #
@@ -244,7 +258,8 @@ runs:
     # instead of a glob per shape. The file is written from within the assets directory so the names it carries are the
     # basenames a consumer downloads, which is what the attestation is looked up by.
     #
-    # WHAT IS EXCLUDED, and it is one thing: the signature bundles written by the step above.
+    # WHAT IS EXCLUDED: the signature bundles written by the step above. The provenance export
+    # does not exist until after this snapshot; the first step refuses a previous export.
     # Provenance over a signature says the pipeline produced the signature, which nobody needs to
     # know and which the signature's own certificate already says. Everything else is included
     # without exception - the `.sha256` sidecars too, though they are trivially derivable -
@@ -272,6 +287,7 @@ runs:
         cat subjects.sha256
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: asset_provenance
       with:
         subject-checksums: subjects.sha256
 
@@ -332,11 +348,13 @@ runs:
         done
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: glibc_provenance
       with:
         subject-name: ${{ steps.lists.outputs.glibc_name }}
         subject-digest: ${{ steps.lists.outputs.glibc }}
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: musl_provenance
       with:
         subject-name: ${{ steps.lists.outputs.musl_name }}
         subject-digest: ${{ steps.lists.outputs.musl }}
@@ -344,11 +362,29 @@ runs:
     # And the server's two lists. `sutura-serve` is what closed #111: before it, no published
     # artefact could answer a question over HTTP, so there was nothing here to attest.
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: serve_glibc_provenance
       with:
         subject-name: ${{ steps.lists.outputs.serve_glibc_name }}
         subject-digest: ${{ steps.lists.outputs.serve_glibc }}
 
     - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: serve_musl_provenance
       with:
         subject-name: ${{ steps.lists.outputs.serve_musl_name }}
         subject-digest: ${{ steps.lists.outputs.serve_musl }}
+
+    - name: Collect the provenance bundles
+      shell: bash
+      env:
+        ASSETS: ${{ inputs.assets-dir }}
+        IMAGE_DIGESTS: ${{ inputs.digests-file }}
+        ASSET_BUNDLE: ${{ steps.asset_provenance.outputs.bundle-path }}
+        GLIBC_BUNDLE: ${{ steps.glibc_provenance.outputs.bundle-path }}
+        MUSL_BUNDLE: ${{ steps.musl_provenance.outputs.bundle-path }}
+        SERVE_GLIBC_BUNDLE: ${{ steps.serve_glibc_provenance.outputs.bundle-path }}
+        SERVE_MUSL_BUNDLE: ${{ steps.serve_musl_provenance.outputs.bundle-path }}
+      run: |
+        set -eu
+        nix run .#xtask -- collect-provenance subjects.sha256 "$IMAGE_DIGESTS" \
+          "$ASSETS/sutura-provenance.intoto.jsonl" "$ASSET_BUNDLE" "$GLIBC_BUNDLE" \
+          "$MUSL_BUNDLE" "$SERVE_GLIBC_BUNDLE" "$SERVE_MUSL_BUNDLE"
