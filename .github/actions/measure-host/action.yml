@@ -7,6 +7,10 @@ description: |-
   exposes no per-job runner CPU, and the cache report is about store paths, not
   cores. Sampling is from /proc/stat jiffy deltas once a second - a ~0 cost side
   effect, no new derivation.
+
+  The report goes to BOTH the job summary and stdout. The summary is the human-facing
+  table; the stdout line is the machine-readable one, because no REST endpoint serves a
+  step summary and so a summary-only number cannot be quoted by a later run.
 inputs:
   run:
     description: The command (nix build) whose host utilisation to sample.
@@ -60,7 +64,11 @@ runs:
 
         # Let the first sample land before the measured command starts.
         sleep 1
-        eval "$MEASURE_RUN"
+        # The measured command's failure must NOT skip the report: a build that died is exactly
+        # when its utilisation is worth reading. Its status is carried to the end of the step so
+        # the step still fails, after reporting, rather than instead of it.
+        status=0
+        eval "$MEASURE_RUN" || status=$?
 
         kill "$SAMPLER" 2>/dev/null || true
         wait "$SAMPLER" 2>/dev/null || true
@@ -85,3 +93,16 @@ runs:
           echo "|---|---|---|---|---|---|---|---|"
           echo "| $cpus | ${mem:-?} | ${model:-unknown} | $maxjobs | $cores | $n | $mean% | $peak% |"
         } >> "$GITHUB_STEP_SUMMARY"
+
+        # MIRRORED TO STDOUT BECAUSE A STEP SUMMARY IS NOT QUOTABLE. There is no REST endpoint
+        # that serves `$GITHUB_STEP_SUMMARY`, so the table above appears in a browser and in
+        # nothing a later run, script or agent can read - the numbers had zero occurrences in a
+        # full job log. The job log IS served, so one line goes there too, in the same
+        # `<instrument>(<scope>): ` shape `host-probe` and `nix-store-cache` already use, and as
+        # `key=value` pairs rather than a table so extraction needs no column parsing.
+        # No hostname, runner id or token is printed, and `model` is deliberately left to the
+        # summary: free text from /proc/cpuinfo is not what a measurement greps for.
+        printf 'measure-host(%s): cpus=%s mem=%sGiB max-jobs=%s cores=%s samples=%s mean=%s%% peak=%s%% status=%s\n' \
+          "$MEASURE_LABEL" "$cpus" "${mem:-0}" "$maxjobs" "$cores" "$n" "$mean" "$peak" "$status"
+
+        exit "$status"

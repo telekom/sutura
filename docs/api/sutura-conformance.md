@@ -403,6 +403,49 @@ name. `$crate::sutura_domain` always resolves.
 
 What one behaviour of one pack answers.
 
+## `macro compile_packs`
+
+Binds the compile pack to one catalog, as one named `#[test]` per behaviour.
+
+```ignore
+// In this crate's own binding, `tests/compile.rs`.
+use sutura_conformance::compile::{DeclaringSubject, GoldenSubject};
+
+sutura_conformance::compile_packs! {
+    adapter: golden,
+    catalog: GoldenSubject,
+    golden,
+}
+
+sutura_conformance::compile_packs! {
+    adapter: declaring,
+    catalog: DeclaringSubject,
+    declaring,
+}
+```
+
+# The `golden`/`declaring` tag
+
+`macro_rules!` cannot read `SemanticCatalog::KIND`, so the kind is written at the binding the
+way `crate::execute_packs`'s leg declaration is, and the arm's `const` assert is where the two
+are torn unless they agree: tag a catalog against its own `CatalogKind` and the binding does
+not build. The tag also selects WHICH behaviours the arm emits - a `golden` binding gets all six,
+a `declaring` one gets `CompileBehaviour::UNIVERSAL` - and both feed `compile_census` the one
+repetition's list, so either way a deleted cell reddens.
+
+**The golden-only cells are additionally bound on `GoldenCatalog`, so the tag is a second line
+of defence and not the mechanism**: a golden cell's function takes `C: GoldenCatalog`, so a
+`golden` tag handed a catalog that does not implement the marker does not compile even before the
+`KIND` assert. The split holds by the type system rather than by review, which is the whole point
+of the marker.
+
+# What a binding names
+
+- `catalog` is the under-test type, named from this crate's `compile` module. The cells load it
+  via `SemanticCatalog::load` and this crate supplies the corpus and the oracle.
+- `adapter` is an ident that names the emitted module, so a binding can hold several catalogs and
+  filter by name the way the execute pack allows.
+
 ## `macro execute_packs`
 
 Binds the execute pack to one adapter, as one named `#[test]` per behaviour.
@@ -1022,3 +1065,272 @@ truthiness are spelled twice, and two statements about one fact can disagree.
 mechanism that keeps them equal: it takes `sutura-dev` as a DEV-dependency, which that gate
 permits by design (what may not happen is a pack BODY compiled against something, and a pack
 body is `src/`), and compares both halves against `FORCE` and `requirement::decide`.
+
+## Module `compile`
+
+The compile pack: what a metadata catalog must do with a question, end to end.
+
+`crate::execute` holds a data system to the answer it gives for a plan. This pack holds a
+metadata catalog to the shape its own definitions give a question: load its
+`PinnedDefinitions`, run the question through `sutura_semantic::compile`, and hold the outcome
+to the oracle - or, for a catalog that declares it supplies part of the model, to its own
+declaration. It is the compile half of issue telekom/sutura#349's conformance rack, and it is a
+REAL module in exactly the sense `Behaviour` is one for the execute pack: a
+deleted cell must redden rather than quietly shrink a green count.
+
+# How it mirrors `crate::execute_packs`
+
+The same four mechanisms, so a reader who knows one pack knows the other:
+
+| Execute pack | This pack |
+| --- | --- |
+| `Behaviour` + `EVERY` + `index` + the const assert | `CompileBehaviour` + `EVERY` + `index` + the const assert |
+| the `#[test]`s and `census`'s `bound` are ONE repetition inside `execute_packs!` | the `#[test]`s and `compile_census`'s `bound` are ONE repetition inside `compile_packs!` |
+| `EXECUTES_LEGS` declaration, chcked by a `const` assert | `SemanticCatalog::KIND` declaration, checked by a `const` assert |
+
+And the one difference is what makes this pack a pair rather than a copy: **the GOLDEN/DECLARING
+split** `CatalogKind` and `docs/adr/0016` draw. A catalog is held to the oracle only if it
+declares itself *golden* - it can produce the whole model - which is enforced by a marker trait
+bound, not by review (see `GoldenCatalog`).
+
+# What a green run does NOT establish
+
+- **Federated rendering.** The corpus is one source, one metric, one mono plan; nothing
+  federates, so `Compiled::Federated` is a panic here rather than a case.
+- **A live source, or identity forwarding.** Issue #349's stated surviving limits: the fixture is
+  a hand-built catalog in this module, and no credential is minted for anything.
+- **Every dialect.** The corpus declares it renders `DuckDb` and `Postgres`, and what
+  `generate` produces for them is what `statement_is_the_oracles_own`
+  compares. `ClickHouse` and `BigQuery`
+  are out of scope here, which is why their renderings are not pinned.
+- **That the corpus is hard.** It is one aggregate over one metric plus four refusals - see
+  `questions` below for why none of the execute corpus's harder shapes is repeated here.
+
+### `enum CompileBehaviour`
+
+```rust
+pub enum CompileBehaviour
+```
+
+One behaviour of the compile pack: the unit a test name, a failure report and a CI filter key on.
+
+An enum rather than a string, for the reason `crate::Behaviour` is one: the pack's own list and
+the tests the macro emits are compared by the compiler at one end and by `compile_census` at
+the other.
+
+#### Variants
+
+- `Plan` - The compiled mono plan's serialized form equals the oracle's.
+- `Statement` - For each dialect this corpus declares it renders to, the statement equals the oracle's.
+- `Params` - The bind parameters equal the oracle's.
+- `Refusal` - The question this corpus expects to refuse reaches the variant it names, and not another.
+- `Fidelity` - What the catalog declared is exactly what its bundle produced.
+- `Repeat` - A second load produces the same digest.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The name a report carries.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `trait GoldenCatalog`
+
+```rust
+pub trait GoldenCatalog
+```
+
+The marker that separates a **golden** catalog from a declaring one in this pack.
+
+The analogue of `crate::tests::golden::catalogs::GoldenCatalog` in miniature: the golden-only
+cell functions are bound on this marker, so a cell that requires the whole model cannot be
+expanded for a catalog that does not implement it - the call does not typecheck. It is the
+ROUTING copy of `SemanticCatalog::KIND` (`macro_rules!` cannot read an associated constant, so
+the same fact is stated here in the form a binding can be bound on) and `compile_packs!`'
+`const` assert is where the two are torn unless they agree. The canonical declaration of the kind
+is `SemanticCatalog::KIND` in the domain.
+
+### `enum FixtureError`
+
+```rust
+pub enum FixtureError
+```
+
+A catalog that could not be read, or a fixture that could not be put together.
+
+The fixture catalogs in this module are `SemanticCatalog`s whose `Error` this fills, and the
+corpus builders return it too, so every `.parse`/`.assemble`/`.pin` in a fixture travels through
+`?` and only the pack boundary turns it into a panic.
+
+#### Variants
+
+- `Names` - A name failed to parse as an identifier.
+- `Values` - A dimension value or anchor value failed to parse.
+- `Date` - A date failed to parse or did not exist.
+- `Range` - A time range did not hold together.
+- `Version` - A version label was not a version.
+- `Definitions` - A definitions bundle was inconsistent at assembly.
+- `Digest` - The bundle would not digest.
+- `Knowledge` - The knowledge and its declaration disagreed.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct OracleCatalog`
+
+```rust
+pub struct OracleCatalog
+```
+
+The catalog several registered catalogs read, stated a second time in Rust.
+
+**The oracle, and it is deliberately a separate hand-built catalog from `GoldenSubject`**, for
+the reason `sutura-app`'s `HandWrittenCatalog` is separate from the documents it transcribes:
+two independent statements of one metric must produce the same plan, and the golden cells compare
+the subject against this one so a mutation to either half reddens rather than passing as self-
+agreement. It declares `Golden` only so its own declaration-fidelity cell holds.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `GoldenCatalog`, `SemanticCatalog`
+
+### `struct GoldenSubject`
+
+```rust
+pub struct GoldenSubject
+```
+
+The catalog under test for the golden arm of this pack.
+
+A second, independent statement of the same one-metric corpus. `plan_is_the_oracles_own` and
+its siblings compile a question through BOTH this and `OracleCatalog` and require them to
+agree, which is what makes the golden cells differential rather than a copy of the oracle against
+itself.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `GoldenCatalog`, `SemanticCatalog`
+
+### `struct DeclaringSubject`
+
+```rust
+pub struct DeclaringSubject
+```
+
+The catalog under test for the declaring arm of this pack.
+
+Supplies **part** of the model - a model and a metric with a grain and nothing else - and says
+so in its declaration, so it is measured by `fidelity_holds` against that declaration and by
+`repeat_load_is_stable`, and by no golden cell: it implements no `GoldenCatalog`, which is
+what makes the golden cells impossible to expand for it.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `SemanticCatalog`
+
+### `fn plan_is_the_oracles_own`
+
+```rust
+pub fn plan_is_the_oracles_own<C>()
+```
+
+`CompileBehaviour::Plan` - the compiled mono plan is the oracle's plan, in serialized form.
+
+BOUND on `GoldenCatalog`, so this cell cannot expand for a catalog that does not declare itself
+golden: only a golden catalog owns an oracle to be held to.
+
+### `fn statement_is_the_oracles_own`
+
+```rust
+pub fn statement_is_the_oracles_own<C>()
+```
+
+`CompileBehaviour::Statement` - for each declared dialect, the rendered statement equals the
+oracle's.
+
+BOUND on `GoldenCatalog`, for the reason `plan_is_the_oracles_own` gives.
+
+### `fn params_are_the_oracles_own`
+
+```rust
+pub fn params_are_the_oracles_own<C>()
+```
+
+`CompileBehaviour::Params` - the bind parameters equal the oracle's.
+
+BOUND on `GoldenCatalog`, for the reason `plan_is_the_oracles_own` gives. The statement and
+its parameters are folded in plan order by `sutura_sql::generate`, so the parameters are
+compared over one dialect the way the statement is, and over the same one.
+
+### `fn refusal_reaches_the_variant_the_oracle_names`
+
+```rust
+pub fn refusal_reaches_the_variant_the_oracle_names<C>()
+```
+
+`CompileBehaviour::Refusal` - a refused question reaches the variant the corpus names, not another.
+
+BOUND on `GoldenCatalog`, because "the variant the corpus names" is a statement only a
+corpus-backed adapter has an oracle for. The expected is a `Debug` prefix, so a question that
+started refusing for a different reason is caught rather than passing as *some refusal*.
+
+### `fn fidelity_holds`
+
+```rust
+pub fn fidelity_holds<C>()
+```
+
+`CompileBehaviour::Fidelity` - what the catalog declared is exactly what its bundle produced.
+
+**UNIVERSAL: both a golden and a declaring catalog owe this**, and it is the assertion a
+declaring adapter gets in place of the golden oracle - `docs/adr/0016`'s decision. It is two
+directions in one `MetadataCapabilities::checked_against` call: everything declared was
+produced, and nothing undeclared appears. A declaration widened beyond the bundle fails the
+`Unprovided` direction and reddens here.
+
+### `fn repeat_load_is_stable`
+
+```rust
+pub fn repeat_load_is_stable<C>()
+```
+
+`CompileBehaviour::Repeat` - a second load produces the same digest.
+
+**UNIVERSAL.** It loads the same bytes twice and compares the two digests, so what it can see is
+a catalog that answers differently on a second read - a hash-ordered collection, a timestamp, a
+source of randomness. It deliberately claims only determinism, because *the digest is a function
+of CONTENT* is a claim about two different inputs and a fresh load is one input read twice.
+
+### `fn compile_census`
+
+```rust
+pub fn compile_census(kind: &'static str, bound: &[CompileBehaviour])
+```
+
+Asserts a binding emitted a test for exactly the behaviours its kind selects, and that the corpus
+is not empty to be green over.
+
+Three things mirror `crate::census`'s first three, and the missing two are the venue ones it
+does not have: a compile catalog is a hand-built fixture with no socket to be absent, so there is
+no floor to measure and no `NOT RUN` to print.
+
+1. **`bound` is the array the single `#[test]`/census repetition inside
+   `compile_packs!` generated**, one element per emitted test, compared
+   against the behaviours the kind selects -
+   `CompileBehaviour::EVERY` for `"golden"`, `CompileBehaviour::UNIVERSAL` for `"declaring"`.
+   A deleted test is a deleted element and this reddens, which is the correction `crate::census`
+   narrates for the execute pack.
+2. the plan corpus is not empty, which is the state that would make `plan_is_the_oracles_own`
+   and its two siblings vacuously green.
+3. the refusal corpus is not empty, which is the state that would make
+   `refusal_reaches_the_variant_the_oracle_names` a green no-op.
+
+What it cannot do is the same thing `crate::census` cannot: know that a behaviour's BODY
+asserts anything. A pack that returned without comparing would pass here and everywhere else; the
+cells above compare, which is the evidence `tests/compile.rs` is for.

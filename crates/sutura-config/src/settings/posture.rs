@@ -34,12 +34,13 @@ pub enum NotFitToServe {
     /// knows. Naming it makes it a stated fact that the startup log can print, and a declaration
     /// cannot be satisfied by agreeing that off-host was intended.
     #[error(
-        "server.host is {bind}, which is reachable from other hosts, and security.tls_termination \
-         is `none`. Say where TLS is terminated - one of: sidecar, ingress, in-process - or bind \
-         127.0.0.1. The declaration does not encrypt anything: it records which cleartext hop \
-         this bearer token crosses, which is a fact only this deployment knows"
+        "server.host is {bind} (from {origin}), which is reachable from other hosts, and \
+         security.tls_termination is `none`. Say where TLS is terminated - one of: sidecar, \
+         ingress, in-process - or bind 127.0.0.1. The declaration does not encrypt anything: it \
+         records which cleartext hop this bearer token crosses, which is a fact only this \
+         deployment knows"
     )]
-    TlsTerminationUndeclared { bind: String },
+    TlsTerminationUndeclared { bind: String, origin: String },
     /// Something is reachable off-host, or this is production, and there is no token.
     ///
     /// Not authentication - see [`crate::security`] - but the difference between a bearer secret

@@ -17,10 +17,14 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use axum::http::{HeaderMap, HeaderValue};
+use axum::body::Body;
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
+use axum::middleware;
+use axum::routing::get;
 use jsonwebtoken::{EncodingKey, Header};
 use sutura_config::{KeyFamily, PinnedAlgorithms, ProofLifetime, RequiredTokenType, SigningAlgorithm};
 use sutura_domain::identity::Attribution;
+use tower::ServiceExt as _;
 
 use crate::inbound::caller::Scopes;
 use crate::inbound::gate::InboundGate;
@@ -709,6 +713,59 @@ fn the_subject_a_verified_token_names_is_still_parsed_by_the_domain() {
     );
     let rejected = block_on(gate.establish(&bearer(&forged), Instant::now()));
     assert!(matches!(rejected, Err(TokenRejected::UnusableSubject { .. })), "{rejected:?}");
+}
+
+#[test]
+fn an_invalid_principal_warning_keeps_shape_metadata_and_not_the_claim_value() {
+    const RAW_SENTINEL: &str = "principal-leak-sentinel";
+
+    let pair = key_pair();
+    let gate = gate_over(&direct(), &jwks(KID, &pair));
+    let token = signed(
+        &pair,
+        KID,
+        &claims(&format!("{RAW_SENTINEL}\nforged=field"), RESOURCE, ISSUER, ""),
+    );
+    let app = axum::Router::new()
+        .route("/guarded", get(|| async { StatusCode::NO_CONTENT }))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(gate),
+            crate::inbound::require_verified_caller,
+        ));
+    let mut request = Request::builder()
+        .uri("/guarded")
+        .body(Body::empty())
+        .expect("the test request builds");
+    *request.headers_mut() = bearer(&token);
+
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let response =
+        tracing::subscriber::with_default(subscriber, || block_on(app.oneshot(request))).expect("the infallible router answers");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let rendered = sink.contents();
+    let warning = rendered
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|line| line["msg"] == "no verified caller: the presented token did not establish one")
+        .unwrap_or_else(|| panic!("the inbound gate emitted no rejection warning: {rendered}"));
+    assert_eq!(warning["level"], 40, "the rejection is still a warning: {warning}");
+    assert!(
+        warning.to_string().contains("0x000a"),
+        "the control-character code was erased with the value: {warning}"
+    );
+    assert!(
+        !rendered.contains(RAW_SENTINEL),
+        "the rejected subject claim reached the first-party warning: {rendered}"
+    );
 }
 
 /// A one-line block-on for the two synchronous tests above, so they do not each need a runtime

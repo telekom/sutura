@@ -8,6 +8,7 @@ publish = false
 description = "Repo automation: the dependency-boundary, file-length and unused-dependency gates."
 
 [dependencies]
+serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 

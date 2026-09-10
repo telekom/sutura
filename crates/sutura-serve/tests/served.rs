@@ -524,7 +524,7 @@ mod tests {
             "the record for an answered question does not say a caller was verified:\n{answered}"
         );
         assert!(
-            answered.contains(r#""subject":"user@example.com""#),
+            answered.contains(r#""subject":"u***@e***.c***""#),
             "the record names a different subject from the one the token carried:\n{answered}"
         );
 
@@ -735,12 +735,17 @@ mod tests {
         };
         // The WHOLE set, not a `contains`: a second refusal here would mean the process could be
         // stopping for something other than the undeclared terminator.
-        assert_eq!(
-            *refusals,
-            vec![NotFitToServe::TlsTerminationUndeclared {
-                bind: String::from("0.0.0.0:0")
-            }]
-        );
+        assert_eq!(refusals.len(), 1, "{refusals:?}");
+        let NotFitToServe::TlsTerminationUndeclared { bind, origin } = &refusals[0] else {
+            panic!("expected the undeclared-bind refusal, got {refusals:?}");
+        };
+        assert_eq!(bind, "0.0.0.0:0");
+        // The bind came from the fixture's own `base.yaml`, so the refusal must name that file -
+        // the same one the harness already asserted appears in the log. (The precise equality with
+        // that path, through the canonical spelling the `config` crate leaves relative, is asserted
+        // in `sutura-config` where the file still exists; here the file is already reclaimed, so
+        // the suffix is the whole of what can be asked of a reclaimed path.)
+        assert!(origin.ends_with("base.yaml"), "the refusal did not name the file: {origin}");
         said_every_line_of(&told, &refused.reason().to_string());
     }
 

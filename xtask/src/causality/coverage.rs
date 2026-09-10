@@ -35,7 +35,7 @@
 //! line earlier. `super::prove` printed this ratio BEFORE the head run - a `measured:` line the
 //! reader meets first - and then an inconclusive verdict twenty lines below corrected it to
 //! `0 of N`. Two numerators, one sentence, in one output: reviewed and reproduced on the head that
-//! introduced [`super::base::earned`], whose whole purpose was to stop exactly that wording being
+//! introduced `super::base::earned`, whose whole purpose was to stop exactly that wording being
 //! printed by an arm that measured nothing. The wording fix does not reach a caller that never
 //! consults an outcome.
 //!
