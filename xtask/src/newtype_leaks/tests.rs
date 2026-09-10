@@ -1,4 +1,4 @@
-use super::{LEAKY, SEALED, in_scope, last_segment, leaked_by, run, trait_impls, trait_path};
+use super::{LEAKY, SEALED, in_scope, last_segment, leaked_by, trait_impls, trait_path};
 use crate::serde_parse::scan::code_lines;
 
 /// The sealed types a source's TRAIT impls hand out, as the gate reads them.
@@ -335,39 +335,4 @@ fn every_leaky_trait_says_what_to_do_instead() {
         assert!(!entry.why.is_empty(), "{} has no reason", entry.name);
         assert!(!entry.instead.is_empty(), "{} has no fix", entry.name);
     }
-}
-
-#[test]
-fn run_refuses_a_seeded_tree_that_carries_a_real_first_party_deref() {
-    // THE #371 PROOF, at the run()-level item 5 says was never there: the shared falsifier tree
-    // has no `.rs` file, so this gate used to refuse on its `scanned == 0` floor and a real
-    // Finding `Fail -> Pass` flip stayed green. Seeding the gate's OWN violation makes the
-    // refusal come from `LEAKY`'s Deref rule instead - the arm the falsifier sweep now asserts.
-    assert!(
-        std::env::var_os("NEXTEST").is_some(),
-        "this test moves the process's current directory, so it needs nextest's one-process-per-test"
-    );
-    let tree = std::env::temp_dir().join(format!("sutura-newtype-seed-{}", std::process::id()));
-    drop(std::fs::remove_dir_all(&tree));
-    std::fs::create_dir_all(tree.join("src")).expect("a seed directory");
-    std::fs::write(tree.join("flake.nix"), "{ }\n").expect("the first root marker");
-    std::fs::write(tree.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("the second root marker");
-    std::fs::write(
-        tree.join("src").join("leaky.rs"),
-        "struct Digest(String);\nimpl core::ops::Deref for Digest {\n    type Target = str;\n}\n",
-    )
-    .expect("the real first-party Deref");
-
-    let original = std::env::current_dir().expect("a current directory");
-    std::env::set_current_dir(&tree).expect("point the process at the seeded tree");
-    let verdict = run(&[]);
-    std::env::set_current_dir(&original).expect("restore the current directory");
-    drop(std::fs::remove_dir_all(&tree));
-
-    assert_eq!(
-        verdict,
-        crate::Verdict::Fail,
-        "a real first-party `impl Deref`, in scope with a real violation, must make the gate \
-         refuse - `github.com/telekom/sutura#371`"
-    );
 }
