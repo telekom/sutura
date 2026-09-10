@@ -96,7 +96,11 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
             None => found.push(format!(
                 "{file}: no `jobs.{job}.strategy.matrix.target` found - that venue's cross matrix is gone"
             )),
-            Some(Target { line, inline: Some(value), .. }) => found.push(format!(
+            Some(Target {
+                line,
+                inline: Some(value),
+                ..
+            }) => found.push(format!(
                 "{file}:{line}: `target:` carries the expression `{value}`. An event-scoped matrix is \
                  refused here: every venue runs one fixed set now, so a `${{{{ }}}}` could only \
                  mislead - or bring back the per-event set that once put the full four on a pull \
@@ -154,9 +158,17 @@ fn matrix_target(text: &str, job: &str) -> Option<Target> {
         };
         let rest = rest.trim();
         if !rest.is_empty() {
-            return Some(Target { line: offset + 1, items: Vec::new(), inline: Some(rest.to_owned()) });
+            return Some(Target {
+                line: offset + 1,
+                items: Vec::new(),
+                inline: Some(rest.to_owned()),
+            });
         }
-        return Some(Target { line: offset + 1, items: items_after(text, offset), inline: None });
+        return Some(Target {
+            line: offset + 1,
+            items: items_after(text, offset),
+            inline: None,
+        });
     }
     None
 }
@@ -195,9 +207,7 @@ mod tests {
             std::fs::remove_dir_all(&root).expect("a leftover temp tree is removable");
         }
         std::fs::create_dir_all(root.join(super::WORKFLOWS)).expect("temp workflows dir");
-        for ((file, job), matrix) in
-            [(super::LINK, link), (super::PUBLISH, publish), (super::RELEASE, release)]
-        {
+        for ((file, job), matrix) in [(super::LINK, link), (super::PUBLISH, publish), (super::RELEASE, release)] {
             std::fs::write(
                 root.join(super::WORKFLOWS).join(file),
                 format!("jobs:\n  {job}:\n    strategy:\n      matrix:\n        target:{matrix}\n"),
@@ -274,7 +284,10 @@ mod tests {
     /// one leaves an axis unproven anywhere before a tag.
     #[test]
     fn dropping_a_reduced_cell_is_refused() {
-        for (tag, kept) in [("keep-arch", "aarch64-unknown-linux-gnu"), ("keep-libc", "x86_64-unknown-linux-musl")] {
+        for (tag, kept) in [
+            ("keep-arch", "aarch64-unknown-linux-gnu"),
+            ("keep-libc", "x86_64-unknown-linux-musl"),
+        ] {
             let root = sound_root(tag, &list(&[kept]), &reduced(), &full());
             let found = super::problems(&root);
             assert_eq!(found.len(), 1, "{found:?}");
@@ -297,8 +310,11 @@ mod tests {
     /// A third cell in ordinary CI is the cost this reduction bought back, one triple at a time.
     #[test]
     fn a_third_ordinary_ci_cell_is_refused() {
-        let widened =
-            list(&["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]);
+        let widened = list(&[
+            "aarch64-unknown-linux-gnu",
+            "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-musl",
+        ]);
         let root = sound_root("third-cell", &widened, &reduced(), &full());
         let found = super::problems(&root);
         assert_eq!(found.len(), 1, "{found:?}");
