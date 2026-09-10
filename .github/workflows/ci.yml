@@ -1065,9 +1065,10 @@ jobs:
   #
   # **A concurrency group shared across REFS - the CI belt to the per-run-table braces.** The
   # dataset (`docs/adr/0017`'s seventh amendment) is one resource and every in-repo run shares it;
-  # the group is keyed on the DATASET not the ref so two refs queue rather than interleave, with
-  # `cancel-in-progress: false`. A developer's own local run is the one concurrent writer this
-  # cannot serialise; per-run table names keep it safe anyway.
+  # the group is keyed on the DATASET not the ref so refs queue rather than interleave. `queue: max`
+  # retains up to 100 pending jobs; any beyond that are cancelled. `cancel-in-progress: false`
+  # preserves the job already using the dataset. A developer's own local run is the one concurrent
+  # writer this cannot serialise; per-run table names keep it safe anyway.
   bigquery-acceptance:
     needs: [ci]
     # Runs only when the diff selected the BigQuery category (or fell open to `core`), AND the
@@ -1091,6 +1092,7 @@ jobs:
     # above the job.
     concurrency:
       group: bigquery-acceptance-${{ vars.SUTURA_BQ_DATASET }}
+      queue: max
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

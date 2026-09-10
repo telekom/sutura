@@ -225,6 +225,9 @@
         # The copy/paste detector (issue #474); body in nix/jscpd.nix.
         jscpd = import ./nix/jscpd.nix { inherit pkgs craneLib inheritedArtifacts; src = jscpd-src; };
 
+        # The workflow parser, including hash-pinned upstream support for `concurrency.queue`.
+        actionlint = import ./nix/actionlint.nix { inherit pkgs; };
+
         # The data system the local Warehouse adapter links against, resolved by the SAME file
         # devenv.nix imports so the dev shell and CI cannot link two different libduckdbs. It also
         # explains why the crate is built without its `bundled` feature, and why the run-time path
@@ -887,7 +890,7 @@
         };
         apps.actionlint = {
           type = "app";
-          program = "${pkgs.actionlint}/bin/actionlint";
+          program = "${actionlint}/bin/actionlint";
         };
         apps.shellcheck = {
           type = "app";
