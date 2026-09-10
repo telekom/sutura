@@ -128,17 +128,29 @@ macro_rules! principal_newtype {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         ///
-        /// Construct it with `parse`. There is no other way in: the field is private, there is no
-        /// `Deserialize`, and `TryFrom<String>` delegates to the same constructor.
+        /// The wrapped value is the **masked** form: [`Self::parse`] consumes the raw identifier and
+        /// stores only its stable masked rendering, so no field of this type ever holds plaintext and
+        /// no rendering surface (`Debug`, `Display`, [`Self::as_str`]) can emit it. Masking happens
+        /// at the boundary that turns a wire value into this type, not at print time. There is no
+        /// other way in: the field is private, there is no `Deserialize`, and `TryFrom<String>`
+        /// delegates to the same constructor.
         #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(String);
 
         impl $name {
-            /// Parses an identifier, rejecting anything that is not one.
+            /// Parses an identifier, rejecting anything that is not one, masking it at the boundary.
+            ///
+            /// The raw value is validated, reduced to its stable masked form, and dropped: the raw
+            /// is never retained, so an intermediate state cannot leak it and there is nothing to
+            /// reach at render time.
             pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidPrincipalId> {
-                parse_principal_id(raw.as_ref()).map(Self)
+                let validated = parse_principal_id(raw.as_ref())?;
+                let mut masked = String::with_capacity(validated.len());
+                mask_principal_into(&validated, &mut masked);
+                Ok(Self(masked))
             }
 
+            /// The stable masked form. There is no raw access - the raw was consumed by [`Self::parse`].
             #[inline]
             pub fn as_str(&self) -> &str {
                 &self.0
@@ -156,31 +168,37 @@ macro_rules! principal_newtype {
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                mask_principal(&self.0, f)
+                f.write_str(&self.0)
             }
         }
 
         impl fmt::Debug for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                mask_principal(&self.0, f)
+                f.write_str(&self.0)
             }
         }
     };
 }
 
-/// Writes a stable masked form without copying the principal.
-fn mask_principal(raw: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+/// Writes a stable masked form of a principal identifier into `out`.
+///
+/// Each local segment (split on `.` and `@`) is reduced to its first character plus three stars, and
+/// only that is ever retained, so two subjects an operator needs to tell apart stay distinct while
+/// neither's full value survives. The raw value reaches this only straight out of
+/// [`parse_principal_id`], the one place a plaintext principal exists, and is dropped once the mask
+/// is written.
+fn mask_principal_into(raw: &str, out: &mut String) {
     let mut segment_start = true;
     for character in raw.chars() {
         if matches!(character, '.' | '@') {
-            write!(f, "{character}")?;
+            out.push(character);
             segment_start = true;
         } else if segment_start {
-            write!(f, "{character}***")?;
+            out.push(character);
+            out.push_str("***");
             segment_start = false;
         }
     }
-    Ok(())
 }
 
 principal_newtype! {
@@ -599,8 +617,11 @@ mod tests {
         let chain = ActorChain::of(actor("orchestrator"))
             .acting_through(actor("planner"))
             .acting_through(actor("query_agent"));
+        // `as_str` is the stored MASKED form - the raw identifiers were consumed at parse - and the
+        // masks of distinct names stay distinct, so the order is still provable from what the type
+        // holds.
         let names: Vec<&str> = chain.iter().map(Actor::as_str).collect();
-        assert_eq!(names, vec!["orchestrator", "planner", "query_agent"]);
+        assert_eq!(names, vec!["o***", "p***", "q***"]);
         assert_eq!(
             chain.immediate(),
             &actor("query_agent"),
@@ -717,10 +738,51 @@ mod tests {
         let parsed = SubjectId::parse("  someone@example.com  ").expect("a test subject is a subject");
         let converted = SubjectId::try_from(String::from("  someone@example.com  ")).expect("the same value converts");
         assert_eq!(parsed, converted);
-        assert_eq!(parsed.as_str(), "someone@example.com");
+        // `as_str` is the stored masked form, not the raw: the raw never survives the parse.
+        assert_eq!(parsed.as_str(), "s***@e***.c***");
         assert_eq!(
             SubjectId::try_from(String::from("bad\u{0007}")),
             Err(InvalidPrincipalId::ControlCharacter { code: 0x07 })
         );
+    }
+
+    #[test]
+    fn the_masked_type_holds_no_plaintext() {
+        // The whole point of masking at the parse boundary: the type stores ONLY the masked form, so
+        // a render path reading its state cannot emit the raw. This is the mutation-first guard - a
+        // regression that seats the raw in the field and masks at render instead makes every one of
+        // these assertions red, because `as_str`, `Display` and `Debug` would then reach the raw.
+        let raws = [
+            "firstname.lastname@company.com",
+            "somename@company.com",
+            "service.bot@company.com",
+            "nightly-reconciliation",
+        ];
+        let checked = |surface: &str| {
+            assert!(
+                raws.iter().all(|raw| !surface.contains(raw)),
+                "a render surface emitted plaintext: {surface}"
+            );
+        };
+
+        let id = SubjectId::parse("firstname.lastname@company.com").expect("a test subject is a subject");
+        checked(&id.to_string());
+        checked(&format!("{id:?}"));
+        checked(id.as_str());
+        assert_eq!(id.to_string(), "f***.l***@c***.c***");
+        assert_eq!(format!("{id:?}"), "f***.l***@c***.c***");
+        assert_eq!(id.as_str(), "f***.l***@c***.c***");
+
+        let actor = Actor::parse("somename@company.com").expect("a test actor is an actor");
+        checked(&actor.to_string());
+        checked(&format!("{actor:?}"));
+        checked(actor.as_str());
+        assert_eq!(actor.to_string(), "s***@c***.c***");
+
+        let task = TaskId::parse("nightly-reconciliation").expect("a test task is a task");
+        checked(&task.to_string());
+        checked(&format!("{task:?}"));
+        checked(task.as_str());
+        assert_eq!(task.to_string(), "n***");
     }
 }

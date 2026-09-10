@@ -1,0 +1,92 @@
+# THE WRITABLE CAUSALITY TARGET DIR, CARRIED ACROSS RUNS ON THE SAME KEY AS THE STORE.
+#
+# `.github/actions/nix-store-cache` carries `/nix/store`, and a bare cargo cannot read it. The
+# three flake apps at the tail of the `ci` job (`apps.causality`, `apps.default-features`,
+# `apps.default-feature-tests`) share ONE writable target dir - `target/causality-target` - into
+# which `nix/cargo-env.nix`'s `cargoWarmStart` unpacks the store-only `ciArtifacts` closure. Only
+# those unpacked bytes are cache-substituted; every actual rust recompile happens in that writable
+# dir and was never persisted, so causality went cold (14 s -> 180 s) and the default-set ~1/3-graph
+# recompile was paid on every run. Measured in `agent://MeasureTail`: persisting it is the one lever
+# that removes both.
+#
+# WHY THE SAME KEY THE STORE USES. The entry's own stamp is the mechanism, not the cache key
+# matching: `cargoWarmStart` writes the `cargoArtifacts` store path into
+# `target/causality-target/.sutura-warm-start` and re-unpacks only when that stamp disagrees. Keying
+# this cache on the exact two-digest pair `nix-store-cache` uses (lock generation + manifest/flake
+# tree) makes the store path's derivation move exactly when the key moves, so:
+#
+#   - a lockfile / manifest / flake change MISSES (or restores an older generation with a
+#     mismatched stamp) and the warm start unpacks fresh - the persisted recompiles are discarded
+#     and rebuilt, correctly;
+#   - a source-only change leaves the key alone, the restore HITS with a matching stamp, and the
+#     warm start skips the unpack - the previous run's recompile survives and is reused. That is
+#     the whole saving.
+#
+# The two spellings are otherwise deliberate copies of the store action: `restore-prefixes-first-match`
+# gives the lockfile-moving push a fallback to the newest prior generation, `save:` gates the write
+# to a push to `main` (restore on every event), and a pull-request path can never write. NO commit
+# sha and NO `if:`, for `nix-store-cache`'s reasons - a source-only change must reuse the generation
+# and a gated restore is a stopped restore.
+#
+# ONE ENTRY PER JOB SHAPE is why `scope` exists (a shared key would have two jobs overwrite each
+# other's entry), mirroring the store action's own `scope`.
+name: causality-target-cache
+description: Restore the writable causality target dir (target/causality-target) from the Actions cache on every event; write it only from a push to main.
+
+inputs:
+  scope:
+    description: What job's writable cargo dir this entry is - `ci`, `bq`, a target triple. Two jobs must not share one entry.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: target
+      uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+      with:
+        # The writable dir alone carries the recompile; `CARGO_HOME` holds only a config that
+        # points at the vendored closure the store serves, so it is deliberately not cached.
+        path: target/causality-target
+        primary-key: causality-target-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('flake.nix', 'nix/**', 'devco/rust-toolchain-nightly.toml', '.cargo/config.toml', '**/Cargo.toml') }}
+        restore-prefixes-first-match: |
+          causality-target-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-
+          causality-target-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-
+        save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+    # THE WITNESS, THE SAME SHAPE AS THE STORE'S - IT REPORTS AND NEVER FAILS.
+    #
+    # A cold cache is legitimate on the first run of a generation, so a reddening step is inverted
+    # logic; this prints a miss and carries on, and reports the persisted dir size so a reader can
+    # tell an entry being carried from one too small to help.
+    - name: What the causality-target cache carried
+      shell: bash
+      env:
+        SCOPE: ${{ inputs.scope }}
+        HIT: ${{ steps.target.outputs.hit }}
+        HIT_PRIMARY: ${{ steps.target.outputs.hit-primary-key }}
+        RESTORED: ${{ steps.target.outputs.restored-key }}
+        WRITES: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      run: |
+        set -eu
+        mb="$(du -sm target/causality-target 2>/dev/null | cut -f1 || echo 0)"
+        if [ "$HIT_PRIMARY" = "true" ]; then
+          restore="hit on this dependency generation"
+        elif [ "$HIT" = "true" ]; then
+          restore="restored an older generation ($RESTORED)"
+        else
+          restore="MISS - no entry for this dependency generation; the writable target starts cold and recompiles what the warmed closure lacks"
+        fi
+        if [ "$WRITES" = "true" ]; then
+          write="this run is PERMITTED to write the entry (push to main); an exact-key hit skips the save"
+        else
+          write="restore-only, nothing written"
+        fi
+        {
+          printf '### causality target cache (%s)\n\n' "$SCOPE"
+          printf '| | |\n| --- | --- |\n'
+          printf '| restore | %s |\n' "$restore"
+          printf '| write | %s |\n' "$write"
+          printf '| target dir size after restore | %s MB |\n' "$mb"
+        } >> "$GITHUB_STEP_SUMMARY"
+        printf 'causality-target-cache(%s): %s; %s; %s MB on disk\n' \
+          "$SCOPE" "$restore" "$write" "$mb"

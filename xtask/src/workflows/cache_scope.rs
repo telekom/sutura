@@ -49,6 +49,10 @@ use super::reach::Closure;
 // counts, gates or anchors a cache write - and its own file because the unexemptable 1000-line cap
 // forced the split when its flag-form refusal landed. It reads this module's step reader, so
 // it reaches `key_of` and `steps` as a child, which needs no widening of either.
+/// The writer-EFFECTIVENESS rule for the daemon-mode cache publisher (issue #560): a
+/// `cachix/cachix-action` step whose job realises nothing after it publishes nothing. Its own file
+/// for the same 1000-line reason.
+mod realise;
 mod retired;
 
 /// The main-push condition, token for token.
@@ -498,7 +502,9 @@ pub(super) mod tests {
     fn the_pr_write_jobs_gate_is_the_job_level_if_not_a_buried_step_one() {
         // Shape of `.github/workflows/ci.yml`'s `pr-cache` job: the job name sits at two spaces, its
         // `if:` at the job-scope column (four), a cachix-action step's `if:` deeper (eight).
-        let pr = "  pr-cache:\n    needs: [ci]\n    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        if: github.event_name == 'pull_request'\n        with:\n          name: sutura-prs\n";
+        // The realised step after cachix-action keeps the partner rule (#560) green on this
+        // permitted shape, exactly as the live `pr-cache` job is shaped after that fix lands.
+        let pr = "  pr-cache:\n    needs: [ci]\n    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        if: github.event_name == 'pull_request'\n        with:\n          name: sutura-prs\n      - name: Realise this PR's shared closure\n        run: nix build .#checks.x86_64-linux.nextest\n";
         let marker = |text: &str| {
             text.lines()
                 .position(|l| l.contains("cachix/cachix-action@"))
