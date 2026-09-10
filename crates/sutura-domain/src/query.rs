@@ -434,7 +434,7 @@ impl RefusalReason {
     ///
     /// Being exhaustive with no wildcard arm, a variant added here either gets its code in the same
     /// edit or does not compile. The derivation is fixed by
-    /// [`the_code_is_the_variant_name_in_snake_case`](self): each code is the `snake_case` spelling
+    /// `the_code_is_the_variant_name_in_snake_case`: each code is the `snake_case` spelling
     /// of the variant's own name, read off this type's own `Serialize` rather than a list typed
     /// beside it - so a hand-written code that drifted from the variant fails that test, and the two
     /// transports, both reading this one method, cannot drift from each other without first drifting
