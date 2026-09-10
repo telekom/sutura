@@ -14,6 +14,8 @@ mod arrow_major;
 mod attribution;
 mod boot_order;
 mod boundaries;
+#[cfg(test)]
+mod cpu_busy;
 mod bounded_wait;
 mod branches;
 mod causality;
