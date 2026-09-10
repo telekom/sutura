@@ -304,11 +304,7 @@ pub enum ExpressionError {
         "the {tag} fragment contains {text:?}, a non-ASCII character (U+{code:04X}), which the dialect \
          layer's generator cannot render without aborting; write the expression in ASCII"
     )]
-    NonAscii {
-        tag: DialectTag,
-        code: u32,
-        text: char,
-    },
+    NonAscii { tag: DialectTag, code: u32, text: char },
     #[error("the {tag} fragment reads column {column:?}, which model table {table} does not declare")]
     UnknownColumn {
         tag: DialectTag,
