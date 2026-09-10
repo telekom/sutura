@@ -83,12 +83,19 @@ jobs:
             .#checks.x86_64-linux.hygiene
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
-  # (`sutura-cross-build` / `sutura-fuzzing` / `sutura-connectors`), each with its own 5 GB bucket,
-  # so one consumer's publish never crowds another's or the shared `sutura` cache. Each job restores
-  # ONLY its consumer's scope(s), then cachix-action pushes that restoration to that consumer's cache
-  # with that consumer's token. cachix-action pushes EVERY store path matching `pushFilter`, so a job
-  # that restored another consumer's scope would dump that closure in too - the separate jobs are
-  # what keeps each cache to its own consumer.
+  # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's
+  # publish never crowds another's or the shared `sutura` cache. Each job restores ONLY its
+  # consumer's scope(s), then cachix-action pushes that consumer's closure to that consumer's cache
+  # with that consumer's token.
+  #
+  # THE MECHANISM, STATED BECAUSE IT IS THE WHOLE GAME: cachix-action (useDaemon) publishes ONLY
+  # paths nix BUILDS while its daemon is alive, via the post-build hook - it does NOT push the store
+  # it finds restored, and a substituted/restored path never fires the hook. So every consumer job
+  # ends with a `nix build` realise that genuinely RE-COMPILES its closure into fresh store paths,
+  # exactly like the `push` job does for the shared cache. The cross legs do it per triple; the
+  # connectors job does it via `checks.nextest`. cachix-action pushes every BUILT path matching
+  # `pushFilter`, so a job whose realise pulled another consumer's closure would dump it in too -
+  # the separate jobs are what keeps each cache to its own consumer.
   #
   # THE TOKENS LIVE IN ENV `cachix-push-mixed`: each job declares it and spends exactly its own
   # secret. The `push` job above keeps the shared closure and its token in env `cachix-push`
@@ -169,8 +176,10 @@ jobs:
             extra-substituters = https://sutura.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
       # Restore the `bq` scope the acceptance job wrote on `main` - the closure `nix run
-      # .#bigquery-acceptance` needs. The acceptance crate itself is a cargo build from that
-      # restored closure, so the publish here is the restored store, not a freshly-built app.
+      # .#bigquery-acceptance` needs. It is the warm start a realise step below recompiles
+      # against, and it is NOT the thing published: cachix-action's post-build hook pushes only
+      # paths nix BUILDS while its daemon is alive, never the store it finds restored. A job that
+      # only restores scope `bq` publishes nothing, which is the empty-cache bug this realises fix.
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: bq
@@ -179,32 +188,27 @@ jobs:
           name: sutura-connectors
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN_CONNECTORS }}
           pushFilter: "(-source$|nixpkgs)"
+      # Realise the closure THIS cache is for and publish it. cachix-action's daemon publishes
+      # only what nix builds after it starts, so this step must genuinely RE-COMPILE, not re-derive
+      # the already-restored `bq` closure (which realises instantly and still fires the hook
+      # nothing). Building `checks.nextest` does that for the same reason the main `push` job's
+      # publish works: the cache key is lockfile-based but the source is not, so on every push to
+      # `main` the workspace crates - `sutura-exec-bigquery`'s acceptance target included - are
+      # recompiled into fresh store paths, the hook fires, and they land in `sutura-connectors`
+      # for the next `bigquery-acceptance` run to substitute.
+      - name: Realise and publish the acceptance closure
+        run: |
+          set -eu
+          nix build --print-build-logs .#checks.x86_64-linux.nextest
 
-  fuzz:
-    name: push the fuzz toolchain closure
-    runs-on: rust-mcp-32core
-    environment: cachix-push-mixed
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          extra_nix_config: |
-            fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
-      # Restore the `fuzz` scope the fuzz workflow wrote on `main` - the pinned nightly + cargo-fuzz
-      # + C toolchain `.#fuzz` runs. The harness binaries themselves are a RUNTIME cargo build into
-      # `target/fuzz` (see `fuzz.yml`), never the store, so they are not - and cannot be - published.
-      - uses: ./.github/actions/nix-store-cache
-        with:
-          scope: fuzz
-      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        with:
-          name: sutura-fuzzing
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN_FUZZING }}
-          pushFilter: "(-source$|nixpkgs)"
+  # NO `fuzz` JOB, AND THAT IS THE HONEST RESOLUTION, NOT AN OMISSION. The `sutura-fuzzing` cache
+  # has nothing unique store-worthy to publish. The fuzz harness is a RUNTIME cargo build into
+  # `target/fuzz` (see `fuzz.yml`) and is never a nix store path, so it cannot be pushed. The only
+  # store paths `.#fuzz` needs - the pinned nightly, cargo-fuzz, the C toolchain - come from
+  # nixpkgs, are substitutable from the public cache on install, and are NOT excluded by this
+  # workflow's `pushFilter` (they carry no `nixpkgs` substring and do not end `-source`): forcing a
+  # realise of them would push COPIES of public paths into a second cache that a later run
+  # substitutes from the public cache anyway, buying nothing for a store and, at worst, crowding
+  # the 5 GB bucket. So there is no realise that fills `sutura-fuzzing` with anything a later run
+  # would not already have. The provisioning (the cache, its token in env `cachix-push-mixed`) is
+  # left untouched here; the job that spent the runner re-realising an empty store is gone.
