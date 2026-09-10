@@ -50,6 +50,26 @@ description = "libFuzzer targets over the SQL and JSON parsers that read untrust
 [package.metadata]
 cargo-fuzz = true
 
+# `cargo::non_kebab_case_bins` warns twice on every build here, and the ALLOW is the decision rather
+# than the shortcut. A target name is not cosmetic in this directory: it is a filesystem key.
+# `cargo xtask check-fuzz` requires `path` to be exactly `fuzz_targets/<name>.rs`, so a `[[bin]]`
+# renamed on its own fails that gate, and the same string also indexes `seeds/<name>/` (tracked),
+# `dictionaries/<name>.dict` (tracked), `corpus/<name>/` and `artifacts/<name>/` (both libFuzzer's
+# own, both gitignored, both possibly being written right now) and the `target:` matrix in
+# `.github/workflows/fuzz.yml`. A coherent kebab-case rename therefore moves both sources, both
+# dictionaries and every tracked file under `seeds/` - `git ls-files fuzz/seeds` is the count - and
+# orphans whatever a live run has in the two untracked directories.
+#
+# It would also diverge from the tool that adds the next target: `cargo fuzz add <name>` writes
+# `fuzz_targets/<name>.rs` and libFuzzer derives its per-target paths from that stem, so the next
+# target added the supported way arrives in snake_case and the tree ends up spelling both.
+#
+# Nothing is red either way - this workspace is not built under `-D warnings` and the root
+# workspace's lints do not reach it - so the choice was between two recurring warnings a reader has
+# to re-derive every time and one recorded decision. This is the recorded decision.
+[lints.cargo]
+non_kebab_case_bins = "allow"
+
 [dependencies]
 libfuzzer-sys = "0.4"
 sutura-domain = { path = "../crates/sutura-domain" }
