@@ -143,6 +143,7 @@
             || (builtins.match "vendor(/.*)?" rel != null)
             || (builtins.match "crates/[^/]+/tests(/.*)?" rel != null)
             || (builtins.match "crates/[^/]+/src(/.*)?" rel != null)
+            || (builtins.match "crates/[^/]+/corpus(/.*)?" rel != null)
             || (builtins.match "examples(/.*)?" rel != null)
             # `xtask` is a repo-inspection tool, so its tests read repo files by design - and it
             # is `checks.nextest` that runs them, on `wholeTree`, so this arm is not what carries

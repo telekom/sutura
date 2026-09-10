@@ -65,27 +65,6 @@ const SOURCE: &str = "conformance";
 /// The one table every case reads.
 pub const TABLE: &str = "conformance_events";
 
-/// The corpus rows, as the CSV every adapter's fixture materialises.
-///
-/// **A `&str` and not a committed file, deliberately.** `flake.nix`'s source filter keeps
-/// `crates/*/src` wholesale, so a `.csv` beside this module would survive a nix build - but the
-/// filter is not the argument. A data system is handed a PATH, so the bytes have to reach a
-/// filesystem either way ([`on_disk`]), and rendering them from here is what keeps the rows and the
-/// [`Case::expected`] answers below in one file where a reader can check the arithmetic.
-///
-/// The last row is outside every case's time range on purpose: a corpus whose filters exclude
-/// nothing cannot tell an adapter that applied them from one that did not.
-const ROWS: &str = "\
-day,region,amount_cents
-2026-01-01,east,100
-2026-01-01,east,250
-2026-01-01,north,400
-2026-01-02,east,150
-2026-01-02,north,600
-2026-01-02,north,700
-2026-01-03,east,1000
-";
-
 /// One question, and the answer to it.
 ///
 /// Private fields with accessors, which is what a library crate here owes: a caller cannot assemble
@@ -192,10 +171,18 @@ fn declared() -> SharedIdentityDeclared {
     )
 }
 
-/// The corpus, as CSV.
+/// The corpus, as CSV, from the committed file under `corpus/`.
+///
+/// Served from the file rather than from a copied constant so a row edit in
+/// `corpus/conformance_events.csv` is a change to the data and not to this module - which is the
+/// whole of what "a case is a directory entry, not a function" asks. The bytes are embedded at
+/// compile time by [`include_str!`], so this stays `&'static str` and `const`.
+///
+/// The last row is outside every case's time range on purpose: a corpus whose filters exclude
+/// nothing cannot tell an adapter that applied them from one that did not.
 #[must_use]
 pub const fn csv() -> &'static str {
-    ROWS
+    include_str!("../corpus/conformance_events.csv")
 }
 
 /// The corpus on a filesystem, written once per process, as the path a fixture attaches.
@@ -226,13 +213,13 @@ pub fn on_disk() -> PathBuf {
     WRITTEN.get_or_init(materialise).clone()
 }
 
-/// Writes [`ROWS`] where an adapter can attach it.
+/// Writes the corpus where an adapter can attach it.
 fn materialise() -> PathBuf {
     let dir = state_dir().join(PURPOSE);
     std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("could not create {}: {e}", dir.display()));
     let staged = dir.join(format!("{TABLE}.{}.csv", std::process::id()));
     let final_path = dir.join(format!("{TABLE}.csv"));
-    std::fs::write(&staged, ROWS).unwrap_or_else(|e| panic!("could not write {}: {e}", staged.display()));
+    std::fs::write(&staged, csv()).unwrap_or_else(|e| panic!("could not write {}: {e}", staged.display()));
     std::fs::rename(&staged, &final_path).unwrap_or_else(|e| panic!("could not rename onto {}: {e}", final_path.display()));
     final_path
 }
