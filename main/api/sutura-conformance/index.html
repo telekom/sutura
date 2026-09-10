@@ -2723,19 +2723,55 @@ name. <code>$crate::sutura_domain</code> always resolves.</p>
 <h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
 <h2 id="type_alias-conformed"><code>type_alias Conformed</code><a class="headerlink" href="#type_alias-conformed" title="Permanent link">&para;</a></h2>
 <p>What one behaviour of one pack answers.</p>
+<h2 id="macro-compile_packs"><code>macro compile_packs</code><a class="headerlink" href="#macro-compile_packs" title="Permanent link">&para;</a></h2>
+<p>Binds the compile pack to one catalog, as one named <code>#[test]</code> per behaviour.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>// In this crate's own binding, `tests/compile.rs`.
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>use sutura_conformance::compile::{DeclaringSubject, GoldenSubject};
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>sutura_conformance::compile_packs! {
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    adapter: golden,
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>    catalog: GoldenSubject,
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>    golden,
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>}
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>sutura_conformance::compile_packs! {
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>    adapter: declaring,
+</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>    catalog: DeclaringSubject,
+</span><span id="__span-15-13"><a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a>    declaring,
+</span><span id="__span-15-14"><a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>}
+</span></code></pre></div>
+<h1 id="the-goldendeclaring-tag">The <code>golden</code>/<code>declaring</code> tag<a class="headerlink" href="#the-goldendeclaring-tag" title="Permanent link">&para;</a></h1>
+<p><code>macro_rules!</code> cannot read <code>SemanticCatalog::KIND</code>, so the kind is written at the binding the
+way <code>crate::execute_packs</code>'s leg declaration is, and the arm's <code>const</code> assert is where the two
+are torn unless they agree: tag a catalog against its own <code>CatalogKind</code> and the binding does
+not build. The tag also selects WHICH behaviours the arm emits - a <code>golden</code> binding gets all six,
+a <code>declaring</code> one gets <code>CompileBehaviour::UNIVERSAL</code> - and both feed <code>compile_census</code> the one
+repetition's list, so either way a deleted cell reddens.</p>
+<p><strong>The golden-only cells are additionally bound on <code>GoldenCatalog</code>, so the tag is a second line
+of defence and not the mechanism</strong>: a golden cell's function takes <code>C: GoldenCatalog</code>, so a
+<code>golden</code> tag handed a catalog that does not implement the marker does not compile even before the
+<code>KIND</code> assert. The split holds by the type system rather than by review, which is the whole point
+of the marker.</p>
+<h1 id="what-a-binding-names">What a binding names<a class="headerlink" href="#what-a-binding-names" title="Permanent link">&para;</a></h1>
+<ul>
+<li><code>catalog</code> is the under-test type, named from this crate's <code>compile</code> module. The cells load it
+  via <code>SemanticCatalog::load</code> and this crate supplies the corpus and the oracle.</li>
+<li><code>adapter</code> is an ident that names the emitted module, so a binding can hold several catalogs and
+  filter by name the way the execute pack allows.</li>
+</ul>
 <h2 id="macro-execute_packs"><code>macro execute_packs</code><a class="headerlink" href="#macro-execute_packs" title="Permanent link">&para;</a></h2>
 <p>Binds the execute pack to one adapter, as one named <code>#[test]</code> per behaviour.</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>#[cfg(test)]
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>mod conformance {
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    fn open() -&gt; Fixture&lt;DuckDbWarehouse&gt; { /* attach `corpus::on_disk()` */ }
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>
-</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    sutura_conformance::execute_packs! {
-</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>        adapter: duckdb,
-</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>        warehouse: sutura_exec_duckdb::DuckDbWarehouse,
-</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>        open: crate::conformance::open,
-</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>        executes_legs,
-</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>    }
-</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>}
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>#[cfg(test)]
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>mod conformance {
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    fn open() -&gt; Fixture&lt;DuckDbWarehouse&gt; { /* attach `corpus::on_disk()` */ }
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    sutura_conformance::execute_packs! {
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>        adapter: duckdb,
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>        warehouse: sutura_exec_duckdb::DuckDbWarehouse,
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>        open: crate::conformance::open,
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>        executes_legs,
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a>    }
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a>}
 </span></code></pre></div>
 <h1 id="the-four-arguments">The four arguments<a class="headerlink" href="#the-four-arguments" title="Permanent link">&para;</a></h1>
 <ul>
@@ -2808,23 +2844,23 @@ them as a dev-dependency without acquiring a catalog adapter, <code>sutura-seman
   this module, so adding one is still a code change.</li>
 </ul>
 <h3 id="struct-case"><code>struct Case</code><a class="headerlink" href="#struct-case" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Case</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Case</span>
 </span></code></pre></div>
 <p>One question, and the answer to it.</p>
 <p>Private fields with accessors, which is what a library crate here owes: a caller cannot assemble
 a <code>Case</code> whose expected rows belong to a different plan.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expected</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RowSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expected</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RowSet</span>
 </span></code></pre></div>
 <p>The rows every conforming adapter answers, in the order the plan's <code>ORDER BY</code> claims.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The name a failure reports. Static, so a fault carries it without allocating.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">QueryPlan</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">QueryPlan</span>
 </span></code></pre></div>
 <p>The plan to execute.</p>
 <h3 id="struct-legcase"><code>struct LegCase</code><a class="headerlink" href="#struct-legcase" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegCase</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegCase</span>
 </span></code></pre></div>
 <p>One leg, and the answer to it.</p>
 <p>Separate from <code>Case</code> because a leg is a different shape of executable rather than a different
@@ -2832,24 +2868,24 @@ question: it reads the same table over the same range and answers the same rows,
 makes it a conformance claim - an adapter that executes a leg must reach the answer a whole plan
 reaches.</p>
 <h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expected</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RowSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expected</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RowSet</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">leg</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">LegPlan</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">leg</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">LegPlan</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <h3 id="fn-source"><code>fn source</code><a class="headerlink" href="#fn-source" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span>
 </span></code></pre></div>
 <p>The data system name every plan here resolves to.</p>
 <p>An adapter opened under another name is handed a plan it does not own, and the packs do not
 paper over that: it is the fixture's job to open the adapter as this source.</p>
 <h3 id="fn-table"><code>fn table</code><a class="headerlink" href="#fn-table" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">TableName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">TableName</span>
 </span></code></pre></div>
 <p>The table every case reads, as the data system knows it.</p>
 <h3 id="fn-posture"><code>fn posture</code><a class="headerlink" href="#fn-posture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">posture</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">posture</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span>
 </span></code></pre></div>
 <p>The posture every adapter in this pack is opened with.</p>
 <p><strong>Shared, and the packs cannot offer anything else today.</strong> An adapter that CAN carry a
@@ -2859,7 +2895,7 @@ it to the shared path only, and the pack says so rather than reporting a green t
 <code>docs/adr/0012</code> decides that impersonation gets no negative pack at all, and this is the same
 boundary from the positive side.</p>
 <h3 id="fn-presented"><code>fn presented</code><a class="headerlink" href="#fn-presented" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">presented</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">Presented</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">presented</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">Presented</span>
 </span></code></pre></div>
 <p>What a leg in these packs executes as.</p>
 <p>Built from the same <code>declared</code> acknowledgement <code>posture</code> is, so the credential the pack
@@ -2867,11 +2903,11 @@ presents and the posture the fixture opened the adapter with cannot drift apart 
 exactly the disagreement each adapter's exhaustive match on what it received exists to catch.
 An adapter that compares the two witnesses fails here if a fixture opened it any other way.</p>
 <h3 id="fn-csv"><code>fn csv</code><a class="headerlink" href="#fn-csv" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">csv</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">csv</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The corpus, as CSV.</p>
 <h3 id="fn-on_disk"><code>fn on_disk</code><a class="headerlink" href="#fn-on_disk" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">on_disk</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">on_disk</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
 </span></code></pre></div>
 <p>The corpus on a filesystem, written once per process, as the path a fixture attaches.</p>
 <p><strong>Inside THIS WORKTREE, and that is the whole of <code>telekom/sutura#405</code>'s first instance.</strong> It
@@ -2893,14 +2929,14 @@ needed and now means something narrower: <code>nextest</code> gives each test it
 processes of THIS worktree write this path at once, and a reader must not see a half-written
 file. Those processes write identical bytes - which is the claim the old path could not make.</p>
 <h3 id="fn-cases"><code>fn cases</code><a class="headerlink" href="#fn-cases" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">cases</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Case</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">cases</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Case</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every question in the corpus.</p>
 <p>A <code>Vec</code> rather than a constant, because a <code>QueryPlan</code> owns its strings and none of these types
 is <code>const</code>-constructible. The count is what <code>crate::census</code> reports, so a corpus that lost its
 cases is a failure rather than a fast green.</p>
 <h3 id="fn-leg_case"><code>fn leg_case</code><a class="headerlink" href="#fn-leg_case" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">leg_case</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LegCase</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">leg_case</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LegCase</span>
 </span></code></pre></div>
 <p>The one leg in the corpus.</p>
 <h3 id="constant-table"><code>constant TABLE</code><a class="headerlink" href="#constant-table" title="Permanent link">&para;</a></h3>
@@ -2930,7 +2966,7 @@ per adapter; nothing here panics, so a pack can also be called directly.</p>
   through it - see its own doc.</li>
 </ul>
 <h3 id="fn-labels_are_the_plans_own"><code>fn labels_are_the_plans_own</code><a class="headerlink" href="#fn-labels_are_the_plans_own" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">labels_are_the_plans_own</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">labels_are_the_plans_own</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The answer's labels are the ones the plan projects, in the order it projects them.</p>
 <p>A separate behaviour from the two below rather than a consequence of them, because it is a
@@ -2939,20 +2975,20 @@ an adapter that renamed or reordered a column has a defect in its projection rat
 number. <code>agree_on_content</code> would also catch it and would report it as a content disagreement,
 which is the less useful of the two readings.</p>
 <h3 id="fn-content_agrees_with_the_reference"><code>fn content_agrees_with_the_reference</code><a class="headerlink" href="#fn-content_agrees_with_the_reference" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">content_agrees_with_the_reference</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">content_agrees_with_the_reference</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The rows are the reference's rows, as a multiset.</p>
 <p>THE conformance claim: one plan, one answer, whatever executed it. A multiset rather than a set,
 because a duplicated row is exactly what a fan-out defect produces.</p>
 <h3 id="fn-order_agrees_with_the_reference"><code>fn order_agrees_with_the_reference</code><a class="headerlink" href="#fn-order_agrees_with_the_reference" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">order_agrees_with_the_reference</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">order_agrees_with_the_reference</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The rows are in the order the plan's <code>ORDER BY</code> claims.</p>
 <p>Separate from <code>content_agrees_with_the_reference</code> and asked after it, which is the domain
 policy's own instruction: the first symptom of a wrong number would otherwise be reported as a
 sort order. Every plan in the corpus groups, so every one of them emits an order to claim.</p>
 <h3 id="fn-one_plan_asked_twice_answers_the_same_way"><code>fn one_plan_asked_twice_answers_the_same_way</code><a class="headerlink" href="#fn-one_plan_asked_twice_answers_the_same_way" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">one_plan_asked_twice_answers_the_same_way</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">one_plan_asked_twice_answers_the_same_way</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>One plan, asked twice, answered the same way twice.</p>
 <p>The weakest behaviour in the pack and the only one that needs no reference, which is why it is
@@ -2961,7 +2997,7 @@ whose plan is non-deterministic - an unstable tie order, a cached result that we
 connection that reset the session between calls. Both halves are compared, so a stable answer in
 an unstable order is still a failure.</p>
 <h3 id="fn-a_preflight_that_accepts_is_followed_by_an_answer"><code>fn a_preflight_that_accepts_is_followed_by_an_answer</code><a class="headerlink" href="#fn-a_preflight_that_accepts_is_followed_by_an_answer" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_preflight_that_accepts_is_followed_by_an_answer</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_preflight_that_accepts_is_followed_by_an_answer</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A pre-flight that accepted the plan is followed by an answer.</p>
 <p>The port states that the check and the execution take the same
@@ -2975,7 +3011,7 @@ rather than read off a typed declaration, because the port has no capability con
 pre-flight the way it has one for a leg. Where that constant exists the pack would select on it
 and a mismatched declaration would not build.</p>
 <h3 id="fn-a_leg_is_executed"><code>fn a_leg_is_executed</code><a class="headerlink" href="#fn-a_leg_is_executed" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_leg_is_executed</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_leg_is_executed</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A leg reaches the answer a whole plan reaches.</p>
 <p>Selected for an adapter that declares <code>EXECUTES_LEGS</code>. The leg reads the same table over the same
@@ -2984,7 +3020,7 @@ conformance claim rather than a smoke test: an adapter with a leg-rendering path
 to land on the number the whole-plan path lands on.</p>
 <p>Content only. See this module's header for why a leg gets no order assertion.</p>
 <h3 id="fn-a_leg_is_refused"><code>fn a_leg_is_refused</code><a class="headerlink" href="#fn-a_leg_is_refused" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_leg_is_refused</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_leg_is_refused</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A leg is refused by an adapter that declares it does not execute one.</p>
 <p>Selected for an adapter that leaves <code>EXECUTES_LEGS</code> at its default. This is the direction
@@ -3000,7 +3036,7 @@ its data system. Answering a whole plan immediately before is what makes the ref
 about the leg. The residual limit: the refusal is still only <em>an</em> error, so an adapter that
 refused a leg for the wrong reason passes.</p>
 <h3 id="fn-a_leg_is_refused_over"><code>fn a_leg_is_refused_over</code><a class="headerlink" href="#fn-a_leg_is_refused_over" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_leg_is_refused_over</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">,</span><span class="w"> </span><span class="n">cases</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="k">crate</span><span class="p">::</span><span class="n">corpus</span><span class="p">::</span><span class="n">Case</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_leg_is_refused_over</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">,</span><span class="w"> </span><span class="n">cases</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="k">crate</span><span class="p">::</span><span class="n">corpus</span><span class="p">::</span><span class="n">Case</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The same behaviour, over cases a caller supplies.</p>
 <p><strong>A seam, and a narrow one, for the branch above it cannot otherwise reach.</strong>
@@ -3032,7 +3068,7 @@ such a venue never reports an absence at all, because <code>sutura_dev::provisio
 already failed the run. What CAN reach here is a fixture that answered <code>Fixture::Absent</code>
 without asking, and <code>absence_is_impossible</code> is what makes that cost something.</p>
 <h3 id="enum-fixture"><code>enum Fixture</code><a class="headerlink" href="#enum-fixture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Fixture</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Fixture</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>An adapter's fixture, or the reason this venue could not stand one up.</p>
 <p><strong>The type every binding's <code>open</code> path returns, and it is the mechanism rather than a
@@ -3064,16 +3100,16 @@ merely declared, and the reason the harness cannot is a dependency rule that has
 <li><code>Absent</code> - The environment this adapter needs is not here, so nothing was asked of it.</li>
 </ul>
 <h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">missing</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Missing</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">missing</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Missing</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The reason it did not, where it did not.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">standing</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">standing</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>It stood up.</p>
 <p>Named rather than left to the variant, so an in-process binding's last line reads as the
 answer it is and the two answers are spelled at the same length.</p>
 <h3 id="enum-missing"><code>enum Missing</code><a class="headerlink" href="#enum-missing" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Missing</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Missing</span>
 </span></code></pre></div>
 <p>Why this venue could not stand a fixture up. <strong>About the environment, never about the adapter.</strong></p>
 <p>Typed rather than a message, for the reason every refusal in this workspace is: a reader that
@@ -3087,7 +3123,7 @@ nothing constructs is a claim nothing provokes, and this crate has paid for one 
 <li><code>Tier</code> - A service this adapter reaches over a socket, which nothing has provisioned here.</li>
 </ul>
 <h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tier</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">diagnostic</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">impl</span><span class="w"> </span><span class="n">core</span><span class="p">::</span><span class="n">fmt</span><span class="p">::</span><span class="n">Display</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tier</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">diagnostic</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">impl</span><span class="w"> </span><span class="n">core</span><span class="p">::</span><span class="n">fmt</span><span class="p">::</span><span class="n">Display</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A tier this venue has not provisioned, carrying the provisioner's own diagnostic.</p>
 <p>The diagnostic arrives as a <code>Display</code> rather than as a <code>String</code>, so what reaches a reader is
@@ -3097,7 +3133,7 @@ fourth copy with no mechanism.</p>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-declared_here"><code>fn declared_here</code><a class="headerlink" href="#fn-declared_here" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">declared_here</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">declared_here</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>What this venue declared about tiers, read from the environment.</p>
 <p><strong>The only environment read in this crate, and everything below it takes the VALUE.</strong> That is
@@ -3109,7 +3145,7 @@ workspace and <code>std::env::set_var</code> is unsafe on Rust 2024, so no test 
 the macro reads it once per cell and hands it down, which is also the shape
 <code>sutura_dev::requirement::decide</code> chose for the same reason.</p>
 <h3 id="fn-a_tier_is_required"><code>fn a_tier_is_required</code><a class="headerlink" href="#fn-a_tier_is_required" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_tier_is_required</span><span class="p">(</span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_tier_is_required</span><span class="p">(</span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Whether an absent tier is a failure here, decided over the VALUE rather than the environment.</p>
 <p>Over the value for the reason <code>sutura_dev::requirement::decide</code> is: an environment read is not
@@ -3123,7 +3159,7 @@ spelling for a variable people set by hand, and <code>SUTURA_DEV_REQUIRE_TIER=of
 to <code>provisioned::here</code>, which skips, and <em>required</em> here, which then refuses the absence that
 skip produced.</p>
 <h3 id="fn-absence_is_impossible"><code>fn absence_is_impossible</code><a class="headerlink" href="#fn-absence_is_impossible" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">absence_is_impossible</span><span class="p">(</span><span class="n">missing</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Missing</span><span class="p">,</span><span class="w"> </span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">absence_is_impossible</span><span class="p">(</span><span class="n">missing</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Missing</span><span class="p">,</span><span class="w"> </span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Whether a DECLARED absence is a defect here rather than a skip.</p>
 <p><strong>Pure, over the value, because the alternative is not available and would be wrong anyway.</strong>
@@ -3156,6 +3192,206 @@ truthiness are spelled twice, and two statements about one fact can disagree.
 mechanism that keeps them equal: it takes <code>sutura-dev</code> as a DEV-dependency, which that gate
 permits by design (what may not happen is a pack BODY compiled against something, and a pack
 body is <code>src/</code>), and compares both halves against <code>FORCE</code> and <code>requirement::decide</code>.</p>
+<h2 id="module-compile">Module <code>compile</code><a class="headerlink" href="#module-compile" title="Permanent link">&para;</a></h2>
+<p>The compile pack: what a metadata catalog must do with a question, end to end.</p>
+<p><code>crate::execute</code> holds a data system to the answer it gives for a plan. This pack holds a
+metadata catalog to the shape its own definitions give a question: load its
+<code>PinnedDefinitions</code>, run the question through <code>sutura_semantic::compile</code>, and hold the outcome
+to the oracle - or, for a catalog that declares it supplies part of the model, to its own
+declaration. It is the compile half of issue telekom/sutura#349's conformance rack, and it is a
+REAL module in exactly the sense <code>Behaviour</code> is one for the execute pack: a
+deleted cell must redden rather than quietly shrink a green count.</p>
+<h1 id="how-it-mirrors-crateexecute_packs">How it mirrors <code>crate::execute_packs</code><a class="headerlink" href="#how-it-mirrors-crateexecute_packs" title="Permanent link">&para;</a></h1>
+<p>The same four mechanisms, so a reader who knows one pack knows the other:</p>
+<table>
+<thead>
+<tr>
+<th>Execute pack</th>
+<th>This pack</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Behaviour</code> + <code>EVERY</code> + <code>index</code> + the const assert</td>
+<td><code>CompileBehaviour</code> + <code>EVERY</code> + <code>index</code> + the const assert</td>
+</tr>
+<tr>
+<td>the <code>#[test]</code>s and <code>census</code>'s <code>bound</code> are ONE repetition inside <code>execute_packs!</code></td>
+<td>the <code>#[test]</code>s and <code>compile_census</code>'s <code>bound</code> are ONE repetition inside <code>compile_packs!</code></td>
+</tr>
+<tr>
+<td><code>EXECUTES_LEGS</code> declaration, chcked by a <code>const</code> assert</td>
+<td><code>SemanticCatalog::KIND</code> declaration, checked by a <code>const</code> assert</td>
+</tr>
+</tbody>
+</table>
+<p>And the one difference is what makes this pack a pair rather than a copy: <strong>the GOLDEN/DECLARING
+split</strong> <code>CatalogKind</code> and <code>docs/adr/0016</code> draw. A catalog is held to the oracle only if it
+declares itself <em>golden</em> - it can produce the whole model - which is enforced by a marker trait
+bound, not by review (see <code>GoldenCatalog</code>).</p>
+<h1 id="what-a-green-run-does-not-establish">What a green run does NOT establish<a class="headerlink" href="#what-a-green-run-does-not-establish" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>Federated rendering.</strong> The corpus is one source, one metric, one mono plan; nothing
+  federates, so <code>Compiled::Federated</code> is a panic here rather than a case.</li>
+<li><strong>A live source, or identity forwarding.</strong> Issue #349's stated surviving limits: the fixture is
+  a hand-built catalog in this module, and no credential is minted for anything.</li>
+<li><strong>Every dialect.</strong> The corpus declares it renders <code>DuckDb</code> and <code>Postgres</code>, and what
+  <code>generate</code> produces for them is what <code>statement_is_the_oracles_own</code>
+  compares. <code>ClickHouse</code> and <code>BigQuery</code>
+  are out of scope here, which is why their renderings are not pinned.</li>
+<li><strong>That the corpus is hard.</strong> It is one aggregate over one metric plus four refusals - see
+  <code>questions</code> below for why none of the execute corpus's harder shapes is repeated here.</li>
+</ul>
+<h3 id="enum-compilebehaviour"><code>enum CompileBehaviour</code><a class="headerlink" href="#enum-compilebehaviour" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CompileBehaviour</span>
+</span></code></pre></div>
+<p>One behaviour of the compile pack: the unit a test name, a failure report and a CI filter key on.</p>
+<p>An enum rather than a string, for the reason <code>crate::Behaviour</code> is one: the pack's own list and
+the tests the macro emits are compared by the compiler at one end and by <code>compile_census</code> at
+the other.</p>
+<h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Plan</code> - The compiled mono plan's serialized form equals the oracle's.</li>
+<li><code>Statement</code> - For each dialect this corpus declares it renders to, the statement equals the oracle's.</li>
+<li><code>Params</code> - The bind parameters equal the oracle's.</li>
+<li><code>Refusal</code> - The question this corpus expects to refuse reaches the variant it names, and not another.</li>
+<li><code>Fidelity</code> - What the catalog declared is exactly what its bundle produced.</li>
+<li><code>Repeat</code> - A second load produces the same digest.</li>
+</ul>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The name a report carries.</p>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="trait-goldencatalog"><code>trait GoldenCatalog</code><a class="headerlink" href="#trait-goldencatalog" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">GoldenCatalog</span>
+</span></code></pre></div>
+<p>The marker that separates a <strong>golden</strong> catalog from a declaring one in this pack.</p>
+<p>The analogue of <code>crate::tests::golden::catalogs::GoldenCatalog</code> in miniature: the golden-only
+cell functions are bound on this marker, so a cell that requires the whole model cannot be
+expanded for a catalog that does not implement it - the call does not typecheck. It is the
+ROUTING copy of <code>SemanticCatalog::KIND</code> (<code>macro_rules!</code> cannot read an associated constant, so
+the same fact is stated here in the form a binding can be bound on) and <code>compile_packs!</code>'
+<code>const</code> assert is where the two are torn unless they agree. The canonical declaration of the kind
+is <code>SemanticCatalog::KIND</code> in the domain.</p>
+<h3 id="enum-fixtureerror"><code>enum FixtureError</code><a class="headerlink" href="#enum-fixtureerror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FixtureError</span>
+</span></code></pre></div>
+<p>A catalog that could not be read, or a fixture that could not be put together.</p>
+<p>The fixture catalogs in this module are <code>SemanticCatalog</code>s whose <code>Error</code> this fills, and the
+corpus builders return it too, so every <code>.parse</code>/<code>.assemble</code>/<code>.pin</code> in a fixture travels through
+<code>?</code> and only the pack boundary turns it into a panic.</p>
+<h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Names</code> - A name failed to parse as an identifier.</li>
+<li><code>Values</code> - A dimension value or anchor value failed to parse.</li>
+<li><code>Date</code> - A date failed to parse or did not exist.</li>
+<li><code>Range</code> - A time range did not hold together.</li>
+<li><code>Version</code> - A version label was not a version.</li>
+<li><code>Definitions</code> - A definitions bundle was inconsistent at assembly.</li>
+<li><code>Digest</code> - The bundle would not digest.</li>
+<li><code>Knowledge</code> - The knowledge and its declaration disagreed.</li>
+</ul>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-oraclecatalog"><code>struct OracleCatalog</code><a class="headerlink" href="#struct-oraclecatalog" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OracleCatalog</span>
+</span></code></pre></div>
+<p>The catalog several registered catalogs read, stated a second time in Rust.</p>
+<p><strong>The oracle, and it is deliberately a separate hand-built catalog from <code>GoldenSubject</code></strong>, for
+the reason <code>sutura-app</code>'s <code>HandWrittenCatalog</code> is separate from the documents it transcribes:
+two independent statements of one metric must produce the same plan, and the golden cells compare
+the subject against this one so a mutation to either half reddens rather than passing as self-
+agreement. It declares <code>Golden</code> only so its own declaration-fidelity cell holds.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code>, <code>GoldenCatalog</code>, <code>SemanticCatalog</code></p>
+<h3 id="struct-goldensubject"><code>struct GoldenSubject</code><a class="headerlink" href="#struct-goldensubject" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">GoldenSubject</span>
+</span></code></pre></div>
+<p>The catalog under test for the golden arm of this pack.</p>
+<p>A second, independent statement of the same one-metric corpus. <code>plan_is_the_oracles_own</code> and
+its siblings compile a question through BOTH this and <code>OracleCatalog</code> and require them to
+agree, which is what makes the golden cells differential rather than a copy of the oracle against
+itself.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code>, <code>GoldenCatalog</code>, <code>SemanticCatalog</code></p>
+<h3 id="struct-declaringsubject"><code>struct DeclaringSubject</code><a class="headerlink" href="#struct-declaringsubject" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DeclaringSubject</span>
+</span></code></pre></div>
+<p>The catalog under test for the declaring arm of this pack.</p>
+<p>Supplies <strong>part</strong> of the model - a model and a metric with a grain and nothing else - and says
+so in its declaration, so it is measured by <code>fidelity_holds</code> against that declaration and by
+<code>repeat_load_is_stable</code>, and by no golden cell: it implements no <code>GoldenCatalog</code>, which is
+what makes the golden cells impossible to expand for it.</p>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code>, <code>SemanticCatalog</code></p>
+<h3 id="fn-plan_is_the_oracles_own"><code>fn plan_is_the_oracles_own</code><a class="headerlink" href="#fn-plan_is_the_oracles_own" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plan_is_the_oracles_own</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>CompileBehaviour::Plan</code> - the compiled mono plan is the oracle's plan, in serialized form.</p>
+<p>BOUND on <code>GoldenCatalog</code>, so this cell cannot expand for a catalog that does not declare itself
+golden: only a golden catalog owns an oracle to be held to.</p>
+<h3 id="fn-statement_is_the_oracles_own"><code>fn statement_is_the_oracles_own</code><a class="headerlink" href="#fn-statement_is_the_oracles_own" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">statement_is_the_oracles_own</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>CompileBehaviour::Statement</code> - for each declared dialect, the rendered statement equals the
+oracle's.</p>
+<p>BOUND on <code>GoldenCatalog</code>, for the reason <code>plan_is_the_oracles_own</code> gives.</p>
+<h3 id="fn-params_are_the_oracles_own"><code>fn params_are_the_oracles_own</code><a class="headerlink" href="#fn-params_are_the_oracles_own" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">params_are_the_oracles_own</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>CompileBehaviour::Params</code> - the bind parameters equal the oracle's.</p>
+<p>BOUND on <code>GoldenCatalog</code>, for the reason <code>plan_is_the_oracles_own</code> gives. The statement and
+its parameters are folded in plan order by <code>sutura_sql::generate</code>, so the parameters are
+compared over one dialect the way the statement is, and over the same one.</p>
+<h3 id="fn-refusal_reaches_the_variant_the_oracle_names"><code>fn refusal_reaches_the_variant_the_oracle_names</code><a class="headerlink" href="#fn-refusal_reaches_the_variant_the_oracle_names" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refusal_reaches_the_variant_the_oracle_names</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>CompileBehaviour::Refusal</code> - a refused question reaches the variant the corpus names, not another.</p>
+<p>BOUND on <code>GoldenCatalog</code>, because "the variant the corpus names" is a statement only a
+corpus-backed adapter has an oracle for. The expected is a <code>Debug</code> prefix, so a question that
+started refusing for a different reason is caught rather than passing as <em>some refusal</em>.</p>
+<h3 id="fn-fidelity_holds"><code>fn fidelity_holds</code><a class="headerlink" href="#fn-fidelity_holds" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">fidelity_holds</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>CompileBehaviour::Fidelity</code> - what the catalog declared is exactly what its bundle produced.</p>
+<p><strong>UNIVERSAL: both a golden and a declaring catalog owe this</strong>, and it is the assertion a
+declaring adapter gets in place of the golden oracle - <code>docs/adr/0016</code>'s decision. It is two
+directions in one <code>MetadataCapabilities::checked_against</code> call: everything declared was
+produced, and nothing undeclared appears. A declaration widened beyond the bundle fails the
+<code>Unprovided</code> direction and reddens here.</p>
+<h3 id="fn-repeat_load_is_stable"><code>fn repeat_load_is_stable</code><a class="headerlink" href="#fn-repeat_load_is_stable" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">repeat_load_is_stable</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">()</span>
+</span></code></pre></div>
+<p><code>CompileBehaviour::Repeat</code> - a second load produces the same digest.</p>
+<p><strong>UNIVERSAL.</strong> It loads the same bytes twice and compares the two digests, so what it can see is
+a catalog that answers differently on a second read - a hash-ordered collection, a timestamp, a
+source of randomness. It deliberately claims only determinism, because <em>the digest is a function
+of CONTENT</em> is a claim about two different inputs and a fresh load is one input read twice.</p>
+<h3 id="fn-compile_census"><code>fn compile_census</code><a class="headerlink" href="#fn-compile_census" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">compile_census</span><span class="p">(</span><span class="n">kind</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">bound</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">CompileBehaviour</span><span class="p">])</span>
+</span></code></pre></div>
+<p>Asserts a binding emitted a test for exactly the behaviours its kind selects, and that the corpus
+is not empty to be green over.</p>
+<p>Three things mirror <code>crate::census</code>'s first three, and the missing two are the venue ones it
+does not have: a compile catalog is a hand-built fixture with no socket to be absent, so there is
+no floor to measure and no <code>NOT RUN</code> to print.</p>
+<ol>
+<li><strong><code>bound</code> is the array the single <code>#[test]</code>/census repetition inside
+   <code>compile_packs!</code> generated</strong>, one element per emitted test, compared
+   against the behaviours the kind selects -
+   <code>CompileBehaviour::EVERY</code> for <code>"golden"</code>, <code>CompileBehaviour::UNIVERSAL</code> for <code>"declaring"</code>.
+   A deleted test is a deleted element and this reddens, which is the correction <code>crate::census</code>
+   narrates for the execute pack.</li>
+<li>the plan corpus is not empty, which is the state that would make <code>plan_is_the_oracles_own</code>
+   and its two siblings vacuously green.</li>
+<li>the refusal corpus is not empty, which is the state that would make
+   <code>refusal_reaches_the_variant_the_oracle_names</code> a green no-op.</li>
+</ol>
+<p>What it cannot do is the same thing <code>crate::census</code> cannot: know that a behaviour's BODY
+asserts anything. A pack that returned without comparing would pass here and everywhere else; the
+cells above compare, which is the evidence <code>tests/compile.rs</code> is for.</p>
 
 
 
