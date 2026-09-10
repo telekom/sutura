@@ -7636,6 +7636,7 @@ somebody else's input.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
+- `SourceRefused` - The data system refused the executed statement because the identity it ran it as may not ask it.
 - `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
 
 #### Methods

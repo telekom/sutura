@@ -22,7 +22,9 @@ use sutura_domain::identity::{
     RequestContext, Subject, SubjectId,
 };
 
-use super::tests_support::{AdapterFailure, CountingBroker, FixedBroker, FixedWarehouse};
+use super::tests_support::{
+    AdapterFailure, CountingBroker, FixedBroker, FixedWarehouse, RefusingSourceWarehouse, TransientlyBrokenWarehouse,
+};
 use super::{
     AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, Warehouses, exceeds_row_cap,
     verify_anchors, verify_and_validate,
@@ -452,6 +454,65 @@ fn a_broker_that_could_not_be_reached_is_a_failure_and_not_a_refusal() {
     // Its own variant rather than sharing the data system's, because the two are retried and
     // diagnosed differently - which is what the transports then turn into two different codes.
     assert!(!matches!(failure, ServiceError::Warehouse { .. }));
+}
+
+#[test]
+fn a_source_that_refuses_the_statement_is_refused_not_a_transport_failure() {
+    // THE CLASS THIS ISSUE ADDS, at the query path. The data system answered and answered no about
+    // WHO asked: the identity the statement ran as may not read what it asks for. That is not the
+    // `503` a dead data system produces - a refusal must not be silently retried as if it were
+    // transient - so `answer` turns the adapter's `source_refused` predicate into
+    // `RefusalReason::SourceRefused`, a governed answer in the `Ok`, carrying the source.
+    //
+    // The registry is validated (so the anchor numbers hold) and then the plan is answered against
+    // a warehouse whose execute refuses at the identity/authorization level.
+    let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
+    let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
+    let refusing = Warehouses::of(RefusingSourceWarehouse::new(source(), shared()));
+    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let outcome = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &refusing,
+    )
+    .expect("a refusal is an Ok, so a client cannot retry it into an answer")
+    .into_outcome();
+    let ToolOutcome::Refusal {
+        reason: RefusalReason::SourceRefused { ref source },
+    } = outcome
+    else {
+        panic!("a source refusal must come back as a refusal, not {outcome:?}");
+    };
+    assert_eq!(source, &self::source());
+    // And it never reaches a caller as the retryable class. The same question against the same
+    // refusal must not surface as `ServiceError::Warehouse`, which is what a data system being
+    // down looks like - the status that invites the very retry this refusal exists to prevent.
+}
+
+#[test]
+fn a_failure_the_source_did_not_refuse_is_still_a_transport_failure() {
+    // The reverse direction, and the more dangerous mistake: a transient failure told "do not
+    // retry" has been told the wrong thing. A warehouse whose execute fails for a reason that is
+    // NOT the data system refusing (the port's `source_refused` default is `false`) must still
+    // leave as `ServiceError::Warehouse` - the retryable class - and never as a refusal.
+    let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
+    let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
+    let broken = Warehouses::of(TransientlyBrokenWarehouse::new(source(), shared()));
+    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let failure = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &broken,
+    )
+    .expect_err("a failure the source did not refuse is not a refusal");
+    assert!(
+        matches!(failure, ServiceError::Warehouse { .. }),
+        "it stays in the retryable class, not {failure:?}"
+    );
 }
 
 #[test]

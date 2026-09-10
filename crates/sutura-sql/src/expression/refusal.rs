@@ -286,6 +286,25 @@ pub enum ExpressionError {
     },
     #[error("the {tag} fragment uses {construct}, which is refused: {}", construct.why())]
     Refused { tag: DialectTag, construct: Construct },
+    /// A character the pinned dialect layer's generator cannot survive.
+    ///
+    /// **The dialect layer panics, it does not refuse.** Measured with the fuzz harness: the
+    /// pinned `polyglot-sql` 0.9.2 generator byte-slices a string without respecting character
+    /// boundaries, so any fragment carrying a multi-byte UTF-8 character - `é`, a full-width
+    /// identifier, or the replacement character `\u{fffd}` a lossy decode produces - reaches a
+    /// `&s[..]` cut through that byte and panics with *"start byte index N is not a char
+    /// boundary"*. There is no third-party error to map: it aborts, which under
+    /// `panic = "abort"` is the process dying. So this crate refuses non-ASCII text before it is
+    /// handed over, and the bound is the chunk this build renders for: the aggregation subset and
+    /// its identifiers are ASCII by construction, and a Unicode string literal is refused rather
+    /// than trusted to a generator that slices it by byte. If a future pin fixes the slicing, the
+    /// bound can widen; stated as a limit now because this is a control over what the dependency
+    /// can carry, not a judgement that authored SQL is ASCII.
+    #[error(
+        "the {tag} fragment contains {text:?}, a non-ASCII character (U+{code:04X}), which the dialect \
+         layer's generator cannot render without aborting; write the expression in ASCII"
+    )]
+    NonAscii { tag: DialectTag, code: u32, text: char },
     #[error("the {tag} fragment reads column {column:?}, which model table {table} does not declare")]
     UnknownColumn {
         tag: DialectTag,

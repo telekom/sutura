@@ -76,6 +76,9 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::SourceUnavailable {
             source: SourceName::parse("elsewhere").expect("a test source is a source"),
         },
+        RefusalReason::SourceRefused {
+            source: SourceName::parse("warehouse").expect("a test source is a source"),
+        },
         RefusalReason::CredentialUnavailable {
             source: SourceName::parse("warehouse").expect("a test source is a source"),
         },
@@ -131,6 +134,7 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::MeasureDoesNotFederate { .. }
             | RefusalReason::PlanTablesShareAnIdentifier { .. }
             | RefusalReason::SourceUnavailable { .. }
+            | RefusalReason::SourceRefused { .. }
             | RefusalReason::ResourcesExhausted { .. }
             | RefusalReason::CredentialUnavailable { .. }
             | RefusalReason::LegsDecideIdentityDifferently { .. } => {}
