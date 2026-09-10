@@ -138,17 +138,17 @@ pub enum TokenRejected {
         #[source]
         cause: crate::inbound::keys::KeyUnavailable,
     },
-    /// The signature, the expiry, the issuer or the audience.
+    /// The signature, the expiry, the issuer, the audience - or the claims failing to deserialize.
     ///
-    /// **One variant for all four, and that is deliberate rather than lazy.** The library reports
-    /// which, and it goes to the log through `#[source]`; what must not happen is a *response* that
-    /// distinguishes them, because "the signature is fine and the audience is wrong" tells a caller
-    /// which half of a forgery to fix. A caller is told it is unauthenticated.
+    /// **All four crypto failures in one variant, and that is deliberate rather than lazy.** The
+    /// library reports which, and it goes to the log through the inner `#[source]`; what must not
+    /// happen is a *response* that distinguishes them, because "the signature is fine and the
+    /// audience is wrong" tells a caller which half of a forgery to fix. A caller is told it is
+    /// unauthenticated. The claims-not-deserializing case is split out as [`NotVerified::Json`],
+    /// because a serde message embeds the raw claim value - see that variant for why it carries no
+    /// `#[source]`.
     #[error("the presented token did not verify")]
-    NotVerified {
-        #[source]
-        cause: jsonwebtoken::errors::Error,
-    },
+    NotVerified(#[source] NotVerified),
     /// A `sub` this workspace will not write into a record.
     #[error("the subject claim in the presented token is not a principal identifier")]
     UnusableSubject {
@@ -196,6 +196,30 @@ pub enum TokenRejected {
     /// above cannot be trusted to mean what it says.
     #[error("the presented proof was issued {seconds}s in the future, past the {leeway}s allowed for clock skew")]
     IssuedInTheFuture { seconds: i64, leeway: u64 },
+}
+
+/// Why a presented token did not verify, when it did not.
+///
+/// The split exists because one of the two halves carries a message a log must not see.
+#[derive(Debug, thiserror::Error)]
+pub enum NotVerified {
+    /// The signature, the expiry, the issuer or the audience.
+    ///
+    /// The library's message for these is a fixed sentence - no claim value names itself - so it is
+    /// safe to let it reach an operator's log through `#[source]`.
+    #[error("the presented token did not verify")]
+    Crypto {
+        #[source]
+        cause: jsonwebtoken::errors::Error,
+    },
+    /// The claims in the presented token did not deserialize.
+    ///
+    /// Deliberately no `#[source]`: a serde message embeds the raw claim value, which is
+    /// caller-chosen text a log must not carry. The failure is named without the text that caused
+    /// it - the same rule that keeps a rejected filter value out of a message, applied to the one
+    /// place a claim value could have reached a log.
+    #[error("the claims in the presented token did not deserialize")]
+    Json,
 }
 
 /// The `typ` a refused token presented, where it was one at all.
@@ -348,7 +372,15 @@ impl TokenValidator {
     /// [`Self::key_id`].
     pub fn verify(&self, token: &str, key: &DecodingKey) -> Result<VerifiedCaller, TokenRejected> {
         let decoded =
-            jsonwebtoken::decode::<Claims>(token, key, &self.validation).map_err(|cause| TokenRejected::NotVerified { cause })?;
+            jsonwebtoken::decode::<Claims>(token, key, &self.validation).map_err(|cause: jsonwebtoken::errors::Error| {
+                if matches!(cause.kind(), jsonwebtoken::errors::ErrorKind::Json(_)) {
+                    // A claims-deserialization failure: the serde message would quote the offending
+                    // claim value, which must not reach a log. Routed to the `#[source]`-free variant.
+                    TokenRejected::NotVerified(NotVerified::Json)
+                } else {
+                    TokenRejected::NotVerified(NotVerified::Crypto { cause })
+                }
+            })?;
         // FIRST, on the header of the document that just verified: which class of token is this. A
         // signature, an issuer and an audience do not distinguish an access token from an ID token.
         self.of_the_right_class(decoded.header.typ.as_deref())?;

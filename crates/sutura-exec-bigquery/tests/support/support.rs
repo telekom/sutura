@@ -33,11 +33,11 @@ use sutura_domain::model::SourceName;
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_exec_bigquery::BigQueryWarehouse;
 use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
-use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
+use sutura_exec_bigquery::wire::credential::{AccessTokens, Credential, CredentialFile};
 use sutura_exec_bigquery::wire::{BigQueryWire, BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
 
 /// The adapter, wired to the endpoint - the type both legs execute through.
-pub(crate) type Wired = BigQueryWarehouse<BigQueryWire<Credential>>;
+pub(crate) type Wired<C = Credential> = BigQueryWarehouse<BigQueryWire<C>>;
 
 /// What every job either leg submits is bounded by.
 ///
@@ -99,10 +99,10 @@ pub(crate) fn named(key: &str, what: &str) -> String {
 /// module, which both legs call, and directly by the smoke leg where it builds a qualified path.
 /// Nothing is being protected by a getter that a `pub(crate)` field in a test module would not
 /// protect equally: these three values were parsed on the way in, by [`Self::required`].
-pub(crate) struct Connection {
+pub(crate) struct Connection<C = Credential> {
     pub(crate) billing_project: ProjectId,
     pub(crate) dataset: DatasetId,
-    pub(crate) credentials: Credential,
+    pub(crate) credentials: C,
 }
 
 impl Connection {
@@ -184,7 +184,10 @@ pub(crate) fn presented() -> Presented {
 /// `NotComplete` on an eight-row `CREATE OR REPLACE TABLE`: the endpoint had not finished the job
 /// inside the request-derived share, which is around twelve seconds. So the caller decides, and the
 /// corpus leg gives its loader a deadline of its own while keeping the money ceiling identical.
-pub(crate) fn opened(source: SourceName, connection: Connection, bounds: JobBounds) -> Wired {
+pub(crate) fn opened<C>(source: SourceName, connection: Connection<C>, bounds: JobBounds) -> Wired<C>
+where
+    C: AccessTokens,
+{
     opened_as(source, posture(), connection, bounds)
 }
 
@@ -199,7 +202,10 @@ pub(crate) fn opened(source: SourceName, connection: Connection, bounds: JobBoun
 /// What it buys over a second copy in that cell: **one place builds the wire**, so the money ceiling
 /// and the deadline reach every leg the same way. A copy that drifted by a digit would be a leg
 /// billing differently from the one a reviewer read, which is this module's own opening argument.
-pub(crate) fn opened_as(source: SourceName, posture: SourcePosture, connection: Connection, bounds: JobBounds) -> Wired {
+pub(crate) fn opened_as<C>(source: SourceName, posture: SourcePosture, connection: Connection<C>, bounds: JobBounds) -> Wired<C>
+where
+    C: AccessTokens,
+{
     BigQueryWarehouse::new(
         source,
         posture,

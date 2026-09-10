@@ -980,11 +980,12 @@ economise.
    | `check-boundaries` | the domain crate's manifest and the Rust under `crates/` |
    | `check-jscpd` | the Rust under `crates/` and `xtask/`, plus `devco/dup-ignore`, for copied blocks (#474) |
    | `check-pins` | `flake.nix` and `pixi.toml` |
+   | `check-nix-platform` | every `.nix` file this repository tracks, for a platform predicate read off the deprecated `stdenv` alias |
    | `check-warm-start` | `xtask/src/causality.rs`, `nix/purge-baked-out-dirs.sh`, every `.nix` file |
    | `unused-deps` | every member manifest and that member's own Rust |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
    | `check-shared-client` | `Cargo.lock` |
-   | `check-attribution` | `Cargo.lock`, the root manifest, `ATTRIBUTION.md` |
+   | `check-attribution-owner` | the ABSENCE of `ATTRIBUTION.md` at the repo root, and `.github/workflows/release.yml` for whether the release still generates the attribution asset |
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |

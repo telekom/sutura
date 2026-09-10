@@ -46,6 +46,7 @@ Why this data system could not answer.
 - `FixtureRead`
 - `InvalidColumnName` - A CSV header named a column that is not a valid identifier. Refused, not interpolated.
 - `InvalidSchemaName` - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
+- `InvalidStatementTimeout` - The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
 - `LegWithoutCombiner` - One leg of a federated answer, which nothing here can assemble above.

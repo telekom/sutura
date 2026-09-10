@@ -430,7 +430,17 @@ impl Settings {
         let off_host = !bind.is_loopback();
 
         if off_host && !self.security.tls_termination().is_declared() {
-            refusals.push(NotFitToServe::TlsTerminationUndeclared { bind: bind.to_string() });
+            // The key the refusal names, and the layer that supplied it. `layers` retained the
+            // provenance `read` used to drop, so the operator is told WHICH variable or file set
+            // the off-host bind rather than being handed the list of candidates #386 left them.
+            let origin = self
+                .layers
+                .origin_of("server.host")
+                .map_or_else(|| String::from("embedded defaults"), |o| o.describe("server.host"));
+            refusals.push(NotFitToServe::TlsTerminationUndeclared {
+                bind: bind.to_string(),
+                origin,
+            });
         }
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());

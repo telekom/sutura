@@ -15,16 +15,16 @@
 //!
 //! WHAT IT COUNTS, and this is the half worth reading. The claim is *no consumer takes the
 //! artifacts without the sweep*, so the unit is a **taking** - one binding of crane's
-//! [`TAKING`] argument name - not a line, not a file, and not an occurrence of the word `purge`.
+//! `TAKING` argument name - not a line, not a file, and not an occurrence of the word `purge`.
 //! Every taking in every `.nix` file in the tree is discovered, each is attributed to whatever
-//! RECEIVES it, and [`Swept`] cannot be minted with fewer adjudications than the scan discovered:
+//! RECEIVES it, and [`crate::warm_start::pairing::Swept`] cannot be minted with fewer adjudications than the scan discovered:
 //! the count in the verdict comes off the witness rather than out of a `format!`.
 //!
 //! WHAT PAIRS A TAKING is one of exactly two things, both resolved out of the tree:
 //!
 //! 1. It is the constructor's own binding, and the constructor's attrset still inlines the sweep.
-//!    Since that is the only [`PHASE`] binding permitted in the artifact flow - see
-//!    [`in_the_flow`] for why the rule is scoped and derived - no consumer can displace it.
+//!    Since that is the only `PHASE` binding permitted in the artifact flow - see
+//!    `in_the_flow` for why the rule is scoped and derived - no consumer can displace it.
 //! 2. It is an argument to an `import`ed module, and that module inlines the sweep itself. For a
 //!    module that also exports the target directory - a shell warmer - two more facts are read:
 //!    the sweep comes AFTER that export, and the variable the sweep resolves is the variable the
@@ -37,7 +37,7 @@
 //! WHAT IT DOES NOT REACH. It reads text, for [`crate::pins`]' reason - the sandbox it runs in has
 //! no nix - so a taking assembled by evaluation (a taking behind a `let` alias, an attrset built
 //! by a function this gate does not follow) is invisible, and so is anything that unpacks a store
-//! path without naming [`TAKING`] at all. `preBuild` is the only phase read, so a consumer that
+//! path without naming `TAKING` at all. `preBuild` is the only phase read, so a consumer that
 //! re-places artifacts in a later phase is outside it. And it is blind to the profile by design:
 //! the sweep derives its profile directory from cargo's own `root-output` record, so it names none
 //! and cannot clean the wrong one - which is the trap `cargo clean` fell into in
@@ -47,20 +47,20 @@
 //! apart. Measured: comment out the script's own trailing `suturaPurgeBakedOutDirs` invocation and
 //! the script still exits 0, `just lint-workflows` shellchecks 14 scripts clean, and the whole of
 //! `just hygiene` reports `ok - 32 gate(s)` - over a tree that purges nothing. That half belongs to
-//! [`super::sweep`], which runs the real script over a real directory and asserts `try_exists` on
+//! `xtask/src/warm_start/sweep.rs`, which runs the real script over a real directory and asserts `try_exists` on
 //! the unit and its fingerprint, and it reddens on exactly that mutation (`left: (true, true)`).
 //! *An `Ok` from a subprocess is not evidence the side effect happened*, and neither is a text
 //! scan; the pairing is text and the effect is a filesystem, so the two are held in two venues.
 //! Both sit inside `just validate`, and there is no diff for which one runs without the other:
-//! `.github/workflows/ci.yml` classifies `nix/purge-baked-out-dirs.sh` and [`super::WARMER`] under
+//! `.github/workflows/ci.yml` classifies `nix/purge-baked-out-dirs.sh` and [`crate::warm_start::WARMER`] under
 //! no area, which fails open to `run_all`, and `flake.nix`'s area lists a `rust` consumer - so the
 //! sufficiency is CI's classifier, not a coincidence. The limit is second-order: putting `nix/**`
 //! into `DOCS_ONLY`, or into an area with no `rust` consumer, would let this route go green.
 //!
 //! **Reachability of the inline SITE is held by neither**: the sweep placed after an `exit`, or
-//! inside a shell conditional, in [`super::WARMER`]'s exported string satisfies this gate's line
-//! rules and [`super::sweep`]'s standalone run alike. What IS held is that the inline sits in the
-//! string a `${..}` expands rather than anywhere in the file - [`module_sweeps`] carries the
+//! inside a shell conditional, in [`crate::warm_start::WARMER`]'s exported string satisfies this gate's line
+//! rules and `xtask/src/warm_start/sweep.rs`'s standalone run alike. What IS held is that the inline sits in the
+//! string a `${..}` expands rather than anywhere in the file - `module_sweeps` carries the
 //! measurement, because file-wide was a printed pass over a tree where nothing swept.
 
 use std::path::{Path, PathBuf};
@@ -178,7 +178,7 @@ impl Swept {
 
 /// One nix file as a SIBLING claim needs it: where it lives, and what the evaluator sees.
 ///
-/// A named pair rather than a tuple, for the reason [`Scan`]'s neighbours give: `(String, String)`
+/// A named pair rather than a tuple, for the reason `Scan`'s neighbours give: `(String, String)`
 /// says nothing about which string is the path. Not [`NixFile`] either - that type carries `raw`
 /// as well, and a claim that only reads code should not be handed the view where a comment still
 /// counts as text.

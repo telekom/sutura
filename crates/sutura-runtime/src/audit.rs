@@ -56,31 +56,31 @@ impl TracingAuditSink {
 ///
 /// A struct rather than four values threaded through the two arms below, because the two arms both
 /// need all four and a positional argument list is where they drift apart.
-struct Attributed<'a> {
+struct Attributed {
     /// `verified` or `deployment`: what established the subject, from an exhaustive match in the
     /// domain rather than a string chosen here.
     established: &'static str,
     /// The verified subject's identifier, or empty when the deployment is the only principal. Read
     /// beside `established`, never on its own - an empty value here is not an unnamed person.
-    subject: &'a str,
+    subject: String,
     /// The actors, nearest the subject first, or empty when nothing acted for them.
     actors: String,
     /// How many actors acted. `0` is the case every call in this workspace produces today, and it is
     /// a number rather than an absence so an aggregate over records can count it.
     acting: usize,
     /// The task the call belonged to, or empty when none was named.
-    task: &'a str,
+    task: String,
 }
 
-impl<'a> Attributed<'a> {
-    fn of(chain: &'a PrincipalChain) -> Self {
+impl Attributed {
+    fn of(chain: &PrincipalChain) -> Self {
         let subject = chain.subject();
         Self {
             established: subject.established(),
-            subject: subject.id().map_or("", |id| id.as_str()),
+            subject: subject.id().map_or_else(String::new, ToString::to_string),
             actors: chain.actors().map_or_else(String::new, ToString::to_string),
             acting: chain.actors().map_or(0, sutura_domain::identity::ActorChain::count),
-            task: chain.task().map_or("", |task| task.as_str()),
+            task: chain.task().map_or_else(String::new, ToString::to_string),
         }
     }
 }
@@ -248,10 +248,7 @@ mod tests {
             TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome, Some(Expiry::NothingExpires)));
         });
         assert!(rendered.contains("answered"), "{rendered}");
-        assert!(
-            rendered.contains("someone@example.com"),
-            "the asker is on the line: {rendered}"
-        );
+        assert!(rendered.contains("s***@e***.c***"), "the asker is on the line: {rendered}");
         assert!(
             rendered.contains("\"executed_as\":\"warehouse=shared-service-user\""),
             "the line does not say which identity produced the rows: {rendered}"
@@ -330,7 +327,7 @@ mod tests {
         });
         let rendered = written(&chain);
         assert!(rendered.contains("refused"), "{rendered}");
-        assert!(rendered.contains("someone@example.com"), "{rendered}");
+        assert!(rendered.contains("s***@e***.c***"), "{rendered}");
         assert!(rendered.contains("verified"), "{rendered}");
         assert!(rendered.contains("DimensionNotPermitted"), "{rendered}");
     }
@@ -353,7 +350,7 @@ mod tests {
         );
         assert!(alone.contains("\"acting\":0"), "a bare subject claims an actor: {alone}");
         assert!(
-            acted_for.contains("\"acting\":2") && acted_for.contains("orchestrator > query_agent"),
+            acted_for.contains("\"acting\":2") && acted_for.contains("o*** > q***"),
             "the actors are not on the line, in order: {acted_for}"
         );
     }

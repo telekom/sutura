@@ -634,7 +634,7 @@ pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
 
 /// The code half of a Nix file, one `String` per line, comments and string interiors blanked.
 ///
-/// `pub(crate)` for the reason [`block_attributes`] gives one screen down: `crate::warm_start`
+/// `pub(crate)` for the reason [`declared_block`] gives: `crate::warm_start`
 /// asks a different question of the same files - which of them bind `cargoArtifacts`, and which
 /// bind `preBuild` - and a second Nix reader for it would be a second reader to get wrong, three
 /// times over, since this one's own doc comment lists the three shapes that fooled the brace

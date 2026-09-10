@@ -13,7 +13,7 @@
 //! silently, with every gate green. So a new crate is exactly one missing three-line table away
 //! from being the subject `check-api-docs` reports success over without having judged.
 //!
-//! # The venue is `cargo rustdoc` over LIBRARY packages, and that is the whole of it
+//! # The venue is a normal rustdoc run, not a doctest run
 //!
 //! Measured, because the first version of this file also claimed the doctest lane and that claim
 //! was false twice over:
@@ -25,14 +25,11 @@
 //! * It reaches no binary-only member at all - `cargo test --doc -p xtask` answers
 //!   `error: no library targets found in package`, and so do `sutura-cli` and `sutura-serve`.
 //!
-//! **So the consequence has to be stated next to the claim: deny-level errors sit in this tree
-//! with no venue judging them.** `cargo rustdoc` over the three binary-only members, on the
-//! nightly pin this gate uses: `xtask` exit 101 (26 unresolved links plus one
-//! `is both a function and a module`), `sutura-cli` exit 101 (1), `sutura-serve` exit 101 (2) - 30
-//! in total. `cargo doc --workspace` went green-to-red on the commit that added the lint, and CI
-//! stays green only because nothing runs it. Extending this gate to `cargo rustdoc` the
-//! binary-only members is the fix; it needs those 30 repaired first, so it is its own change -
-//! `github.com/telekom/sutura#418`.
+//! `check-api-docs` documents library packages for their pages and each metadata-derived
+//! binary-only target for its links. An explicit binary selector reaches multiple targets and
+//! names that differ from their package. Their JSON never enters the page generator. This does
+//! not document binaries beside a library, proc-macros, examples, benches or test-only items;
+//! those are outside this venue, not judged clean by it.
 //!
 //! # The witness is a pair from two DERIVATIONS, not two counts of one walk
 //!
@@ -56,9 +53,8 @@
 //! * It says nothing about the other rustdoc warning classes. `private_intra_doc_links` and
 //!   `redundant_explicit_links` are separate lints and separate judgements; the root manifest
 //!   records the counts and why neither is denied here.
-//! * SCOPE is every workspace member, which is wider than the library crates this gate documents.
-//!   Deliberately, and now for one reason only: a binary-only crate that stops inheriting is the
-//!   same hole one release later, on the day this gate learns to document it.
+//! * Arming covers every workspace member; link resolution covers the library and binary-only
+//!   targets above. A manifest census alone does not prove every possible target was documented.
 
 use std::collections::BTreeSet;
 use std::path::Path;

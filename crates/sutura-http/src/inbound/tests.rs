@@ -17,17 +17,21 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use axum::http::{HeaderMap, HeaderValue};
+use axum::body::Body;
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
+use axum::middleware;
+use axum::routing::get;
 use jsonwebtoken::{EncodingKey, Header};
 use sutura_config::{KeyFamily, PinnedAlgorithms, ProofLifetime, RequiredTokenType, SigningAlgorithm};
 use sutura_domain::identity::Attribution;
+use tower::ServiceExt as _;
 
 use crate::inbound::caller::Scopes;
 use crate::inbound::gate::InboundGate;
 use crate::inbound::keys::{
     FileKeySet, InvalidKeySet, KeyId, KeySet, KeySetCache, KeySetUnavailable, KeyUnavailable, MAX_KEY_SET_AGE, NotAKeyId,
 };
-use crate::inbound::token::{MAX_TOKEN_BYTES, TokenRejected, TokenValidator};
+use crate::inbound::token::{MAX_TOKEN_BYTES, NotVerified, TokenRejected, TokenValidator};
 
 /// The deployment's own names, and the key id the tokens below name.
 ///
@@ -199,7 +203,10 @@ async fn a_token_minted_for_somebody_elses_resource_is_not_accepted_here() {
         .establish(&bearer(&token), Instant::now())
         .await
         .expect_err("a token for another resource establishes nobody");
-    assert!(matches!(rejected, TokenRejected::NotVerified { .. }), "{rejected:?}");
+    assert!(
+        matches!(rejected, TokenRejected::NotVerified(NotVerified::Crypto { .. })),
+        "{rejected:?}"
+    );
 }
 
 #[tokio::test]
@@ -218,7 +225,10 @@ async fn a_token_with_no_audience_at_all_is_refused_rather_than_passed_for_want_
         .establish(&bearer(&token), Instant::now())
         .await
         .expect_err("a token with no audience establishes nobody");
-    assert!(matches!(rejected, TokenRejected::NotVerified { .. }), "{rejected:?}");
+    assert!(
+        matches!(rejected, TokenRejected::NotVerified(NotVerified::Crypto { .. })),
+        "{rejected:?}"
+    );
     // And the same for a token with no subject: a verified caller with no identity is not a caller.
     let token = signed(
         &pair,
@@ -264,6 +274,40 @@ async fn a_token_from_another_issuer_or_past_its_expiry_establishes_nobody() {
 }
 
 #[tokio::test]
+async fn a_claim_value_that_does_not_deserialize_stays_out_of_the_diagnostic() {
+    // H6: when claims fail to deserialize, serde's message quotes the offending value - which is
+    // caller-chosen text. It must not reach an operator's log through the cause chain, so the
+    // claims-deserialization path is a variant with no `#[source]`; a variant that carried the
+    // serde message would surface the value here.
+    let pair = key_pair();
+    let gate = gate_over(&direct(), &jwks(KID, &pair));
+    // `exp` is an i64 in `Claims`; a string where it belongs fails deserialisation and makes the
+    // value a marker a serde message would otherwise quote.
+    let hostile = serde_json::json!({
+        "sub": "someone@example.com",
+        "aud": RESOURCE,
+        "iss": ISSUER,
+        "exp": "SENSITIVE_CLAIM_MARKER",
+    });
+    let token = signed(&pair, KID, &hostile);
+    let rejected = gate
+        .establish(&bearer(&token), Instant::now())
+        .await
+        .expect_err("a token whose claims do not deserialize establishes nobody");
+    assert!(
+        matches!(rejected, TokenRejected::NotVerified(NotVerified::Json)),
+        "{rejected:?}"
+    );
+    assert!(
+        !crate::surface::cause_chain(&rejected)
+            .iter()
+            .any(|cause| cause.contains("SENSITIVE_CLAIM_MARKER")),
+        "a caller-chosen claim value reached the cause chain: {:?}",
+        crate::surface::cause_chain(&rejected)
+    );
+}
+
+#[tokio::test]
 async fn a_token_signed_by_a_key_the_issuer_never_published_establishes_nobody() {
     // The signature check itself, and the shape that would slip past a validator that trusted the
     // `kid`: the header names the issuer's real key id and the signature is from a key nobody
@@ -276,7 +320,10 @@ async fn a_token_signed_by_a_key_the_issuer_never_published_establishes_nobody()
         .establish(&bearer(&forged), Instant::now())
         .await
         .expect_err("a signature from an unpublished key establishes nobody");
-    assert!(matches!(rejected, TokenRejected::NotVerified { .. }), "{rejected:?}");
+    assert!(
+        matches!(rejected, TokenRejected::NotVerified(NotVerified::Crypto { .. })),
+        "{rejected:?}"
+    );
 }
 
 #[tokio::test]
@@ -296,7 +343,10 @@ async fn an_algorithm_the_deployment_did_not_pin_is_refused_even_with_a_key_that
         .establish(&bearer(&token), Instant::now())
         .await
         .expect_err("an unpinned algorithm establishes nobody");
-    assert!(matches!(rejected, TokenRejected::NotVerified { .. }), "{rejected:?}");
+    assert!(
+        matches!(rejected, TokenRejected::NotVerified(NotVerified::Crypto { .. })),
+        "{rejected:?}"
+    );
     // The same token against the same key set, with `ES256` pinned, does establish one - so the
     // refusal above is about the pinning and not about the fixture.
     let gate = gate_over(&direct(), &jwks(KID, &pair));
@@ -709,6 +759,59 @@ fn the_subject_a_verified_token_names_is_still_parsed_by_the_domain() {
     );
     let rejected = block_on(gate.establish(&bearer(&forged), Instant::now()));
     assert!(matches!(rejected, Err(TokenRejected::UnusableSubject { .. })), "{rejected:?}");
+}
+
+#[test]
+fn an_invalid_principal_warning_keeps_shape_metadata_and_not_the_claim_value() {
+    const RAW_SENTINEL: &str = "principal-leak-sentinel";
+
+    let pair = key_pair();
+    let gate = gate_over(&direct(), &jwks(KID, &pair));
+    let token = signed(
+        &pair,
+        KID,
+        &claims(&format!("{RAW_SENTINEL}\nforged=field"), RESOURCE, ISSUER, ""),
+    );
+    let app = axum::Router::new()
+        .route("/guarded", get(|| async { StatusCode::NO_CONTENT }))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(gate),
+            crate::inbound::require_verified_caller,
+        ));
+    let mut request = Request::builder()
+        .uri("/guarded")
+        .body(Body::empty())
+        .expect("the test request builds");
+    *request.headers_mut() = bearer(&token);
+
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let response =
+        tracing::subscriber::with_default(subscriber, || block_on(app.oneshot(request))).expect("the infallible router answers");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let rendered = sink.contents();
+    let warning = rendered
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|line| line["msg"] == "no verified caller: the presented token did not establish one")
+        .unwrap_or_else(|| panic!("the inbound gate emitted no rejection warning: {rendered}"));
+    assert_eq!(warning["level"], 40, "the rejection is still a warning: {warning}");
+    assert!(
+        warning.to_string().contains("0x000a"),
+        "the control-character code was erased with the value: {warning}"
+    );
+    assert!(
+        !rendered.contains(RAW_SENTINEL),
+        "the rejected subject claim reached the first-party warning: {rendered}"
+    );
 }
 
 /// A one-line block-on for the two synchronous tests above, so they do not each need a runtime
