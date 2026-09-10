@@ -326,8 +326,53 @@ fn rejected(rejection: &JsonRejection) -> Failure {
         // rejection's chain restates the whole message, so walking it produced the same sentence
         // three times in a row - observed in a response, not deduced. `body_text` is the one
         // sentence the rejection is designed to hand a caller, and it names the offending key for
-        // an unknown field and the position for malformed JSON.
-        detail: rejection.body_text(),
+        // an unknown field and the position for malformed JSON - with the key passed through
+        // `redact_unrecognized_field`, because that key is caller-chosen text and may only be
+        // rendered when it is a well-formed identifier.
+        detail: redact_unrecognized_field(rejection.body_text()),
+    }
+}
+
+/// A `400` detail for a body that did not deserialize, with any unrecognized field name rendered
+/// only when it is a safe identifier.
+///
+/// `deny_unknown_fields` names the offending key, and the key is caller-chosen text: a key that is
+/// not a well-formed identifier (say a hyphenated one) must not be reflected verbatim into the body
+/// a caller reads or a model collects. The same gate the MCP `-32602` side applies before any
+/// caller text travels in a message - see `inbound`'s `WrongTokenType` for the identical rule
+/// applied to a caller-adjacent `typ` claim.
+fn redact_unrecognized_field(text: String) -> String {
+    let Some(key) = unrecognized_field_key(&text) else {
+        return text;
+    };
+    if is_identifier(&key) {
+        return text;
+    }
+    // `serde_path_to_error` renders the caller's field name twice - once as the path prefix and
+    // once inside the `unknown field` fragment - so both occurrences are caller-chosen text and
+    // both are replaced when the name is not a safe identifier.
+    text.replace(&key, "an unrecognized field")
+}
+
+/// The offending key a refusal names as unrecognized, when the text named one.
+fn unrecognized_field_key(text: &str) -> Option<String> {
+    const MARKER: &str = "unknown field `";
+    // The text between the marker and the first closing backtick is the key. Split-based rather
+    // than byte-indexing, because the workspace bans slicing a `String` by byte offset.
+    let rest = text.split_once(MARKER)?.1;
+    let key = rest.split_once('`')?.0;
+    (!key.is_empty()).then(|| String::from(key))
+}
+
+/// Whether a key is a safe identifier to render.
+///
+/// `[A-Za-z_][A-Za-z0-9_]*` - the grammar `sutura_domain`'s identifier parse admits - so a
+/// rendered key is a name a question could have used, never arbitrary caller text.
+fn is_identifier(key: &str) -> bool {
+    let mut chars = key.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() || first == '_' => chars.all(|c| c.is_ascii_alphanumeric() || c == '_'),
+        _ => false,
     }
 }
 
@@ -641,6 +686,23 @@ mod tests {
             status,
             StatusCode::SERVICE_UNAVAILABLE,
             "a fourth question got a slot: {body}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_unrecognized_field_key_that_is_not_an_identifier_is_not_echoed() {
+        // The one direction `deny_unknown_fields` must not serve: the OFFENDING KEY is
+        // caller-chosen text, and naming it is only safe when it is a well-formed identifier
+        // (`harness`'s test pins that a plain `subject` IS named). A key that is not one - here, a
+        // hyphenated name - must not be reflected verbatim into the 400 detail.
+        let (app, _held) = app("");
+        let hostile = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"foo-bar":1}"#;
+        let (status, body) =
+            crate::testing::call(&app, crate::testing::request("POST", "/v1/query", None, Body::from(hostile))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "an unknown field was accepted: {body}");
+        assert!(
+            !body.contains("foo-bar"),
+            "a non-identifier unknown-field key was echoed: {body}"
         );
     }
 }

@@ -102,14 +102,31 @@ pub enum InvalidLogFilter {
     /// a filter is a log line an attacker can forge if the value ever reaches the log itself.
     #[error("telemetry.filter contains a control character")]
     ControlCharacter,
+    /// Longer than [`LogFilter::MAX_LENGTH`]. A directive that long is not a filter anyone wrote
+    /// by hand, and an unbounded configured string is an availability surface.
+    #[error("telemetry.filter is at most {limit} characters, found {len}")]
+    TooLong { len: usize, limit: usize },
 }
 
 impl LogFilter {
+    /// The longest directive accepted, in characters.
+    pub const MAX_LENGTH: usize = 1024;
+
     /// Reads a filter directive.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidLogFilter> {
         let raw = raw.as_ref().trim();
         if raw.is_empty() {
             return Err(InvalidLogFilter::Empty);
+        }
+        // Bound the size before the character scan, so an oversized directive costs one walk to
+        // refuse rather than two. Origin, then size, then lexical content - the ceiling is the
+        // availability half and the character class is the forging half.
+        let len = raw.chars().count();
+        if len > Self::MAX_LENGTH {
+            return Err(InvalidLogFilter::TooLong {
+                len,
+                limit: Self::MAX_LENGTH,
+            });
         }
         if raw.chars().any(char::is_control) {
             return Err(InvalidLogFilter::ControlCharacter);
@@ -143,9 +160,17 @@ pub enum InvalidServiceName {
     Empty,
     #[error("telemetry.service_name contains a character that is not a letter, digit, `-` or `_`")]
     NotAnIdentifier,
+    /// Longer than [`ServiceName::MAX_LENGTH`]. The name is the field a collector groups by and it
+    /// appears on every log line, so an unbounded one is both an availability surface and a log
+    /// line an operator has to read on every record.
+    #[error("telemetry.service_name is at most {limit} characters, found {len}")]
+    TooLong { len: usize, limit: usize },
 }
 
 impl ServiceName {
+    /// The longest name accepted, in characters.
+    pub const MAX_LENGTH: usize = 64;
+
     /// Reads a service name.
     ///
     /// Narrow on purpose: a name with a space or a quote in it has to be escaped by every
@@ -154,6 +179,16 @@ impl ServiceName {
         let raw = raw.as_ref().trim();
         if raw.is_empty() {
             return Err(InvalidServiceName::Empty);
+        }
+        // Bound the size before the character scan, so an oversized name costs one walk to refuse
+        // rather than the identifier walk - a ceiling is the availability half, the identifier
+        // rule is the lexical half.
+        let len = raw.chars().count();
+        if len > Self::MAX_LENGTH {
+            return Err(InvalidServiceName::TooLong {
+                len,
+                limit: Self::MAX_LENGTH,
+            });
         }
         if !raw.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
             return Err(InvalidServiceName::NotAnIdentifier);
@@ -264,5 +299,42 @@ mod tests {
         );
         assert_eq!(ServiceName::parse(""), Err(InvalidServiceName::Empty));
         assert_eq!(ServiceName::parse("sutura service"), Err(InvalidServiceName::NotAnIdentifier));
+    }
+
+    #[test]
+    fn a_filter_directive_is_a_length_ceiling_or_it_is_refused() {
+        // Exactly the ceiling is fine, and one more character is refused rather than accepted.
+        let at_limit = "a".repeat(LogFilter::MAX_LENGTH);
+        assert_eq!(
+            LogFilter::parse(at_limit.as_str()).expect("at the ceiling parses").as_str(),
+            at_limit
+        );
+        let over = "a".repeat(LogFilter::MAX_LENGTH + 1);
+        assert_eq!(
+            LogFilter::parse(over).expect_err("one over the ceiling is not a directive"),
+            InvalidLogFilter::TooLong {
+                len: LogFilter::MAX_LENGTH + 1,
+                limit: LogFilter::MAX_LENGTH
+            }
+        );
+    }
+
+    #[test]
+    fn a_service_name_is_a_length_ceiling_or_it_is_refused() {
+        // A service name is short by construction; the ceiling keeps an oversized configured name
+        // off every log line.
+        assert_eq!(
+            ServiceName::parse("a".repeat(ServiceName::MAX_LENGTH))
+                .expect("at the ceiling parses")
+                .as_str(),
+            "a".repeat(ServiceName::MAX_LENGTH)
+        );
+        assert_eq!(
+            ServiceName::parse("a".repeat(ServiceName::MAX_LENGTH + 1)).expect_err("one over the ceiling is not a name"),
+            InvalidServiceName::TooLong {
+                len: ServiceName::MAX_LENGTH + 1,
+                limit: ServiceName::MAX_LENGTH
+            }
+        );
     }
 }
