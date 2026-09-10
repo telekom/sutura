@@ -143,6 +143,12 @@ cross-link.yml:link
 # inside `ci` is what gates the policy.
 ci.yml:crap-comment
 
+# Publishes this pull request's own realised store paths to the additive PR cache. Advisory by
+# design: it warms the next push of the same PR, so a red or missing publish costs a rebuild and
+# never blocks a merge - a fork's pull request cannot see its environment either, which alone
+# would leave it permanently pending.
+ci.yml:pr-cache
+
 # The live BigQuery acceptance venue. Advisory deliberately rather than by omission: it needs an
 # environment a fork's pull request cannot see, so requiring it would leave every fork pull request
 # permanently pending - the failure mode this file's own header warns about.
