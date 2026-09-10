@@ -6325,6 +6325,27 @@ somebody else's input.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
 - `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
 
+#### Methods
+
+```rust
+pub const fn code(&self) -> &'static str
+```
+
+The machine-readable `code` a client or an agent branches on, shared by every transport.
+
+**The one place this is decided.** The HTTP and agent surfaces used to spell their own
+tables and nothing compared them, so a code could drift until the two transports disagreed
+about what a refusal was. Both now read `RefusalReason::code` and neither writes its own
+list, so there is one spelling for the whole surface.
+
+Being exhaustive with no wildcard arm, a variant added here either gets its code in the same
+edit or does not compile. The derivation is fixed by
+[`the_code_is_the_variant_name_in_snake_case`](self): each code is the `snake_case` spelling
+of the variant's own name, read off this type's own `Serialize` rather than a list typed
+beside it - so a hand-written code that drifted from the variant fails that test, and the two
+transports, both reading this one method, cannot drift from each other without first drifting
+from the variant.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
