@@ -95,12 +95,80 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
             ));
         }
     }
+    // The COMPILE packs sit behind a default-off feature, stated in the manifest comment - the
+    // whole reason a data adapter binding the execute packs links neither the compiler nor the
+    // renderer. `PERMITTED` above continues to hold the NORMAL closure to the interior, so the
+    // gate checks the feature shape here and nowhere else: `--all-features` is what the walk runs
+    // under, so without this check turning `compile` on by default would pass every half of this
+    // gate silently.
+    problems.extend(compile_feature(meta)?);
 
     Ok(Report {
         closure: closure.len(),
         first_party,
         problems,
     })
+}
+
+/// The exact feature shape `HARNESS` must keep: `default = []` and nothing else, and the
+/// `compile` feature is the ONE entry allowed to reach the compiler and the renderer.
+///
+/// **The mutation this half exists for is [`default = ["compile"]`]** - the shape that would grow
+/// the compiler and the renderer into every data adapter's closure and make the portability
+/// contract `src/corpus.rs` states false. The check reads the resolved overlay literally, so a
+/// manifest that lists `compile` under `default` is a gate failure, not a review comment.
+const COMPILE_FEATURE: &str = "compile";
+const COMPILE_DEPS: &[&str] = &["dep:sutura-semantic", "dep:sutura-sql", "dep:serde_json"];
+
+fn compile_feature(meta: &serde_json::Value) -> Result<Vec<String>, String> {
+    let mut problems = Vec::new();
+    let Some(package) = meta
+        .get("packages")
+        .and_then(|packages| packages.as_array())
+        .and_then(|packages| {
+            packages
+                .iter()
+                .find(|p| p.get("name").and_then(|n| n.as_str()) == Some(HARNESS))
+        })
+    else {
+        return Err(format!(
+            "{HARNESS} is not in `cargo metadata`, so the compile-feature contract has nothing to check"
+        ));
+    };
+    let features = package.get("features").and_then(|f| f.as_object());
+    // `cargo metadata` always carries a features map; its absence is a malformed `meta` rather than
+    // a manifest decision, so fail the gate closed rather than read into a default that would pass.
+    let Some(features) = features else {
+        return Ok(vec![format!(
+            "{HARNESS}'s `cargo metadata` carries no feature map - the compile packs' default-off \
+             shape is not enforceable"
+        )]);
+    };
+    let default: Vec<String> = features
+        .get("default")
+        .and_then(|d| d.as_array())
+        .map(|d| d.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    if !default.is_empty() {
+        problems.push(format!(
+            "{HARNESS} enables features by default ({default:?}) - the compile packs must be \
+             default-off so a data adapter binding the execute packs links neither the compiler \
+             nor the renderer"
+        ));
+    }
+    let compile: Vec<String> = features
+        .get(COMPILE_FEATURE)
+        .and_then(|c| c.as_array())
+        .map(|c| c.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    if compile != COMPILE_DEPS {
+        problems.push(format!(
+            "{HARNESS} declares `compile` as {compile:?}, expected exactly {COMPILE_DEPS:?} - the \
+             compile packs' one feature may reach the compiler, the renderer and `serde_json` and \
+             nothing else"
+        ));
+    }
+    Ok(problems)
 }
 
 /// What to do about a violation. Printed, because a gate that only says "no" gets worked around.
@@ -143,7 +211,19 @@ mod tests {
     fn metadata(edges: &[Edge<'_>]) -> serde_json::Value {
         let packages: Vec<serde_json::Value> = edges
             .iter()
-            .map(|(name, _)| serde_json::json!({ "id": format!("id-{name}"), "name": name }))
+            .map(|(name, _)| {
+                // The harness's OWN feature shape, so the compile-feature contract has something
+                // to check; every other package carries an empty map the contract ignores.
+                let features = if *name == HARNESS {
+                    serde_json::json!({
+                        "default": [],
+                        "compile": ["dep:sutura-semantic", "dep:sutura-sql", "dep:serde_json"],
+                    })
+                } else {
+                    serde_json::json!({ "default": [] })
+                };
+                serde_json::json!({ "id": format!("id-{name}"), "name": name, "features": features })
+            })
             .collect();
         let nodes: Vec<serde_json::Value> = edges
             .iter()
@@ -231,5 +311,46 @@ mod tests {
     fn a_missing_harness_is_an_error() {
         let meta = metadata(&[("sutura-domain", &[])]);
         assert!(check(&meta).is_err());
+    }
+
+    /// A harness whose manifest names `default = []` and the `compile` set passes the feature half
+    /// of the gate.
+    #[test]
+    fn a_compile_feature_that_is_default_off_passes() {
+        let meta = metadata(&[
+            (HARNESS, &["sutura-domain", "thiserror"]),
+            ("sutura-domain", &[]),
+            ("thiserror", &[]),
+        ]);
+        let report = check(&meta).expect("the fixture resolves");
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+    }
+
+    /// **The mutation the feature half exists for:** `default = ["compile"]` turns the compiler and
+    /// the renderer into every data adapter's closure, and must be a gate failure - not a review
+    /// comment - so the decision stays tied to a mechanism.
+    #[test]
+    fn a_compile_feature_turned_on_by_default_fails() {
+        let mut meta = metadata(&[
+            (HARNESS, &["sutura-domain", "thiserror"]),
+            ("sutura-domain", &[]),
+            ("thiserror", &[]),
+        ]);
+        // Point the harness's `default` at `compile`: the shape that links a data adapter to the
+        // compiler and the renderer for no reason.
+        let package = meta["packages"]
+            .as_array_mut()
+            .expect("the fixture has packages")
+            .iter_mut()
+            .find(|p| p["name"] == HARNESS)
+            .expect("the fixture has the harness");
+        package["features"]["default"] = serde_json::json!(["compile"]);
+
+        let report = check(&meta).expect("the fixture resolves");
+        assert!(
+            report.problems.iter().any(|p| p.contains("default-off")),
+            "turning `compile` on by default must be reported: {:?}",
+            report.problems
+        );
     }
 }
