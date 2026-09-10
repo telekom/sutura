@@ -1,7 +1,6 @@
 //! Is the RECORDED ABSENCE of a third-party binary cache still the truth?
 //!
-//! `docs/adr/0026` retired a binary cache that was wired into `ci.yml` and `cross-link.yml` and
-//! gated on `secrets.NIX_CACHE_SUBSTITUTER`, `secrets.NIX_CACHE_PUBLIC_KEY`, `vars.NIX_CACHE_NAME`
+//! `docs/adr/0026` retired a binary cache that was wired into `ci.yml` and `cross-link.yml` and gated on `secrets.NIX_CACHE_SUBSTITUTER`, `secrets.NIX_CACHE_PUBLIC_KEY`, `vars.NIX_CACHE_NAME`
 //! and `secrets.NIX_CACHE_AUTH_TOKEN` - **none of which has ever existed in this repository.** So
 //! its populate step was `completed/skipped` on every `main` push it ran on (run 34247863640,
 //! step 6), silently and green, and a deletion that nothing witnesses is one editor away from
@@ -25,27 +24,24 @@
 //! * **No line NAMES a store outside this repository**, in either spelling nix accepts.
 //!   [`SUBSTITUTER`] is the one the other two cannot reach: the retired wiring's trust half was two
 //!   `${{ }}` interpolations inside `install-nix-action`'s `extra_nix_config` VALUE, neither a gate
-//!   nor a step. That half is the supply-chain surface - a substituter plus a trusted key means CI
-//!   fetches paths signed by a key held elsewhere - so it is refused as a LINE.
+//!   nor a step. A substituter plus a trusted key means CI fetches paths signed elsewhere, so it is
+//!   refused as a LINE.
 //! * **The one store on every path, and the additive PR-only pair** ([`ALLOWED`] and
 //!   [`ALLOWED_PRS`]). Half (a) lets a pull request trust its own additive cache in addition to
-//!   sutura: the singleton is permitted anywhere, the two-store list ONLY in a step whose `if:`
-//!   forces `pull_request` ([`narrower_than_pr`]). Main's resolver never lists the PR cache's key,
-//!   the real security bound; this text rule keeps that key out of a main-run install.
-//! * **And the record itself.** Missing or empty is refused, for `sast`'s reason: a refusal
-//!   enforcing a decision nobody wrote down is a rule with no reason.
+//!   sutura: the singleton anywhere, the two-store list ONLY behind a pull_request-only `if:`
+//!   ([`narrower_than_pr`]); main's resolver never lists the PR key.
+//! * **And the record itself.** Missing or empty is refused, for `sast`'s reason.
 //!
 //! # What this does NOT hold, and one sentence of it used to claim otherwise
 //!
-//! The [`SUBSTITUTER`] heading read *no store outside this repository trusted* when it shipped
-//! while the rule read only `<name> =`, so `nix build --extra-substituters https://…`
-//! was GREEN on merged `main`. **An overstated refusal on a supply-chain path is worse than no
-//! refusal, because a reader stops looking.** Both spellings are refused now, and the route that
-//! genuinely survives is named on [`trusted_stores`]: a value assembled from pieces, or one
-//! reaching the runner through some other action's input, passes unseen.
+//! The [`SUBSTITUTER`] heading read *no store trusted* when it shipped while the rule read only
+//! `<name> =`, so `nix build --extra-substituters https://…` was GREEN on merged `main` - an
+//! overstated refusal on a supply-chain path is worse than none. Both spellings are refused now;
+//! the route that survives is named on [`trusted_stores`]: a value assembled from pieces passes
+//! unseen.
 //!
 //! [`HOSTED`] carries [`super::WRITERS`]'s limit - a name list, so a publisher nobody named passes
-//! unseen; the `hosted:` INPUT it removed carried no decision. `zizmor` and review cover the rest.
+//! unseen; `zizmor` and review cover the rest.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -139,12 +135,9 @@ pub(super) fn in_pr_publish_job(text: &str, step_line: usize) -> bool {
 
 /// Contexts a workflow cannot observe, and therefore may not decide a step on.
 ///
-/// `secrets` is not exposed to an `if:` at ALL, so a step gated on one never runs - and the
-/// retired populate step's own comment asserted that while the step next to it depended on
-/// `vars.NIX_CACHE_NAME != ''`, which GitHub evaluates to `false` on an unprovisioned repository.
-/// Either way the step reports `completed/skipped`: green, invisible, and indistinguishable from a
-/// step that did its job. Matched as a bare prefix so `vars.ANYTHING` is covered, because the
-/// failure mode is the SHAPE and not the four names that happened to be used.
+/// `secrets` is not exposed to an `if:` at ALL, and `vars.X != ''` is `false` when unprovisioned -
+/// either way the step reports `completed/skipped`: green, invisible. Matched as a bare prefix so
+/// `vars.ANYTHING` is covered - the failure is the SHAPE, not the names.
 const UNOBSERVABLE: [&str; 2] = ["secrets.", "vars."];
 
 /// The nix settings that make CI TRUST a store, refused in `.github` outright.
@@ -158,16 +151,13 @@ const UNOBSERVABLE: [&str; 2] = ["secrets.", "vars."];
 /// rule rather than a step rule: one of these names anywhere in a workflow or a composite action,
 /// comments excluded.
 ///
-/// **TWO SPELLINGS, AND THE FIRST DRAFT HELD ONLY ONE.** As shipped this read `<name> =` and
-/// nothing else, so `nix build --extra-substituters https://…` and `--option substituters …` were
-/// GREEN on the merged tree while the module doc claimed no store outside this repository is
-/// trusted - found by provoking the gate rather than by reading it. Nix accepts a setting from its
-/// configuration (`nix.conf`, `NIX_CONFIG`, `install-nix-action`'s `extra_nix_config`), where it is
-/// spelled `name = value`, AND from a command line, where it is spelled `--name value`,
-/// `--extra-name value` or `--option name value`. Both are refused now; see [`Names`].
+/// **TWO SPELLINGS, AND THE FIRST DRAFT HELD ONLY ONE.** As shipped this read `<name> =` only, so
+/// `nix build --extra-substituters https://…` was GREEN on merged `main`. Nix accepts `name = value`
+/// from `nix.conf`/`NIX_CONFIG`/`extra_nix_config` AND `--name value` / `--option name value` from a
+/// command line; both are refused now (see [`Names`]).
 ///
-/// Matched as a SUBSTRING, which is what makes `extra-substituters` and
-/// `extra-trusted-public-keys` fall out of two entries rather than four.
+/// Matched as a SUBSTRING, so `extra-substituters` and `extra-trusted-public-keys` fall out of two
+/// entries rather than four.
 ///
 /// Comments excluded is load-bearing rather than tidy: six files in `.github` explain in prose why
 /// the flag is absent, and a rule that read those would refuse the documentation of itself.
@@ -290,6 +280,7 @@ pub(super) fn retired(files: &[(String, String)]) -> Vec<String> {
             }
         }
         out.extend(trusted_stores(label, text));
+        out.extend(super::realise::problems(label, text));
     }
     out
 }
@@ -409,20 +400,13 @@ fn narrower_than_pr(gate: &str) -> bool {
 
 /// Whether one line assigns `setting` to exactly a permitted value and to nothing else.
 ///
-/// **Only the additive assignment form is permitted** - `extra-substituters`, never plain
-/// `substituters`, and never a flag. Three narrowings, each for its own reason: the allowance exists
-/// for the installer's own `extra_nix_config`, where the workflow diff shows it; a substituter passed
-/// on a command line stays refused even when it names the allowed store, because that spelling is how
-/// a step reaches past the configuration a reviewer read; and the **destructive** spelling is refused
-/// because it replaces nix's default substituter list instead of adding to it. The comparison is
-/// against the WHOLE value list, so appending a second store to an otherwise-permitted line is still
-/// a refusal.
-///
-/// [`ALLOWED`] (the singleton `sutura`) is permitted on EVERY path. [`ALLOWED_PRS`] (the two-store
-/// list) is permitted ONLY when `is_pr_gated_config_line` - the value line sits inside a
-/// `cachix/install-nix-action` step's `extra_nix_config` whose `if:` is PR-only ([`narrower_than_pr`]).
-/// The ungated/on-main two-store list is refused, so removing the `if:` reopens main = red: the
-/// value list AND its PR-only placement are the gate, not the list alone.
+/// Only the additive `extra-substituters` form, never plain `substituters` (the DESTRUCTIVE
+/// spelling that drops nix's defaults) and never a flag; against the WHOLE value list, so
+/// appending a second store still refuses. [`ALLOWED`] (sole `sutura`) is permitted everywhere;
+/// [`ALLOWED_PRS`] (the PR two-store list) only when the value line sits inside a
+/// `cachix/install-nix-action` step's `extra_nix_config` whose `if:` is PR-only
+/// ([`narrower_than_pr`]) - removing that `if:` reopens main = red. The value AND its placement are
+/// the gate.
 fn permitted(code: &str, setting: &str, is_pr_gated_config_line: bool) -> bool {
     let Some((name, value)) = code.split_once('=') else {
         return false;
@@ -532,7 +516,12 @@ mod tests {
     /// step on the pull-request path would have a same-repository pull request's secrets in reach.
     #[test]
     fn the_publisher_is_permitted_in_one_file_and_refused_in_every_other() {
-        let step = "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n";
+        // A permitted publisher still realises after cachix-action (#560), as the live tree does.
+        let step = concat!(
+            "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n",
+            "      - name: Realise and publish the shared closure\n",
+            "        run: nix build .#checks.x86_64-linux.hygiene\n",
+        );
         assert!(
             super::retired(&owned(".github/workflows/cachix-push.yml", step)).is_empty(),
             "the publish workflow is the one file it may appear in"
@@ -572,6 +561,8 @@ mod tests {
             "        with:\n",
             "          name: sutura-prs\n",
             "          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}\n",
+            "      - name: Realise this PR's shared closure\n", // #560: a permitted writer still realises
+            "        run: nix build .#checks.x86_64-linux.nextest\n",
         );
         assert!(
             super::retired(&owned(".github/workflows/ci.yml", pr_job)).is_empty(),
@@ -729,18 +720,27 @@ mod tests {
             "          name: sutura\n",
         );
         let found = super::retired(&owned(".github/workflows/ci.yml", back));
-        assert_eq!(found.len(), 1, "{found:#?}");
-        let problem = found.first().map_or("", String::as_str);
+        // Also refused by #560's realise rule there, so pin the HOSTED refusal + its record pointer.
+        assert!(found.iter().any(|p| p.contains("docs/adr/0027")), "{found:#?}");
+        let problem = found
+            .iter()
+            .find(|p| p.starts_with(".github/workflows/ci.yml:1  cachix/cachix-action"))
+            .map_or("", String::as_str);
         assert!(
-            problem.starts_with(".github/workflows/ci.yml:1  cachix/cachix-action"),
-            "{problem}"
+            problem.contains("docs/adr/0027"),
+            "the deletion refusal names the record it points at: {problem}"
         );
-        assert!(problem.contains("docs/adr/0027"), "{problem}");
 
         // The other publisher, and a fork of it: matched on the prefix, so a subpath cannot evade.
         for name in ["DeterminateSystems/flakehub-cache-action", "cachix/cachix-action/sub"] {
             let step = format!("      - uses: {name}@aaaa # v1\n");
-            assert_eq!(super::retired(&owned("release.yml", &step)).len(), 1, "{name}");
+            let found = super::retired(&owned("release.yml", &step));
+            assert!(
+                found
+                    .iter()
+                    .any(|p| p.contains("publishes to a store outside this repository")),
+                "{name}: {found:#?}"
+            );
         }
 
         // AND THE DIRECTION THAT KEEPS THE RECORD HONEST: a publisher is refused wherever it is,
