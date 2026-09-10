@@ -29,6 +29,15 @@ mod tests {
     /// The directory the witness measures - the one the cache key names.
     const CACHED: &str = "target/causality-target";
 
+    /// The step whose body this runs, by its `- name:` line.
+    ///
+    /// It used to be "the LAST `run: |` block", which held until the action grew a SECOND refusal
+    /// below this one - and the `exit 1` assertion in [`witness_body`] did not catch the swap,
+    /// because the new step carries an `exit 1` too. So the step is named. The whole trimmed line
+    /// is matched rather than a substring anywhere, which is what keeps this from reading a comment
+    /// that mentions the step.
+    const WITNESS_STEP: &str = "- name: What the causality-target cache carried";
+
     /// The repository root, from this test binary's own manifest directory.
     fn root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -37,16 +46,20 @@ mod tests {
             .to_path_buf()
     }
 
-    /// The LAST `run: |` block of the action, dedented - the witness step is the last step, and
-    /// taking the last one rather than searching for a marker string keeps this test from passing
-    /// because it matched a comment.
+    /// [`WITNESS_STEP`]'s `run: |` block, dedented.
     fn witness_body() -> String {
         let text = std::fs::read_to_string(root().join(ACTION)).expect("the action is readable");
         let lines: Vec<&str> = text.lines().collect();
+        let step = lines
+            .iter()
+            .position(|line| line.trim() == WITNESS_STEP)
+            .expect("the action declares the witness step");
         let at = lines
             .iter()
-            .rposition(|line| line.trim() == "run: |")
-            .expect("the action ends in a `run: |` block");
+            .skip(step)
+            .position(|line| line.trim() == "run: |")
+            .map(|found| step.saturating_add(found))
+            .expect("the witness step has a `run: |` block");
         let key_column = lines
             .get(at)
             .map(|line| line.len().saturating_sub(line.trim_start().len()))
