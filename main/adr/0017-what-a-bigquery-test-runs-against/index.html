@@ -4469,6 +4469,35 @@ does not spell the secret's name - a <code>cp</code> of the key file, a <code>ba
 or other shell-built path, and a removal whose condition never fires. The second limit that
 amendment names, the two nextest filters, is
 untouched and is telekom/sutura#430.</p>
+<h2 id="thirteenth-amendment-2026-09-10-the-cross-matrix-is-reduced-and-this-records-probe-claim-narrows-with-it">Thirteenth amendment, 2026-09-10: the cross matrix is reduced, and this record's probe claim narrows with it<a class="headerlink" href="#thirteenth-amendment-2026-09-10-the-cross-matrix-is-reduced-and-this-records-probe-claim-narrows-with-it" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted; it withdraws a claim this record makes about a venue, and
+carries no new run.</strong></p>
+<p>The eighth amendment says that a feature named in <code>probeFeatures</code> gets a package per release triple
+<em>"and the four <code>cross</code> jobs build them beside the shipped set on every pull request"</em>, and prices
+having the probe at <em>"62-85s on each of four <code>cross</code> jobs, per pull request"</em>. The eighth
+amendment's cell list also states that <em>"the musl link has been exercised green on every pull
+request and never red"</em>. None of the three survives unqualified, and the first two had already
+stopped being true before this change: the pull-request leg was reduced to the two aarch64 triples
+earlier, so <em>four, on every pull request</em> was describing a venue that had stopped running.</p>
+<p><strong>What runs now.</strong> <code>cross-link.yml</code> builds ONE reduced set on every event it is called for -
+<code>aarch64-unknown-linux-gnu</code> for the architecture axis and <code>x86_64-unknown-linux-musl</code> for the
+static-allocator C axis, one cell each so a red leg says which axis broke - and the full four
+survive only in <code>release.yml</code>'s <code>build</code>, whose <code>publish</code> job asserts that exactly four artefacts
+arrived. <code>cargo xtask check-workflows</code> holds all three literals, the release four included; that
+last one is what makes the reduction a later signal rather than an absent one.</p>
+<p><strong>What it costs this record's claim, stated rather than smoothed over.</strong> The
+<code>feature-probes-&lt;triple&gt;</code> step rides that matrix and NOTHING else runs it - the release path runs
+neither it nor the embedded-dependency-list assertion - so the <code>--features bigquery</code> link is proven
+on two triples and in no venue at all for <code>x86_64-unknown-linux-gnu</code> and
+<code>aarch64-unknown-linux-musl</code>. <code>nix/shipped.nix</code>'s <code>probeFeatures</code> declarations are untouched and
+<code>cargo xtask check-shipped-binaries</code> still reconciles them against the documented builds, so the
+DECLARATION is intact; what shrank is how many triples exercise it.</p>
+<p><strong>And the half that improves, because it is the reason the pair is this pair.</strong>
+<code>x86_64-unknown-linux-musl</code> is back on the pull-request leg, where it had not run since that leg
+became the aarch64 pair - so the musl-link sentence above is true again for the host architecture on
+every pull request, and false for <code>aarch64-unknown-linux-musl</code> in ordinary CI. Priced against what
+it replaces: the reduction runs two cells on a pull request where four ran before this record's
+period and two ran after it, and two on <code>main</code> where four ran.</p>
 
 
 
