@@ -9,22 +9,19 @@
 //!
 //! **Its own file for `crate::workflows::sast`'s reason, and the seam is the question.** The parent
 //! asks *may a `pull_request` path WRITE the Actions cache*; this asks *is a recorded absence still
-//! absent*, which is the shape that module holds one file over for Scorecard's SAST zero. The split
-//! was forced by the unexemptable 1000-line cap when the flag-form refusal below landed, and it is
-//! the right seam regardless: nothing here counts, gates or anchors a cache write.
+//! absent* - Scorecard's SAST zero, held one file over. Nothing here counts, gates or anchors a
+//! cache write.
 //!
 //! # The refusals, and why each is the shape it is
 //!
 //! * **No hosted publisher while the record stands.** [`HOSTED`] over the whole `.github` tree, not
-//!   just the pull-request closure: re-adding it to `release.yml` is the same return. The direction
-//!   is deliberate - provisioning a binary cache later is a GOOD change, and it makes
-//!   `docs/adr/0026` wrong the moment it lands, so the refusal names the record to edit rather than
-//!   forbidding the tool.
+//!   just the pull-request closure: re-adding it to `release.yml` is the same return. Provisioning
+//!   a cache later is a GOOD change that names the record to edit, not forbidding the tool.
 //! * **No step decided by state the workflow cannot see.** [`UNOBSERVABLE`] refuses a gate reading
 //!   `secrets.` or `vars.`. `secrets` is not available to an `if:` at all - `cross-link.yml` said
 //!   so in prose while depending on it - and a `vars.X != ''` test in one is exactly the shape that
-//!   skipped invisibly here. It is a rule about SHAPE and not a name list, so a *different*
-//!   secret-gated step is caught without anybody remembering to list it.
+//!   skipped invisibly here. A rule about SHAPE, so a *different* secret-gated step is caught
+//!   without anybody remembering to list it.
 //! * **No line NAMES a store outside this repository**, in either spelling nix accepts.
 //!   [`SUBSTITUTER`] is the one the other two cannot reach: the retired wiring's trust half was two
 //!   `${{ }}` interpolations inside `install-nix-action`'s `extra_nix_config` VALUE, neither a gate
@@ -40,18 +37,15 @@
 //!
 //! # What this does NOT hold, and one sentence of it used to claim otherwise
 //!
-//! The [`SUBSTITUTER`] heading read *no store outside this repository trusted* when it shipped,
-//! while the rule read `<name> =` and nothing else - so `nix build --extra-substituters https://…`
+//! The [`SUBSTITUTER`] heading read *no store outside this repository trusted* when it shipped
+//! while the rule read only `<name> =`, so `nix build --extra-substituters https://…`
 //! was GREEN on merged `main`. **An overstated refusal on a supply-chain path is worse than no
 //! refusal, because a reader stops looking.** Both spellings are refused now, and the route that
 //! genuinely survives is named on [`trusted_stores`]: a value assembled from pieces, or one
-//! reaching the runner through some other action's input, passes unseen, and no text rule closes
-//! that.
+//! reaching the runner through some other action's input, passes unseen.
 //!
-//! [`HOSTED`] carries [`super::WRITERS`]'s limit - it is a name list, so a publisher nobody has
-//! named passes unseen. The `hosted:` INPUT the deletion also removed carried no decision and is
-//! held by nothing. And nothing here can tell whether a store a workflow names is trustworthy, only
-//! that it is named. `zizmor` and review cover the rest.
+//! [`HOSTED`] carries [`super::WRITERS`]'s limit - a name list, so a publisher nobody named passes
+//! unseen; the `hosted:` INPUT it removed carried no decision. `zizmor` and review cover the rest.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -91,7 +85,7 @@ const PUBLISH_PRS: &str = "cachix-push-pr";
 /// `environment: cachix-push-pr` and its job-level `if:` is PR-only. The job block owns the step;
 /// a step outside such a job (main `ci`, `crap-comment`, `bigquery-acceptance`, any other workflow)
 /// stays refused by the pairing.
-fn in_pr_publish_job(text: &str, step_line: usize) -> bool {
+pub(super) fn in_pr_publish_job(text: &str, step_line: usize) -> bool {
     let lines: Vec<&str> = text.lines().collect();
     // Find the job block owning `step_line`: scan two-space job keys; its end is the next key no
     // deeper than two spaces. Comment blocks at two spaces precede a job key and do not own steps.
@@ -129,10 +123,16 @@ fn in_pr_publish_job(text: &str, step_line: usize) -> bool {
     if !has_env {
         return false;
     }
-    // And the job's own `if:` must be PR-only (a PR job declared at the job, not the step, level).
+    // And the job's own `if:` must be PR-only, read ONLY at the job's own key depth (a sibling of
+    // its `environment:`/`steps:` keys) - a step-level `if:` under a step marker must not stand in
+    // for it, or deleting the job gate would re-open main with the gate still GREEN.
+    let scope = lines
+        .get(start)
+        .map_or(2, |l| l.len().saturating_sub(l.trim_start().len()) + 2);
     (start..end).any(|at| {
         lines.get(at).is_some_and(|line| {
-            key_of(line).is_some_and(|k| k.trim_start().strip_prefix("if:").is_some_and(|v| narrower_than_pr(v.trim())))
+            line.len().saturating_sub(line.trim_start().len()) == scope
+                && key_of(line).is_some_and(|k| k.trim_start().strip_prefix("if:").is_some_and(|v| narrower_than_pr(v.trim())))
         })
     })
 }
@@ -259,7 +259,7 @@ fn read_github(root: &Path) -> Vec<(String, String)> {
 ///
 /// Over labelled text so a fixture can exercise both arms - the live tree can only ever show them
 /// passing, which is the whole difficulty with gating something that is not there.
-fn retired(files: &[(String, String)]) -> Vec<String> {
+pub(super) fn retired(files: &[(String, String)]) -> Vec<String> {
     let mut out = Vec::new();
     for (label, text) in files {
         for step in steps(text) {
