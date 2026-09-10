@@ -186,9 +186,17 @@ The two halves are deliberately different shapes, and reading one for the other 
 stops meaning anything:
 
 - **`check-fuzz` (a hygiene gate, milliseconds) is what gates every pull request.** It reads the
-  fuzz manifest, the `fuzz_targets/*.rs` set, the tracked `fuzz/seeds/`, the workflow's matrix and
-  the lock, and fails when a target stops being declared, seeded or run. It compiles nothing, so a
-  green `hygiene` says the harness is wired - **not** that it found anything.
+  fuzz manifest, the `fuzz_targets/*.rs` set, the tracked `fuzz/seeds/`, the workflow's matrix, the
+  lock and every `fuzz/dictionaries/*.dict`, and fails when a target stops being declared, seeded
+  or run. It compiles nothing, so a green `hygiene` says the harness is wired - **not** that it
+  found anything.
+- **The dictionaries are in that list because they were not, and one target executed zero inputs on
+  every scheduled run for an unknown number of them.** libFuzzer validates `-dict=` at startup and
+  an unparseable line is fatal - `ParseDictionaryFile: error in line N`, exit 1 - but only *after*
+  the release build the job has already paid for. So the leg took the wall time of a fuzz run and
+  reddened nothing on the merge path, and the only witness was a log line. **A job that cannot fail
+  a merge and fails late is indistinguishable from one that works**, and the fix is not to read the
+  log more carefully: it is a cheap gate on the merge path over the same input.
 - **Actual fuzzing is scheduled, never a merge gate.** `.github/workflows/fuzz.yml` runs on a cron
   and `workflow_dispatch`, spends a time budget per target, and its `smoke` leg replays the
   committed seeds. A run that failed a merge on a fresh random path would be a gate somebody turns
