@@ -12,8 +12,9 @@
 // refusal here, next to the fragments it reads.
 mod dialect_resolution;
 
-// The recorded fuzz timeout and the bound that refuses it. Its own file for the same reason, and
-// because one of its two cells needs a deadline rather than an assertion on a value.
+// The deadline harness the cell below needs. Its own file for the same reason, and declared HERE
+// because `just causality` reverts a file whose diff adds no test, and a `mod` line it reverted is
+// a module never compiled against base.
 mod unbounded;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -119,6 +120,13 @@ fn the_sql_fuzz_crash_replays_as_a_refusal_not_a_panic() {
         matches!(result, Err(ExpressionError::NonAscii { .. })),
         "the crash fragment must be refused as non-ASCII, got: {result:?}"
     );
+}
+
+// The recorded fuzz artifact. Declared here and bodied in `unbounded`, because the `#[test]` and
+// the `mod` line above have to sit in the same file for `just causality` to compile either.
+#[test]
+fn the_sql_fuzz_timeout_replays_as_a_refusal_not_an_unbounded_parse() {
+    unbounded::the_recorded_timeout_is_refused_at_the_parenthesis_it_opened();
 }
 
 #[test]
