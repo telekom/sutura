@@ -624,6 +624,22 @@ where
                     },
                 ));
             }
+            // The same guard one more step out: the DATA SYSTEM refused the statement because the
+            // identity it ran it as may not ask it - an authorization decision, not a transient
+            // outage. It used to leave as `ServiceError::Warehouse` and reach a caller as `503`,
+            // the status a dead data system produces, so a caller was told to retry an
+            // authorization decision that refuses again at the same place. `preflight_was_refused`
+            // is the same split asked of the boot path; this predicate is it asked of `execute`.
+            if warehouse.source_refused(&cause) {
+                return Ok(Answered::under(
+                    &credentials,
+                    ToolOutcome::Refusal {
+                        reason: RefusalReason::SourceRefused {
+                            source: warehouse.source().clone(),
+                        },
+                    },
+                ));
+            }
             // Anything else is a failure rather than a refusal, and the typed cause travels with it.
             return Err(ServiceError::Warehouse { cause });
         }

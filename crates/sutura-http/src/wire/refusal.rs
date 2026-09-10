@@ -274,6 +274,26 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  system. Asking the same question again returns this same refusal"
             ),
         ),
+        // 403, and this is the DATA SYSTEM itself refusing the executed statement at the
+        // identity/authorization level - the query-time sibling of the boot-time
+        // `preflight_was_refused` split. It used to reach here as `ServiceError::Warehouse` and
+        // leave as `503`, the status a dead data system produces, so a caller was told to retry an
+        // authorization decision that refuses again at the same place. 403 is *understood, refused*
+        // - the data system answered, and answered no about who is asking - and it is not a status
+        // a client retries.
+        //
+        // The sentence names the source and nothing about which permission or which identity: both
+        // are that data system's to say, and echoing them would publish its authorization decision
+        // into a log, a UI and an agent's context.
+        RefusalReason::SourceRefused { ref source } => (
+            StatusCode::FORBIDDEN,
+            format!(
+                "the data system `{source}` refused this question: the identity it would run as is \
+                 not permitted to ask it. That is an authorization decision at that data system, not \
+                 an outage, and asking the same question again returns this same refusal; the fix \
+                 is a grant there, not another attempt"
+            ),
+        ),
         // 409, and the same family as the three federation refusals above: the question is well
         // formed, the metric permits it, and this deployment will not answer THIS one. Not 403 -
         // nothing about the caller's own authorization decided it, and a caller told `forbidden`
@@ -469,6 +489,13 @@ mod tests {
                 },
                 StatusCode::FORBIDDEN,
                 "credential_unavailable",
+            ),
+            (
+                RefusalReason::SourceRefused {
+                    source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+                },
+                StatusCode::FORBIDDEN,
+                "source_refused",
             ),
             (
                 RefusalReason::LegsDecideIdentityDifferently {
