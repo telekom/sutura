@@ -2905,7 +2905,13 @@ An adapter that compares the two witnesses fails here if a fixture opened it any
 <h3 id="fn-csv"><code>fn csv</code><a class="headerlink" href="#fn-csv" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">csv</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
-<p>The corpus, as CSV.</p>
+<p>The corpus, as CSV, from the committed file under <code>corpus/</code>.</p>
+<p>Served from the file rather than from a copied constant so a row edit in
+<code>corpus/conformance_events.csv</code> is a change to the data and not to this module - which is the
+whole of what "a case is a directory entry, not a function" asks. The bytes are embedded at
+compile time by <code>include_str!</code>, so this stays <code>&amp;'static str</code> and <code>const</code>.</p>
+<p>The last row is outside every case's time range on purpose: a corpus whose filters exclude
+nothing cannot tell an adapter that applied them from one that did not.</p>
 <h3 id="fn-on_disk"><code>fn on_disk</code><a class="headerlink" href="#fn-on_disk" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">on_disk</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
 </span></code></pre></div>

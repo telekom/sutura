@@ -3685,24 +3685,26 @@ mode rather than leaving a reader to infer it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-126-1"><a id="__codelineno-126-1" name="__codelineno-126-1" href="#__codelineno-126-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AccessToken</span>
 </span></code></pre></div>
 <p>A pre-shared secret a caller presents to reach the service.</p>
-<p>Held as a <code>Secret</code>, so the whole settings tree can be written to the startup log with
-<code>Debug</code> and the token cannot come out with it.</p>
-<p><strong>Not comparable with <code>==</code>, and that is inherited rather than reimplemented.</strong> <code>Secret</code>
-implements no <code>PartialEq</code> on purpose: a derived comparison on credential material returns on
-the first differing byte, which is a timing oracle at whatever call site adds it. The
-comparison lives here instead, once, as <code>AccessToken::matches_in_constant_time</code>.</p>
+<p>The configured token is reduced to its SHA-256 digest at parse and nothing else is retained, so
+the whole settings tree can be written to the startup log with <code>Debug</code> and the token cannot
+come out with it. <code>Debug</code> prints a placeholder for the same reason <code>Secret</code>'s does.</p>
+<p><strong>Not comparable with <code>==</code>.</strong> <code>AccessToken</code> implements no <code>PartialEq</code>: a derived comparison on
+credential material returns on the first differing byte, which is a timing oracle at whatever
+call site adds it. The comparison lives here instead, once, as
+<code>AccessToken::matches_in_constant_time</code>.</p>
 <h4 id="methods_25">Methods<a class="headerlink" href="#methods_25" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-127-1"><a id="__codelineno-127-1" name="__codelineno-127-1" href="#__codelineno-127-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">matches_in_constant_time</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">presented</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Does <code>presented</code> equal the configured token?</p>
 <p>Named for the property rather than for the operation, because the property is the only
 reason this function exists rather than a <code>==</code>.</p>
-<p><strong>Both sides are hashed first, and that is not ceremony.</strong> <code>subtle</code> compares equal-length
-byte slices without branching, which removes the early-return oracle - but comparing the
-raw strings would still have to decide what to do about differing lengths, and every
-answer to that leaks the length before it leaks anything else. Reducing both sides to a
-fixed 32 bytes removes the question: every comparison is over the same number of bytes
-whatever arrived.</p>
+<p><strong>The expected side is the digest stored at parse, and the presented side is hashed here.</strong>
+<code>subtle</code> compares equal-length byte slices without branching, which removes the
+early-return oracle - but comparing the raw strings would still have to decide what to do
+about differing lengths, and every answer to that leaks the length before it leaks anything
+else. Reducing both sides to a fixed 32 bytes removes the question: every comparison is over
+the same number of bytes whatever arrived, and the configured token is never re-hashed per
+request because it is already a digest.</p>
 <p>What this still does not do: it is not a password hash. There is no salt and no work
 factor, because the input is a high-entropy secret an operator generated rather than
 something a person chose, and nothing here is stored for an attacker to find offline.</p>
@@ -3721,6 +3723,7 @@ see <code>Self::wire_grammar</code> and <code>InvalidAccessToken::NotRepresentab
 <h4 id="variants_12">Variants<a class="headerlink" href="#variants_12" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>TooShort</code> - Shorter than <code>AccessToken::MIN_LENGTH</code>.</li>
+<li><code>TooLong</code> - Longer than <code>AccessToken::MAX_LENGTH</code>.</li>
 <li><code>Untrimmed</code> - Whitespace at either end, which is almost always a copy-paste artefact and would otherwise make every request fail for a reason nobody can see in a log.</li>
 <li><code>NotRepresentableOnTheWire</code> - A character no <code>Authorization</code> header could carry to us.</li>
 </ul>
@@ -4576,6 +4579,7 @@ configuration says otherwise.</p>
 <ul>
 <li><code>Empty</code> - Empty, or only whitespace.</li>
 <li><code>ControlCharacter</code> - A control character, which in practice is a newline pasted in with the value. A newline in a filter is a log line an attacker can forge if the value ever reaches the log itself.</li>
+<li><code>TooLong</code> - Longer than <code>LogFilter::MAX_LENGTH</code>. A directive that long is not a filter anyone wrote by hand, and an unbounded configured string is an availability surface.</li>
 </ul>
 <h4 id="implements_68">Implements<a class="headerlink" href="#implements_68" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
@@ -4603,6 +4607,7 @@ consumer, and the one that forgets produces a log line that does not parse.</p>
 <ul>
 <li><code>Empty</code></li>
 <li><code>NotAnIdentifier</code></li>
+<li><code>TooLong</code> - Longer than <code>ServiceName::MAX_LENGTH</code>. The name is the field a collector groups by and it appears on every log line, so an unbounded one is both an availability surface and a log line an operator has to read on every record.</li>
 </ul>
 <h4 id="implements_70">Implements<a class="headerlink" href="#implements_70" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>

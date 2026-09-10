@@ -2600,6 +2600,11 @@ apart.</p>
 <td>a tool result with <code>isError: true</code>, and a sentence saying the question may still be running</td>
 <td>the peer's WAIT is bounded and the question is not: see the section on the reply deadline</td>
 </tr>
+<tr>
+<td>The peer cancelled a running call</td>
+<td>no response</td>
+<td>rmcp suppresses it; the handler stops waiting, while the question and its slot continue</td>
+</tr>
 </tbody>
 </table>
 <p><strong>A refusal is not an error and must not look like one.</strong> <code>sutura_app::surface::Surface::answer</code>
@@ -2679,22 +2684,21 @@ question whose reply deadline fired keeps its slot until the data system answers
 deadline bounds the peer's wait and nothing else. That is deliberate and it is why the sentence
 the peer gets does not say <em>try again</em>: repeating the question would take a second slot while
 the first is still running. Making running work stoppable is #160's subject, on the port.</p>
-<p><strong>And what it still leaves unbounded, on this transport only:</strong> a peer that sends
-<code>notifications/cancelled</code> stops nothing and observes nothing until the deadline fires. rmcp
-delivers that cancellation as <code>RequestContext::ct</code> and <code>call_tool</code> here does not read it, so a
-cancelled call goes on waiting out its deadline. Reading the token would make cancellation
-observable to the peer and would be the first place this crate depends on an rmcp behaviour its
-own documentation describes loosely - <code>telekom/sutura#362</code>, filed rather than folded in. It
-would free an async worker and never a slot, which is why it is a separate decision.</p>
+<p><strong>Peer cancellation ends this transport's wait and nothing below it.</strong> rmcp 3.1.4 delivers
+<code>notifications/cancelled</code> through <code>RequestContext::ct</code>, and <code>ServerHandler::call_tool</code> selects
+on that token while a question is pending. The handler returns before its configured deadline;
+the pinned rmcp then suppresses its response on the wire. The blocking <code>Surface::answer</code>
+call cannot be aborted, so it keeps running and owns its execution slot until it returns. This
+is <code>telekom/sutura#362</code>; making the data work itself stoppable remains #160, on the port rather
+than on this transport.</p>
 <p><strong>What this transport still does not bound is the size of what it reads</strong>, which is <code>#266</code>'s
 <code>H4</code>: <code>rmcp</code>'s stdio transport reads a line off the process's own input with no cap, and this
 change is about a different thing - how many questions execute at once.</p>
-<p><strong>The limit on how far the shedding is exercised, stated with it.</strong> <code>rmcp</code> 3.1.4 answers a
-<code>notifications/cancelled</code> by cancelling a token this handler does not read, and it spawns each
-request as a detached task - so on that SDK a peer that cancels or disconnects does not drop the
-future that is waiting for the answer. The property that the permit belongs to the work rather
-than to that future is therefore asserted by dropping the future in a test, not by cancelling a
-call over the wire.</p>
+<p><strong>The limit on how far cancellation is exercised, stated with it.</strong> The MCP test sends
+<code>notifications/cancelled</code> over an in-memory protocol connection and observes the pinned SDK's
+suppression plus this handler's captured diagnostic. It does not claim that closing a transport
+produces the same notification. The slot-retention assertion reads the held port before release:
+cancellation drops the future waiting on the blocking task, never the task or the permit it owns.</p>
 <h1 id="what-this-slice-does-not-do-on-purpose">What this slice does NOT do, on purpose<a class="headerlink" href="#what-this-slice-does-not-do-on-purpose" title="Permanent link">&para;</a></h1>
 <ul>
 <li><strong>No row cap of its own.</strong> The answer cap is <code>max_rows + 1</code> and a result that hits it is
