@@ -1,9 +1,20 @@
 {
-  "$comment": "Claude Code project settings. The skills tree is reached via the .claude/skills symlink to ../.agents/skills, so one canonical tree serves every agent.",
+  "$comment": "Claude Code project settings. The skills tree is reached via the .claude/skills symlink to ../.agents/skills, so one canonical tree serves every agent. SubagentStart runs the same script so a subagent inherits the mode; upstream's third hook (UserPromptSubmit, a mode tracker) is deliberately absent - .ponytail-active IS the mode, and a second way to set it is a second thing to keep true.",
   "hooks": {
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/ponytail-session-start.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
         "hooks": [
           {
             "type": "command",
