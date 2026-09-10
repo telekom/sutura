@@ -347,9 +347,10 @@ async fn two_subjects_drive_two_different_exchanged_credentials() {
         .try_recv()
         .expect("the adapter was handed a credential for the second caller");
 
-    // The subject half: each leg named the person who asked for it, and neither named the other.
-    assert!(ada.contains("for:ada@example.com"), "{ada}");
-    assert!(grace.contains("for:grace@example.com"), "{grace}");
+    // The subject half: each leg named the person who asked for it (as the masked form the type
+    // holds - the raw is consumed at parse), and neither named the other.
+    assert!(ada.contains("for:a***@e***.c***"), "{ada}");
+    assert!(grace.contains("for:g***@e***.c***"), "{grace}");
     // A SUBSTRING over a haystack whose tail is random, and it is safe by ARITHMETIC rather than by
     // alphabet: `exchanged_from` appends eight base64url characters of a signature, `grace` is five
     // characters of that same 64-character alphabet, so there are four offsets to land in and the

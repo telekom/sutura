@@ -115,7 +115,9 @@ mod tests {
             panic!("an agent acting for a subject is not a bare subject");
         };
         assert_eq!(subject, &a_person());
-        assert_eq!(actors.immediate().as_str(), "query_agent");
+        // `as_str` returns the stored masked form now - the raw is consumed at parse - and the mask
+        // of the immediate actor is distinct enough to name the link.
+        assert_eq!(actors.immediate().as_str(), "q***");
         // And the two answers are different values, which is the distinction the whole chain exists to
         // carry: nothing about a record from this path can be confused with one from the other. The
         // comparison is on the CHAIN because `RequestContext` carries a `Secret` and so compares
