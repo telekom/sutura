@@ -170,6 +170,20 @@ resolve by writing the call and watching clippy reject it - an unresolvable path
 `disallowed-methods` is silently ignored, so an unverified entry would read as enforcement and do
 nothing.
 
+**The generator panics on non-ASCII text, so the fragment is bound to ASCII.** Found by the
+`sql_expression` fuzz target on a fragment containing the replacement character (a lossy-decode of
+four invalid bytes): the pinned `polyglot-sql 0.9.2` `Generator` byte-slices a string without
+respecting character boundaries and panics with *"start byte index N is not a char boundary"* at
+`generator.rs:19076`. There is no third-party error to map - it aborts, which under
+`panic = "abort"` is the process dying. `ExpressionError::NonAscii` refuses a fragment carrying any
+non-ASCII character before it is handed over, which is the bound the aggregation subset this hatch
+exists for already lives inside (SQL keywords, identifiers and the allowlisted functions are ASCII
+by construction). The exact failing input is quarantined as the committed seed
+`fuzz/seeds/sql_expression/non-ascii-crash`, and the defect belongs upstream: `polyglot-sql` is
+`github.com/tobilg/polyglot`, and the generator's byte-slicing there is what the bound is a workaround
+for. None of that changes what a catalog can carry until a pin fixes it - the bound is a control over
+the dependency, not a judgement that authored SQL is ASCII.
+
 ### The fragment is bounded in depth as well as in length
 
 `MAX_FRAGMENT_LEN` bounds the text at 1024 characters and the parser's own `ComplexityGuardOptions`

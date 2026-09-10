@@ -95,6 +95,29 @@ fn a_valid_fragment_compiles_for_every_dialect_this_build_renders_for() {
 }
 
 #[test]
+fn the_sql_fuzz_crash_replays_as_a_refusal_not_a_panic() {
+    // The exact bytes the scheduled fuzz run on main recorded
+    // (run 34458717724, crash-62a3009c75e458369624e71399082b0c1944e8e5), delivered exactly as the
+    // harness delivers them: raw bytes, lossy-converted through `String::from_utf8_lossy`. The four
+    // `\xff` bytes become the replacement character `\u{fffd}`, which `polyglot-sql` 0.9.2's
+    // generator byte-slices and panics on - *"start byte index 7 is not a char boundary"* - and
+    // under `panic = "abort"` that panic is the process dying. The compile must refuse the fragment
+    // instead. This test is red before the `NonAscii` guard (the render panics) and green after.
+    let crash: &[u8] = b"TUNm(MS~\"mrrNU\xff\xff\xff\xff(^_eur\"(DIInCTIST_subs63atue))";
+    let fragment = String::from_utf8_lossy(crash);
+    let portable = DialectTag::parse(DialectTag::PORTABLE).expect("the portable word is one");
+    let Ok(sql) = SqlFragment::parse(fragment) else {
+        panic!("the fuzz crash fragment must reach compile to be refused, not be dropped by parse");
+    };
+    let authored = AuthoredSql::new(BTreeMap::from([(portable, sql)])).expect("a non-empty map is authored sql");
+    let result = compile(&authored, &table(), &columns());
+    assert!(
+        matches!(result, Err(ExpressionError::NonAscii { .. })),
+        "the crash fragment must be refused as non-ASCII, got: {result:?}"
+    );
+}
+
+#[test]
 fn a_cast_retargets_and_a_guarded_ratio_does_not_move() {
     // Two properties in one test because they are the same claim from both sides. The `DOUBLE` is
     // the dialect layer earning its place - each target spells the type differently and nobody

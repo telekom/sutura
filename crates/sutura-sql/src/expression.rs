@@ -253,6 +253,17 @@ fn check(
     table: &TableName,
     columns: &BTreeSet<ColumnName>,
 ) -> Result<Expression, ExpressionError> {
+    // Asked of the TEXT rather than of the tree, for the same tokenizer reason as the comment
+    // check below: a lossy-decode or authored non-ASCII character would otherwise travel into the
+    // AST as a string literal, and the dialect layer's generator panics byte-slicing it with no
+    // error to map. Refusing here keeps the crash class off the process entirely.
+    if let Some(offending) = fragment.as_str().chars().find(|c| !c.is_ascii()) {
+        return Err(ExpressionError::NonAscii {
+            tag: tag.clone(),
+            code: u32::from(offending),
+            text: offending,
+        });
+    }
     // First, and asked of the TEXT rather than of the tree, because the tokenizer is where the
     // evidence is destroyed. See `holds_comment_delimiter`.
     if holds_comment_delimiter(fragment.as_str()) {
