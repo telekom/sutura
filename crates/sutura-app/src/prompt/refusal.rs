@@ -192,6 +192,16 @@ const CREDENTIAL_UNAVAILABLE: Guide = Guide {
              it, and you cannot.",
 };
 
+const SOURCE_REFUSED: Guide = Guide {
+    reason: "SourceRefused",
+    meaning: "the data system itself refused the question because the identity it would run as is \
+              not permitted to ask it - an authorization decision made there, not an outage",
+    remedy: "Nothing you can change in the question, and retrying it will be refused again at the \
+             same place: this is not a data system being down and it is not waiting out. Report it \
+             to the person you are acting for, and say that access to that data system is what \
+             would be needed.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -230,6 +240,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     // unchanged.
     &PLAN_TABLES_SHARE_AN_IDENTIFIER,
     &SOURCE_UNAVAILABLE,
+    &SOURCE_REFUSED,
     &CREDENTIAL_UNAVAILABLE,
 ];
 
@@ -262,6 +273,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
+        RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
         RefusalReason::LegsDecideIdentityDifferently { .. } => &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
     }

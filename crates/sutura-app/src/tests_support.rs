@@ -43,6 +43,9 @@ pub(crate) enum AdapterFailure {
     /// The data system would not return the whole result at once.
     #[error("the data system would not return the whole result at once")]
     TooMuchData,
+    /// The identity the statement ran as is not permitted to ask it.
+    #[error("the data system refused the statement at the identity/authorization level")]
+    RefusedBySource,
 }
 
 /// A data system with a declared source and posture, which either answers one fixed result or
@@ -300,6 +303,150 @@ impl Warehouse for PageBoundLegsWarehouse {
 
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         matches!(error, AdapterFailure::TooMuchData)
+    }
+}
+
+/// A mono fake whose `execute` fails because the DATA SYSTEM refused the statement at the
+/// identity/authorization level.
+///
+/// The instrument for the query-time [`Warehouse::source_refused`] predicate on the mono path: it
+/// registers under [`source()`](Self::source), answers the pre-flight, and then `execute` returns
+/// `Err` whose [`Warehouse::source_refused`] answers `true`, so `answer` must turn it into a
+/// [`RefusalReason::SourceRefused`] and never into the `503` a dead data system produces -
+/// `sutura_app`'s suite pins that the same way `working_set_exhausted` and `result_did_not_fit`
+/// pin their predicates.
+pub(crate) struct RefusingSourceWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl RefusingSourceWarehouse {
+    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
+        Self { source, posture }
+    }
+}
+
+impl Warehouse for RefusingSourceWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(AdapterFailure::RefusedBySource)
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::RefusedBySource)
+    }
+
+    fn source_refused(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::RefusedBySource)
+    }
+}
+
+/// The federated half of [`RefusingSourceWarehouse`]: a leg-executing fake whose `execute` refuses
+/// the statement at the identity/authorization level.
+///
+/// The same reach [`PageBoundLegsWarehouse`] gives (it declares `EXECUTES_LEGS`, so the federated
+/// path runs it), but its error answers [`Warehouse::source_refused`] `true`, so `execute_leg` must
+/// turn it into a [`RefusalReason::SourceRefused`] rather than a [`LegError::Failure`] - the `503`
+/// an outage produces. `federated.rs`'s `a_federated_leg_the_source_refuses_is_refused_not_a_503`
+/// pins that.
+pub(crate) struct RefusingLegsWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl RefusingLegsWarehouse {
+    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
+        Self { source, posture }
+    }
+}
+
+impl Warehouse for RefusingLegsWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(AdapterFailure::RefusedBySource)
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::RefusedBySource)
+    }
+
+    fn source_refused(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::RefusedBySource)
+    }
+}
+
+/// A mono fake whose pre-flight passes but whose `execute` fails with a failure the data system did
+/// NOT refuse.
+///
+/// The reverse-direction instrument for [`Warehouse::source_refused`]: the failure reaches the same
+/// classification branch as a source refusal (it gets past `dry_run`), but `source_refused` answers
+/// `false` - the port's own default - so `answer` must let it leave as the retryable
+/// [`crate::ServiceError::Warehouse`] and never turn a transient failure into a refusal.
+pub(crate) struct TransientlyBrokenWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl TransientlyBrokenWarehouse {
+    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
+        Self { source, posture }
+    }
+}
+
+impl Warehouse for TransientlyBrokenWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(AdapterFailure::Statement { cause: DriverFailure })
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::Statement { cause: DriverFailure })
     }
 }
 

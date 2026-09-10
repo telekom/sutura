@@ -395,6 +395,37 @@ pub enum RefusalReason {
     /// system's to say, and guessing it here would be this deployment holding a second opinion about
     /// somebody else's authorization.
     CredentialUnavailable { source: SourceName },
+    /// The data system refused the executed statement because the identity it ran it as may not ask
+    /// it.
+    ///
+    /// **The refusal a data system hands back at the identity/authorization level, as opposed to the
+    /// two bounds [`ResourcesExhausted`](RefusalReason::ResourcesExhausted) and
+    /// [`ResultTooLarge`](RefusalReason::ResultTooLarge) classify.** Those are the domain's own
+    /// numbers - a reservation this deployment refused, a page it caps. This one is the DATA
+    /// SYSTEM saying no about WHO asked: the role it runs the question under lacks the permission,
+    /// a statement's `SELECT` names a table or column that identity may not read, row-level security
+    /// denies it. It is permanent in the same sense [`CredentialUnavailable`](RefusalReason::CredentialUnavailable)
+    /// is - the same question as the same identity is refused again - but it is not a missing
+    /// credentials decision: the identity that ran the query WAS presented, and the source refuses
+    /// it.
+    ///
+    /// **A refusal rather than an error, and the distinction is the whole variant.** It used to
+    /// arrive as [`crate::warehouse::Warehouse::execute`]'s `Err` and leave the transport as the
+    /// `503` a dead data system produces - so a caller was told to retry an authorization decision
+    /// that will refuse again at the same place. It is an answer, and the answer does not change by
+    /// asking again.
+    ///
+    /// **It is the query-time sibling of the boot-time
+    /// [`Warehouse::preflight_was_refused`](crate::warehouse::Warehouse::preflight_was_refused)
+    /// split.** That predicate tells a pre-flight's *could not verify* apart from *this identity may
+    /// not ask*; this variant is the same split when the asking happens in `execute`. An adapter
+    /// answers [`Warehouse::source_refused`](crate::warehouse::Warehouse::source_refused), and this
+    /// is what the domain names the `true` half.
+    ///
+    /// Carries the source and nothing about which permission or which identity: both are the data
+    /// system's to say, and echoing them would publish a foreign authorization decision into a log,
+    /// a UI and an agent's context.
+    SourceRefused { source: SourceName },
     /// The legs of one answer would not all decide identity the same way.
     ///
     /// **Not a source count, and that distinction is the whole variant.**
@@ -458,6 +489,7 @@ impl RefusalReason {
             Self::SourceUnavailable { .. } => "source_unavailable",
             Self::ResourcesExhausted { .. } => "resources_exhausted",
             Self::CredentialUnavailable { .. } => "credential_unavailable",
+            Self::SourceRefused { .. } => "source_refused",
             Self::LegsDecideIdentityDifferently { .. } => "legs_decide_identity_differently",
         }
     }
@@ -693,6 +725,9 @@ mod tests {
                 table: TableName::parse("orders").expect("a test table"),
             },
             RefusalReason::SourceUnavailable {
+                source: SourceName::parse("local").expect("a test source"),
+            },
+            RefusalReason::SourceRefused {
                 source: SourceName::parse("local").expect("a test source"),
             },
             RefusalReason::ResourcesExhausted {

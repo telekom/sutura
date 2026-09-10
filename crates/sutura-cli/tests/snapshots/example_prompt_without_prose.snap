@@ -127,6 +127,11 @@ Every reason you can be given, and what to do about each:
 - **SourceUnavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.
+- **SourceRefused** - the data system itself refused the question because the identity it would run
+  as is not permitted to ask it - an authorization decision made there, not an outage.
+  Nothing you can change in the question, and retrying it will be refused again at the same place:
+  this is not a data system being down and it is not waiting out. Report it to the person you are
+  acting for, and say that access to that data system is what would be needed.
 - **CredentialUnavailable** - the person you are acting for has no access to the data system that
   metric lives in, and this deployment will not read it under its own identity instead.
   Nothing you can change, and this is the one refusal where that matters most: a narrower question,

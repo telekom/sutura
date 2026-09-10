@@ -137,6 +137,16 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              change in the question helps and retrying will not either. Say so, and say that \
              access to `{source}` is what would be needed."
         ),
+        // Written for an agent: this is the data system itself saying no about WHO asked, not a
+        // credential the caller is missing. There is no retry that succeeds and no narrower
+        // question that helps, so the sentence says stop and names the fix - a grant at that data
+        // system, which only the person the agent is acting for can ask for.
+        RefusalReason::SourceRefused { ref source } => format!(
+            "the data system `{source}` refused this question: the identity it would run as is \
+             not permitted to ask it. This is an authorization decision made there, not an \
+             outage and not something asking again will change. Say so, and say that access to \
+             `{source}` is what would be needed."
+        ),
         // Written for an agent: there is a narrower question, and it is a specific one - drop the
         // dimension that pulls in the second data system. The sentence names the posture labels and
         // never a `SourcePosture`, whose shared variant carries the operator's own acknowledgement
@@ -212,6 +222,9 @@ mod tests {
             },
             RefusalReason::SourceUnavailable {
                 source: SourceName::parse("elsewhere").expect("a test source is a source"),
+            },
+            RefusalReason::SourceRefused {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::CredentialUnavailable {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
