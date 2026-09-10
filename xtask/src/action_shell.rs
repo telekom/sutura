@@ -570,6 +570,88 @@ mod tests {
         }
     }
 
+    /// THE WRITABILITY REFUSAL IN `causality-target-cache`, over the four trees a restore leaves.
+    ///
+    /// Run `34499576269` killed the merge queue with `mkdir: Permission denied`: the cache action
+    /// extracts with `sudo tar`, `target/` is not an archive member, so the privileged extraction
+    /// CREATED it as root and `nix/cargo-env.nix`'s `mkdir -p "$CARGO_HOME"` one level down could
+    /// not run. That action now creates `target/` as the job's own user first, and the step this
+    /// test runs is the refusal that says whether it worked - worth exactly as much as its firing,
+    /// which is what this holds. Same reason the module's `Publish` test exists: the shipped bytes,
+    /// not a copy of them.
+    ///
+    /// **Self-skips where mode bits are ignored** - uid 0 writes a `0o555` directory - for
+    /// `crate::repo`'s reason: an assertion that is vacuous under root is worse than saying so.
+    #[cfg(unix)]
+    #[test]
+    fn the_causality_cache_refuses_a_restored_tree_it_cannot_write() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = crate::repo::root().expect("repository root");
+        let text = std::fs::read_to_string(root.join(".github/actions/causality-target-cache/action.yml"))
+            .expect("the causality target cache action");
+        let step = extract(&text)
+            .into_iter()
+            .find(|found| found.step == "The restored causality target is writable by this job")
+            .expect("the writability step");
+        let scratch = std::env::temp_dir().join(format!("sutura-causality-writable-{}", std::process::id()));
+        let _swept = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("a scratch workspace");
+        let target = scratch.join("target");
+
+        // Outer mode, inner mode (`None` is the MISS that leaves the dir absent), and the path the
+        // refusal has to name. The first two are the shapes a correct restore produces.
+        let shapes = [
+            (0o755, Some(0o755), None),
+            (0o755, None, None),
+            (0o555, None, Some("target")),
+            (0o755, Some(0o555), Some("target/causality-target")),
+        ];
+        let mut outcomes = Vec::new();
+        for (outer, inner, expected) in shapes {
+            let _reopened = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755));
+            let _swept = std::fs::remove_dir_all(&target);
+            std::fs::create_dir_all(&target).expect("the workspace target dir");
+            if let Some(mode) = inner {
+                std::fs::create_dir_all(target.join("causality-target")).expect("the warm target dir");
+                std::fs::set_permissions(target.join("causality-target"), std::fs::Permissions::from_mode(mode))
+                    .expect("chmod the warm target dir");
+            }
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(outer)).expect("chmod the target dir");
+            // Did the mode take effect for THIS user? Probed on the directory the shape closes.
+            let took_effect = expected.is_none_or(|dir| std::fs::create_dir_all(scratch.join(dir).join(".took-effect")).is_err());
+            let output = std::process::Command::new("bash")
+                .args(["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", &step.body])
+                .current_dir(&scratch)
+                .env_remove("BASH_ENV")
+                .env("SCOPE", "test")
+                .output()
+                .expect("the writability step runs");
+            outcomes.push((expected, took_effect, output));
+        }
+        let _reopened = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755));
+        let _reopened = std::fs::set_permissions(target.join("causality-target"), std::fs::Permissions::from_mode(0o755));
+        let _swept = std::fs::remove_dir_all(&scratch);
+
+        for (expected, took_effect, output) in outcomes {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            match expected {
+                None => {
+                    assert_eq!(output.status.code(), Some(0), "a writable tree was refused: {stderr}");
+                    assert!(stdout.contains("the restored tree is writable"), "{stdout}");
+                }
+                // Running as a user the mode cannot stop. Saying so beats a vacuous assertion.
+                Some(_) if !took_effect => {}
+                Some(dir) => {
+                    assert_eq!(output.status.code(), Some(1), "an unwritable {dir} passed: {stdout}");
+                    assert!(stderr.contains(dir), "the refusal has to name {dir}: {stderr}");
+                    assert!(stderr.contains("RED"), "{stderr}");
+                }
+            }
+        }
+    }
+
     // Only gh is replaced. This runs the actual Publish body; no network or release can occur.
     const PUBLISH_FAKE: &str = r#"
 set -eu
