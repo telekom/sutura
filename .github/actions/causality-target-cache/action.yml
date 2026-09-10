@@ -141,9 +141,34 @@ runs:
         # under `-e` alone gives the EMPTY STRING - after which the refusal below would read
         # `[: : integer expected`, exit 2 and not fire. The refusal needs a number whatever the
         # caller's shell flags are, so the number is produced here instead of inherited.
+        #
+        # AND `du -sm` IS THE WRONG MEASURE FOR "DID THE SAVE CARRY ANYTHING", separately from
+        # the guard. `du -sm` is an ALLOCATED-BLOCKS figure that ROUNDS UP TO A WHOLE MEBIBYTE: a
+        # directory holding only empty files still owns an allocation block for its inode and
+        # entries, and on a filesystem whose block is 4 KiB `du -sm` reports `1` - so a restore
+        # that carried NOTHING reads as `1 MB` and a refusal that needs `-eq 0` never fires. It
+        # passed on the machines that wrote it (APFS and an overlay both report an empty dir as 0)
+        # and reddened nothing on CI until the witness's `(empty)` leg ran there: GitHub's Ubuntu
+        # runner filesystem allocates the directory's block, `du -sm` answered 1, and the step
+        # that is MEANT to refuse a hit over an empty target went green. A useful witness measures
+        # what a restore actually writes: FILE CONTENT BYTES, not block allocation. The refusal
+        # below asks whether the dir holds any regular file larger than 0 bytes - the identical
+        # semantic in bytes on every filesystem - and keeps `du -sm` only as the human-facing
+        # "size on disk" report.
+        #
+        # `find ... -size +0c -print -quit | grep -q .` is the predicate, and its shape matters:
+        # `+0c` is a file LARGER than 0 bytes in POSIX find (`c` selects byte units), portable to
+        # GNU and BSD find; `-quit` stops the walk at the first match, so grep's early `-q` exit
+        # cannot SIGPIPE a still-running find (which, under `-e -o pipefail`, would fail the step
+        # on the value it is trying to read). An absent or empty directory walks nothing and grep
+        # finds nothing, which is the refusal shape.
         mb=0
+        carried=0
         if [ -d target/causality-target ]; then
           mb="$(du -sm target/causality-target | cut -f1)"
+          if find target/causality-target -type f -size +0c -print -quit 2>/dev/null | grep -q .; then
+            carried=1
+          fi
         fi
         if [ "$HIT_PRIMARY" = "true" ]; then
           restore="hit on this dependency generation"
@@ -168,8 +193,8 @@ runs:
           "$SCOPE" "$restore" "$write" "$mb"
         # NO BACKTICKS AND NO `$` IN THIS MESSAGE: it is single-quoted, and ShellCheck's SC2016
         # refuses a backtick there (`just lint-actions` reddened on the first spelling of it).
-        if [ "$HIT" = "true" ] && [ "$mb" -eq 0 ]; then
-          printf 'causality-target-cache(%s): RED - an entry was restored for this key and target/causality-target holds 0 MB.\n' "$SCOPE" >&2
-          printf 'A restore carrying no bytes is a broken cache, not a cold one. Check that the paths input (plural) still names the dir this job builds in, that nix is still false, and read this step for an "Unexpected input(s)" warning from the runner.\n' >&2
+        if [ "$HIT" = "true" ] && [ "$carried" -eq 0 ]; then
+          printf 'causality-target-cache(%s): RED - an entry was restored for this key and target/causality-target holds no non-empty file.\n' "$SCOPE" >&2
+          printf 'A restore carrying no content bytes is a broken cache, not a cold one. Check that the paths input (plural) still names the dir this job builds in, that nix is still false, and read this step for an "Unexpected input(s)" warning from the runner.\n' >&2
           exit 1
         fi

@@ -103,6 +103,13 @@ mod tests {
     /// THE REFUSAL, which is the whole point: an entry restored for this key over an empty
     /// directory. Both spellings of empty - absent, and present with nothing in it - because the
     /// defect produced the first and a broken save would produce the second.
+    ///
+    /// The "present with nothing in it" leg is what caught the `du -sm` block-rounding defect on
+    /// CI: an empty directory (holding only a 0-byte file) owns one allocation block on the runner
+    /// filesystem, so a block-based `du -sm` read "1 MB" and the refusal - which needed 0 - never
+    /// fired even though nothing was carried. The refusal is on FILE CONTENT BYTES (`find` a
+    /// regular file larger than 0 bytes), the identical semantic on every filesystem, so this leg
+    /// refuses on macOS's APFS as much as on an ext4 runner.
     #[test]
     fn a_hit_that_carried_no_bytes_is_refused() {
         for (tag, megabytes) in [("absent", None), ("empty", Some(0))] {
@@ -114,7 +121,7 @@ mod tests {
                 "a hit carrying nothing must exit 1 ({tag}): {stderr}"
             );
             assert!(stderr.contains("RED"), "{tag}: {stderr}");
-            assert!(stderr.contains("holds 0 MB"), "{tag}: {stderr}");
+            assert!(stderr.contains("holds no non-empty file"), "{tag}: {stderr}");
         }
     }
 
