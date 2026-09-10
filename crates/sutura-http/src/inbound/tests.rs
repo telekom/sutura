@@ -71,7 +71,7 @@ async fn a_token_the_issuer_signed_establishes_the_person_who_asked() {
     assert_eq!(chain.subject().established(), "verified");
     assert_eq!(
         chain.subject().id().map(sutura_domain::identity::SubjectId::as_str),
-        Some("someone@example.com")
+        Some("s***@e***.c***")
     );
     // No `act` claim, so no actor - the case a reader has to name rather than infer.
     assert!(matches!(chain.attribution(), Attribution::BareSubject { .. }));
@@ -107,11 +107,11 @@ async fn a_nested_actor_claim_becomes_a_chain_in_the_order_the_domain_reads() {
     let names: Vec<&str> = actors.iter().map(sutura_domain::identity::Actor::as_str).collect();
     assert_eq!(
         names,
-        vec!["orchestrator", "planner", "query_agent"],
+        vec!["o***", "p***", "q***"],
         "the deepest nesting acted first and the top level called this deployment"
     );
-    assert_eq!(actors.immediate().as_str(), "query_agent");
-    assert_eq!(actors.outermost().as_str(), "orchestrator");
+    assert_eq!(actors.immediate().as_str(), "q***");
+    assert_eq!(actors.outermost().as_str(), "o***");
 }
 
 #[tokio::test]

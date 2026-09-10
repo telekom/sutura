@@ -66,7 +66,7 @@ mod tests {
     }
 
     #[test]
-    fn display_and_debug_mask_while_explicit_access_remains_raw() {
+    fn the_masked_type_holds_no_plaintext_and_no_surface_emits_it() {
         let id = SubjectId::parse("firstname.lastname@company.com").expect("a test subject is a subject");
 
         assert_eq!(id.to_string(), "f***.l***@c***.c***");
@@ -75,11 +75,26 @@ mod tests {
         let short = SubjectId::parse("a.bc@example.com").expect("a short test subject is a subject");
         assert_eq!(short.to_string(), "a***.b***@e***.c***");
         assert_eq!(format!("{short:?}"), "a***.b***@e***.c***");
+
+        // The value the type actually holds is the masked form, not the raw: the raw was consumed at
+        // the parse boundary, so no render path (Display, Debug, or the stored string) can emit it.
+        // Seating the raw in this type's state and masking at render makes these green assertions red.
         assert_eq!(
             id.as_str(),
-            "firstname.lastname@company.com",
-            "raw access remains explicit and greppable; the type cannot mechanically restrict the caller to TRACE"
+            "f***.l***@c***.c***",
+            "as_str is the stored masked form; the raw is not retained"
         );
+        for surface in [id.to_string(), format!("{id:?}"), String::from(id.as_str())] {
+            for raw in [
+                "firstname.lastname@company.com",
+                "a.bc@example.com",
+                "firstname",
+                "lastname",
+                "company",
+            ] {
+                assert!(!surface.contains(raw), "a render surface reached the raw `{raw}`: {surface}");
+            }
+        }
     }
 
     #[test]
