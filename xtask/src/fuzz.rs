@@ -14,13 +14,24 @@
 //! **Fails closed.** No target directory, no manifest, no matrix block and an empty target list are
 //! all failures rather than a pass over silence.
 //!
-//! **The limit, next to the claim.** Both readers are line-oriented over surface syntax - a TOML
-//! table header and a YAML sequence - rather than a parse into a document model, because `xtask`
-//! carries neither a TOML nor a YAML dependency and runs inside a nix sandbox. So a `[[bin]]`
-//! spelled as an inline table, or a matrix in flow style, is invisible to this gate. It holds the
-//! shapes this repository writes, and the unit tests below fix those shapes. It does not read what
-//! a target's code DOES - that a target reaches the parser it claims is a review question, and
-//! each target's header is where the claim and its limits are written.
+//! **A dictionary libFuzzer refuses is a run that executes nothing.** `-dict=` is validated at
+//! startup and an unparseable line is fatal: libFuzzer prints `ParseDictionaryFile: error in line
+//! N` and exits 1 - but only AFTER the release build the job already paid for, so the leg looks
+//! like a fuzz run, costs like one, and mutates zero inputs. Nothing else in the tree reads these
+//! files, so the only witness was a log line. Measured against a libFuzzer binary rather than read
+//! off its source: a name is optional, the value must be double-quoted, `\\`, `\"` and `\xAB` are
+//! the only escapes, an EMPTY value is refused, and a trailing `# comment` after the closing quote
+//! is refused too - a `#` only starts a comment at the head of a line.
+//!
+//! **The limit, next to the claim.** All three readers are line-oriented over surface syntax - a
+//! TOML table header, a YAML sequence and a dictionary entry - rather than a parse into a document
+//! model, because `xtask` carries neither a TOML nor a YAML dependency and runs inside a nix
+//! sandbox. So a `[[bin]]` spelled as an inline table, or a matrix in flow style, is invisible to
+//! this gate. It holds the shapes this repository writes, and the unit tests below fix those
+//! shapes. The dictionary reader checks the line shape and the escapes, not the token libFuzzer
+//! builds from them, and it says nothing about whether a dictionary is USEFUL to its target. It
+//! does not read what a target's code DOES - that a target reaches the parser it claims is a
+//! review question, and each target's header is where the claim and its limits are written.
 
 use std::collections::BTreeSet;
 
@@ -38,6 +49,12 @@ const TARGETS_DIR: &str = "fuzz/fuzz_targets";
 /// Not `fuzz/corpus/`, which is libFuzzer's writable working corpus and is gitignored - see
 /// `fuzz/.gitignore` for why the two are separate directories rather than one.
 const SEEDS_DIR: &str = "fuzz/seeds";
+
+/// Where the OPTIONAL libFuzzer dictionaries live, one `<target>.dict` per target that has one.
+///
+/// Optional on purpose - `nix/run-fuzz.sh` drops `-dict=` when the file is absent, so a target
+/// without one runs without one. Present and unparseable is the case this gate exists for.
+const DICTIONARIES_DIR: &str = "fuzz/dictionaries";
 
 /// The workflow whose matrix decides which targets CI spends a budget on.
 const WORKFLOW: &str = ".github/workflows/fuzz.yml";
@@ -153,6 +170,57 @@ fn aborts_on_panic(manifest: &str) -> bool {
     manifest.lines().any(|line| line.trim() == PANIC_ABORT)
 }
 
+/// Would libFuzzer accept this one dictionary line?
+///
+/// Everything before the first `"` is the optional name and is ignored, exactly as libFuzzer
+/// ignores it; the last non-space character has to be the closing `"`; the value has to be
+/// non-empty and may escape only `\\`, `\"` and `\xAB` - a lowercase `x` and either hex case.
+/// Blank and comment lines never reach here.
+fn dictionary_entry_is_parseable(line: &str) -> bool {
+    let trimmed = line.trim();
+    let Some(open) = trimmed.find('"') else { return false };
+    let Some(value) = trimmed.get(open + 1..).and_then(|rest| rest.strip_suffix('"')) else {
+        return false;
+    };
+    if value.is_empty() {
+        return false;
+    }
+    let mut chars = value.chars();
+    while let Some(character) = chars.next() {
+        if character != '\\' {
+            continue;
+        }
+        match chars.next() {
+            Some('\\' | '"') => (),
+            // Lowercase `x` ONLY: `\X41` is refused, measured against a libFuzzer binary and
+            // against this file's first reading of libFuzzer's source, which had it as either case.
+            Some('x') => match (chars.next(), chars.next()) {
+                (Some(high), Some(low)) if high.is_ascii_hexdigit() && low.is_ascii_hexdigit() => (),
+                _ => return false,
+            },
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// The 1-INDEXED lines of one dictionary that libFuzzer would refuse.
+///
+/// One-indexed because the runner's own error is, and a gate that renumbered the defect would cost
+/// the reader the one thing the log already told them.
+fn unparseable_entries(dictionary: &str) -> Vec<usize> {
+    dictionary
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            let head = line.trim_start();
+            !head.is_empty() && !head.starts_with('#')
+        })
+        .filter(|(_, line)| !dictionary_entry_is_parseable(line))
+        .map(|(index, _)| index + 1)
+        .collect()
+}
+
 /// The verdict, given everything read off the tree.
 fn report(
     sources: &BTreeSet<String>,
@@ -160,6 +228,7 @@ fn report(
     seeded: &BTreeSet<String>,
     harnessed: &BTreeSet<String>,
     matrix: &BTreeSet<String>,
+    refused: &[(String, usize)],
     locked: bool,
     aborts: bool,
 ) -> Verdict {
@@ -198,6 +267,11 @@ fn report(
     for name in matrix.difference(sources) {
         failures.push(format!("{WORKFLOW} runs `{name}`, which is not a target"));
     }
+    for (dictionary, line) in refused {
+        failures.push(format!(
+            "{DICTIONARIES_DIR}/{dictionary}: error in line {line} - not a `name=\"value\"` entry, so libFuzzer refuses the dictionary after the build and the target executes nothing"
+        ));
+    }
     if !locked {
         failures.push(format!(
             "{LOCK} is absent - a fuzz run against an unlocked graph is not reproducible"
@@ -218,7 +292,9 @@ fn report(
     }
     eprintln!();
     eprintln!("Add the target to fuzz/Cargo.toml, seed fuzz/seeds/<target>/, and name it in the");
-    eprintln!("matrix of .github/workflows/fuzz.yml. `just fuzz-smoke` replays what is committed.");
+    eprintln!("matrix of .github/workflows/fuzz.yml. An entry in fuzz/dictionaries/<target>.dict is");
+    eprintln!("`name=\"value\"`, escaping only \\\\, \\\" and \\xAB. `just fuzz-smoke` replays what is");
+    eprintln!("committed.");
     Verdict::Fail
 }
 
@@ -276,11 +352,36 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .cloned()
         .collect();
 
+    // Only `<target>.dict` files, the same derivation run-fuzz.sh uses to build its `-dict=`. An
+    // absent directory is not a failure: the dictionaries are an optimisation, not a requirement.
+    let dictionaries_dir = root.join(DICTIONARIES_DIR);
+    let mut names: Vec<String> = std::fs::read_dir(&dictionaries_dir).map_or_else(
+        |_| Vec::new(),
+        |entries| {
+            entries
+                .flatten()
+                .filter(|e| e.path().extension().is_some_and(|x| x == "dict"))
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect()
+        },
+    );
+    names.sort();
+    let mut refused = Vec::new();
+    for name in names {
+        let Ok(dictionary) = std::fs::read_to_string(dictionaries_dir.join(&name)) else {
+            eprintln!(
+                "xtask check-fuzz: {DICTIONARIES_DIR}/{name} is unreadable - a dictionary nothing can check is one libFuzzer may refuse"
+            );
+            return Verdict::Fail;
+        };
+        refused.extend(unparseable_entries(&dictionary).into_iter().map(|line| (name.clone(), line)));
+    }
+
     let bins = declared_bins(&manifest);
     let locked = root.join(LOCK).is_file();
     let aborts = aborts_on_panic(&manifest);
     match matrix_targets(&workflow) {
-        Ok(matrix) => report(&sources, &bins, &seeded, &harnessed, &matrix, locked, aborts),
+        Ok(matrix) => report(&sources, &bins, &seeded, &harnessed, &matrix, &refused, locked, aborts),
         Err(message) => {
             eprintln!("xtask check-fuzz: {message}");
             Verdict::Fail
@@ -310,6 +411,7 @@ mod tests {
             &set(&["sql_expression", "question_body"]),
             &set(&["sql_expression", "question_body"]),
             &set(&["sql_expression", "question_body"]),
+            &[],
             true,
             true,
         );
@@ -324,6 +426,7 @@ mod tests {
             &set(&["sql_expression"]),
             &set(&["sql_expression"]),
             &set(&["sql_expression"]),
+            &[],
             true,
             true,
         );
@@ -338,6 +441,7 @@ mod tests {
             &set(&["sql_expression"]),
             &set(&["sql_expression"]),
             &set(&[]),
+            &[],
             true,
             true,
         );
@@ -352,6 +456,7 @@ mod tests {
             &set(&[]),
             &set(&["sql_expression"]),
             &set(&["sql_expression"]),
+            &[],
             true,
             true,
         );
@@ -367,6 +472,7 @@ mod tests {
                 &set(&["sql_expression"]),
                 &set(&["sql_expression"]),
                 &set(&["sql_expression"]),
+                &[],
                 locked,
                 aborts,
             );
@@ -394,5 +500,70 @@ mod tests {
     #[test]
     fn a_target_is_read_off_its_suffix() {
         assert_eq!("sql_expression.rs".strip_suffix(".rs"), Some("sql_expression"));
+    }
+
+    #[test]
+    fn a_dictionary_libfuzzer_would_refuse_fails() {
+        let verdict = report(
+            &set(&["sql_expression"]),
+            &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
+            &set(&["sql_expression"]),
+            &set(&["sql_expression"]),
+            &set(&["sql_expression"]),
+            &[(String::from("sql_expression.dict"), 17)],
+            true,
+            true,
+        );
+        assert!(verdict == Verdict::Fail, "a dictionary libFuzzer refuses must fail");
+    }
+
+    /// The oracle is a real libFuzzer binary, not this file's reading of libFuzzer's source: every
+    /// row was run through `-dict=` with a one-line dictionary and the verdict recorded.
+    #[test]
+    fn the_shapes_libfuzzer_accepts_and_the_ones_it_refuses() {
+        for accepted in [
+            r#""abc""#,
+            r#"name="abc""#,
+            r#"name = "abc""#,
+            r#"anything before the quote "abc""#,
+            r#"name="ab"cd""#,
+            r#"name="\\""#,
+            r#"name="\"""#,
+            r#"name="\x41""#,
+            r#"date="\x22\\d{4}-\\d{2}-\\d{2}\x22""#,
+        ] {
+            assert!(dictionary_entry_is_parseable(accepted), "libFuzzer accepts {accepted}");
+        }
+        for refused in [
+            "foo",                      // a bare unquoted token
+            r#"""#,                     // one quote
+            r#""a"#,                    // unterminated
+            r#""""#,                    // an empty value
+            r#"name="""#,               // an empty value with a name
+            r#"name="abc" # trailing"#, // a `#` is only a comment at the head of a line
+            r#"name="\q""#,             // not an escape
+            r#"name="\""#,              // a trailing backslash
+            r#"name="\x2""#,            // a short hex escape
+            r#"name="\xZZ""#,           // not hex
+            r#"name="\X41""#,           // the hex marker is lowercase-only
+            r#"open={"\x22"#,           // the two committed lines that cost every scheduled run
+            r#"close=\x22"}"#,
+        ] {
+            assert!(!dictionary_entry_is_parseable(refused), "libFuzzer refuses {refused}");
+        }
+    }
+
+    #[test]
+    fn refused_lines_are_reported_one_indexed_past_comments_and_blanks() {
+        let dictionary = "# a header comment\n\nmetric=\"\\x22metric\\x22\"\nopen={\"\\x22\nclose=\\x22\"}\n";
+        assert_eq!(
+            unparseable_entries(dictionary),
+            vec![4, 5],
+            "the line numbers must be the ones libFuzzer's own error prints"
+        );
+        assert!(
+            unparseable_entries("# only a comment\n\n\tsum=\"SUM(\"\n").is_empty(),
+            "comments, blank lines and a valid entry are not defects"
+        );
     }
 }
