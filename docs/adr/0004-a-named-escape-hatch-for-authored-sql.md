@@ -184,6 +184,144 @@ by construction). The exact failing input is quarantined as the committed seed
 for. None of that changes what a catalog can carry until a pin fixes it - the bound is a control over
 the dependency, not a judgement that authored SQL is ASCII.
 
+**The parser does not return on a parenthesis with no closer, so the fragment is bounded to closed
+parentheses.** Found by the `sql_expression` fuzz target as a 26-byte timeout and reduced to six
+characters, `a.:S1(`: `.:` reads the next word as a custom data type, and the argument loop in the
+pinned `polyglot-sql 0.9.2` `Parser::parse_data_type` breaks only on `check(TokenType::RParen)` -
+which answers `false` at the end of the token stream, while `advance()` past the end returns the
+last token *without* moving the cursor. The loop therefore cannot terminate, and every turn of it
+does `*last = format!("{} {}", last, token.text)`. **One upstream defect, two report shapes:** it
+reads as a timeout while that string is being copied and as an out-of-memory once the string is
+large, and `MAX_DEPTH` cannot see either because no tree is ever built. Under `panic = "abort"`
+unbounded work on an authored fragment is the process never coming back, which on the query surface
+is a denial of service rather than a slow load.
+
+`ExpressionError::UnclosedParenthesis` refuses the enabling condition every scan-to-a-closer loop in
+that parser needs, which is why the bound is on the class rather than on the route the first
+artifact took. **The question is asked of the TOKENS the authoring dialect produces and not of the
+text**, and that is the load-bearing half: a count of `(` against `)` fails open exactly the way the
+comment-delimiter count did, one character class over, because in `mrr_eur.:S1(')'` the two
+characters balance - one `(`, one `)` - while the `)` is a string literal the tokenizer hands over
+as a single token and never as an `RParen`. Asking the tokenizer costs nothing that was not going to
+be spent and has no second scanner to disagree with about dollar-quoting. A `)` with no opener is
+deliberately left to the parser, which errors and returns.
+
+**The construct is the wrong axis, and that is measured rather than argued.** Two more artifacts -
+a second timeout and an out-of-memory, both under 27 bytes - reproduce the same non-return, and all
+three carry `.:`, which invited a bound on the construct instead. `.:` is neither necessary nor
+sufficient on the pinned 0.9.2: `mrr_eur.:S1(9)` parses and returns, so refusing the construct
+would refuse a harmless spelling, while `CAST(mrr_eur AS S1(9` loops with no `.:` in it at all, so
+it would still miss one. `mrr_eur::S1(`, `mrr_eur::DECIMAL(` and `mrr_eur::STRUCT(a` all error and
+return, so an earlier wording here that named `::` beside `CAST` was wrong about that half. Nor is
+the closer's *character* the axis: an unclosed `[`, an unclosed `<`, and both inside a `CAST`, all
+error and return, so what the parser cannot leave is an open parenthesis and nothing else.
+
+The failing inputs are quarantined as the committed seeds
+`fuzz/seeds/sql_expression/unclosed-paren-timeout`, `unclosed-paren-timeout-in-subscript` and
+`unclosed-paren-oom`, byte-identical to their artifacts, so `just fuzz-smoke` replays them on every
+run. **The defect belongs upstream and this does not fix it:** the bound refuses the pathological
+fragment before it reaches that parser, and any other caller of `polyglot-sql` in any other project
+is unaffected by it.
+
+**The bound has no accepted cost of the comment refusal's kind, and an earlier wording here claimed
+one.** It said the guard accepts the same class - a parenthesis inside a string literal, refused for
+being unbalanced in the text - and that is refuted by measurement:
+`SUM(CASE WHEN status = '(' THEN mrr_eur END)` is **accepted**, while the `'--'` spelling of the same
+fragment is refused by the comment guard. Reading the TOKENS is what removes the cost, which is the
+paragraph above's whole point; the comment refusal pays it because it reads TEXT and may not ask the
+tokenizer where a literal ends. What this guard refuses beyond the pathological set is a fragment
+that is text-balanced but token-unbalanced - `mrr_eur.:S1(')'` - and the parse would have rejected
+that anyway. So: a parenthesis inside a string literal is accepted, unlike a comment delimiter
+inside one. The accepted case is asserted, so a repair towards the sentence that used to stand here
+is red rather than stricter - and that assertion is the one the suite did not have. A naive count
+was already caught in the *other* over-refusal direction, by
+`a_fragment_that_escapes_its_own_parentheses_is_refused_naming_a_position` over `SUM(mrr_eur))`, an
+extra CLOSER; what that cell notices is one refusal arriving instead of another, which a
+stricter-but-correct guard could also produce. Nothing held a fragment a count refuses while it is a
+fragment a catalog would really write.
+
+**What the bound does not cover.** It does not reach the defect: a `polyglot-sql` caller that is not
+this module is exposed exactly as before, and a second caller inside this repository would be too.
+It bounds the parenthesis and nothing else, so a future upstream loop scanning for a different
+closer is outside it - none of the bracket and angle spellings above loops today, and that is a
+measurement of one pinned version rather than a property of the parser. And where the fragment does
+not TOKENIZE the guard says nothing at all and the parse it falls through to is what terminates;
+that holds because the parse tokenizes before it descends, which nothing mechanical enforces and no
+cell can prove, since a base tree with no guard returns on those inputs too.
+
+It also asks a DIFFERENT entry point from the one it is guarding, which the wording above hides by
+saying *the tokenizer the parse is about to run*: that is true of the type and not of the call. The
+guard calls `Dialect::tokenize`, which is `Tokenizer::tokenize` over `Token`; the parse goes
+`Dialect::parse` to a private `parse_with_guard` to `Tokenizer::tokenize_for_parser`, the same state
+machine and the same config instantiated over `ParserToken`, behind an input-size check this call
+does not make. What holds their parenthesis depths equal is the dependency's own
+`guard::token_guard_tests`, over one balanced input, comparing the two streams' guard *verdicts*
+rather than the streams - so nothing in this repository holds it.
+
+**And it bounds non-termination, not superlinear work, which is a second class the same target
+found.** A 900 s run on the guarded tree crashed nothing and timed nothing out, and wrote three
+`slow-unit` artifacts of 287, 354 and 388 bytes. **None of them is refused here:** each tokenizes
+with its parentheses balanced, so this guard passes it, and each then reaches the parse and *comes
+back* - with a parse error, after the work is already spent. Measured one input at a time, the parse
+alone in a release build with no sanitizer: **0.79 s, 13.1 s and 14.6 s**, and every figure in this
+section is +-10% run to run because a concurrent build moves it. Through the fuzz harness, which is
+ASan plus sancov, the same three cost 12.7 s, 209.4 s and 224.7 s - a ~16x
+instrumentation factor, and the reason the run's own `slowest_unit_time_sec: 241` is not the number
+a deployment would pay. So ~14 s of parse on a shipped profile is the **measured worst case among
+the recorded artifacts**, and it is emphatically **not a ceiling**: the constructed case below is
+worse in a quarter of the bytes, and inside `MAX_FRAGMENT_LEN` the curve leaves *slow load* behind
+entirely. What the RECORDED three are is a slow load; what the class is, is the first paragraph of
+this section again - unbounded work on an authored fragment - reached by a different route and with
+nothing here refusing it.
+
+Where the time goes is not a guess: every stack in a six-second sample of the slowest artifact is
+inside `polyglot_sql::parser::Parser`, in the precedence chain re-entered through `Parser::parse_if`
+and `Parser::parse_expression_inner`, with no frame of ours below `compile` calling `Dialect::parse`.
+It is re-parsing, not one long loop.
+
+**All three reduce to the same shape, and the shape is `IF`.** Delta-debugged against a
+300 ms predicate they go from 287, 354 and 388 bytes to 70, 66 and 71, and each reduction is a chain
+of roughly seventeen `IF~` pairs with a tail that cannot parse - for instance
+`IF~I~IF~IF~IF~IF~IF~IF+I?{IF+IF~IF+IF~IF~IF~IF~IF~IF~_F~IF%+I?{E|N`. Constructed rather than
+reduced, `("IF~" * k) + "I?{"` doubles per `IF`: 0.004 s at k=12, 0.055 s at 16, 0.76 s at 20,
+3.3 s at 22, **13.8 s at k=24 - and that fragment is 75 bytes**. Two facts make it the `IF` and not
+the chain. The same chain without the failing tail, `("IF~" * 30) + "1"`, parses in under a
+millisecond, because a parse that SUCCEEDS commits instead of backtracking - so the cost is only
+ever paid on a fragment that is going to be refused anyway. And of sixteen words tried in the same
+chain at k=20 - `ABS CASE CAST COALESCE EXISTS EXTRACT IF INTERVAL NOT NULLIF POSITION SUBSTRING SUM
+TRIM TRY_CAST` and a bare identifier - **only `IF` is superlinear**; the other fifteen return in
+under a millisecond.
+
+**No bound is written for it, and that is the decision rather than an omission.** Bounding *slow*
+needs a complexity or work measure and none is available here. Length is refuted, decisively: the
+75-byte fragment above costs 14 s, while `SUM(CASE WHEN status = 'active' THEN mrr_eur ELSE 0 END)`
+- the metric this hatch exists for - is 56 characters, so any length cap that refuses the exploit
+refuses the metric. And `MAX_FRAGMENT_LEN`'s own 1024 characters hold about 340 `IF~` pairs, which
+on the measured doubling is not a wait anybody outlives - arithmetic on a measured curve, and not a
+run. The parser's own `ComplexityGuardOptions` sit far above these inputs -
+`max_tokens` at 1,000,000, `max_ast_depth` and `max_parenthesis_depth` at 512,
+`max_function_call_depth` at 64 - and none counts work per token; `MAX_DEPTH` is asked once the parse
+has already paid. A wall-clock budget is the mechanism that would fit, and the pinned parser offers
+no cancellation point for one: a watchdog could observe the deadline and could not reclaim the
+thread, and under `panic = "abort"` there is nothing to unwind.
+
+**The obvious candidate, and why it is left on the table rather than taken.** This guard already
+holds the token stream, `IF` is not one of the names `Construct::UnknownFunction` allows, and the
+four allowlisted names that contain the letters - `COUNTIF`, `COUNT_IF`, `SUMIF`, `SUM_IF` - carry
+**zero** `If` tokens, measured, while `IF(status, mrr_eur, 0)` carries one. So refusing a fragment
+whose tokens hold `TokenType::If` would cost nothing an author can reach today and would close every
+input above. It is not taken here for one reason: sixteen words is not the keyword set, so it bounds
+the ROUTE this run happened to find and would read as bounding the CLASS - which is the mistake the
+paragraph about `.:` above exists to avoid, and an overstated control is worse than a recorded one.
+Taking it is a behavioural change with its own variant, its own generated page and its own review,
+and the bar is the one this section's guard met: 32 authored fragments with zero over-refusals.
+
+The three inputs are **deliberately not committed as seeds.** `just fuzz-smoke` replays every seed
+in `fuzz/seeds/<target>/` and runs as a pre-commit hook, so a 225 s seed takes that hook from
+seconds to minutes and makes committing unusable. The reduced forms are cheap enough to commit -
+0.2 to 0.3 s each - and are still not committed, because with no bound there is nothing for a
+replay to be a regression against: it would assert that a parse still returns slowly.
+
 ### The fragment is bounded in depth as well as in length
 
 `MAX_FRAGMENT_LEN` bounds the text at 1024 characters and the parser's own `ComplexityGuardOptions`
