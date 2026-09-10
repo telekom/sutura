@@ -240,6 +240,20 @@ struct Opened {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
+    // Closure #3's empty floor, refused at the gate rather than left to the sweep: a refusal gate
+    // whose refused list is empty guards nothing. Measured live - emptying `LEAKY`, `SEALED` and
+    // `SEQUENCE_TRAITS` to `&[]` reported "ok ... 0 sealed witness type(s)" at exit 0, the empty
+    // scan floor not firing because the files were still read. An empty list is a colluding diff,
+    // not a policy, so the gate refuses it. The architecture guard (the diff where an entry or
+    // removal is argued) is the surrounding `const` table; this is the mechanism that notices.
+    if LEAKY.is_empty() || SEALED.is_empty() || SEQUENCE_TRAITS.is_empty() {
+        eprintln!(
+            "xtask check-newtype-leaks: FAILED - a refused list is empty (LEAKY, SEALED, \
+             SEQUENCE_TRAITS); this gate would guard nothing"
+        );
+        return Verdict::Fail;
+    }
+
     let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::NewtypeLeaks)) {
         Ok(listing) => listing,
         Err(why) => {

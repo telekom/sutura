@@ -100,6 +100,44 @@ impl Reads {
     }
 }
 
+/// A hygiene gate's own-rule falsifier: the seed that must make ITS substantive rule fire, and
+/// the in-scope proviso that stops a missing-input or empty-scan refusal being mistaken for it.
+///
+/// `github.com/telekom/sutura#371`. The hole is that the shared guard drives `run()` and judges
+/// only its exit code, so a gate that flips its real Finding `Fail -> Pass` stays green by
+/// refusing on a DIFFERENT arm - an absent input or an empty scan - which #371 can see. The
+/// `falsifier` slot makes the compiler ask the question a test used to be left to answer alone:
+/// a hygiene gate cannot be registered without declaring what proves its own-rule Fail arm.
+/// `crate::falsifier` carries the tree and the sweep that drives it; this is the declaration.
+///
+/// Non-`Option` by design, and for [`Reads`]'s reason on [`Kind::Hygiene`]: a new gate is forced
+/// to answer rather than reminded to. The seed-programme marker [`Falsifier::declared_in_programme`]
+/// is where a gate that has not yet written its own-rule seed lands - the sweep still asserts it
+/// refuses the shared tree (it fails closed), and the programme replaces it gate by gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Falsifier {
+    /// Files to seed into the falsifier tree, each a REAL violation of this one gate's own rule,
+    /// as `(repo-relative path, contents)`. Empty for a gate the shared tree already falsifies
+    /// on its own rule, and for the seed-programme placeholder.
+    pub(crate) seeds: &'static [(&'static str, &'static str)],
+    /// A seeded subject this gate's scan MUST reach, checked by the sweep. A refusal on a tree
+    /// that does not visibly carry the gate's subject is not the own-rule refusal this slot is
+    /// for - it is the absent-input / empty-scan floor #371 names. `None` on the placeholder.
+    pub(crate) in_scope: Option<&'static str>,
+}
+
+impl Falsifier {
+    /// The seed-programme marker. The sweep still asserts the gate refuses the shared tree
+    /// (fails closed rather than going unjudged), but its own-rule seed has not been written.
+    /// Also the value a `Standalone` task carries, which the hygiene sweep never consults.
+    pub(crate) const fn declared_in_programme() -> Self {
+        Self {
+            seeds: &[],
+            in_scope: None,
+        }
+    }
+}
+
 /// A task: the name, the `--help` line, whether it is a hygiene gate, and the code it runs.
 ///
 /// The handler is IN the table, so `--help` and dispatch cannot disagree. They did once - six
@@ -111,9 +149,15 @@ impl Reads {
 /// differed in three of them. `check-guidance` verifies that a NAMED task exists, so it catches
 /// a rename but is blind to an omission: adding a gate and forgetting one of five call sites
 /// was invisible. Now there is one list and the callers ask for it by name.
+///
+/// `falsifier` is here for the reason `Reads` is a payload on `Kind::Hygiene`: `github.com/
+/// telekom/sutura#371` - a gate whose own-rule Fail arm nothing proves is a gate whose green
+/// says nothing. A non-`Option` slot means a new gate does not compile until it answers what
+/// falsifies it. See [`Falsifier`].
 pub(crate) struct Task {
     pub(crate) name: &'static str,
     pub(crate) description: &'static str,
     pub(crate) kind: Kind,
+    pub(crate) falsifier: Falsifier,
     pub(crate) run: Gate,
 }
