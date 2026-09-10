@@ -16,6 +16,8 @@ mod boot_order;
 mod boundaries;
 #[cfg(test)]
 mod cpu_busy;
+#[cfg(test)]
+mod validated_base;
 mod bounded_wait;
 mod branches;
 mod causality;
