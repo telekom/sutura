@@ -2355,6 +2355,8 @@ secret comes into existence.
 
 ### `use None`
 
+### `use None`
+
 ## Module `knowledge`
 
 What a catalog says ABOUT what it defines: the words a question arrives in, the traps a reader
