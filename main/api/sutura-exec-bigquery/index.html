@@ -2584,17 +2584,72 @@ nothing that federates.</p>
 Nothing here quotes what came back: see that variant.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Warehouse</code></p>
-<h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_5"><code>use None</code><a class="headerlink" href="#use-none_5" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_7"><code>use None</code><a class="headerlink" href="#use-none_7" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_8"><code>use None</code><a class="headerlink" href="#use-none_8" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_9"><code>use None</code><a class="headerlink" href="#use-none_9" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_10"><code>use None</code><a class="headerlink" href="#use-none_10" title="Permanent link">&para;</a></h2>
+<h2 id="use-sessionuser"><code>use SessionUser</code><a class="headerlink" href="#use-sessionuser" title="Permanent link">&para;</a></h2>
+<p>An endpoint identity answer whose <code>Debug</code> never renders its contents.</p>
+<p><code>Self::as_str</code> and <code>Display</code> expose the unchanged answer. This is a <code>Debug</code> boundary,
+not a restriction on intentional logging, nor validation or authentication of the identity.</p>
+<h2 id="use-dropped"><code>use Dropped</code><a class="headerlink" href="#use-dropped" title="Permanent link">&para;</a></h2>
+<p>What a DROP answers with: nothing, or why it did not happen.</p>
+<p>Named for the same reason <code>Loaded</code> is - <code>Result&lt;(), FixtureNotLoaded&lt;T::Error&gt;&gt;</code> is over the
+<code>type_complexity</code> threshold this workspace tightened, and the generic error is the point.</p>
+<h2 id="use-fixturenotloaded"><code>use FixtureNotLoaded</code><a class="headerlink" href="#use-fixturenotloaded" title="Permanent link">&para;</a></h2>
+<p>Why a fixture did not reach the dataset.</p>
+<p>Two shapes rather than one, because a defect in a file in this repository and a refusal from the
+endpoint are different problems for whoever reads the failure: the first is fixed in a diff and
+the second is a grant, a quota or a dataset that is not there.</p>
+<h2 id="use-fixturenotusable"><code>use FixtureNotUsable</code><a class="headerlink" href="#use-fixturenotusable" title="Permanent link">&para;</a></h2>
+<p>Why a committed fixture cannot become a table.</p>
+<p>Every variant is a defect in a file in this repository rather than an input to handle, which is
+why none of them carries the offending text: whoever sees one has the file.</p>
+<h2 id="use-loaded"><code>use Loaded</code><a class="headerlink" href="#use-loaded" title="Permanent link">&para;</a></h2>
+<p>What one load answers with: the row count, or why it did not happen.</p>
+<p>Named because <code>Result&lt;usize, FixtureNotLoaded&lt;T::Error&gt;&gt;</code> is over the <code>type_complexity</code> threshold
+this workspace tightened, and for the reason <code>crate::Mapped</code> is named: the generic error is the
+point, and erasing it would lose which transport failed.</p>
+<h2 id="use-stscredential"><code>use StsCredential</code><a class="headerlink" href="#use-stscredential" title="Permanent link">&para;</a></h2>
+<p>One exchanged credential: a Google access token and the instant it stops being usable.</p>
+<p>The deadline is carried beside the token - the whole point of <code>docs/adr/0008</code>'s
+<code>Expiry</code> - so a broker can compute one deadline for the whole
+answer and nothing answers with a token that was already dead.</p>
+<p><strong>No <code>PartialEq</code>/<code>Eq</code>, because it holds a <code>Secret</code></strong> - a derived <code>==</code> on credential material is a
+timing oracle, the same reason the domain's <code>Secret</code> has no comparison.</p>
+<h2 id="use-stsexchange"><code>use StsExchange</code><a class="headerlink" href="#use-stsexchange" title="Permanent link">&para;</a></h2>
+<p>Exchanges one subject's token for a credential to a <code>BigQuery</code> source.</p>
+<p><strong>The narrow port that keeps <code>WorkloadIdentityBroker</code> testable without a network</strong>, for the same
+reason <code>crate::transport::JobTransport</code> exists: everything the broker decides is exercised against
+a fake, and the HTTP exchange is one implementor behind the <code>wire</code> feature. Nothing here takes a
+<code>&amp;Warehouse</code> or a deadline - it is as narrow as a broker's need.</p>
+<h2 id="use-systemclock"><code>use SystemClock</code><a class="headerlink" href="#use-systemclock" title="Permanent link">&para;</a></h2>
+<p>The wall clock: the shipping <code>UnixClock</code>.</p>
+<p>What <code>WorkloadIdentityBroker::empty</code> hands a composition root, so wiring a served deployment
+takes no clock argument and a test that wants a fixed instant says so through
+<code>WorkloadIdentityBroker::measured_against</code>.</p>
+<p><strong>Not the only ambient time read on this path, and the distinction is the control's limit.</strong>
+<code>crate::wire::StsOverHttp::exchange</code> reads its own clock to turn the provider's <code>expires_in</code>
+into the deadline this floor then judges. So the floor's COMPARISON is deterministic; the path
+it judges still has two clock reads in it, milliseconds apart in production and not the same
+instant.</p>
+<h2 id="use-unixclock"><code>use UnixClock</code><a class="headerlink" href="#use-unixclock" title="Permanent link">&para;</a></h2>
+<p>Where this broker reads "now" for its expiry floor.</p>
+<p><strong>A port for the same reason <code>StsExchange</code> is one.</strong> Everything this broker DECIDES is
+exercised against a fake, and the floor is one of the things it decides - so an ambient
+<code>SystemTime::now()</code> inside <code>WorkloadIdentityBroker::mint</code> would make the outcome of every
+broker-level test a function of the day it ran on. The instant is an input instead, and
+<code>A_FIXED_NOW</code> in this file's suite records what that bought.</p>
+<p><strong>The narrower shape this is NOT.</strong> Every other time-dependent API in this workspace takes the
+instant as a parameter - <code>Expiry::passed_by</code>, <code>LegCredentials::still_usable_at</code>,
+<code>Minted::agreeing_with</code>, <code>crate::wire::AccessTokens::bearer</code> - and that is the better shape. It
+is unavailable here because <code>CredentialBroker::mint</code> is a DOMAIN port signature carrying no
+instant, and widening it reaches ten implementors across eight crates. A held clock is what an
+adapter can do alone; the parameter is the follow-up.</p>
+<h2 id="use-workloadidentity"><code>use WorkloadIdentity</code><a class="headerlink" href="#use-workloadidentity" title="Permanent link">&para;</a></h2>
+<p>The setup one impersonating source needs from the settings tree, minus the borrowing.</p>
+<p>Carried here rather than as a reference into configuration because an adapter may not depend on
+the settings tree. The composition root constructs one of these per source from the parsed
+declaration, which has already refused a value that is not usable.</p>
+<h2 id="use-workloadidentitybroker"><code>use WorkloadIdentityBroker</code><a class="headerlink" href="#use-workloadidentitybroker" title="Permanent link">&para;</a></h2>
+<p>A broker that mints a per-subject credential for impersonating sources and a declared witness for
+shared ones.</p>
 <h2 id="module-transport">Module <code>transport</code><a class="headerlink" href="#module-transport" title="Permanent link">&para;</a></h2>
 <p>The one thing this adapter needs from a <code>BigQuery</code> endpoint, as a port.</p>
 <p><strong>Why there is a port here at all, when the adapter is already behind one.</strong> <code>Warehouse</code> is the
@@ -3238,12 +3293,56 @@ the credential source refreshes through - one connection pool, one set of pins, 
 <code>JobBounds</code> shared by the socket timeout and the request body.</p>
 <h4 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>JobTransport</code></p>
-<h3 id="use-none_11"><code>use None</code><a class="headerlink" href="#use-none_11" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_12"><code>use None</code><a class="headerlink" href="#use-none_12" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_13"><code>use None</code><a class="headerlink" href="#use-none_13" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_14"><code>use None</code><a class="headerlink" href="#use-none_14" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_15"><code>use None</code><a class="headerlink" href="#use-none_15" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_16"><code>use None</code><a class="headerlink" href="#use-none_16" title="Permanent link">&para;</a></h3>
+<h3 id="use-bytesbilledceiling"><code>use BytesBilledCeiling</code><a class="headerlink" href="#use-bytesbilledceiling" title="Permanent link">&para;</a></h3>
+<p>The most a single job may be billed for scanning.</p>
+<p><strong>Sent as <code>maximumBytesBilled</code>, which is enforced at the service and is what makes it worth
+more than a client-side check.</strong> A job that would exceed it FAILS and is not charged. Nothing else
+in this repository bounds bytes scanned: <code>LIMIT 10001</code> bounds rows RETURNED, the one-page refusal
+bounds a page, and <code>MAX_ANSWER_BYTES</code> bounds what is read into memory - a question can satisfy
+all three and still scan a partitioned table end to end.</p>
+<h3 id="use-calldeadline"><code>use CallDeadline</code><a class="headerlink" href="#use-calldeadline" title="Permanent link">&para;</a></h3>
+<p>The instant one call into this transport has to be finished by.</p>
+<p><strong>One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
+that distinction is the correction this type exists to carry.</strong> The previous shape put
+<code>timeout_global</code> on the agent, so EVERY request through it got the full budget independently: a
+single <code>crate::transport::JobTransport::run</code> does a token exchange and then a job, and both were allowed
+<code>deadline + CONNECT_MARGIN</code> of their own. A review measured the consequence at the answer level -
+four HTTP operations, each with its own budget, against a transport whose own request timeout is
+thirty seconds - and the five-second overrun this module claimed was false.</p>
+<p>So the budget is opened once per call and every operation gets only what is LEFT of it: the token
+exchange, the socket the job waits on, and the <code>timeoutMs</code> and <code>jobTimeoutMs</code> the request carries -
+which is what keeps the service cancelling at the instant the client stops waiting even when the
+exchange spent half the budget first. When nothing is left, the refusal comes before the send.</p>
+<p><strong>A monotonic <code>std::time::Instant</code> and not a wall clock</strong>, because a wall clock can step and a
+stepped deadline is either a job abandoned early or one that outlives its caller.</p>
+<p><strong>The limit, and it is the half this type cannot reach:</strong> one ANSWER calls the port twice -
+<code>Warehouse::dry_run</code> and then <code>Warehouse::execute</code> - and neither <code>Warehouse</code> nor <code>crate::transport::JobTransport</code>
+takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
+<code>CALLS_PER_ANSWER</code> budgets rather than one, which is exactly why
+<code>QueryDeadline::within_request_timeout</code> exists: it does that arithmetic once so a composition root
+cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
+signature tweak.</p>
+<h3 id="use-jobbounds"><code>use JobBounds</code><a class="headerlink" href="#use-jobbounds" title="Permanent link">&para;</a></h3>
+<p>What every job this adapter submits is bounded by.</p>
+<p>Two bounds in one value, because they are one decision: <em>how much of a deployment's time and money
+may one question spend</em>. A struct rather than two arguments so a call site cannot supply one and
+forget the other, and so <code>super::WireAgent</code> can carry them both.</p>
+<h3 id="use-querydeadline"><code>use QueryDeadline</code><a class="headerlink" href="#use-querydeadline" title="Permanent link">&para;</a></h3>
+<p>How long a job may run, and how long the client waits for its answer.</p>
+<p><strong>A newtype rather than a constant, because the value belongs to the deployment.</strong> The setting that
+decides it is the one the transport in front of this service already uses -
+<code>server.request_timeout_seconds</code>, which ships as 30 - and a constant in this file would be a second
+copy of it that drifts the day somebody changes the first.</p>
+<p><strong>It is a SHARE of that setting rather than the setting itself</strong>, which review had to point out:
+one answer makes <code>Self::CALLS_PER_ANSWER</code> calls and each pays <code>CONNECT_MARGIN</code> on top of its
+own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
+running. <code>Self::within_request_timeout</code> is the constructor that does the division, and it is the
+one a composition root should reach for; <code>Self::parse</code> stays for a deployment stating a budget
+outright.</p>
+<h3 id="use-unusablebound"><code>use UnusableBound</code><a class="headerlink" href="#use-unusablebound" title="Permanent link">&para;</a></h3>
+<p>Why a bound this adapter was handed is not usable.</p>
+<h3 id="use-stsoverhttp"><code>use StsOverHttp</code><a class="headerlink" href="#use-stsoverhttp" title="Permanent link">&para;</a></h3>
+<p>An <code>StsExchange</code> that talks to Google STS over HTTP.</p>
 <h3 id="module-bounds">Module <code>bounds</code><a class="headerlink" href="#module-bounds" title="Permanent link">&para;</a></h3>
 <p>What one job may spend: the TIME bound, the MONEY bound, and the per-call budget they are
 charged against.</p>

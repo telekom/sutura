@@ -2709,18 +2709,99 @@ defined here, generic in the adapter's error, rather than six times per binding.
 unconditionally passes every census, which is what <code>tests/bound.rs</code>'s fault half is for. And
 the floor is a FLOOR: it is not the tier's cost, it says nothing about another adapter's cells,
 and no gate reads it - see <code>Spent</code> for why each of those is deliberate.</p>
-<h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
+<h2 id="use-sutura_domain"><code>use sutura_domain</code><a class="headerlink" href="#use-sutura_domain" title="Permanent link">&para;</a></h2>
 <p>The domain, re-exported so <code>execute_packs</code> can name the port without the consuming crate
 having to depend on <code>sutura-domain</code> under that spelling.</p>
 <p>A <code>macro_rules!</code> body resolves item paths at the EXPANSION site, so a bare <code>sutura_domain::</code> in
 the expansion would compile only for a consumer that happens to have that dependency under that
 name. <code>$crate::sutura_domain</code> always resolves.</p>
-<h2 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_5"><code>use None</code><a class="headerlink" href="#use-none_5" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
+<h2 id="use-fixture"><code>use Fixture</code><a class="headerlink" href="#use-fixture" title="Permanent link">&para;</a></h2>
+<p>An adapter's fixture, or the reason this venue could not stand one up.</p>
+<p><strong>The type every binding's <code>open</code> path returns, and it is the mechanism rather than a
+convention.</strong> <code>crate::execute_packs</code> used to call <code>open</code> for a <code>W</code>, so an adapter whose data system
+may not be reachable here had exactly one option - panic in its fixture - and therefore could
+not be bound at all: <code>sutura-exec-postgres</code> was registered in the golden matrix and carried the
+one declared exemption in <code>cargo xtask check-conformance-bindings</code> for precisely that reason
+(<code>telekom/sutura#348</code>).</p>
+<p><strong>What the return type buys, stated exactly, because the sentence that stood here read wider
+than the mechanism.</strong> It forces a VALUE, not a question: <code>Fixture::standing(connect().unwrap())</code>
+asks nothing and PANICS, which is loud and fail-closed; <code>Fixture::Absent(Missing::tier(s, &amp;".."))</code>
+asks nothing and is silent in the two venues named in this module's header. So what a binding
+cannot do is leave the two cases unconsidered - a fixture returning <code>W</code> does not compile - and
+what it can still do is answer either one dishonestly. That is one line, in a file whose whole
+content is a fixture and a declaration, and the diff is where it is read.</p>
+<h1 id="why-this-is-not-an-crateoutcome-which-is-the-distinction-the-design-turns-on">Why this is not an <code>crate::Outcome</code>, which is the distinction the design turns on<a class="headerlink" href="#why-this-is-not-an-crateoutcome-which-is-the-distinction-the-design-turns-on" title="Permanent link">&para;</a></h1>
+<p><code>crate::Outcome::Declined</code> is a statement about the ADAPTER - <em>this adapter cannot do that</em>, carrying
+a typed <code>crate::Declination</code>. An absent tier is a statement about the ENVIRONMENT. Collapsing the two
+would make a green run over an absent Postgres indistinguishable from a green run against one,
+which is the failure mode the packs were built against. So the two are reported under different
+words (<code>crate::hold</code> prints <code>DECLINED</code>, <code>crate::not_here</code> prints <code>NOT RUN</code>) and decided at different
+levels: a declination comes out of a pack that RAN, and an absence stops the pack running.</p>
+<h1 id="what-it-does-not-establish">What it does NOT establish<a class="headerlink" href="#what-it-does-not-establish" title="Permanent link">&para;</a></h1>
+<p>See this module's header: nothing here can tell an absence that was DISCOVERED from one that was
+merely declared, and the reason the harness cannot is a dependency rule that has its own gate.</p>
+<h2 id="use-missing"><code>use Missing</code><a class="headerlink" href="#use-missing" title="Permanent link">&para;</a></h2>
+<p>Why this venue could not stand a fixture up. <strong>About the environment, never about the adapter.</strong></p>
+<p>Typed rather than a message, for the reason every refusal in this workspace is: a reader that
+matched on the text would be depending on the text. One variant today - a second arrives with
+the first adapter whose absence is not a tier, and cloud state a run cannot create is the shape
+that asks for it. It arrives WITH that adapter rather than ahead of it, because a variant
+nothing constructs is a claim nothing provokes, and this crate has paid for one of those already
+(<code>crate::Fault::EmptyCorpus</code>, which needed a seam before it was reachable at all).</p>
+<h2 id="use-require_tier"><code>use REQUIRE_TIER</code><a class="headerlink" href="#use-require_tier" title="Permanent link">&para;</a></h2>
+<p>The variable a provisioner sets when it has brought a tier up, spelled here as well.</p>
+<p><strong><code>sutura_dev::requirement::FORCE</code>'s name, duplicated, and the duplication is PINNED rather than
+hoped about.</strong> This crate may not take <code>sutura-dev</code> through a normal dependency -
+<code>xtask/src/boundaries/harness.rs</code> holds it to <code>sutura-domain</code> alone - so the name and its
+truthiness are spelled twice, and two statements about one fact can disagree.
+<code>tests/bound.rs</code>'s <code>the_requirement_this_harness_reads_is_the_one_the_provisioner_writes</code> is the
+mechanism that keeps them equal: it takes <code>sutura-dev</code> as a DEV-dependency, which that gate
+permits by design (what may not happen is a pack BODY compiled against something, and a pack
+body is <code>src/</code>), and compares both halves against <code>FORCE</code> and <code>requirement::decide</code>.</p>
+<h2 id="use-a_tier_is_required"><code>use a_tier_is_required</code><a class="headerlink" href="#use-a_tier_is_required" title="Permanent link">&para;</a></h2>
+<p>Whether an absent tier is a failure here, decided over the VALUE rather than the environment.</p>
+<p>Over the value for the reason <code>sutura_dev::requirement::decide</code> is: an environment read is not
+testable across a threaded runner, and this is the half a test has to be able to compare.</p>
+<p><strong>The falsy spellings are a COPY and the owner is <code>sutura_dev::requirement::NOT_REQUIRED</code></strong>,
+because that crate cannot be reached from here through a normal dependency. The copy is not
+held by the eye: <code>tests/bound.rs</code> iterates the owner's list, so a spelling added there fails
+this crate's own cell until this line agrees. Review found the version before that - a fixed
+array of eleven values chosen HERE - and named the scenario: add <code>"off"</code>, the obvious next
+spelling for a variable people set by hand, and <code>SUTURA_DEV_REQUIRE_TIER=off</code> means <em>optional</em>
+to <code>provisioned::here</code>, which skips, and <em>required</em> here, which then refuses the absence that
+skip produced.</p>
+<h2 id="use-absence_is_impossible"><code>use absence_is_impossible</code><a class="headerlink" href="#use-absence_is_impossible" title="Permanent link">&para;</a></h2>
+<p>Whether a DECLARED absence is a defect here rather than a skip.</p>
+<p><strong>Pure, over the value, because the alternative is not available and would be wrong anyway.</strong>
+<code>unsafe_code</code> is <code>forbid</code> across this workspace and <code>std::env::set_var</code> is <code>unsafe</code> on Rust
+2024, so a test cannot manipulate the environment here at all - and
+<code>sutura_dev::requirement</code>'s own tests refuse to do it for the second reason, which is that it
+races across a threaded runner. So the decision is a value every caller passes down from
+<code>declared_here</code>, which is what lets <code>tests/bound.rs</code> provoke the refusal end to end, message
+included, in both endings and in either direction.</p>
+<p><strong>An exhaustive <code>match</code> and not a <code>matches!</code>, and the difference is the whole of this claim.</strong>
+<code>REQUIRE_TIER</code> is a statement about TIERS, so the variant that arrives for cloud state a run
+cannot create has to decide its own direction - and a <code>matches!</code> gave it one by omission:
+<code>false</code>, silently, with <code>cargo check --all-features</code> exit 0. That is this branch's own hole
+reopened one adapter later and inside the venue this crate says is closed - a fixture answering
+<code>Absent(Cloud)</code> without asking anything, in <code>checks.nextest</code>, which sets the variable. Measured
+with the refusal absent: <code>21 tests run: 21 passed</code>, the only tell printed lines nobody diffs.</p>
+<p>With the <code>match</code> a new variant does not compile until somebody writes its arm, so the fail-open
+direction cannot be chosen by not looking. <strong>No test asserts that and none can</strong> - a compile
+error is not an outcome libtest has - so the evidence is the mutation, re-taken on 2026-09-06:
+adding a <code>Missing::Cloud</code> variant made <code>just lint</code> fail with
+<code>E0004</code> - a pattern for the new variant not covered - at this arm, where the same mutation
+against the <code>matches!</code> version was exit 0.</p>
+<h2 id="use-declared_here"><code>use declared_here</code><a class="headerlink" href="#use-declared_here" title="Permanent link">&para;</a></h2>
+<p>What this venue declared about tiers, read from the environment.</p>
+<p><strong>The only environment read in this crate, and everything below it takes the VALUE.</strong> That is
+what makes the reporters testable at all, and it was measured rather than reasoned about: with
+the read inside <code>not_here</code> and <code>census</code>, <code>just validate</code> refused two of THIS crate's own cells -
+<code>checks.nextest</code> provisions the Postgres tier and sets the variable, and a fake absence in a
+fake venue is indistinguishable from a fabricated one. <code>unsafe_code</code> is <code>forbid</code> across this
+workspace and <code>std::env::set_var</code> is unsafe on Rust 2024, so no test can turn it off either. So
+the macro reads it once per cell and hands it down, which is also the shape
+<code>sutura_dev::requirement::decide</code> chose for the same reason.</p>
 <h2 id="type_alias-conformed"><code>type_alias Conformed</code><a class="headerlink" href="#type_alias-conformed" title="Permanent link">&para;</a></h2>
 <p>What one behaviour of one pack answers.</p>
 <h2 id="macro-compile_packs"><code>macro compile_packs</code><a class="headerlink" href="#macro-compile_packs" title="Permanent link">&para;</a></h2>
@@ -3090,14 +3171,14 @@ asks nothing and is silent in the two venues named in this module's header. So w
 cannot do is leave the two cases unconsidered - a fixture returning <code>W</code> does not compile - and
 what it can still do is answer either one dishonestly. That is one line, in a file whose whole
 content is a fixture and a declaration, and the diff is where it is read.</p>
-<h1 id="why-this-is-not-an-crateoutcome-which-is-the-distinction-the-design-turns-on">Why this is not an <code>crate::Outcome</code>, which is the distinction the design turns on<a class="headerlink" href="#why-this-is-not-an-crateoutcome-which-is-the-distinction-the-design-turns-on" title="Permanent link">&para;</a></h1>
+<h1 id="why-this-is-not-an-crateoutcome-which-is-the-distinction-the-design-turns-on_1">Why this is not an <code>crate::Outcome</code>, which is the distinction the design turns on<a class="headerlink" href="#why-this-is-not-an-crateoutcome-which-is-the-distinction-the-design-turns-on_1" title="Permanent link">&para;</a></h1>
 <p><code>crate::Outcome::Declined</code> is a statement about the ADAPTER - <em>this adapter cannot do that</em>, carrying
 a typed <code>crate::Declination</code>. An absent tier is a statement about the ENVIRONMENT. Collapsing the two
 would make a green run over an absent Postgres indistinguishable from a green run against one,
 which is the failure mode the packs were built against. So the two are reported under different
 words (<code>crate::hold</code> prints <code>DECLINED</code>, <code>crate::not_here</code> prints <code>NOT RUN</code>) and decided at different
 levels: a declination comes out of a pack that RAN, and an absence stops the pack running.</p>
-<h1 id="what-it-does-not-establish">What it does NOT establish<a class="headerlink" href="#what-it-does-not-establish" title="Permanent link">&para;</a></h1>
+<h1 id="what-it-does-not-establish_1">What it does NOT establish<a class="headerlink" href="#what-it-does-not-establish_1" title="Permanent link">&para;</a></h1>
 <p>See this module's header: nothing here can tell an absence that was DISCOVERED from one that was
 merely declared, and the reason the harness cannot is a dependency rule that has its own gate.</p>
 <h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>

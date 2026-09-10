@@ -2483,17 +2483,119 @@ not domain.</p>
 </span></code></pre></div>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
-<h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_5"><code>use None</code><a class="headerlink" href="#use-none_5" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_7"><code>use None</code><a class="headerlink" href="#use-none_7" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_8"><code>use None</code><a class="headerlink" href="#use-none_8" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_9"><code>use None</code><a class="headerlink" href="#use-none_9" title="Permanent link">&para;</a></h2>
-<h2 id="use-none_10"><code>use None</code><a class="headerlink" href="#use-none_10" title="Permanent link">&para;</a></h2>
+<h2 id="use-dialect"><code>use Dialect</code><a class="headerlink" href="#use-dialect" title="Permanent link">&para;</a></h2>
+<p>The data systems a statement can be rendered for.</p>
+<p>A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
+here is a claim that we generate correct SQL for it and have a golden that says so. Adding one is
+a feature flag, a match arm and a snapshot.</p>
+<h2 id="use-placeholderstyle"><code>use PlaceholderStyle</code><a class="headerlink" href="#use-placeholderstyle" title="Permanent link">&para;</a></h2>
+<p>How a bind parameter is written.</p>
+<h2 id="use-construct"><code>use Construct</code><a class="headerlink" href="#use-construct" title="Permanent link">&para;</a></h2>
+<p>A construct an authored fragment may not contain, and why.</p>
+<p>Every variant is a refusal a compile can produce, and the reason is carried with it rather than
+left in a design document: a refusal that names a construct without saying why sends an author to
+read this file.</p>
+<h2 id="use-expressionerror"><code>use ExpressionError</code><a class="headerlink" href="#use-expressionerror" title="Permanent link">&para;</a></h2>
+<p>Why an authored expression could not be compiled.</p>
+<p><strong>All of these are load failures.</strong> A catalog that produces one does not serve; there is no
+degraded mode in which the metric is skipped and the rest is answered, because a metric that is
+present in a bundle and unanswerable is a metric an agent will ask about.</p>
+<p><strong>Four of them cannot be produced by any fragment, and each says so on itself rather than here:</strong>
+<code>Self::Qualify</code>, <code>Self::Unrenderable</code>, <code>Self::Render</code> and <code>Self::RenderedDoesNotParse</code>
+each need a defect in the dialect layer, and <strong>not the same defect</strong> - which is why the argument
+is on the variant and not summarised here. <code>Self::Qualify</code> needs that layer's own transformer to
+violate one of its own invariants; <code>Self::Unrenderable</code> and <code>Self::Render</code> are ruled out by
+construction, because this module's caps sit under the layer's complexity guard and no dialect
+configuration raises its unsupported level; and <code>Self::RenderedDoesNotParse</code> is <strong>not</strong> ruled
+out by construction at all - it is the load-time net for a generator that emits text its own
+parser rejects, which is the reason it is a check here rather than a test. They exist
+because the calls they wrap return a <code>Result</code> and this crate may not <code>unwrap</code> one, and what is
+pinned about them is the wiring - the fields, and that the cause survives <code>#[source]</code> - not a
+refusal a catalog can provoke. <code>tests::the_four_refusals_only_a_dialect_layer_defect_can_produce</code>
+is that test, and it is named for what it is so that nobody reads it as coverage of an input.</p>
+<p><strong>Every field is the value, never prose about it</strong>, and that is this enum's one shape rule. The
+dialect word a refusal is about is a <code>DialectTag</code> and not a <code>String</code>, because that is what every
+construction site already holds; the two refusals that name a <em>set</em> carry the set rather than a
+sentence built from it. A caller that wants the sentence gets it from <code>Display</code>, and a caller that
+wants the list has it - where before, recovering "which dialects was this authored for" meant
+splitting a message on <code>", "</code>, which is a contract nothing checks and a format edit breaks.</p>
+<h2 id="use-compiledexpression"><code>use CompiledExpression</code><a class="headerlink" href="#use-compiledexpression" title="Permanent link">&para;</a></h2>
+<p>An authored expression, compiled for every dialect this build renders for.</p>
+<p>Complete by construction: <code>compile</code> returns one of these only when every entry in
+<code>crate::dialect::ALL</code> resolved and rendered. So there is no per-query moment at which a target
+turns out to have no expression - that failure has already happened, at load, naming the dialect.</p>
+<h2 id="use-rendering"><code>use Rendering</code><a class="headerlink" href="#use-rendering" title="Permanent link">&para;</a></h2>
+<p>One authored fragment, compiled for one dialect.</p>
+<p><code>authored_for</code> is the traceability half and is not cosmetic: with a <code>portable</code> fragment and a
+<code>clickhouse</code> one in the same metric, "which one did this statement use" is otherwise a question
+answered by re-deriving the resolution rule in your head.</p>
+<h2 id="use-compile"><code>use compile</code><a class="headerlink" href="#use-compile" title="Permanent link">&para;</a></h2>
+<p>Compiles an authored expression for every dialect this build renders for.</p>
+<p><code>columns</code> is the metric's own model's declared column set and <code>table</code> its table. Both are
+required rather than optional, which is the decision worth writing down: <strong>an unknown column
+fails the load.</strong> Wren's cube path does not check them - its own documentation tells the agent to
+expect a runtime error from the warehouse - while its model path does, through a schema-driven
+AST rewrite. The model path is right. A metric whose fragment names a column that does not exist
+is broken whether or not anybody asks about it, and the difference between finding out at load
+and finding out at query time is the difference between a refusal an operator can fix and a stack
+trace an agent shows a user.</p>
+<h2 id="use-generateerror"><code>use GenerateError</code><a class="headerlink" href="#use-generateerror" title="Permanent link">&para;</a></h2>
+<p>Why a statement could not be rendered.</p>
+<p>Not a refusal: a caller cannot cause one of these and there is nothing they could ask
+differently. A plan that will not render is a bug here or upstream.</p>
+<h2 id="use-generate"><code>use generate</code><a class="headerlink" href="#use-generate" title="Permanent link">&para;</a></h2>
+<p>Renders a plan as one statement, paired with its parameters.</p>
+<h2 id="use-generate_key_probe"><code>use generate_key_probe</code><a class="headerlink" href="#use-generate_key_probe" title="Permanent link">&para;</a></h2>
+<p>Renders one declared join key's uniqueness probe as one statement.</p>
+<p><strong>Two counts over one column of one table, and nothing else.</strong> <code>COUNT(col)</code> beside
+<code>COUNT(DISTINCT col)</code> is the whole question a <code>many_to_one</code> declaration can be contradicted by,
+and the pair is equal exactly when the declaration holds. There is no <code>WHERE</code>, no <code>GROUP BY</code>, no
+<code>HAVING</code> and no <code>LIMIT</code>: the declaration is unconditional, so a probe carrying a filter would
+answer a narrower question than the one the join path spends.</p>
+<p><strong>No parameter, and nothing from a question.</strong> A <code>DeclaredKey</code> is built out of a pinned
+bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
+returned <code>GeneratedQuery</code> carries an empty parameter list rather than one this could fill.</p>
+<p><strong>No key value is projected</strong>, which is the same decision the answer type makes and for the same
+reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
+source data copied into a sink nobody scoped for it.</p>
+<p>Shared with <code>generate</code> and <code>generate_leg</code>: <code>qualified</code>, <code>aliased</code>, <code>table_path</code> and
+<code>render</code>, so identifier quoting, column qualification and path depth cannot be one thing here
+and another there. The two aliases are <code>sutura-domain</code>'s constants rather than this crate's
+literals, so the label an adapter reads the count back under is the label the statement asked
+for.</p>
+<h2 id="use-generate_leg"><code>use generate_leg</code><a class="headerlink" href="#use-generate_leg" title="Permanent link">&para;</a></h2>
+<p>Renders one leg of a federated question as one statement, paired with its parameters.</p>
+<p><strong>Four differences from <code>generate</code>, and each of them is why a second entry point exists rather
+than a flag on the first.</strong></p>
+<ol>
+<li><strong>It projects a LIST of term columns</strong>, one per descending term, instead of one measure
+   expression. That is the whole of 0009's Decision 2 at the rendering layer: a decomposed <code>Avg</code>
+   travels as a sum beside a count and a ratio travels as an undivided numerator and denominator,
+   so nothing here can emit a division. It never calls <code>measure_expression</code>, and it could not -
+   there is no <code>PlanMeasure</code> in a <code>LegPlan</code> to hand it.</li>
+<li><strong>The bucket and the joins are the fact leg's alone.</strong> A dimension lookup reads a table with
+   no time column, so it projects its keys and groups by them, which is a distinct key set.</li>
+<li><strong>It emits no <code>LIMIT</code>.</strong> A leg is not an answer:
+   <code>sutura_domain::plan::MAX_ROWS</code> caps one answer's rows and
+   <code>QueryPlan::row_limit</code> is how an adapter asks for one more than the cap, so a cap applied per
+   leg would refuse a question no answer was too large for. What bounds a leg is the byte budget
+   at the conversion boundary, which belongs with the code that converts.</li>
+<li><strong>The <code>WHERE</code> clause is optional.</strong> A <code>QueryPlan</code> always carries the two bounds of its range
+   so <code>GenerateError::NoPredicate</code> is unreachable there; a lookup leg for a remote dimension
+   that carries no filter has no predicate at all, and no clause is the correct rendering rather
+   than an error.</li>
+</ol>
+<p>Everything else is shared with <code>generate</code> on purpose - <code>column</code>, <code>aliased</code>, <code>aggregate</code>,
+<code>term_expression</code>, <code>predicate</code>, <code>bucket_expression</code>, <code>joined</code> and <code>render</code> - so a
+change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
+path and not the other.</p>
+<p><strong>Nothing a RELEASE runs calls this</strong>, and the reason is worth stating precisely because it used
+to read <em>there is no splitter</em>: there is one - <code>sutura_semantic::federated_plan</code> - and
+<code>sutura-exec-duckdb</code> calls this from a leg it was handed. What no release does is link an adapter
+that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+which builds a logical plan instead. So what pins this is the golden family under
+<code>crates/sutura-app/tests/golden</code>, one statement per shape per dialect, parse-checked in the
+dialect it was generated for - and none of those four is what a release executes.</p>
 <h2 id="module-dialect">Module <code>dialect</code><a class="headerlink" href="#module-dialect" title="Permanent link">&para;</a></h2>
 <p>Which data system a statement is rendered for, and the two things we do not delegate.</p>
 <p>The dialect layer we build on knows more about dialects than we do: it renders <code>DATE_TRUNC</code> as

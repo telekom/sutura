@@ -2556,7 +2556,10 @@ cancels a question already inside the pool - see <code>server</code> and #160.</
 <p><code>NotServed::Handshake</code> if the client never completes <code>initialize</code>, and
 <code>NotServed::Interrupted</code> if the task driving the session did not finish - a panic, or a runtime
 shutting down underneath it.</p>
-<h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
+<h2 id="use-agentsurface"><code>use AgentSurface</code><a class="headerlink" href="#use-agentsurface" title="Permanent link">&para;</a></h2>
+<p>The agent-facing surface over one <code>Surface</code>.</p>
+<p>Holds the service behind an <code>Arc</code> because a tool call is answered on the blocking pool, so the
+port has to outlive the future that started the call.</p>
 <h2 id="module-server">Module <code>server</code><a class="headerlink" href="#module-server" title="Permanent link">&para;</a></h2>
 <p>The handler: <code>tools/list</code>, <code>tools/call</code>, and the three channels a caller has to be able to tell
 apart.</p>
@@ -2977,10 +2980,23 @@ becomes somebody else's input.</p>
 <p>The sentence. A test asserts it is not empty; nothing asserts its wording.</p>
 <h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Serialize</code></p>
-<h3 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h3>
+<h3 id="use-catalogcontent"><code>use CatalogContent</code><a class="headerlink" href="#use-catalogcontent" title="Permanent link">&para;</a></h3>
+<p>What this deployment measures, as the catalog tool's structured content.</p>
+<p><strong>A second wire type beside <code>sutura_http::wire::CatalogBody</code>, with the same fields, and that is
+the same deliberate cost <code>super::AskArgs</code> already pays.</strong> An adapter never calls another adapter, so
+this crate cannot import that shape; what keeps the two equal is review plus the fact that both
+are built from the one <code>sutura_domain::pinned::PinnedDefinitions</code> accessor set, which is where a
+missing field would show up as a missing call rather than as a silent divergence.</p>
+<p>Descriptive content only. <code>sutura_domain::pinned::SemanticCatalog::load</code> takes no request context
+and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
+returns: it is the <em>pinned</em> bundle, the same one every answer is computed from.</p>
+<h3 id="use-describecatalogargs"><code>use DescribeCatalogArgs</code><a class="headerlink" href="#use-describecatalogargs" title="Permanent link">&para;</a></h3>
+<p>This tool takes no arguments. It returns the whole of what this deployment measures, and there is
+nothing to filter or select: send an empty object.</p>
+<h3 id="use-dimensioncontent"><code>use DimensionContent</code><a class="headerlink" href="#use-dimensioncontent" title="Permanent link">&para;</a></h3>
+<p>One dimension of one metric.</p>
+<h3 id="use-metriccontent"><code>use MetricContent</code><a class="headerlink" href="#use-metriccontent" title="Permanent link">&para;</a></h3>
+<p>One metric, as much of it as a caller needs to ask a valid question.</p>
 <h3 id="module-catalog">Module <code>catalog</code><a class="headerlink" href="#module-catalog" title="Permanent link">&para;</a></h3>
 <p>The catalog tool's wire shape: what <code>describe_catalog</code> takes, what it answers, and the text half
 of that answer.</p>
