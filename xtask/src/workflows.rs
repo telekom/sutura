@@ -100,6 +100,13 @@ mod codegen;
 // holds nothing about resolution, cache writes or badges. See its header for what it cannot hold.
 mod cross_link;
 
+// IS A `with:` KEY AN INPUT THE ACTION DECLARES? A key an action does not declare is a log
+// warning and then the action's DEFAULT - `path:` to an action whose input is `paths:` cached
+// `/nix` on twenty-one runs with every gate green. Its own file for `sast`'s reason, and the seam
+// is the question: this one holds a step's KEYS against a committed record of each pinned sha's
+// declared inputs, `devco/action-inputs`. See its header for what it cannot hold.
+mod with_keys;
+
 // READING A NAMED BLOCK OUT OF `flake.nix`, in its own file because this one reached the
 // 1000-line cap the moment two changes registered a rule module in the same window. The seam is
 // the question, not the line count: that module answers *which attributes does this block
@@ -382,6 +389,24 @@ fn check_gates(
         eprintln!("and a push to `main` builds all four; that split lives in one inline ternary in");
         eprintln!("cross-link.yml. A gate that holds it keeps `cannot silently run 4 on a PR` true");
         eprintln!("instead of merely written beside it - see xtask/src/workflows/cross_link.rs.");
+        return Some(Verdict::Fail);
+    }
+
+    // IS EVERY `with:` KEY REAL? The runner does not fail on a key an action does not declare - it
+    // warns once and uses the default, so the step reads as configured while the value a reviewer
+    // wrote is discarded. Held against `devco/action-inputs`, fail-closed on an action the record
+    // does not name and on a ref that is not a sha.
+    let keys = with_keys::problems(root);
+    if !keys.is_empty() {
+        eprintln!("xtask check-workflows: FAILED - {} `with:` key rule(s) broken\n", keys.len());
+        for problem in &keys {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A `with:` key an action does not declare is a warning on the runner and then that");
+        eprintln!("action's default - green step, green job, discarded value. Record each pinned sha's");
+        eprintln!("declared inputs in devco/action-inputs (its header carries the refresh procedure),");
+        eprintln!("or fix the key - see xtask/src/workflows/with_keys.rs.");
         return Some(Verdict::Fail);
     }
     None

@@ -36,8 +36,8 @@ mod credential;
 mod principal;
 
 pub use crate::identity::credential::{
-    Agreed, BoundToTheRequest, CredentialBroker, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest, Expiry,
-    LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
+    Agreed, AssertionDigest, BoundToTheRequest, CredentialBroker, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest,
+    Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
 };
 pub use crate::identity::principal::{
     Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, TaskId,

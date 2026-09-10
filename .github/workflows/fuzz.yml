@@ -97,7 +97,7 @@ jobs:
         with:
           scope: fuzz
 
-      # The compiled fuzz harness is a RUNTIME cargo build into `target/fuzz` (`nix/run-fuzz.sh`
+      # The compiled fuzz harness is a RUNTIME cargo build into `target/fuzz` (`nix/fuzz.nix`
       # sets `CARGO_TARGET_DIR`), not a nix store path, so the store cache above cannot carry it.
       # `cargo fuzz` compiles the nightly + ASan dependency graph cold in minutes, on every run.
       # Cache the target dir across pushes to `main` so a push that keeps the same dependency graph

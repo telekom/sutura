@@ -60,6 +60,11 @@ use crate::identity::{InvalidPrincipalId, Secret};
 use crate::model::SourceName;
 use crate::source::{SharedIdentityDeclared, SourcePosture};
 
+/// The digest-only sibling of [`Secret`]: a correlation-safe fingerprint, in its own file so its
+/// definition and mutation tests live inseparable (see [`assertion_digest`]).
+mod assertion_digest;
+pub use assertion_digest::AssertionDigest;
+
 /// A name a data system knows a principal by, for the posture where a session is switched to it.
 ///
 /// **Not a [`Secret`], and that is a statement rather than an omission.** A role or service-account
