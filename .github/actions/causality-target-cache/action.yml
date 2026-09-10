@@ -5,9 +5,38 @@
 # `apps.default-feature-tests`) share ONE writable target dir - `target/causality-target` - into
 # which `nix/cargo-env.nix`'s `cargoWarmStart` unpacks the store-only `ciArtifacts` closure. Only
 # those unpacked bytes are cache-substituted; every actual rust recompile happens in that writable
-# dir and was never persisted, so causality went cold (14 s -> 180 s) and the default-set ~1/3-graph
-# recompile was paid on every run. Measured in `agent://MeasureTail`: persisting it is the one lever
-# that removes both.
+# dir, and persisting it is what this entry is for.
+#
+# THE INPUT IS `paths`, PLURAL, AND `path:` WAS SILENTLY IGNORED FOR AS LONG AS IT STOOD.
+# `nix-community/cache-nix-action` declares no `path` input at the pinned sha, and the runner said
+# so - `##[warning]Unexpected input(s) 'path', valid inputs are ['primary-key',
+# 'restore-prefixes-first-match', ..., 'paths', 'paths-macos', 'paths-linux', ...]` - on the
+# restore step AND the post/save step of run `34470757484`. The pin never moved, so that warning
+# was on every run this action ever made, and nobody read it. With the input dropped the action
+# took its own default (`nix: true` makes the path list `["/nix"]`), so this entry held A SECOND
+# COPY OF THE NIX STORE and never held the target dir at all. Measured on run `34470757484`:
+# 3,164,321,181 bytes saved under the causality key in 19.5 s, in a run whose store-cache save was
+# itself skipped on a primary-key hit - a duplicate multi-gigabyte entry per dependency generation.
+# Run `34464339590` printed the other half, `hit on this dependency generation; ...; 0 MB on disk`:
+# a hit carrying nothing. That is the shape the witness below now refuses.
+#
+# `nix: false` IS THE OTHER HALF OF THE FIX, not a tidy-up. The plural input is APPENDED to the
+# default rather than replacing it - `paths = (nix ? ["/nix"] : []).concat(<input>)`, read in the
+# pinned action's own `dist/restore/index.js` and again in `dist/save/index.js`, which its `paths`
+# description also states. So the correct spelling ALONE would still have cached the whole store.
+#
+# WHAT THE FIRST VERSION OF THIS HEADER CLAIMED, AND WHAT IS MEASURED INSTEAD. It asserted a
+# `14 s -> 180 s` causality swing as the problem this action solves. Both halves are corrected:
+#
+#   * THE SWING SURVIVED THE CHANGE. `Test causality` on `main` still ran 176 s (run
+#     `34450156778`) and 179 s (`34429887129`) after this action shipped, against 14-19 s on most
+#     runs - which follows, since nothing was ever persisted.
+#   * AND THE SWING IS NOT EVIDENCE ABOUT THIS CACHE EITHER WAY. The fast runs are fast because
+#     the gate COMPILES NOTHING: `34470757484` answered `NOT MECHANICALLY SEPARABLE` in 15 s, while
+#     `34450156778` reached `ok - red on base, green on head` and paid two builds. A cold target
+#     dir is not what separates them, and no run has measured one verdict warm against cold. So
+#     what persisting the dir buys is UNMEASURED, and the witness below is what will first say
+#     whether an entry is carried at all.
 #
 # WHY THE SAME KEY THE STORE USES. The entry's own stamp is the mechanism, not the cache key
 # matching: `cargoWarmStart` writes the `cargoArtifacts` store path into
@@ -21,6 +50,13 @@
 #   - a source-only change leaves the key alone, the restore HITS with a matching stamp, and the
 #     warm start skips the unpack - the previous run's recompile survives and is reused. That is
 #     the whole saving.
+#
+# THE KEY PREFIX CARRIES A SHAPE VERSION (`-v2`) for exactly one reason. An entry written before
+# the fix above holds `/nix` and not the target dir, and its key is otherwise IDENTICAL - so
+# restoring one would be a primary-key hit over an empty target dir, which is the witness's own
+# refusal fired over a correct tree. The version segment makes those entries unreachable instead of
+# arguing about them. Both digests are untouched, so nothing the paragraph above says about
+# invalidation moves.
 #
 # The two spellings are otherwise deliberate copies of the store action: `restore-prefixes-first-match`
 # gives the lockfile-moving push a fallback to the newest prior generation, `save:` gates the write
@@ -46,18 +82,48 @@ runs:
       with:
         # The writable dir alone carries the recompile; `CARGO_HOME` holds only a config that
         # points at the vendored closure the store serves, so it is deliberately not cached.
-        path: target/causality-target
-        primary-key: causality-target-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('flake.nix', 'nix/**', 'devco/rust-toolchain-nightly.toml', '.cargo/config.toml', '**/Cargo.toml') }}
+        # PLURAL, and `nix: false` beside it - see the header: the singular is not an input, and
+        # with `nix: true` this list is appended to `["/nix"]` rather than replacing it.
+        paths: target/causality-target
+        nix: false
+        primary-key: causality-target-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('flake.nix', 'nix/**', 'devco/rust-toolchain-nightly.toml', '.cargo/config.toml', '**/Cargo.toml') }}
         restore-prefixes-first-match: |
-          causality-target-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-
-          causality-target-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-
+          causality-target-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-
+          causality-target-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-
         save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-    # THE WITNESS, THE SAME SHAPE AS THE STORE'S - IT REPORTS AND NEVER FAILS.
+    # THE WITNESS: IT REPORTS A COLD CACHE AND REFUSES A RESTORE THAT CARRIED NOTHING.
     #
-    # A cold cache is legitimate on the first run of a generation, so a reddening step is inverted
-    # logic; this prints a miss and carries on, and reports the persisted dir size so a reader can
-    # tell an entry being carried from one too small to help.
+    # A MISS is legitimate on the first run of a dependency generation, so it prints and carries on
+    # - reddening on a cold cache is inverted logic, which `nix-store-cache`'s own witness header
+    # argues at length and this step keeps.
+    #
+    # `restored && 0 MB` IS A DIFFERENT SHAPE AND NOT A WEAKER ONE, which is why this one step both
+    # reports and refuses. The action says it restored an entry for this key and the directory that
+    # key names is empty: that cannot be a cold start, so it is a broken cache - the entry holds
+    # something other than what the key claims, or the paths it was saved under are not the paths
+    # this job reads. It is the exact shape the `path:` defect produced: `0 MB on disk` on every
+    # run, and on a run where an entry survived long enough to be restored the whole line -
+    # `hit on this dependency generation; ...; 0 MB on disk`, run `34464339590` - with nothing
+    # reading it. This is the mechanism that would have caught it; without it the fix is a claim.
+    #
+    # AND IT IS NOT THE SHAPE THAT WAS DELETED FOR BEING UNSOUND. `xtask/src/workflows/publication.rs`
+    # records a witness job removed because it grepped a job LOG, where a refusal and prose
+    # describing one are the same bytes. This reads the action's own `hit` output and a `du` of the
+    # directory the key names - two things a log cannot forge.
+    #
+    # Held over BOTH restore legs (`hit` is a primary-key hit or a prefix match), because an older
+    # generation that restored zero bytes is the same defect.
+    #
+    # WHY NO LEGITIMATE ENTRY CAN BE EMPTY, which is what stops this reddening correct work. The
+    # tail apps that build into this dir are all `if: steps.classify.outputs.rust == 'true'`, so a
+    # docs-only push to `main` restores here and never creates the directory - and the save then
+    # writes NOTHING rather than an empty entry: the pinned action's own save path throws
+    # `Path Validation Error: Path(s) specified in the action for caching do(es) not exist, hence
+    # no cache is being saved.`, and `saveImpl` catches it into `logWarning` and returns, so the
+    # step is green and no entry exists. The next run therefore MISSES, which passes. Read in
+    # `dist/save/index.js` at the pinned sha; if a future version starts saving an empty path
+    # instead, this refusal is what will say so, on the run after.
     - name: What the causality-target cache carried
       shell: bash
       env:
@@ -68,7 +134,17 @@ runs:
         WRITES: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       run: |
         set -eu
-        mb="$(du -sm target/causality-target 2>/dev/null | cut -f1 || echo 0)"
+        # A GUARD RATHER THAN `du ... | cut -f1 || echo 0`, because that fallback's `||` binds to
+        # the PIPELINE and so depends on a flag THIS SCRIPT DOES NOT SET. Measured on an absent
+        # directory: `bash --noprofile --norc -e -o pipefail` gives `0` (the runner's own
+        # invocation for `shell: bash`, so that is what CI has been reading), and the same line
+        # under `-e` alone gives the EMPTY STRING - after which the refusal below would read
+        # `[: : integer expected`, exit 2 and not fire. The refusal needs a number whatever the
+        # caller's shell flags are, so the number is produced here instead of inherited.
+        mb=0
+        if [ -d target/causality-target ]; then
+          mb="$(du -sm target/causality-target | cut -f1)"
+        fi
         if [ "$HIT_PRIMARY" = "true" ]; then
           restore="hit on this dependency generation"
         elif [ "$HIT" = "true" ]; then
@@ -90,3 +166,10 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
         printf 'causality-target-cache(%s): %s; %s; %s MB on disk\n' \
           "$SCOPE" "$restore" "$write" "$mb"
+        # NO BACKTICKS AND NO `$` IN THIS MESSAGE: it is single-quoted, and ShellCheck's SC2016
+        # refuses a backtick there (`just lint-actions` reddened on the first spelling of it).
+        if [ "$HIT" = "true" ] && [ "$mb" -eq 0 ]; then
+          printf 'causality-target-cache(%s): RED - an entry was restored for this key and target/causality-target holds 0 MB.\n' "$SCOPE" >&2
+          printf 'A restore carrying no bytes is a broken cache, not a cold one. Check that the paths input (plural) still names the dir this job builds in, that nix is still false, and read this step for an "Unexpected input(s)" warning from the runner.\n' >&2
+          exit 1
+        fi
