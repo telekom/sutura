@@ -109,189 +109,963 @@ next to it. **On a platform that will not report that number, notably macOS, no 
 and `WorkingSetCeiling::checked_against` is what lets the startup log say which of the two
 happened rather than implying the check was run.
 
-## `use None`
+## `use ApiSettings`
 
-## `use None`
+Whether the generated documentation surface is served.
 
-## `use None`
+## `use CatalogKind`
 
-## `use None`
+Which adapter the catalog configuration names, and therefore which one opens it.
 
-## `use None`
+**A closed set of typed declarations, `crate::sources::SourceKind`'s shape on the metadata
+side.** A DATA source's adapter is chosen by `SourceKind` and dispatched by the composition
+root's exhaustive match with no wildcard arm; a METADATA source has exactly the same need, and
+until this type existed the settings tree carried a directory and a version and no word an
+operator could write to say *read the model from somewhere else* - so a second catalog kind
+could merge complete and silently remain unreachable from any binary.
 
-## `use None`
+Two variants today. `Self::Datahub` says which and why, the way `SourceKind::BigQuery` does for
+data systems: the vocabulary is the vocabulary of adapters this repository has, and an adapter
+that exists in a record rather than in a linked crate is still a word an operator might write.
 
-## `use None`
+## `use CatalogSettings`
 
-## `use None`
+Where the definitions and the data are, and what the resulting bundle is called.
 
-## `use None`
+Each catalog carries a declared NAME, the way a `sources:` entry carries an alias: the
+contribution manifest keys on it, and a reviewer reads it in a settings file. It is named by
+code and not by index so that reordering the list does not silently rename a contributor.
 
-## `use None`
+## `use Catalogs`
 
-## `use None`
+The catalogs a deployment declares, in declaration order.
 
-## `use None`
+**A non-empty, ordered collection, and the empty member is unrepresentable.** Composition -
+the point of having N - is the metadata assembler in `sutura-app`; this type is the declared
+configuration it is handed. Order is declaration order, which is content order: the contribution
+manifest is a `BTreeMap` keyed on each entry's `CatalogSettings::name`, so this ordering is
+what a reviewer reads and manifest determinism does not depend on it surviving a rename.
 
-## `use None`
+## `use InvalidCatalogSettings`
 
-## `use None`
+Why a catalog configuration is not usable.
 
-## `use None`
+## `use UnknownCatalogKind`
 
-## `use None`
+The configured word did not name a kind of catalog this build has.
 
-## `use None`
+## `use StaticCredentialBroker`
 
-## `use None`
+Mints from what an operator declared, and nothing else.
 
-## `use None`
+Holds one entry per source declared `shared-service-user`, carrying that source's acknowledgement
+witness. A source declared `impersonation-at-source` is deliberately **absent**: there is no
+static credential that could execute as an asking subject, and an entry that pretended otherwise
+would be the fallback this port exists to remove.
 
-## `use None`
+**Built from the DECLARATION and never from an adapter.** `docs/adr/0008` part 4 requires that a
+broker produce the shared shape only for a source configured shared, and the check that catches a
+broker which did not is the adapter's own exhaustive match on what it received. Those two are only
+an independent pair if they read different things: this reads the settings tree, and the adapter
+holds what the composition root handed it. A broker that read the posture off the adapter would
+make that check compare a value against itself.
 
-## `use None`
+## `use StaticCredentialsUnusable`
 
-## `use None`
+A defect in this broker itself, which no configuration reaches.
 
-## `use None`
+**Stated rather than unwrapped, and the reason is worth a line.** The one thing minting can fail
+on is `LegCredentials::minted` refusing a set that does not cover the sources it was asked about -
+and this broker builds its map from that same set, one entry per source it was asked about, so the
+check cannot fire here. It is still answered for rather than unwrapped: `unwrap_used` is denied,
+and a panic on this path would be process death under `panic = "abort"` for a case a type already
+describes. Nothing in this crate's suite can provoke it, and that is said here rather than left
+for a reader to assume it is covered.
 
-## `use None`
+## `use Environment`
 
-## `use None`
+A deployment kind.
 
-## `use None`
+Ordered from most permissive to least, which is also the order the refusals in
+`crate::Settings` tighten in.
 
-## `use None`
+## `use UnknownEnvironment`
 
-## `use None`
+The string was not one of the three.
 
-## `use None`
+Carries what it found, because the whole point of the type is that a typo fails loudly, and
+a failure that does not quote the typo makes the operator guess which of the three spellings
+they got wrong.
 
-## `use None`
+## `use InboundIdentity`
 
-## `use None`
+How the identity of a caller reaches this deployment. Printed at startup, per deployment.
 
-## `use None`
+A closed enum with a required key, in the shape
+`TlsTermination` already uses here - and for the same reason
+`Environment` is a parsed enum rather than a string with a fallback: the value that decides a
+posture must not be satisfiable by silence.
 
-## `use None`
+## `use InvalidAlgorithms`
 
-## `use None`
+Why a pinned algorithm list is not one.
 
-## `use None`
+## `use InvalidInboundValue`
 
-## `use None`
+Why a value in an inbound-identity declaration is not one.
 
-## `use None`
+One error for every newtype in this module, because they are one parse with different
+vocabularies: the same five things can be wrong about each of them, and three hand-written copies
+of that list is three things to keep in step.
 
-## `use None`
+**No variant quotes the whole value back.** A resource identifier is not a credential, but an
+issuer URL and a header name are both deployment topology, and this crate's own rule is that an
+error carries the typed context and not a rendering of the input. A position is what an operator
+needs to find the character; the character itself is often the one that draws nothing.
 
-## `use None`
+## `use IssuerUrl`
 
-## `use None`
+Where the tokens this deployment accepts are minted.
 
-## `use None`
+Compared against the `iss` claim, byte for byte, for the reason `ResourceIdentifier` is: an
+issuer is a configured string on both sides and normalising ours would make it disagree with
+theirs.
 
-## `use None`
+## `use KeyFamily`
 
-## `use None`
+Which kind of key verifies a `SigningAlgorithm`.
 
-## `use None`
+Here rather than left implicit because **a pinned set spanning two families is a set that can
+verify nothing**, and finding that out from a `401` is expensive. One key set holds keys of
+whatever kinds the issuer publishes; one *token* is verified by one key with one algorithm, and
+the validator this feeds refuses a permitted-algorithm list whose family disagrees with the key
+it looked up. So the mixed list is refused at startup instead - see `PinnedAlgorithms::parse`.
 
-## `use None`
+## `use KeySetFile`
 
-## `use None`
+Where the signing keys are read from.
 
-## `use None`
+**A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
+endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
+its own failure mode - `docs/adr/0014` says plainly that the authorization server becomes a hard
+runtime dependency and that an outage there must stay distinguishable from a dead data system.
+None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
+when a key id is not in it, and that refetch is rate limited - and every one of those properties
+is the same whether the source is a file a sidecar rewrites or an endpoint. See
+`sutura_http::inbound::keys`.
 
-## `use None`
+## `use PinnedAlgorithms`
 
-## `use None`
+The algorithms this deployment will accept, all of one family and at least one.
 
-## `use None`
+Non-emptiness and single-family-ness are both structural: the first link lives in its own field,
+which is the shape `sutura_domain::identity::ActorChain` already uses for the same reason - there
+is no state of this type that means "nothing is permitted", so nothing downstream has to check.
 
-## `use None`
+## `use ProofHeader`
 
-## `use None`
+The header a transit proof arrives in.
 
-## `use None`
+Lower case, because that is what HTTP/2 puts on the wire and what a header map is keyed on here -
+so folding it at construction is what makes a configured `X-Transit` and an arriving `x-transit`
+the same header rather than a lookup that silently misses.
 
-## `use None`
+## `use ProofLifetime`
 
-## `use None`
+The longest lifetime a transit proof may declare.
 
-## `use None`
+**A server-chosen ceiling on somebody else's token**, and the reason it exists is that
+`docs/adr/0014` calls a transit proof *short-lived* while the lifetime is entirely the fronting
+component's to choose. Review demonstrated a proof with `exp` ten years out being accepted, and
+accepted again on a replay of the identical token. So the deployment declares what it will call
+short-lived, and a proof claiming more is refused.
 
-## `use None`
+Bounded above because a ceiling of a year is not a ceiling. Bounded below by one second, because a
+zero would refuse every proof - a way of turning the mode off that reads like a tuning value.
 
-## `use None`
+## `use RequiredTokenType`
 
-## `use None`
+Which class of token this deployment will accept, out of the `typ` header.
 
-## `use None`
+**Two variants because the check has to be switchable and must not be switchable by silence.** The
+finding it answers is cross-JWT substitution: without it, any JWT the issuer signed with this
+audience verifies, an OIDC ID token included whenever the resource identifier equals the client id.
+So `Self::Exactly` is the default in the `direct` mode - RFC 9068's `at+jwt` - and turning it off
+is a value an operator writes, `any`, which the startup log prints at `WARN`.
 
-## `use None`
+There is no `Option<TokenType>` here, for the reason `docs/adr/0014` gives about `mode`: an absent
+value reads as "not configured yet" at every call site, and the one thing that has to be legible is
+whether a deployment decided to accept every class of token.
 
-## `use None`
+## `use ResourceIdentifier`
 
-## `use None`
+What this deployment calls itself when it validates an audience.
 
-## `use None`
+**This is the security decision in `docs/adr/0014` given a type.** A token is accepted only if
+its audience matches this value. A client may also *ask* its authorization server for a token
+scoped to this resource - RFC 8707's resource indicator - and that is welcome and is an
+optimisation: it makes the token narrower before it ever arrives. It is never what makes the
+token safe. The check is ours, it is unconditional, and it is not skippable when the client sent
+no indicator.
 
-## `use None`
+## `use SigningAlgorithm`
 
-## `use None`
+A signature algorithm this deployment will accept.
 
-## `use None`
+**No `none` and no `HS*`, and their absence is the enforcement.** Algorithm confusion is the
+classic direct-validation defect and it is silent when it works: a token signed with `HS256`
+using the issuer's *public* key as the HMAC secret verifies, if the validator will accept a
+symmetric algorithm. There is no variant here that could.
 
-## `use None`
+## `use TokenLocation`
 
-## `use None`
+Where the token being validated arrives.
 
-## `use None`
+Two variants because the two modes put it in two places, and neither is a preference: an OAuth
+2.1 client puts its access token in `Authorization: Bearer` and has no option to do otherwise,
+while a fronting component sets a header of its own and would collide with the deployment bearer
+token if it used that one. `ProofHeader::parse` refuses `authorization` for exactly that reason.
 
-## `use None`
+## `use TokenRequirement`
 
-## `use None`
+The whole validation this deployment performs, borrowed out of whichever mode is configured.
 
-## `use None`
+**A view and not a second configuration surface.** There is no constructor: the only way to one
+of these is `InboundIdentity::requirement`, so the validator cannot be handed a requirement
+that does not correspond to a declaration an operator wrote and this crate refused or accepted.
 
-## `use None`
+## `use TokenType`
 
-## `use None`
+A `typ` header value this deployment will accept on a token.
 
-## `use None`
+**The type that closes cross-JWT substitution**, which is the finding it exists for: without a
+`typ` check, *any* JWT the issuer signed with this audience verifies - and an OIDC ID token has the
+same issuer and, whenever the resource identifier equals the client id, the same audience. That is
+the ordinary identity-provider arrangement, so the substitution is not exotic. A verified ID token
+would establish a caller from a document minted to describe a login rather than to authorize an API
+call.
 
-## `use None`
+RFC 9068 section 4 requires `at+jwt` for the JWT access-token profile. RFC 8725 section 3.12 is the
+wider rule and the reason this is configurable rather than hard-coded: an issuer using another
+profile still has to give a deployment *some* way to distinguish token classes mechanically, and
+which way that is is the deployment's fact rather than ours.
 
-## `use None`
+# What normalisation happens, and why exactly this much
 
-## `use None`
+Case is folded and a leading `application/` is stripped, both at construction. RFC 7515 section
+4.1.9 says `typ` is a media type and that the `application/` prefix **may be omitted**, so
+`at+jwt`, `AT+JWT` and `application/at+jwt` are three spellings of one value - and a comparison
+treating them as three would refuse tokens that are correct. This is deliberately the opposite
+decision from `ResourceIdentifier`, where nothing is normalised: an audience is an opaque string
+an operator and an issuer configured identically, and a media type is a value a registry defines.
 
-## `use None`
+## `use TransitProof`
 
-## `use None`
+What a fronting component has to prove on every request.
 
-## `use None`
+Every field is a validation input, and that is the point of the type: there is no field here that
+holds an asserted identity. See this module's documentation for why.
 
-## `use None`
+## `use InvalidQuota`
 
-## `use None`
+Why a pair of numbers is not a quota.
 
-## `use None`
+## `use Quota`
 
-## `use None`
+A sustained rate and the burst allowed above it.
 
-## `use None`
+Both non-zero: a quota of zero requests per second is a closed door, which is what
+`enabled: false` says properly, and a zero burst is a limiter that rejects the first request
+of every idle period.
 
-## `use None`
+## `use RateLimitSettings`
 
-## `use None`
+Both tiers, the switch, and what a bucket is keyed on.
 
-## `use None`
+The switch is separate from the numbers on purpose. A deployment that turns limiting off is
+making a decision, and it should be one word in a file rather than a quota set so high it
+never fires - which reads as a configured limit and is not one.
 
-## `use None`
+**The switch itself has no fixed default; it follows `crate::Environment`.** Off on a laptop,
+because a limiter that fires while somebody is iterating is a bug report about sutura that is
+really a bug report about the tier; on in production, because that is the deployment an
+unbounded caller costs something. The same shape as `telemetry.format` and `api.docs`, including
+the recorded flag - see `Self::enabled_default_for`.
 
-## `use None`
+**Not `Copy`, and that is the trusted-proxy list.** It is a `Vec`, so this group is cloned
+rather than copied and the accessors borrow. Every call site is inside the assembled router,
+once, at startup.
+
+## `use CatalogProse`
+
+Whether the catalog's own prose is quoted into the prompt.
+
+The word an operator writes. The type that does the work is
+`sutura_app::prompt::CatalogProse`, and the split is the one
+`LogFilter` already uses: this crate parses what was written down,
+and the crate that acts on it owns the type that acts.
+
+## `use InstructionsFile`
+
+Where the operator's own prompt text lives.
+
+A newtype rather than a `PathBuf` so the one thing that can be wrong about it is wrong in one
+place. The field is private and `Self::parse` is the only way in.
+
+## `use InvalidPromptSettings`
+
+Why the prompt configuration is not usable.
+
+## `use PromptSettings`
+
+Everything that goes into the prompt beyond the pinned bundle and the tool list.
+
+## `use UnknownCatalogProse`
+
+The word was neither spelling.
+
+## `use Cidr`
+
+An address or a block of them, as an operator writes it.
+
+`10.0.0.0/8` or a bare `10.0.0.7`, in either address family. A bare address is a block whose
+prefix covers every bit, so there is one shape to match against rather than two.
+
+## `use ClientAddressSource`
+
+Where the address a request is counted against comes from.
+
+## `use InvalidTrustedProxy`
+
+Why a string is not an address block.
+
+## `use TrustedProxies`
+
+The peers whose forwarded header this service will believe.
+
+**Empty by default, and the emptiness is the safe posture rather than an unset value.** With
+nothing in the list the peer address is the key, which is correct for a service with no proxy
+in front. It becomes non-empty only when an operator names the hop.
+
+## `use UnknownClientAddressSource`
+
+The configured value did not name a source.
+
+## `use AdmissionTimeout`
+
+How long a question may wait for one of those slots.
+
+Bounded because the alternative is a queue nothing empties. Shorter than the request timeout by
+default, on purpose: a caller who has waited five seconds for a slot is better served by a
+`503` they can retry than by a `408` twenty-five seconds later that says the same thing less
+clearly.
+
+## `use EngineWorkers`
+
+How many threads the in-process engine's own runtime gets.
+
+Resolved to a number at load time rather than kept as "whatever the machine has", so the value
+in the startup log is the value in effect. An absent key follows
+`std::thread::available_parallelism`; a present one wins, which is what a container with a CPU
+quota needs - `available_parallelism` reports what the kernel exposes, and on most container
+runtimes that is the host's core count rather than the cgroup's share.
+
+## `use QueryConcurrency`
+
+How many questions may be executing at once.
+
+Not how many may be *in flight*: a request waiting for a slot, parsing a body or writing a
+response is not counted. This is the number of questions holding a blocking-pool thread and a
+data system, which is the resource that runs out.
+
+## `use RuntimeSettings`
+
+Everything about how much runs at once and how the process stops.
+
+## `use ShutdownGrace`
+
+How long stopping may take, once stopping has been asked for.
+
+Chosen against the deadline on the other side rather than as a round number. An orchestrator
+sends a termination signal and starts a kill timer - the usual window is thirty seconds - and a
+process still running when that expires is killed mid-answer, so whatever it would have done on
+the way out does not happen. Fifteen seconds leaves room for the exit itself.
+
+It bounds the *whole* of stopping and not the connection drain alone. The drain gets the budget
+first; what is left of it is what the runtime will wait for a blocking task it cannot cancel.
+See `sutura_runtime::Shutdown::remaining_grace`.
+
+## `use WorkingSetCeiling`
+
+How many bytes the engine's operators may reserve at once, across the whole process.
+
+**This is the bound that did not exist, and its absence was process death.** Nothing constructed
+a `RuntimeEnv`, so the engine installed its unbounded memory pool: a hash join or an aggregate
+wide enough to outgrow the machine allocated until the allocator failed, and shipped profiles
+compile `panic = "abort"`, so that is not an error for the caller who asked - it is the process
+ending for every caller in flight. A bounded pool turns it into a reservation that fails, which
+leaves as `RefusalReason::ResourcesExhausted`.
+
+# What it counts, and what it does not
+
+The pool counts what the engine's own operators reserve - a hash-join build side, aggregate
+state, a sort - and nothing else. **Not** what a driver buffers before conversion, **not**
+`collect()` materialising every batch, **not** the row set built while a result is converted into
+domain rows. So this is not a bound on the process's memory and must not be read as one: a
+question large enough to end the process on one of those paths still ends it. The bound that
+reaches those is a byte budget applied as rows are converted, which
+`docs/adr/0009-the-plan-from-one-source-to-many.md` puts with the execution boundary rather than
+here.
+
+# Global, and no per-source override
+
+There is one combiner and one working set, so a per-source ceiling would be a number with nothing
+to bound - and 0009 decides that a source declaration carrying one is **refused at parse rather
+than ignored**, because a setting that silently does nothing is worse than a missing one.
+`deny_unknown_fields` on every on-disk shape is the mechanism, and the test that provokes it is in
+`crate::settings`. **The deadline is the bound that takes a per-source override; this one does
+not**, and the two are decided separately on purpose.
+
+# Never spill
+
+Decided rather than defaulted, and the second reason is what settles it. A refusal the caller sees
+beats a degraded answer it cannot; and spilling writes the *asking subject's rows* to the pod's
+local disk, an ungoverned data-at-rest surface, on the one path whose whole purpose is that a
+query runs as the person who asked. So no spill directory and no disk sizing - the adapter builds
+its runtime with temporary files disabled, and `sutura_exec_datafusion::WorkingSet` is where that
+is written down.
+
+# A provisional number
+
+`Self::DEFAULT_BYTES` is a gibibyte and nobody has measured it. It is a starting point recorded
+as one, not a finding.
+
+## `use available_memory_bytes`
+
+How many bytes this process can actually reach, when the platform will say.
+
+**Three sources, smallest wins**, because they answer three different questions and the binding
+one is whichever is tightest:
+
+1. `/sys/fs/cgroup/memory.max` - the cgroup v2 limit, and the number that matters in a container.
+2. `/sys/fs/cgroup/memory/memory.limit_in_bytes` - the same under cgroup v1, where "unlimited" is
+   a sentinel near `u64::MAX` rather than a word, which is why taking the minimum with the
+   machine total is what disarms it rather than a comparison against the sentinel.
+3. `MemTotal` in `/proc/meminfo` - the machine, for a process with no cgroup limit.
+
+**`None` on any platform that has none of these, and that is a limit on the claim rather than a
+fallback.** macOS is such a platform: nothing here reads `sysctl`, so a laptop makes no boot check
+at all and an over-configured ceiling there starts and dies later. The shipped artifacts are Linux,
+which is where the check has to hold - and `WorkingSetCeiling::checked_against` is what lets the
+startup log say which of the two happened rather than implying the check was made.
+
+It reads files and cannot fail: an unreadable or unparsable source contributes nothing rather than
+refusing to start, because the expensive failure here is a deployment that will not boot on a
+kernel laid out differently, and the cheap one is a boot check that did not run and said so.
+
+## `use AccessToken`
+
+A pre-shared secret a caller presents to reach the service.
+
+The configured token is reduced to its SHA-256 digest at parse and nothing else is retained, so
+the whole settings tree can be written to the startup log with `Debug` and the token cannot
+come out with it. `Debug` prints a placeholder for the same reason `Secret`'s does.
+
+**Not comparable with `==`.** `AccessToken` implements no `PartialEq`: a derived comparison on
+credential material returns on the first differing byte, which is a timing oracle at whatever
+call site adds it. The comparison lives here instead, once, as
+`AccessToken::matches_in_constant_time`.
+
+## `use DeploymentIdentity`
+
+Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
+from.
+
+**Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
+
+*Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
+There is no per-request identity to establish, so a shared source is correct for **everything** -
+the one user reads all, by design, and the configured credential is that user's own.
+`examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
+
+*Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
+and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
+
+# It is declared and never derived, and the derivation that was on offer is unsound
+
+The tempting derivation is "every source shared means single-user, any source impersonating means
+multi-user". It fails in exactly the configuration that most needs the check: a genuinely
+multi-tenant deployment whose sources are *all* shared derives to single-user, and the
+acknowledgement is required in multi-user mode only - so the derivation would exempt from the
+acknowledgement the one deployment where every caller reads every source as somebody else's
+identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
+a field out.
+
+So there is **no `Default`**, no derivation, and a deployment that configures a source without
+declaring the mode does not boot -
+`NotFitToServe::DeploymentIdentityUndeclared`.
+The refusal is keyed on a source being configured rather than raised unconditionally, and that is
+not a softening: a deployment with no source configured cannot answer anything, and the composition
+root refuses it on the catalog naming a source with no declaration - so every deployment that can
+serve a question has to declare the mode.
+
+# What flipping the mode does
+
+It re-evaluates every source. A single-user deployment legitimately holds every source under one
+static credential; the same file in multi-user mode serves every one of those sources to every
+caller as one identity. The mode is an input to the whole check rather than to an incremental view
+of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
+
+# The variant names are not the configured words, and that is deliberate
+
+A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
+spellings, and they are the vocabulary
+[a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
+5a names. The variants are named for the *property each mode decides* instead, because
+`SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
+that survived that say more: what changes between the two is whether credentials are static
+configuration or a subject arrives per request.
+
+## `use InvalidAccessToken`
+
+Why a string is not usable as an access token.
+
+## `use InvalidDeploymentIdentity`
+
+Why a deployment mode declaration is not usable.
+
+## `use SecuritySettings`
+
+The access posture, and the declaration that goes with a non-loopback bind.
+
+Two fields rather than one, because they answer different questions and collapsing them was
+the tempting mistake: a token says *who may reach this*, and the declaration says *what, if
+anything, encrypts the path it travels*. A deployment that sets a token but binds the wildcard
+with nothing in front has answered only the first.
+
+**The declaration replaced a boolean, and that is the point of it.** The boolean it replaced -
+`expose_beyond_loopback` - recorded that somebody meant to publish the service and said nothing
+about what protects the token in flight, so a wildcard bind with no terminator anywhere read
+exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
+agreeing that off-host is intended.
+
+**Four fields now, and the last two are the two halves of one story told from opposite ends.**
+`Self::inbound` is how the identity of a *caller* reaches this deployment; `Self::identity` is
+who a query then runs *as*. **Neither implies the other, and that is the fact worth writing down
+rather than the count:** a deployment can verify exactly who is asking and still read every row
+under one configured identity, because leg 2 - a credential per execution leg - is not built. The
+reverse holds too, and is the shape that ships: a single-user deployment with no inbound block
+knows what a query runs as and nothing about who asked.
+
+The inbound declaration lives in this group rather than one of its own because of
+`Self::describes_identity`: that function used to be a constant answering `false`, and a
+deployment that establishes a caller identity has to be able to make it answer otherwise from a
+value rather than from a rewrite. The deployment declaration is an `Option` for a different
+reason - it has no default and its absence is a refusal rather than a value; see
+`DeploymentIdentity`, which explains why no combination of source postures may answer it on the
+operator's behalf.
+
+## `use TlsTermination`
+
+Where TLS is terminated for this deployment.
+
+**A declaration, not a control.** Nothing here encrypts anything except
+`Self::InProcess`; the other three name a terminator that lives somewhere else, and the point
+of writing it down is that the *cleartext hop* it implies is then a stated fact rather than an
+assumption. The bearer token crosses that hop in the clear, and how far the hop reaches is the
+whole difference between the three:
+
+| Declared | What terminates TLS | What the token crosses in cleartext |
+| --- | --- | --- |
+| `none` | nothing | the whole path from the caller. Only sane on loopback |
+| `sidecar` | a proxy in this pod | a loopback hop inside the pod |
+| `ingress` | an ingress controller or gateway | the pod network, from that hop to this process |
+| `in-process` | this process | nothing - the connection ends here |
+
+So `ingress` is not a weaker `sidecar`: it is the same posture with a longer cleartext segment,
+and whether that segment is acceptable is a question about the cluster network - a mesh with
+mutual TLS between pods answers it differently from a flat one. This type does not pretend to
+know, and a startup log that said "TLS enabled" would be pretending.
+
+## `use UnknownDeploymentIdentity`
+
+The configured value did not name a deployment mode.
+
+## `use UnknownTlsTermination`
+
+The configured value did not name a place TLS is terminated.
+
+## `use BindAddress`
+
+The socket the service listens on.
+
+An `IpAddr` and a port, never a hostname. A hostname is refused rather than resolved: a name
+resolves to whatever the resolver says today, which may be a public interface tomorrow, and
+a perimeter that moves when DNS moves is not a perimeter. The operator writes the interface
+they mean.
+
+## `use BodyLimit`
+
+The largest request body the service will read.
+
+A modelled question is a metric name, a grain, two dates and at most four dimensions, which
+is a few hundred bytes. The bound exists because a body limit is the cheapest availability
+control there is, and because the default in most stacks is whatever arrives.
+
+## `use InvalidBindAddress`
+
+Why a host and port are not an address to listen on.
+
+## `use InvalidBound`
+
+Why a bound is not a bound.
+
+## `use InvalidTlsMaterial`
+
+Why a pair of paths is not usable TLS material.
+
+## `use RequestTimeout`
+
+How long one request may take before the service gives up on it.
+
+Bounded at both ends. Zero is a service that answers nothing, and an hour is a connection
+held open long enough that a handful of them are the outage: a question here is one
+aggregate over a bounded range, so a minute is already generous and five is the ceiling.
+
+## `use ServerSettings`
+
+Everything about the socket, the two per-request bounds, and the TLS material if there is any.
+
+**Not `Copy`, and that is the TLS paths.** Every accessor borrows or returns a `Copy` value, and
+the group itself is read once, at assembly time.
+
+## `use TlsMaterial`
+
+A certificate chain and the private key that goes with it, as paths.
+
+**Paths and nothing more, and the split is deliberate.** This crate holds no framework and
+reads no files: it parses the *pair* - both halves or neither - and stops there. Whether the
+files are readable, whether they are PEM at all, and whether the key matches the certificate
+are questions only the TLS implementation can answer, so they are answered once, in
+`sutura_http::tls`, before the socket is bound. Two checks in two crates would be two messages
+for one mistake, and the weaker one would be the reassuring one.
+
+## `use CONFIG_DIR_VARIABLE`
+
+The variable that points at the configuration directory a load layers files from.
+
+**One name, here, because two binaries read it and neither may own it.** `sutura-serve` read it
+out of a private constant of its own while the `sutura` command took a directory positionally, so
+the two composition roots named the same operator-facing thing in two places and only one of them
+could be found by grepping this crate. It is exported for the same reason
+`ENVIRONMENT_VARIABLE` is: a startup message, a command's `--help` and the documentation cannot
+disagree about a name none of them owns.
+
+## `use ConfigLayers`
+
+Which configuration files were observed, in application order.
+
+**The answer to a question the resolved values cannot be asked.** Every file layer is optional, so
+a mistyped configuration directory and a deployment with no files produce the same settings - and
+the startup report described those settings in detail while naming no source, which is a report
+that cannot distinguish "the operator's file is in effect" from "the operator's file was never
+found". An operator reading a value they did not write has nothing to look at.
+
+A type rather than a bare `Vec<PathBuf>` for one reason: `Display` is the
+single owner of the wording, including the empty case, so the startup log and the `prompt` command
+cannot describe the same deployment differently.
+
+**Paths only, and never a value.** A path is not a credential; a value can be one, and
+`security.access_token` is set by exactly this mechanism. Nothing read out of a file reaches this
+type - there is nowhere in it for a value to go. The origin it now also carries is the same rule
+applied to provenance: a per-key source label is not the value that came from it.
+
+## `use ENVIRONMENT_VARIABLE`
+
+The variable that chooses the deployment environment.
+
+One name, exported so a startup message and the documentation cannot disagree about it.
+
+## `use NotFitToServe`
+
+A deployment this service refuses to start as.
+
+**These are the security posture, and each one is a refusal rather than a warning on purpose.**
+The thing being guarded against is not an operator who ignores a log line - it is an operator
+who never sees one, because the line was emitted in a format nothing was collecting, on a
+process that went on to serve traffic. A process that does not start is noticed.
+
+Every variant names the key to change, because a refusal that does not say what to do is a
+support request.
+
+## `use Settings`
+
+The whole resolved configuration.
+
+`Clone` because it is held in the request state, and every field is either `Copy` or a small
+owned value. `Debug` is safe to log in full: the only credential-shaped field is held in
+`sutura_domain::identity::Secret`, whose `Debug` redacts, and a test in `crate::security`
+asserts that at struct depth.
+
+## `use SettingsError`
+
+Why a configuration could not be turned into settings.
+
+One variant per thing that can be wrong, each keeping the typed cause underneath it. The
+message names the concern and the `#[source]` chain names the value, so an operator reading
+stderr gets both without either being formatted into the other.
+
+## `use SettingsLoadError`
+
+A failed configuration load and the file layers observed before it failed.
+
+The source remains typed; this message adds only file context. Observed paths do not prove
+that each file parsed or contributed a value. Variables and text overlays have no file path.
+
+## `use Sources`
+
+Where a load reads from.
+
+A value rather than a set of arguments, for one reason: the process environment is global, and
+`std::env::set_var` is `unsafe` in this edition - so a test that wanted to exercise the variable
+layer by setting variables could not be written under `unsafe_code = "forbid"`. Supplying the
+variables as a map makes that layer a pure function of its input, and
+`Sources::from_process_environment` is the one place that reads the real environment.
+
+## `use VARIABLE_PREFIX`
+
+The prefix every configuration variable carries, and the separator between key segments.
+
+`SUTURA__SERVER__PORT` sets `server.port`. Two underscores for both, so a key segment that
+itself contains an underscore - `access_token`, `max_body_bytes` - needs no escaping.
+
+## `use VARIABLE_SEPARATOR`
+
+The separator between nested key segments in a configuration variable name.
+
+## `use config_dir_from_process`
+
+Reads the configuration directory from the process, if one was named.
+
+**An empty value is the same as an absent one, deliberately.** A container platform that
+templates `SUTURA_CONFIG_DIR` from an unset field sets it to the empty string, and
+`PathBuf::from("")` layers `base.yaml` relative to whatever the working directory happens to be -
+which is a file nobody wrote resolving somewhere nobody chose. The absence is the safe reading:
+the embedded defaults are complete.
+
+Not fallible, and that is not a shortcut: unlike `environment_from_process` there is no
+permissive branch to fall into. A non-Unicode path is still a path this process can open, so it is
+carried through as an `OsString` rather than refused.
+
+## `use configuration_variables_from_process`
+
+The NAMES of the `SUTURA__*` variables this process has set, sorted.
+
+**Names only, never values, and that is the security half rather than brevity.**
+`SUTURA__SECURITY__ACCESS_TOKEN` is one of these, so printing the environment as pairs would put
+a deployment credential into the text of a refusal - which goes to stderr, into a log, and into
+whatever collects one.
+
+**The limit, next to the claim: this is what is SET, not what was USED.** A name here is a
+candidate for the refusal above it, not a diagnosis - it may be setting a key the refusal is not
+about, and the refusal may be about a key that came from a file.
+
+That is a choice rather than a wall: the pinned `config` records the origin of every value and
+`crate::settings::read` discards it, which `github.com/telekom/sutura#440` measures and costs.
+
+## `use environment_from_process`
+
+Reads the deployment environment from the process.
+
+Absent means `Environment::Development`: a developer running the binary with no environment
+set is on a laptop, and the permissive default is safe there precisely because the other
+defaults are loopback-only. An environment that is *present and unrecognised* is an error and
+never falls back, because falling back would select the permissive branch of five decisions.
+
+## `use BillingProject`
+
+The project a `BigQuery` query job is billed to.
+
+**Declared, never inferred.** For this data system that is structural rather than a policy we
+chose: the project is a PATH SEGMENT of the request URL that submits a job, so there is no field
+it could be omitted from and nothing it could be defaulted from. The reason it is declared HERE,
+one step before anything impersonates, is that a federated identity has no project of its own to
+bill - so the per-subject step needs this declaration to already exist rather than introducing it
+alongside a credential exchange.
+
+# What `parse` enforces, and why the argument is ours
+
+The value is interpolated into a URL path segment. So what has to be impossible is a value that
+LEAVES that segment: a `/`, a `?`, a `#`, a `%`-escape, whitespace, a control character, anything
+non-ASCII. The accepted set is therefore `[a-z0-9-]`, starting with a letter, not ending with a
+hyphen, and 6 to 30 characters.
+
+That happens to be the documented shape of a project id, and it is deliberately not justified
+that way: **the argument for the character set is the path segment**, which holds whether or not
+the provider widens its own rules later. If the provider ever narrows them further, a value we
+accept and they reject is a startup failure against a real endpoint - the safe direction. If they
+widen them, this refuses a legal id and the fix is a considered change here rather than a value
+that silently escapes a URL.
+
+**One shape this knowingly refuses, stated because it is a real deployment and not a hypothetical:**
+a LEGACY domain-scoped project identifier carries a colon - the provider's own SQL reference uses
+`google.com:my_project` as its example and tells an author to wrap it in backticks. A colon in a
+URL path segment is legal, so this is a narrowing we are choosing rather than one escaping forces,
+and it is chosen because such an id also has to survive being a path segment, a JSON field and a
+backticked SQL identifier, and nothing here has ever been exercised against one. A deployment that
+needs it gets a considered change with a test, not a widened character set.
+
+No `Default`: a default project is a project somebody else pays for.
+
+## `use DatasetId`
+
+The dataset unqualified table names in a generated statement resolve within.
+
+**Why this is configuration and not catalog:** a model in the catalog names a bare `table:`, and
+which dataset that table lives in is a property of the deployment's connection rather than of the
+metric's definition. The same catalog served against a staging dataset and a production one is one
+catalog and two deployments, which is exactly the split this type keeps.
+
+The generated statement therefore stays a bare, quoted table name in every dialect - the request
+carries the dataset beside the SQL rather than the generator qualifying it - so nothing about
+`sutura-sql` has to know this exists.
+
+`parse` accepts `[A-Za-z0-9_]`, 1 to 1024 characters. Unlike `BillingProject` this one does not
+reach a URL path, so the constraint is not an escaping argument: it is that a dataset id which is
+not an identifier is a misconfiguration worth refusing when the file is read rather than on the
+first question. Case is PRESERVED, because a dataset id is case-sensitive and folding it here
+would turn a working declaration into a dataset that does not exist.
+
+## `use InvalidResourceName`
+
+Why a declared name for a cloud resource was not usable.
+
+One type for both newtypes above, with the offending key named by the caller rather than by the
+variant: the shapes differ and the *reasons* do not, so two near-identical enums would be two
+places to keep one set of sentences.
+
+## `use SourcePlacement`
+
+Where one declared source's data is.
+
+The module header carries why this is an enum. What is worth repeating at the type is that
+`SourceKind` is DERIVED from it - see `Self::kind` - rather than stored beside it, so the two
+cannot disagree about what a source is.
+
+# The limit, because an enum variant's fields are always public
+
+There is no way to make these private, so **a placement is constructible in-process by any crate
+that can name the type** - including one carrying a relative `data_dir`, which `parse_data_dir`
+refuses when it reads a file. That is a real gap in this type and it is not the one that matters,
+for the reason AGENTS.md already states about the other constructors here: what is closed is the
+path from a **configuration file**. `ConfiguredSource` holds its
+placement in a private field and has no public constructor, so a
+`SourceRegistry` can still only come into existence through
+`Settings::parse`, and that is the only door a deployment goes through.
+
+Written down rather than left to be re-derived, because "the fields are public" and "the checks can
+be skipped" look like the same sentence and are not.
+
+## `use ConfiguredSource`
+
+One declared data system.
+
+The identity is an `Option`, and its `None` is **fail-closed rather than permissive**: it means
+this entry declared the shared posture and nobody acknowledged it, which
+`Settings::refusals` refuses. A `Settings` obtained through `Settings::load` therefore has `Some`
+for every source. It stays an `Option` rather than being unwrapped here because a composition root
+that treated the absence as permission is a bug the type should not be able to hide, and because
+`Settings::parse` is reachable from this crate's own tests without the refusal having run.
+
+## `use InvalidSourceRegistry`
+
+Why a `sources:` tree is not usable.
+
+Every variant names the alias, because a refusal that does not say which entry to change is a
+support request - and a deployment with several sources is exactly the deployment where "one of
+your sources is wrong" is useless.
+
+No `Clone`, and the reason is worth a line rather than a shrug: one variant's cause is
+`sutura_domain::model::InvalidIdentifier`, which is not `Clone` either. Deriving it here would mean
+either a second copy of that error's shape or a `Clone` added to a domain type for a config crate's
+convenience, and nothing needs to clone a startup refusal.
+
+## `use SourceKind`
+
+What kind of data system a source is.
+
+**A closed set of typed declarations rather than something discovered**, which is the whole of
+*pluggable by declaration*: a capability nobody declared cannot be used, and a new kind is a
+compile error in every place that has to decide about it. Two variants today, and only one of them
+can be OPENED by a shipped binary - `Self::BigQuery` says which and why.
+
+**It replaced a comparison against a hard-coded source NAME**, and that is the change worth reading
+rather than the enum. The composition root used to refuse any source not called `local`, on the
+argument that the engine has its own identity and does not borrow the catalog's. That argument was
+right while the catalog was the only signal - a catalog naming `production_warehouse` said nothing
+about what the deployment held - and it stops being right once the DEPLOYMENT declares each source:
+an operator who writes `sources.production_warehouse.kind: files` with a directory beside it has
+stated that this source is a directory of files, which is the statement the name comparison was
+standing in for. Under the old rule that deployment could not be served at all, and it is a
+legitimate one.
+
+## `use SourceRegistry`
+
+Every source this deployment declares, keyed by the alias a model's `source:` names.
+
+A newtype over the map rather than the map, so `Self::parse` is the only way one comes into
+existence and the duplicate-alias refusal cannot be skipped by building the map directly.
+
+**May be empty, and that is not a refusal here.** A deployment configuring no source is one that
+has not said where its data is; what refuses it is the composition root, which finds the catalog
+naming a source with no declaration and stops before a listener is bound. Refusing an empty tree in
+this crate would mean `Settings::load` on the embedded defaults could not produce a `Settings` at
+all, and the defaults are what the `prompt` command and every settings test read.
+
+## `use UnknownPosture`
+
+The configured word did not name a posture.
+
+## `use UnknownSourceKind`
+
+The configured word did not name a kind of data system.
+
+## `use InvalidLogFilter`
+
+Why a string is not a filter directive.
+
+## `use InvalidServiceName`
+
+Why a string is not a service name.
+
+## `use LogFilter`
+
+A tracing filter directive, as written for `RUST_LOG`.
+
+Kept as text here and turned into a real filter by whatever installs the subscriber, because
+the type that parses one lives in `tracing-subscriber` and this crate holds no framework. What
+*is* checked here is that it is not empty and not a smuggled second line: an empty filter
+silently means "no directives", which is a service that logs at the default level while its
+configuration says otherwise.
+
+## `use LogFormat`
+
+How a log line is rendered.
+
+## `use ServiceName`
+
+The name every log line is attributed to.
+
+A separate type because it is the field a collector groups by, so an empty or whitespace one
+makes every line from this deployment unattributable.
+
+## `use TelemetrySettings`
+
+Everything about the log.
+
+## `use UnknownLogFormat`
+
+The string was neither format.
 
 ## Module `api`
 
@@ -1066,27 +1840,127 @@ Which class of token, out of the `typ` header, checked after the signature verif
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
-### `use None`
+### `use InvalidAlgorithms`
 
-### `use None`
+Why a pinned algorithm list is not one.
 
-### `use None`
+### `use InvalidInboundValue`
 
-### `use None`
+Why a value in an inbound-identity declaration is not one.
 
-### `use None`
+One error for every newtype in this module, because they are one parse with different
+vocabularies: the same five things can be wrong about each of them, and three hand-written copies
+of that list is three things to keep in step.
 
-### `use None`
+**No variant quotes the whole value back.** A resource identifier is not a credential, but an
+issuer URL and a header name are both deployment topology, and this crate's own rule is that an
+error carries the typed context and not a rendering of the input. A position is what an operator
+needs to find the character; the character itself is often the one that draws nothing.
 
-### `use None`
+### `use IssuerUrl`
 
-### `use None`
+Where the tokens this deployment accepts are minted.
 
-### `use None`
+Compared against the `iss` claim, byte for byte, for the reason `ResourceIdentifier` is: an
+issuer is a configured string on both sides and normalising ours would make it disagree with
+theirs.
 
-### `use None`
+### `use KeyFamily`
 
-### `use None`
+Which kind of key verifies a `SigningAlgorithm`.
+
+Here rather than left implicit because **a pinned set spanning two families is a set that can
+verify nothing**, and finding that out from a `401` is expensive. One key set holds keys of
+whatever kinds the issuer publishes; one *token* is verified by one key with one algorithm, and
+the validator this feeds refuses a permitted-algorithm list whose family disagrees with the key
+it looked up. So the mixed list is refused at startup instead - see `PinnedAlgorithms::parse`.
+
+### `use KeySetFile`
+
+Where the signing keys are read from.
+
+**A file and not a URL, and that gap is named rather than left to be discovered.** A JWKS
+endpoint needs an outbound HTTP client, which is a supply-chain change with its own review and
+its own failure mode - `docs/adr/0014` says plainly that the authorization server becomes a hard
+runtime dependency and that an outage there must stay distinguishable from a dead data system.
+None of that is built. What is built is the *rotation* mechanism: the key set is cached, refetched
+when a key id is not in it, and that refetch is rate limited - and every one of those properties
+is the same whether the source is a file a sidecar rewrites or an endpoint. See
+`sutura_http::inbound::keys`.
+
+### `use PinnedAlgorithms`
+
+The algorithms this deployment will accept, all of one family and at least one.
+
+Non-emptiness and single-family-ness are both structural: the first link lives in its own field,
+which is the shape `sutura_domain::identity::ActorChain` already uses for the same reason - there
+is no state of this type that means "nothing is permitted", so nothing downstream has to check.
+
+### `use ProofHeader`
+
+The header a transit proof arrives in.
+
+Lower case, because that is what HTTP/2 puts on the wire and what a header map is keyed on here -
+so folding it at construction is what makes a configured `X-Transit` and an arriving `x-transit`
+the same header rather than a lookup that silently misses.
+
+### `use ProofLifetime`
+
+The longest lifetime a transit proof may declare.
+
+**A server-chosen ceiling on somebody else's token**, and the reason it exists is that
+`docs/adr/0014` calls a transit proof *short-lived* while the lifetime is entirely the fronting
+component's to choose. Review demonstrated a proof with `exp` ten years out being accepted, and
+accepted again on a replay of the identical token. So the deployment declares what it will call
+short-lived, and a proof claiming more is refused.
+
+Bounded above because a ceiling of a year is not a ceiling. Bounded below by one second, because a
+zero would refuse every proof - a way of turning the mode off that reads like a tuning value.
+
+### `use ResourceIdentifier`
+
+What this deployment calls itself when it validates an audience.
+
+**This is the security decision in `docs/adr/0014` given a type.** A token is accepted only if
+its audience matches this value. A client may also *ask* its authorization server for a token
+scoped to this resource - RFC 8707's resource indicator - and that is welcome and is an
+optimisation: it makes the token narrower before it ever arrives. It is never what makes the
+token safe. The check is ours, it is unconditional, and it is not skippable when the client sent
+no indicator.
+
+### `use SigningAlgorithm`
+
+A signature algorithm this deployment will accept.
+
+**No `none` and no `HS*`, and their absence is the enforcement.** Algorithm confusion is the
+classic direct-validation defect and it is silent when it works: a token signed with `HS256`
+using the issuer's *public* key as the HMAC secret verifies, if the validator will accept a
+symmetric algorithm. There is no variant here that could.
+
+### `use TokenType`
+
+A `typ` header value this deployment will accept on a token.
+
+**The type that closes cross-JWT substitution**, which is the finding it exists for: without a
+`typ` check, *any* JWT the issuer signed with this audience verifies - and an OIDC ID token has the
+same issuer and, whenever the resource identifier equals the client id, the same audience. That is
+the ordinary identity-provider arrangement, so the substitution is not exotic. A verified ID token
+would establish a caller from a document minted to describe a login rather than to authorize an API
+call.
+
+RFC 9068 section 4 requires `at+jwt` for the JWT access-token profile. RFC 8725 section 3.12 is the
+wider rule and the reason this is configurable rather than hard-coded: an issuer using another
+profile still has to give a deployment *some* way to distinguish token classes mechanically, and
+which way that is is the deployment's fact rather than ours.
+
+# What normalisation happens, and why exactly this much
+
+Case is folded and a leading `application/` is stripped, both at construction. RFC 7515 section
+4.1.9 says `typ` is a media type and that the `application/` prefix **may be omitted**, so
+`at+jwt`, `AT+JWT` and `application/at+jwt` are three spellings of one value - and a comparison
+treating them as three would refuse tokens that are correct. This is deliberately the opposite
+decision from `ResourceIdentifier`, where nothing is normalised: an audience is an opaque string
+an operator and an issuer configured identically, and a media type is a value a registry defines.
 
 ## Module `limits`
 

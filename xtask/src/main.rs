@@ -47,6 +47,7 @@ mod max_lines;
 mod newtype_leaks;
 mod nix_platform;
 mod one_bound;
+mod orphan_modules;
 mod pins;
 mod refusals;
 mod registry;
@@ -140,6 +141,17 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier::declared_in_programme(),
         run: unused_deps::run,
+    },
+    Task {
+        // The unreachable-public-module gate (issue #131, the "either way" slice). The sibling of
+        // `unused-deps` in the other direction: that gate fails a DEPENDENCY no crate uses; this
+        // fails a `pub` MODULE no first-party crate references. Reads the whole workspace, so a
+        // consumer in another crate is seen. `Reads::Code` for the same reason `unused-deps` is.
+        name: "check-unreachable-public-modules",
+        description: "no pub module in a library crate that no first-party crate references",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
+        run: orphan_modules::run,
     },
     Task {
         name: "check-arrow",
