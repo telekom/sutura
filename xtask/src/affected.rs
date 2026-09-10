@@ -265,6 +265,13 @@ fn write_github_output(cats: &Categories) {
 /// `ci-aggregate` shell (it must read live job results), and spells it here once as pure, tested
 /// logic so the shell has a reference to be a faithful transcription of - a selected-but-skipped
 /// leg is a buggy filter, and it must fail green.
+///
+/// The category axis below is the pure half. One exception lives ONLY in the shell and is proven
+/// there rather than here: the release commit skips the whole belt, so a skipped `ci` is valid and
+/// a skipped `ci` implies a skipped bigquery leg, which this two-axis model cannot express. The
+/// `shell_simulation` module at the bottom extracts the real `run:` block from
+/// `.github/workflows/ci.yml` and executes it against canned job results, so the shell stays the
+/// source of truth.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,7 +284,9 @@ mod tests {
     /// gated leg may be green BY SKIP only when its category was not selected (and the diff did
     /// not fall open to `core`); any other non-`success` state fails. A leg with `category: None`
     /// is always required. Returns the offender names, empty meaning green. The `ci-aggregate`
-    /// shell in `ci.yml` is a transcription of this.
+    /// shell in `ci.yml` is a transcription of this for the CATEGORY axis; the release-commit skip
+    /// (a skipped `ci` when the whole belt is intentionally skipped) is an event-level exception
+    /// the shell adds, proven by `shell_simulation` below against the real shell.
     fn aggregator_failures(cats: &Categories, legs: &[CategoryLeg<'_>]) -> Vec<String> {
         legs.iter()
             .filter_map(|(name, category, result)| {
@@ -421,5 +430,122 @@ macro_rules! registered {
             ],
         );
         assert!(failures.is_empty(), "an unselected leg may skip green: {failures:?}");
+    }
+
+    /// Execute the REAL ci-aggregate `run:` shell from `.github/workflows/ci.yml` against canned
+    /// job results. The P1 defect lived in that file and nowhere else - the pure category rule
+    /// above cannot see the release-commit skip (a skipped `ci` implies a skipped `bigquery` leg,
+    /// an event shape the two-axis model has no vocabulary for) - so these tests extract and run
+    /// the script the workflow actually ships.
+    mod shell_simulation {
+        /// The `ci-aggregate` job's `run: |` block, extracted from `.github/workflows/ci.yml` and
+        /// de-indented, so the simulation exercises the exact script `bash` runs in CI.
+        fn aggregator_shell() -> String {
+            let root = crate::repo::root().expect("the repo root");
+            let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read .github/workflows/ci.yml");
+            let lines: Vec<&str> = ci.lines().collect();
+            let job = lines
+                .iter()
+                .position(|l| l.starts_with("  ci-aggregate:"))
+                .expect("ci-aggregate job present in ci.yml");
+            let run = lines[job..]
+                .iter()
+                .position(|l| l.trim_start().starts_with("run: |"))
+                .map(|i| job + i)
+                .expect("the ci-aggregate job has a run: | step");
+            let body = &lines[run + 1..];
+            let script_indent = body
+                .iter()
+                .find(|l| !l.trim().is_empty())
+                .map(|l| l.len() - l.trim_start().len())
+                .expect("the run body is not empty");
+            let mut out = Vec::new();
+            for line in body {
+                if line.trim().is_empty() {
+                    out.push(String::new());
+                } else {
+                    // A non-blank line shallower than the body is the next step, so it ends the
+                    // block. The leading bytes are all ASCII spaces (YAML block-scalar indent),
+                    // so a byte offset is also a char boundary; `split_at` keeps the slice rather
+                    // than indexing the string.
+                    let indent = line.len() - line.trim_start().len();
+                    if indent < script_indent {
+                        break;
+                    }
+                    let (_, rest) = line.split_at(script_indent);
+                    out.push(rest.to_owned());
+                }
+            }
+            out.join("\n")
+        }
+
+        /// Run the aggregator shell with the given environment; returns (exit ok, combined output).
+        fn run_aggregator(envs: &[(&str, &str)]) -> (bool, String) {
+            let script = aggregator_shell();
+            let mut cmd = std::process::Command::new("bash");
+            cmd.arg("-c").arg(&script);
+            for (k, v) in envs {
+                cmd.env(k, v);
+            }
+            let out = cmd.output().expect("bash runs the ci-aggregate shell");
+            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&out.stderr));
+            (out.status.success(), text)
+        }
+
+        #[test]
+        fn a_release_commit_skip_of_ci_is_green() {
+            // The release push: `chore(release):` skips `ci`, and the skip propagates to every
+            // leg that `needs: [ci]` - bigquery-acceptance included - so the belt is intentionally
+            // skipped together and a skipped `ci` reports no category outputs. This verdict was
+            // RED before the fix (the shell read `skipped` as a failure on the always-required
+            // base) and is the documented, valid release shape now.
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "skipped"),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", ""),
+                ("EVENT", "push"),
+                ("PR_HEAD", ""),
+                ("REPO", "telekom/sutura"),
+            ]);
+            assert!(ok, "release-commit skip must aggregate GREEN, got: {text}");
+            assert!(
+                text.contains("ok - every category-gated leg green"),
+                "the aggregator should affirm the belt: {text}"
+            );
+        }
+
+        #[test]
+        fn a_selected_but_skipped_bigquery_leg_is_still_red() {
+            // THE #135 RULE the aggregator exists to hold: a buggy filter that silently skips an
+            // affected adapter leaves the category selected while its leg reports skipped. `ci`
+            // ran fine here, yet the leg must still fail - the fix must not widen to forgive it.
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "success"),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", "true"),
+                ("EVENT", "push"),
+                ("PR_HEAD", ""),
+                ("REPO", "telekom/sutura"),
+            ]);
+            assert!(!ok, "selected-but-skipped must stay RED, got: {text}");
+            assert!(
+                text.contains("bigquery-acceptance must run"),
+                "the verdict should name the required-but-skipped leg: {text}"
+            );
+        }
+
+        #[test]
+        fn a_clean_run_is_green() {
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "success"),
+                ("BQ_RESULT", "success"),
+                ("BQ_SELECTED", "true"),
+                ("EVENT", "push"),
+                ("PR_HEAD", ""),
+                ("REPO", "telekom/sutura"),
+            ]);
+            assert!(ok, "a clean run must aggregate GREEN, got: {text}");
+        }
     }
 }
