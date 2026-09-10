@@ -823,6 +823,21 @@ jobs:
           # Same self-restraint the main publish uses: push what THIS run realised, not the whole store.
           pushFilter: "(-source$|nixpkgs)"
 
+      # Realise and publish the PR's own realised paths. cachix-action's post-build hook publishes
+      # ONLY paths nix BUILDS while its daemon is alive - a job that merely restored scope `ci` and
+      # re-derived it would fire the hook nothing. Scope `ci` is keyed on the lockfiles, which are
+      # unchanged across a PR's commits, but the checks' own outputs are derived from the PR's
+      # source, so this realise RE-COMPILES the workspace crates into fresh store paths for this PR,
+      # the hook fires, and they land in `sutura-prs` for the next commit on this branch to
+      # substitute - the same three-check closure the shared `push` job publishes to `sutura`.
+      - name: Realise and publish this PR's shared closure
+        run: |
+          set -eu
+          nix build --print-build-logs \
+            .#checks.x86_64-linux.nextest \
+            .#checks.x86_64-linux.clippy \
+            .#checks.x86_64-linux.hygiene
+
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
   #
