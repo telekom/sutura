@@ -2635,6 +2635,15 @@
 <p>Status: <strong>accepted</strong>, 2026-09-09. <strong>Supersedes <code>docs/adr/0026</code> (No third-party binary cache).</strong> That
 record is not wrong about what it decided or why; two of its inputs changed on the same day, and this
 is the re-decision plus what changed.</p>
+<p><strong>Amendment, 2026-09-10 (CI-speed half a):</strong> the store inventory above is now <em>two stores on two
+paths</em>, not one store on every path. <code>sutura-prs</code> is an <strong>additive, pull-request-path-only</strong> cache:
+pull-request runs publish their own realised store paths to it and trust its key <strong>in addition to</strong>
+<code>sutura</code>, while the <strong>default branch trusts only <code>sutura</code> and never lists <code>sutura-prs</code>'s key</strong>. The
+security bound is that key boundary, not the text gate: even a compromised PR run that poisoned
+<code>sutura-prs</code> is read by no merged-main resolver, because main's resolver never names that store. This
+amendment is the <code>xtask</code> trust rule's counterpart and is enforced by it - see
+<code>xtask/src/workflows/cache_scope/retired.rs</code>, which pins both value lists ([<code>ALLOWED</code>] / the
+PR-gated pair) so the records and the gate cannot disagree.</p>
 <h2 id="what-changed-and-it-is-two-things-rather-than-a-preference">What changed, and it is two things rather than a preference<a class="headerlink" href="#what-changed-and-it-is-two-things-rather-than-a-preference" title="Permanent link">&para;</a></h2>
 <p><strong>1. The repository is public</strong>, so an OSS tier exists that did not apply to the question 0026
 answered.</p>
