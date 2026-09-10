@@ -298,6 +298,14 @@ jobs:
         with:
           scope: ci
 
+      # The writable `target/causality-target` the tail apps recompile into, carried on the SAME
+      # digest the store cache uses so a lockfile/manifest change invalidates it and restores the
+      # previous generation's recompile otherwise. Restored here (before the apps run) and saved
+      # from main; `save:` inside the action owns the write, so this caller carries no `if:`.
+      - uses: ./.github/actions/causality-target-cache
+        with:
+          scope: ci
+
       - name: Toolchain in use
         run: |
           set -eu
