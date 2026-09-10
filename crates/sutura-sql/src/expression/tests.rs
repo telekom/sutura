@@ -12,6 +12,10 @@
 // refusal here, next to the fragments it reads.
 mod dialect_resolution;
 
+// The recorded fuzz timeout and the bound that refuses it. Its own file for the same reason, and
+// because one of its two cells needs a deadline rather than an assertion on a value.
+mod unbounded;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::expression::{AuthoredSql, DialectTag, SqlFragment};

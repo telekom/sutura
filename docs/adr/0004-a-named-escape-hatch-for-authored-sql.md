@@ -184,6 +184,36 @@ by construction). The exact failing input is quarantined as the committed seed
 for. None of that changes what a catalog can carry until a pin fixes it - the bound is a control over
 the dependency, not a judgement that authored SQL is ASCII.
 
+**The parser does not return on a parenthesis with no closer, so the fragment is bounded to closed
+parentheses.** Found by the `sql_expression` fuzz target as a 26-byte timeout and reduced to six
+characters, `a.:S1(`: `.:` reads the next word as a custom data type, and the argument loop in the
+pinned `polyglot-sql 0.9.2` `Parser::parse_data_type` breaks only on `check(TokenType::RParen)` -
+which answers `false` at the end of the token stream, while `advance()` past the end returns the
+last token *without* moving the cursor. The loop therefore cannot terminate, and every turn of it
+does `*last = format!("{} {}", last, token.text)`. **One upstream defect, two report shapes:** it
+reads as a timeout while that string is being copied and as an out-of-memory once the string is
+large, and `MAX_DEPTH` cannot see either because no tree is ever built. Under `panic = "abort"`
+unbounded work on an authored fragment is the process never coming back, which on the query surface
+is a denial of service rather than a slow load.
+
+`ExpressionError::UnclosedParenthesis` refuses the enabling condition every scan-to-a-closer loop in
+that parser needs, which is why the bound is on the class rather than on the route this artifact
+took - `::` and `CAST(x AS ..)` reach the same function. **The question is asked of the TOKENS the
+authoring dialect produces and not of the text**, and that is the load-bearing half: a count of `(`
+against `)` fails open exactly the way the comment-delimiter count did, one character class over,
+because in `SUM(mrr_eur.:S1(')'` the two characters balance while the `)` is a string literal the
+tokenizer hands over as a single token and never as an `RParen`. Asking the tokenizer costs nothing
+that was not going to be spent and has no second scanner to disagree with about dollar-quoting. A
+`)` with no opener is deliberately left to the parser, which errors and returns.
+
+The failing input is quarantined as the committed seed
+`fuzz/seeds/sql_expression/unclosed-paren-timeout`, byte-identical to the artifact, so `just
+fuzz-smoke` replays it on every run. **The defect belongs upstream and this does not fix it:** the
+bound refuses the pathological fragment before it reaches that parser, and any other caller of
+`polyglot-sql` in any other project is unaffected by it. The accepted cost is the same class the
+comment refusal already accepts - a parenthesis inside a string literal, unbalanced in the text, is
+refused - and a measure has no reason to hold one.
+
 ### The fragment is bounded in depth as well as in length
 
 `MAX_FRAGMENT_LEN` bounds the text at 1024 characters and the parser's own `ComplexityGuardOptions`
