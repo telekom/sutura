@@ -289,12 +289,13 @@ fn check(
     // **IT STOPS NON-TERMINATION AND NOT SUPERLINEAR WORK**, which is the ceiling worth knowing
     // before this refusal is read as a bound on parse cost. The same target's next run found three
     // fragments of 287 to 388 bytes that tokenize with their parentheses BALANCED - so this guard
-    // passes every one - and whose parse then comes back, with an error, after 0.80 s, 13.10 s and
-    // 13.67 s in a release build with no sanitizer. All three reduce to a chain of `IF~` pairs with
-    // a tail that cannot parse, and the cost doubles per `IF`: `("IF~" * 24) + "I?{"` is 75 bytes
-    // and 18 s, so `MAX_FRAGMENT_LEN` is nowhere near a bound on it. Nothing here bounds it either -
-    // the time is re-parsing inside `polyglot_sql::parser`, the dependency's own complexity options
-    // all sit far above these inputs, and `MAX_DEPTH` is asked once the parse has already paid.
+    // passes every one - and whose parse then comes back, with an error, after 0.79 s, 13.1 s and
+    // 14.6 s in a release build with no sanitizer, +-10% run to run. All three reduce to a chain of
+    // `IF~` pairs with a tail that cannot parse, and the cost doubles per `IF`:
+    // `("IF~" * 24) + "I?{"` is 75 bytes and 14 s, so `MAX_FRAGMENT_LEN` is nowhere near a bound on
+    // it. Nothing here bounds it either - the time is re-parsing inside `polyglot_sql::parser`, the
+    // dependency's own complexity options all sit far above these inputs, and `MAX_DEPTH` is asked
+    // once the parse has already paid.
     // `docs/adr/0004` records the measurements, the candidate refusal that was left on the table,
     // and why: it would bound the one route measured while reading as a bound on the class.
     //

@@ -263,8 +263,9 @@ found.** A 900 s run on the guarded tree crashed nothing and timed nothing out, 
 `slow-unit` artifacts of 287, 354 and 388 bytes. **None of them is refused here:** each tokenizes
 with its parentheses balanced, so this guard passes it, and each then reaches the parse and *comes
 back* - with a parse error, after the work is already spent. Measured one input at a time, the parse
-alone in a release build with no sanitizer: **0.80 s, 13.10 s and 13.67 s**. Through the fuzz
-harness, which is ASan plus sancov, the same three cost 12.7 s, 209.4 s and 224.7 s - a ~16x
+alone in a release build with no sanitizer: **0.79 s, 13.1 s and 14.6 s**, and every figure in this
+section is +-10% run to run because a concurrent build moves it. Through the fuzz harness, which is
+ASan plus sancov, the same three cost 12.7 s, 209.4 s and 224.7 s - a ~16x
 instrumentation factor, and the reason the run's own `slowest_unit_time_sec: 241` is not the number
 a deployment would pay. So ~14 s of parse on a shipped profile is the **measured worst case among
 the recorded artifacts**, and it is emphatically **not a ceiling**: the constructed case below is
@@ -282,8 +283,8 @@ It is re-parsing, not one long loop.
 300 ms predicate they go from 287, 354 and 388 bytes to 70, 66 and 71, and each reduction is a chain
 of roughly seventeen `IF~` pairs with a tail that cannot parse - for instance
 `IF~I~IF~IF~IF~IF~IF~IF+I?{IF+IF~IF+IF~IF~IF~IF~IF~IF~_F~IF%+I?{E|N`. Constructed rather than
-reduced, `("IF~" * k) + "I?{"` doubles per `IF`: 0.004 s at k=12, 0.069 s at 16, 1.16 s at 20,
-4.59 s at 22, **18.1 s at k=24 - and that fragment is 75 bytes**. Two facts make it the `IF` and not
+reduced, `("IF~" * k) + "I?{"` doubles per `IF`: 0.004 s at k=12, 0.055 s at 16, 0.76 s at 20,
+3.3 s at 22, **13.8 s at k=24 - and that fragment is 75 bytes**. Two facts make it the `IF` and not
 the chain. The same chain without the failing tail, `("IF~" * 30) + "1"`, parses in under a
 millisecond, because a parse that SUCCEEDS commits instead of backtracking - so the cost is only
 ever paid on a fragment that is going to be refused anyway. And of sixteen words tried in the same
@@ -293,7 +294,7 @@ under a millisecond.
 
 **No bound is written for it, and that is the decision rather than an omission.** Bounding *slow*
 needs a complexity or work measure and none is available here. Length is refuted, decisively: the
-75-byte fragment above costs 18 s, while `SUM(CASE WHEN status = 'active' THEN mrr_eur ELSE 0 END)`
+75-byte fragment above costs 14 s, while `SUM(CASE WHEN status = 'active' THEN mrr_eur ELSE 0 END)`
 - the metric this hatch exists for - is 56 characters, so any length cap that refuses the exploit
 refuses the metric. And `MAX_FRAGMENT_LEN`'s own 1024 characters hold about 340 `IF~` pairs, which
 on the measured doubling is not a wait anybody outlives - arithmetic on a measured curve, and not a
