@@ -151,18 +151,30 @@ fn _either_way(query: &Query, pinned: &PinnedDefinitions) -> Option<CompileFailu
 }
 ```
 
-## `use None`
+## `use BundleInconsistent`
 
-## `use None`
+Why resolution did not produce a resolution.
 
-## `use None`
+Two shapes, deliberately separated. A `RefusalReason` is an answer to the caller: the question
+named something that is not there, or not permitted. An absence is a broken bundle, which the
+caller did nothing to cause and can do nothing about, so it must not be dressed up as a refusal
+they might retry differently.
 
-## `use None`
+The absence variants should be unreachable: `Definitions::assemble` checks every one of these
+cross-references before a bundle exists. They are written out rather than reached with an
+`expect` because a panic path here is reachable from a catalog file, and the no-panic ban is not
+conditional on another check having been right.
 
-## `use None`
+## `use FederatedPlan`
 
-## `use None`
+## `use QueryPlan`
 
-## `use None`
+## `use PlanFilter`
 
-## `use None`
+## `use PlanMeasure`
+
+## `use PlanPredicate`
+
+## `use PlanTerm`
+
+## `use PredicateOrigin`

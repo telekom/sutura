@@ -187,7 +187,12 @@ Returns when the peer closes or is cancelled.
 `NotServed::Interrupted` if the task driving the session did not finish - a panic, or a runtime
 shutting down underneath it.
 
-## `use None`
+## `use AgentSurface`
+
+The agent-facing surface over one `Surface`.
+
+Holds the service behind an `Arc` because a tool call is answered on the blocking pool, so the
+port has to outlive the future that started the call.
 
 ## Module `server`
 
@@ -705,13 +710,32 @@ The sentence. A test asserts it is not empty; nothing asserts its wording.
 
 `Debug`, `Serialize`
 
-### `use None`
+### `use CatalogContent`
 
-### `use None`
+What this deployment measures, as the catalog tool's structured content.
 
-### `use None`
+**A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
+the same deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
+this crate cannot import that shape; what keeps the two equal is review plus the fact that both
+are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
+missing field would show up as a missing call rather than as a silent divergence.
 
-### `use None`
+Descriptive content only. `sutura_domain::pinned::SemanticCatalog::load` takes no request context
+and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
+returns: it is the *pinned* bundle, the same one every answer is computed from.
+
+### `use DescribeCatalogArgs`
+
+This tool takes no arguments. It returns the whole of what this deployment measures, and there is
+nothing to filter or select: send an empty object.
+
+### `use DimensionContent`
+
+One dimension of one metric.
+
+### `use MetricContent`
+
+One metric, as much of it as a caller needs to ask a valid question.
 
 ### Module `catalog`
 

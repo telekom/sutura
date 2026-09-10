@@ -239,27 +239,106 @@ Nothing here quotes what came back: see that variant.
 
 `Debug`, `Warehouse`
 
-## `use None`
+## `use SessionUser`
 
-## `use None`
+An endpoint identity answer whose `Debug` never renders its contents.
 
-## `use None`
+`Self::as_str` and `Display` expose the unchanged answer. This is a `Debug` boundary,
+not a restriction on intentional logging, nor validation or authentication of the identity.
 
-## `use None`
+## `use Dropped`
 
-## `use None`
+What a DROP answers with: nothing, or why it did not happen.
 
-## `use None`
+Named for the same reason `Loaded` is - `Result<(), FixtureNotLoaded<T::Error>>` is over the
+`type_complexity` threshold this workspace tightened, and the generic error is the point.
 
-## `use None`
+## `use FixtureNotLoaded`
 
-## `use None`
+Why a fixture did not reach the dataset.
 
-## `use None`
+Two shapes rather than one, because a defect in a file in this repository and a refusal from the
+endpoint are different problems for whoever reads the failure: the first is fixed in a diff and
+the second is a grant, a quota or a dataset that is not there.
 
-## `use None`
+## `use FixtureNotUsable`
 
-## `use None`
+Why a committed fixture cannot become a table.
+
+Every variant is a defect in a file in this repository rather than an input to handle, which is
+why none of them carries the offending text: whoever sees one has the file.
+
+## `use Loaded`
+
+What one load answers with: the row count, or why it did not happen.
+
+Named because `Result<usize, FixtureNotLoaded<T::Error>>` is over the `type_complexity` threshold
+this workspace tightened, and for the reason `crate::Mapped` is named: the generic error is the
+point, and erasing it would lose which transport failed.
+
+## `use StsCredential`
+
+One exchanged credential: a Google access token and the instant it stops being usable.
+
+The deadline is carried beside the token - the whole point of `docs/adr/0008`'s
+`Expiry` - so a broker can compute one deadline for the whole
+answer and nothing answers with a token that was already dead.
+
+**No `PartialEq`/`Eq`, because it holds a `Secret`** - a derived `==` on credential material is a
+timing oracle, the same reason the domain's `Secret` has no comparison.
+
+## `use StsExchange`
+
+Exchanges one subject's token for a credential to a `BigQuery` source.
+
+**The narrow port that keeps `WorkloadIdentityBroker` testable without a network**, for the same
+reason `crate::transport::JobTransport` exists: everything the broker decides is exercised against
+a fake, and the HTTP exchange is one implementor behind the `wire` feature. Nothing here takes a
+`&Warehouse` or a deadline - it is as narrow as a broker's need.
+
+## `use SystemClock`
+
+The wall clock: the shipping `UnixClock`.
+
+What `WorkloadIdentityBroker::empty` hands a composition root, so wiring a served deployment
+takes no clock argument and a test that wants a fixed instant says so through
+`WorkloadIdentityBroker::measured_against`.
+
+**Not the only ambient time read on this path, and the distinction is the control's limit.**
+`crate::wire::StsOverHttp::exchange` reads its own clock to turn the provider's `expires_in`
+into the deadline this floor then judges. So the floor's COMPARISON is deterministic; the path
+it judges still has two clock reads in it, milliseconds apart in production and not the same
+instant.
+
+## `use UnixClock`
+
+Where this broker reads "now" for its expiry floor.
+
+**A port for the same reason `StsExchange` is one.** Everything this broker DECIDES is
+exercised against a fake, and the floor is one of the things it decides - so an ambient
+`SystemTime::now()` inside `WorkloadIdentityBroker::mint` would make the outcome of every
+broker-level test a function of the day it ran on. The instant is an input instead, and
+`A_FIXED_NOW` in this file's suite records what that bought.
+
+**The narrower shape this is NOT.** Every other time-dependent API in this workspace takes the
+instant as a parameter - `Expiry::passed_by`, `LegCredentials::still_usable_at`,
+`Minted::agreeing_with`, `crate::wire::AccessTokens::bearer` - and that is the better shape. It
+is unavailable here because `CredentialBroker::mint` is a DOMAIN port signature carrying no
+instant, and widening it reaches ten implementors across eight crates. A held clock is what an
+adapter can do alone; the parameter is the follow-up.
+
+## `use WorkloadIdentity`
+
+The setup one impersonating source needs from the settings tree, minus the borrowing.
+
+Carried here rather than as a reference into configuration because an adapter may not depend on
+the settings tree. The composition root constructs one of these per source from the parsed
+declaration, which has already refused a value that is not usable.
+
+## `use WorkloadIdentityBroker`
+
+A broker that mints a per-subject credential for impersonating sources and a declared witness for
+shared ones.
 
 ## Module `transport`
 
@@ -1198,17 +1277,75 @@ the credential source refreshes through - one connection pool, one set of pins, 
 
 `Debug`, `JobTransport`
 
-### `use None`
+### `use BytesBilledCeiling`
 
-### `use None`
+The most a single job may be billed for scanning.
 
-### `use None`
+**Sent as `maximumBytesBilled`, which is enforced at the service and is what makes it worth
+more than a client-side check.** A job that would exceed it FAILS and is not charged. Nothing else
+in this repository bounds bytes scanned: `LIMIT 10001` bounds rows RETURNED, the one-page refusal
+bounds a page, and `MAX_ANSWER_BYTES` bounds what is read into memory - a question can satisfy
+all three and still scan a partitioned table end to end.
 
-### `use None`
+### `use CallDeadline`
 
-### `use None`
+The instant one call into this transport has to be finished by.
 
-### `use None`
+**One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
+that distinction is the correction this type exists to carry.** The previous shape put
+`timeout_global` on the agent, so EVERY request through it got the full budget independently: a
+single `crate::transport::JobTransport::run` does a token exchange and then a job, and both were allowed
+`deadline + CONNECT_MARGIN` of their own. A review measured the consequence at the answer level -
+four HTTP operations, each with its own budget, against a transport whose own request timeout is
+thirty seconds - and the five-second overrun this module claimed was false.
+
+So the budget is opened once per call and every operation gets only what is LEFT of it: the token
+exchange, the socket the job waits on, and the `timeoutMs` and `jobTimeoutMs` the request carries -
+which is what keeps the service cancelling at the instant the client stops waiting even when the
+exchange spent half the budget first. When nothing is left, the refusal comes before the send.
+
+**A monotonic `std::time::Instant` and not a wall clock**, because a wall clock can step and a
+stepped deadline is either a job abandoned early or one that outlives its caller.
+
+**The limit, and it is the half this type cannot reach:** one ANSWER calls the port twice -
+`Warehouse::dry_run` and then `Warehouse::execute` - and neither `Warehouse` nor `crate::transport::JobTransport`
+takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
+`CALLS_PER_ANSWER` budgets rather than one, which is exactly why
+`QueryDeadline::within_request_timeout` exists: it does that arithmetic once so a composition root
+cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
+signature tweak.
+
+### `use JobBounds`
+
+What every job this adapter submits is bounded by.
+
+Two bounds in one value, because they are one decision: *how much of a deployment's time and money
+may one question spend*. A struct rather than two arguments so a call site cannot supply one and
+forget the other, and so `super::WireAgent` can carry them both.
+
+### `use QueryDeadline`
+
+How long a job may run, and how long the client waits for its answer.
+
+**A newtype rather than a constant, because the value belongs to the deployment.** The setting that
+decides it is the one the transport in front of this service already uses -
+`server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a second
+copy of it that drifts the day somebody changes the first.
+
+**It is a SHARE of that setting rather than the setting itself**, which review had to point out:
+one answer makes `Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its
+own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
+running. `Self::within_request_timeout` is the constructor that does the division, and it is the
+one a composition root should reach for; `Self::parse` stays for a deployment stating a budget
+outright.
+
+### `use UnusableBound`
+
+Why a bound this adapter was handed is not usable.
+
+### `use StsOverHttp`
+
+An `StsExchange` that talks to Google STS over HTTP.
 
 ### Module `bounds`
 

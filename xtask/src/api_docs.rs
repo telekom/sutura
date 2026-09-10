@@ -179,6 +179,7 @@ fn check(root: &Path) -> Result<Outcome, String> {
     if !generator.is_file() {
         return Err(format!("{GENERATOR} does not exist - there is nothing to compare against"));
     }
+    selftest_renderer(root, &generator)?;
 
     let cargo = cargo_bin();
     let mut inputs = Vec::new();
@@ -418,6 +419,38 @@ fn profile_args(profile: Option<&str>) -> Vec<String> {
         Some(name) if !name.is_empty() => vec![String::from("--profile"), String::from(name)],
         _ => Vec::new(),
     }
+}
+
+/// Run the generator's own behavioral re-export fixture, once, before any page is compared.
+///
+/// `check-api-docs` byte-compares the committed pages against a fresh generation, which proves
+/// the pages are CURRENT - and, as `github.com/telekom/sutura#470` measured, does NOT prove the
+/// renderer INCLUDES the documentation an item carries. A `pub use` re-export carries its public
+/// name and its docs on the TARGET (`inner.use.name`, `inner.use.id`), not on the re-export item
+/// itself, and the renderer used to print a literal `use None` for it with the gate green. The
+/// generator's `--self-test` renders a hand-built re-export fixture and asserts the caller-visible
+/// name and the target's documentation appear, so a future renderer regression fails here even if
+/// every crate happened to change. It is the same script and the same pixi/python interpreter as
+/// [`generate`], because the gate and the fix must exercise the same code path.
+fn selftest_renderer(root: &Path, generator: &Path) -> Result<(), String> {
+    let override_path = std::env::var(PYTHON_ENV).ok();
+    let (program, mut argv) = python_command(override_path.as_deref());
+    argv.push(argument(generator)?);
+    argv.push(String::from("--self-test"));
+
+    let status = std::process::Command::new(&program)
+        .current_dir(root)
+        .args(&argv)
+        .status()
+        .map_err(|error| format!("could not run the generator self-test: {error}"))?;
+    if status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "the generator's re-export self-test failed. A public re-export must render its \
+         caller-visible name and its target's documentation, not `use None`; run `{GENERATOR} \
+         --self-test` the way this gate does to see the assertion."
+    ))
 }
 
 /// How to run the generator, as a program and its leading arguments.
