@@ -360,4 +360,55 @@ mod tests {
             "the refusal must name what to change: {stderr}"
         );
     }
+
+    #[test]
+    fn a_refusal_a_prefixed_variable_caused_names_that_variable() {
+        // **`github.com/telekom/sutura#386`, reproduced against the binary.** One exported
+        // `SUTURA__SERVER__HOST` refuses the documented quickstart line, and the remedy underneath
+        // named `SUTURA_CONFIG_DIR` and `SUTURA_ENVIRONMENT` - two variables that were not set, that
+        // unsetting changes nothing about, and neither of which is the one thing that fixes it. The
+        // same class as #366 (a refusal citing a cargo feature that does not exist) and #246 (the
+        // remedy a claim prints is checked, not trusted): a remedy an operator cannot act on is the
+        // defect, whatever else the refusal got right.
+        //
+        // Reachable only by spawning the binary WITH the variable set - `std::env::set_var` is
+        // `unsafe` in this edition and this workspace forbids it, so what a test can decide is what
+        // a child sees. That is why this case is here rather than in the crate's own suite.
+        let dir = scratch("declared-source-overlay-variable");
+        let catalog = example().join("catalog").to_string_lossy().into_owned();
+        let asked = question(&dir).to_string_lossy().into_owned();
+        let data = example().join("data").to_string_lossy().into_owned();
+        let args = ["query", catalog.as_str(), asked.as_str(), data.as_str()];
+
+        // THE CONTROL FIRST, and it is what makes the refusal below mean something: this exact
+        // command with no overlay variable answers, so the variable is the only difference.
+        let clean = run(None, &args);
+        assert_eq!(clean.code, Some(0), "{}", clean.output());
+
+        // The name spelled out, because it is what an operator types and what the message has to
+        // print back: a name built from the two exported constants would agree with a message built
+        // the same way even if the separator changed under both.
+        let mut command = command(None);
+        command.env("SUTURA__SERVER__HOST", "0.0.0.0");
+        let output = command.args(args).output().expect("the composed binary runs");
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(
+            stderr.contains("SUTURA__SERVER__HOST"),
+            "the remedy must name the variable that caused the refusal: {stderr}"
+        );
+        // And the value is NOT printed. One of these variables is
+        // `SUTURA__SECURITY__ACCESS_TOKEN`, so a message that echoed the environment as pairs would
+        // put a deployment credential into stderr and into whatever collects it. The host here is
+        // `0.0.0.0`, which the refusal above quotes from the KEY it parsed - so this asserts on the
+        // remedy's own half of the text.
+        let remedy = stderr
+            .split_once("-prefixed environment variable")
+            .map(|(_, rest)| String::from(rest))
+            .expect("the remedy names the environment overlay");
+        assert!(!remedy.contains("0.0.0.0"), "the remedy lists names, not values: {remedy}");
+
+        drop(std::fs::remove_dir_all(&dir));
+    }
 }

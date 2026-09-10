@@ -194,14 +194,57 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 /// and this command reads the same tree a service would precisely so the two cannot disagree. What is
 /// added is the sentence that makes them actionable here: this command binds nothing, so a refusal
 /// about a listener is about the configuration it was pointed at rather than about the question.
+///
+/// **And the third layer, which `github.com/telekom/sutura#386` is about.** Naming
+/// `SUTURA_CONFIG_DIR` and `SUTURA_ENVIRONMENT` alone was a remedy an operator could not act on
+/// whenever a `SUTURA__`-prefixed variable was what stopped the command: reproduced as one exported
+/// `SUTURA__SERVER__HOST` refusing the documented quickstart line, where unsetting either named
+/// variable changes nothing and the one thing that fixes it is the one thing the message did not
+/// say. The environment overlay is now the third thing named, with the variables this process
+/// actually has - it can see them, so guessing is not required of the reader.
 fn unservable(cause: &sutura_config::SettingsLoadError) -> String {
     format!(
         "{}\nthis command reads the same configuration a deployment would, so a refusal about \
          serving stops it too - it binds no listener of its own. Point \
-         {} somewhere else, or unset {}, to answer from the directory on the command line instead",
+         {} somewhere else, or unset {}, to answer from the directory on the command line instead.\n{}",
         render(cause),
         sutura_config::CONFIG_DIR_VARIABLE,
-        sutura_config::ENVIRONMENT_VARIABLE
+        sutura_config::ENVIRONMENT_VARIABLE,
+        overlay_remedy(&sutura_config::configuration_variables_from_process())
+    )
+}
+
+/// The environment-overlay half of the remedy above, over the variables a process has set.
+///
+/// A function of the names rather than of the process, so the wording is testable without a process
+/// environment a test cannot arrange - `std::env::set_var` is `unsafe` in this edition and the
+/// workspace forbids it.
+///
+/// **Both branches say something.** The empty one is not silence: telling a reader the overlay is
+/// empty is what rules it out, and a remedy that lists three places to look without saying which
+/// are in play is the same unactionable shape one level up.
+///
+/// **What it does NOT claim, stated where the claim is.** These are the variables that are SET, not
+/// the one that was used, so this is a list of CANDIDATES: a name here may be setting a key the
+/// refusal is not about, and a refusal may be about a key that came from a file.
+///
+/// **And the reason is that it is not done, NOT that it cannot be.** An earlier version of this
+/// comment said the loader records no per-key provenance. That was false and review caught it:
+/// `config` 0.15.25 stamps every value with its source, `Config::cache` and `Value::origin()` are
+/// both public, and `crate::settings::read` already builds that value and drops it one line later.
+/// `github.com/telekom/sutura#440` carries the measurement and the shape of the change.
+fn overlay_remedy(variables: &[String]) -> String {
+    let prefix = format!("{}{}", sutura_config::VARIABLE_PREFIX, sutura_config::VARIABLE_SEPARATOR);
+    let overlay =
+        format!("every settings key is also reachable as one `{prefix}`-prefixed environment variable, and this process has");
+    if variables.is_empty() {
+        return format!("{overlay} none set");
+    }
+    format!(
+        "{overlay} {} set: {}. Any of those may be what the refusal above is about - unset the one \
+         that names the key it mentions",
+        variables.len(),
+        variables.join(", ")
     )
 }
 
@@ -546,7 +589,7 @@ mod tests {
 
     use super::{
         BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, declaring_bigquery, open_engine,
-        refuse_unattached, runtime, served_tables, timeout,
+        overlay_remedy, refuse_unattached, runtime, served_tables, timeout, unservable,
     };
 
     /// The files registry `open_engine` produced, or a failure saying which arm it took instead.
@@ -881,5 +924,40 @@ mod tests {
         assert!(error.contains("customers"), "the extra table is named: {error}");
         // And the two agreeing is not an error.
         refuse_unattached(&serving, &serving).expect("matching sets are fine");
+    }
+
+    #[test]
+    fn the_remedy_names_the_overlay_variables_this_process_has() {
+        // **`github.com/telekom/sutura#386`.** The remedy named `SUTURA_CONFIG_DIR` and
+        // `SUTURA_ENVIRONMENT` and nothing else, so a reader whose `SUTURA__SERVER__HOST` caused the
+        // refusal was pointed at two variables that were neither set nor able to fix it - the same
+        // class as #366's refusal citing a cargo feature that does not exist. The names are the
+        // process's own, so the message stops guessing.
+        let set = overlay_remedy(&[String::from("SUTURA__SERVER__HOST")]);
+        assert!(set.contains("SUTURA__SERVER__HOST"), "{set}");
+        assert!(set.contains(" 1 set"), "the count and the list agree: {set}");
+
+        // The empty case says so rather than staying silent: what rules the overlay out for a
+        // reader is being told it is empty.
+        let none = overlay_remedy(&[]);
+        assert!(none.contains("none set"), "{none}");
+        assert!(!none.contains("SUTURA__SERVER__HOST"), "{none}");
+
+        // And the sentence reaches the message an operator sees. Not a second rendering of the same
+        // words: `unservable` is what `configured` maps its error through, and a helper tested alone
+        // would say nothing about whether anything calls it. `SettingsLoadError::new` is private to
+        // `sutura_config`, so a refused load is the only way the command is handed one - the same
+        // route the loader's own tests take.
+        let refused = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development)
+                .with_overlay("security:\n  inbound:\n    resource: \"https://sutura.example.com\"\n"),
+        )
+        .expect_err("an inbound block with no mode is refused");
+        let refusal = unservable(&refused);
+        assert!(refusal.contains(sutura_config::CONFIG_DIR_VARIABLE), "{refusal}");
+        assert!(
+            refusal.contains("-prefixed environment variable"),
+            "the overlay is the third thing the remedy names: {refusal}"
+        );
     }
 }

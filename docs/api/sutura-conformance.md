@@ -654,7 +654,15 @@ An adapter that compares the two witnesses fails here if a fixture opened it any
 pub const fn csv() -> &'static str
 ```
 
-The corpus, as CSV.
+The corpus, as CSV, from the committed file under `corpus/`.
+
+Served from the file rather than from a copied constant so a row edit in
+`corpus/conformance_events.csv` is a change to the data and not to this module - which is the
+whole of what "a case is a directory entry, not a function" asks. The bytes are embedded at
+compile time by `include_str!`, so this stays `&'static str` and `const`.
+
+The last row is outside every case's time range on purpose: a corpus whose filters exclude
+nothing cannot tell an adapter that applied them from one that did not.
 
 ### `fn on_disk`
 
