@@ -2877,6 +2877,19 @@ catalog file would end the process. <code>clippy.toml</code> now bans both metho
 resolve by writing the call and watching clippy reject it - an unresolvable path in
 <code>disallowed-methods</code> is silently ignored, so an unverified entry would read as enforcement and do
 nothing.</p>
+<p><strong>The generator panics on non-ASCII text, so the fragment is bound to ASCII.</strong> Found by the
+<code>sql_expression</code> fuzz target on a fragment containing the replacement character (a lossy-decode of
+four invalid bytes): the pinned <code>polyglot-sql 0.9.2</code> <code>Generator</code> byte-slices a string without
+respecting character boundaries and panics with <em>"start byte index N is not a char boundary"</em> at
+<code>generator.rs:19076</code>. There is no third-party error to map - it aborts, which under
+<code>panic = "abort"</code> is the process dying. <code>ExpressionError::NonAscii</code> refuses a fragment carrying any
+non-ASCII character before it is handed over, which is the bound the aggregation subset this hatch
+exists for already lives inside (SQL keywords, identifiers and the allowlisted functions are ASCII
+by construction). The exact failing input is quarantined as the committed seed
+<code>fuzz/seeds/sql_expression/non-ascii-crash</code>, and the defect belongs upstream: <code>polyglot-sql</code> is
+<code>github.com/tobilg/polyglot</code>, and the generator's byte-slicing there is what the bound is a workaround
+for. None of that changes what a catalog can carry until a pin fixes it - the bound is a control over
+the dependency, not a judgement that authored SQL is ASCII.</p>
 <h3 id="the-fragment-is-bounded-in-depth-as-well-as-in-length">The fragment is bounded in depth as well as in length<a class="headerlink" href="#the-fragment-is-bounded-in-depth-as-well-as-in-length" title="Permanent link">&para;</a></h3>
 <p><code>MAX_FRAGMENT_LEN</code> bounds the text at 1024 characters and the parser's own <code>ComplexityGuardOptions</code>
 bound nesting at 512 levels, which between them let a catalog file hold a tree 507 levels deep. Two
