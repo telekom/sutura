@@ -3035,6 +3035,7 @@ splitting a message on <code>", "</code>, which is a contract nothing checks and
 <li><code>Unrenderable</code> - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a <code>Shape</code>, because a <code>Shape</code> carries no cause and this one has one worth keeping.</li>
 <li><code>Refused</code></li>
 <li><code>NonAscii</code> - A character the pinned dialect layer's generator cannot survive.</li>
+<li><code>UnclosedParenthesis</code> - A parenthesis the fragment opens and never closes.</li>
 <li><code>UnknownColumn</code></li>
 <li><code>UnknownFunction</code> - A called function that is not one of the names a measure may call.</li>
 <li><code>TooDeep</code> - A fragment nesting deeper than the checks can walk. See the guard in <code>super::parse</code>, in the parent module.</li>
