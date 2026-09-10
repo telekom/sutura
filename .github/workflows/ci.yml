@@ -164,9 +164,6 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Never cancel a run on the default branch. The next push's base is the previous push, so a
-  # cancelled run's commits get classified out of the following range and are never validated
-  # by any completed run - the same "green while actually red" shape as using the wrong base.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -305,6 +302,7 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           BEFORE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           if [ "$EVENT" = "pull_request" ]; then
@@ -360,29 +358,43 @@ jobs:
       # fails immediately afterwards with its own attributed output. `--keep-going` is what makes
       # that true - without it the first failure would abandon the other eight and this step would
       # slow the job it exists to speed up.
+      #
+      # `api-docs` is the long root (#562) and is GATED ON THE `api` CLASSIFICATION, so a run that
+      # did not select `api` does not waste the graph on it - the authoritative `API reference
+      # pages` step below was already `api`-gated, so this only removes a prefetch that warmed
+      # nothing. When `api` IS selected the root stays in the SAME graph (an array, appended
+      # conditionally), so it still overlaps the other roots instead of serialising after them -
+      # the choice that does not depend on any host-utilisation figure, all of which were the
+      # mislabelled number #564 withdrew. `check-workflows` still sees `api-docs` referenced by
+      # the literal `API reference pages` step.
       - name: Realise all checks in one graph and report host utilisation
         continue-on-error: true
         # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
         # across the merged graph and reports cpus/memory/model + the nix max-jobs/cores pair in
         # force + mean/peak CPU-busy, so a later analysis can see whether the host was saturated
-        # or idle while the checks ran. ~0 cost side effect. It lands in the job summary AND as a
-        # `measure-host(<label>):` line in this job's log - grep that prefix, since the summary is
-        # served to a browser and to nothing a script can read.
+        # or idle while the checks ran. `busy` is TRUE busy since #564 (idle+iowait as not-busy),
+        # sampled by the shared nix/cpu-busy.sh. ~0 cost side effect. It lands in the job summary
+        # AND as a `measure-host(<label>):` line in this job's log - grep that prefix, since the
+        # summary is served to a browser and to nothing a script can read.
         uses: ./.github/actions/measure-host
+        env:
+          API: ${{ steps.classify.outputs.api }}
         with:
-          label: merged check graph (9 roots)
+          label: merged check graph
           run: |-
             set -eu
-            nix build -L --keep-going \
-              .#checks.x86_64-linux.hygiene \
-              .#checks.x86_64-linux.reuse \
-              .#checks.x86_64-linux.fmt \
-              .#checks.x86_64-linux.clippy \
-              .#checks.x86_64-linux.nextest \
-              .#checks.x86_64-linux.keycloak-tier \
-              .#checks.x86_64-linux.postgres-tier \
-              .#checks.x86_64-linux.doctest \
-              .#checks.x86_64-linux.api-docs
+            checks=(
+              .#checks.x86_64-linux.hygiene
+              .#checks.x86_64-linux.reuse
+              .#checks.x86_64-linux.fmt
+              .#checks.x86_64-linux.clippy
+              .#checks.x86_64-linux.nextest
+              .#checks.x86_64-linux.keycloak-tier
+              .#checks.x86_64-linux.postgres-tier
+              .#checks.x86_64-linux.doctest
+            )
+            if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
+            nix build -L --keep-going "${checks[@]}"
 
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
@@ -773,15 +785,31 @@ jobs:
       # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
       # so the four `cross` jobs stay the authority on a musl LINK - and nothing here reaches a
       # feature no shipped binary enables, which is what the `--all-features` gates are for.
+      #
+      # BOTH WRAPPED IN `measure-host` (#562): the post-graph cargo tail (~300-450 s) had NO
+      # utilisation telemetry at all - `measure-host` covered only the graph step - so nobody could
+      # say whether it was CPU-bound or waiting. Sampling it (true busy since #564) is cheap and
+      # answers that next question. The `run:` is the same command, `nix run .#default-features`;
+      # only the wrapper is added.
       - name: The shipped feature set compiles and lints
         if: steps.classify.outputs.rust == 'true'
-        run: nix run .#default-features
+        uses: ./.github/actions/measure-host
+        with:
+          label: shipped feature set compiles and lints
+          run: |-
+            set -eu
+            nix run .#default-features
 
       # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
       # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
       - name: The shipped feature set runs its tests
         if: steps.classify.outputs.rust == 'true'
-        run: nix run .#default-feature-tests
+        uses: ./.github/actions/measure-host
+        with:
+          label: shipped feature set runs its tests
+          run: |-
+            set -eu
+            nix run .#default-feature-tests
 
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
