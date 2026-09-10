@@ -14,5 +14,8 @@ year="\x22year\x22"
 quarter="\x22quarter\x22"
 week="\x22week\x22"
 date="\x22\\d{4}-\\d{2}-\\d{2}\x22"
-open={"\x22
-close=\x22"}
+# The JSON open/close braces framing the body. Two-byte tokens matching the surrounding entries'
+# quote-encoding: an entry is `name="value"` with `\x22` for a literal `"`, so the opening of a JSON
+# object is the two bytes `{` `"` and the closing is `"` `}`. Written `open="{\x22"` / `close="\x22}"`.
+open="{\x22"
+close="\x22}"
