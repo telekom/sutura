@@ -1581,7 +1581,7 @@ and an error is not a place for credential material.
 - `NoKeyId` - No `kid`.
 - `UnusableKeyId`
 - `NoKey`
-- `NotVerified` - The signature, the expiry, the issuer or the audience.
+- `NotVerified` - The signature, the expiry, the issuer, the audience - or the claims failing to deserialize.
 - `UnusableSubject` - A `sub` this workspace will not write into a record.
 - `UnusableActor`
 - `TooManyActors` - More nesting in `act` than `MAX_ACTORS` allows.
@@ -1590,6 +1590,25 @@ and an error is not a place for credential material.
 - `NoIssuedAt` - A transit proof with no `iat`.
 - `LifetimeTooLong` - A transit proof declaring a longer life than this deployment will call short-lived.
 - `IssuedInTheFuture` - An `iat` in the future by more than the leeway.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `enum NotVerified`
+
+```rust
+pub enum NotVerified
+```
+
+Why a presented token did not verify, when it did not.
+
+The split exists because one of the two halves carries a message a log must not see.
+
+##### Variants
+
+- `Crypto` - The signature, the expiry, the issuer or the audience.
+- `Json` - The claims in the presented token did not deserialize.
 
 ##### Implements
 
