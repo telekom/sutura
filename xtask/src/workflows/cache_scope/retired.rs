@@ -737,7 +737,9 @@ mod tests {
             let step = format!("      - uses: {name}@aaaa # v1\n");
             let found = super::retired(&owned("release.yml", &step));
             assert!(
-                found.iter().any(|p| p.contains("publishes to a store outside this repository")),
+                found
+                    .iter()
+                    .any(|p| p.contains("publishes to a store outside this repository")),
                 "{name}: {found:#?}"
             );
         }

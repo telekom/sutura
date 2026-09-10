@@ -20,7 +20,7 @@
 //! Its own file rather than another block in `retired.rs` because `max-lines` splits at 1000 - the
 //! same reason `retired.rs` exists as a sibling to `cache_scope.rs`.
 
-use super::{key_of, steps, Step};
+use super::{Step, key_of, steps};
 
 /// The same-job realise requirement for every `cachix/cachix-action` write step in `text`.
 pub(super) fn problems(label: &str, text: &str) -> Vec<String> {
@@ -79,9 +79,7 @@ fn job_end(text: &str, step_line: usize) -> usize {
                 .skip(index.saturating_add(1))
                 .find(|(_, next)| {
                     let next_trimmed = next.trim_start();
-                    !next_trimmed.is_empty()
-                        && next.len().saturating_sub(next_trimmed.len()) <= 2
-                        && next_trimmed.ends_with(':')
+                    !next_trimmed.is_empty() && next.len().saturating_sub(next_trimmed.len()) <= 2 && next_trimmed.ends_with(':')
                 })
                 .map_or(lines.len(), |(at, _)| at);
             spans.push((index.saturating_add(1), end));
@@ -139,9 +137,7 @@ mod tests {
             "{found:#?}"
         );
         assert!(
-            found
-                .first()
-                .is_some_and(|problem| problem.contains("issue #560")),
+            found.first().is_some_and(|problem| problem.contains("issue #560")),
             "{found:#?}"
         );
     }

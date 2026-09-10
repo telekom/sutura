@@ -14,10 +14,6 @@ mod arrow_major;
 mod attribution;
 mod boot_order;
 mod boundaries;
-#[cfg(test)]
-mod cpu_busy;
-#[cfg(test)]
-mod validated_base;
 mod bounded_wait;
 mod branches;
 mod causality;
@@ -25,6 +21,8 @@ mod changes;
 mod commit_msg;
 mod compose;
 mod conformance;
+#[cfg(test)]
+mod cpu_busy;
 mod crap;
 mod default_feature_tests;
 mod default_features;
@@ -63,6 +61,8 @@ mod tasks;
 mod text;
 mod threshold_expect;
 mod unused_deps;
+#[cfg(test)]
+mod validated_base;
 mod venues;
 mod warm_start;
 mod workflows;

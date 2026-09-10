@@ -49,11 +49,11 @@ use super::reach::Closure;
 // counts, gates or anchors a cache write - and its own file because the unexemptable 1000-line cap
 // forced the split when its flag-form refusal landed. It reads this module's step reader, so
 // it reaches `key_of` and `steps` as a child, which needs no widening of either.
-mod retired;
 /// The writer-EFFECTIVENESS rule for the daemon-mode cache publisher (issue #560): a
 /// `cachix/cachix-action` step whose job realises nothing after it publishes nothing. Its own file
 /// for the same 1000-line reason.
 mod realise;
+mod retired;
 
 /// The main-push condition, token for token.
 ///
