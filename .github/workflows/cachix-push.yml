@@ -123,13 +123,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The four triples `cross-link.yml` builds on `main`. cachix-push only ever runs on a push to
-        # the default branch, so this is main's four, not the pull-request pair.
+        # THE SAME REDUCED SET `cross-link.yml` BUILDS, and it has to be the same list: this job
+        # exists to fill `sutura-cross-build` with the closures those legs substitute, so a triple
+        # published here that no leg builds puts paths nothing reads into a 5 GB bucket, and a
+        # triple built there and not published here is a leg with no second carrier at all.
+        # `cargo xtask check-workflows` refuses either drift.
+        #
+        # `release.yml`'s `build` still builds all four and this reduction costs it nothing it was
+        # getting: it names no substituter beyond the installer's default, and it builds the
+        # RELEASE-profile packages, which are different derivations from the `-ci` ones realised
+        # below. Read from that file rather than assumed.
         target:
-          - x86_64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl
           - aarch64-unknown-linux-gnu
-          - aarch64-unknown-linux-musl
+          - x86_64-unknown-linux-musl
     steps:
       # Same skeleton as the `push` job: the store is what fills, so `reclaim-disk` first.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
