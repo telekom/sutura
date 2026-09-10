@@ -7,7 +7,7 @@
 //! - the call a readiness loop repeats, and the one that hung `just dev-up` when nothing bounded it
 //! - or short enough to kill a legitimate pull halfway and leave containers behind.
 //!
-//! So the caller states the kind of call, the same way [`super::probed`] takes a budget, and
+//! So the caller states the kind of call, the same way [`crate::compose::docker::probed`] takes a budget, and
 //! everything that waits on a process does it in [`waited`] and nowhere else.
 //!
 //! **The limit, stated because it is the one a reader would assume away: nothing MAKES a future

@@ -1,5 +1,6 @@
 //! File-layer discovery and the context retained across a configuration load.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::{DEFAULTS, SettingsError, Sources, VARIABLE_PREFIX, VARIABLE_SEPARATOR};
@@ -19,10 +20,58 @@ use crate::raw::RawSettings;
 ///
 /// **Paths only, and never a value.** A path is not a credential; a value can be one, and
 /// `security.access_token` is set by exactly this mechanism. Nothing read out of a file reaches this
-/// type - there is nowhere in it for a value to go.
+/// type - there is nowhere in it for a value to go. The origin it now also carries is the same rule
+/// applied to provenance: a per-key source label is not the value that came from it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigLayers {
     files: Vec<PathBuf>,
+    /// Which layer supplied each resolved key (dotted path), so a refusal can name it.
+    ///
+    /// Built by [`read`] from the `config` crate's own cache, which is the thing that used to be
+    /// thrown away the line after it was built. The map has one entry for every resolved leaf,
+    /// because the embedded defaults define them all - a value that is refused is a value someone
+    /// set, so a refusal that does not know who is the refusal this list exists to prevent.
+    origins: BTreeMap<String, LayerOrigin>,
+}
+
+/// Which of [`read`]'s sources supplied a resolved key.
+///
+/// The `config` crate stamps the origin of every value it produces and [`read`] used to discard
+/// that stamp the moment it deserialised the tree it carried. This is the same value, kept in the
+/// one place a refusal can look it up. It carries no value - only where a value came from - so a
+/// credential-shaped key is as safe here as it is in [`ConfigLayers`]' file list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum LayerOrigin {
+    /// A `SUTURA__*` variable set the value.
+    Environment,
+    /// A file layer set the value; the path, so the message can say which file.
+    File(PathBuf),
+    /// The embedded defaults (or, in tests, a supplied overlay) set the value.
+    Defaults,
+}
+
+impl LayerOrigin {
+    /// The label a refusal appends after a key's value, given the key it applies to.
+    ///
+    /// For the environment the label is the variable NAME reconstructed from the key -
+    /// `server.host` becomes `SUTURA__SERVER__HOST` - because the `config` crate stamps every
+    /// environment value with the single label "the environment" and the whole reason this exists
+    /// is to tell an operator which of several exported variables actually carried the value.
+    #[must_use]
+    pub(super) fn describe(&self, key: &str) -> String {
+        match self {
+            Self::Environment => {
+                let variable = key
+                    .split('.')
+                    .map(str::to_ascii_uppercase)
+                    .collect::<Vec<_>>()
+                    .join(VARIABLE_SEPARATOR);
+                format!("{VARIABLE_PREFIX}{VARIABLE_SEPARATOR}{variable}")
+            }
+            Self::File(path) => path.display().to_string(),
+            Self::Defaults => String::from("embedded defaults"),
+        }
+    }
 }
 
 impl ConfigLayers {
@@ -31,6 +80,17 @@ impl ConfigLayers {
     #[must_use]
     pub fn files(&self) -> &[PathBuf] {
         &self.files
+    }
+
+    /// Which layer supplied `key` (a dotted path such as `server.host`).
+    ///
+    /// `None` only when the key was never resolved, which for a key the refusal is naming is the
+    /// sign of a bug rather than a deployment a message can help with - the refusal text currently
+    /// falls back to the embedded defaults when it happens.
+    #[inline]
+    #[must_use]
+    pub(super) fn origin_of(&self, key: &str) -> Option<&LayerOrigin> {
+        self.origins.get(key)
     }
 
     /// Was no file layer observed?
@@ -73,19 +133,25 @@ impl core::fmt::Display for ConfigLayers {
 #[derive(Debug, thiserror::Error)]
 #[error("configuration file layers: {layers}")]
 pub struct SettingsLoadError {
-    layers: ConfigLayers,
+    // Boxed: the error half of `read`'s `Result` must stay small (`result_large_err` is on here
+    // by choice), and `ConfigLayers` now carries a per-key origin table. The successful half holds
+    // the same type inline, where there is no such pressure.
+    layers: Box<ConfigLayers>,
     #[source]
     reason: SettingsError,
 }
 
 impl SettingsLoadError {
-    pub(super) const fn new(layers: ConfigLayers, reason: SettingsError) -> Self {
-        Self { layers, reason }
+    pub(super) fn new(layers: ConfigLayers, reason: SettingsError) -> Self {
+        Self {
+            layers: Box::new(layers),
+            reason,
+        }
     }
 
     /// The files observed in application order, including on a failed read or parse.
     #[inline]
-    pub const fn layers(&self) -> &ConfigLayers {
+    pub fn layers(&self) -> &ConfigLayers {
         &self.layers
     }
 
@@ -149,14 +215,70 @@ pub(super) fn read(sources: &Sources) -> Result<Layered, SettingsLoadError> {
     }
     builder = builder.add_source(variables);
 
-    let layers = ConfigLayers { files: layers };
-    match builder.build().and_then(config::Config::try_deserialize) {
+    // Build once and keep the `Config` long enough to walk its cache, then deserialise it. The
+    // `config` crate stamps every value it resolves with the layer it came from - a variable, a
+    // file, or the embedded defaults - and that stamp used to die on this line, because the only
+    // thing `try_deserialize` returned was the raw tree. `collect_origins` reads the stamp first,
+    // so a refusal can say where the value it is refusing came from.
+    let config = match builder.build() {
+        Ok(config) => config,
+        Err(cause) => {
+            return Err(SettingsLoadError::new(
+                ConfigLayers {
+                    files: layers,
+                    origins: BTreeMap::new(),
+                },
+                SettingsError::Source { cause: Box::new(cause) },
+            ));
+        }
+    };
+    let origins = collect_origins(&config.cache);
+    let layers = ConfigLayers { files: layers, origins };
+    match config.try_deserialize() {
         Ok(raw) => Ok((raw, layers)),
         Err(cause) => Err(SettingsLoadError::new(
             layers,
             SettingsError::Source { cause: Box::new(cause) },
         )),
     }
+}
+
+/// Walks the merged value tree, keeping the per-key origin that `read` used to drop.
+///
+/// The `config` crate's `cache` is a nested tree whose leaves each remember the URI they came
+/// from: `the environment`, a resolved file path, or nothing for the embedded defaults and text
+/// overlays (both of which supply their contents as strings). Only leaves are recorded - a table
+/// has no origin of its own, because the leaves under it each do.
+///
+/// **Keyed by the dotted path, once, on the winning value.** A key overridden by a later layer
+/// has exactly one leaf here, carrying the origin of the layer that won, which is the layer a
+/// refusal about that key has to name.
+fn collect_origins(cache: &config::Value) -> BTreeMap<String, LayerOrigin> {
+    fn walk(value: &config::Value, path: &mut Vec<String>, origins: &mut BTreeMap<String, LayerOrigin>) {
+        if let config::ValueKind::Table(table) = &value.kind {
+            // The merged tree is a hash map; sort the row so the walk is deterministic - the
+            // destination `BTreeMap` is order-independent, but iteration order is not something to
+            // leave to hashing.
+            let mut row: Vec<(String, &config::Value)> = table.iter().map(|(k, v)| (k.clone(), v)).collect();
+            row.sort_by(|a, b| a.0.cmp(&b.0));
+            for (key, child) in row {
+                path.push(key);
+                if !matches!(&child.kind, config::ValueKind::Table(_)) {
+                    let origin = match child.origin() {
+                        Some("the environment") => LayerOrigin::Environment,
+                        Some(uri) => LayerOrigin::File(PathBuf::from(uri)),
+                        None => LayerOrigin::Defaults,
+                    };
+                    origins.insert(path.join("."), origin);
+                }
+                walk(child, path, origins);
+                path.pop();
+            }
+        }
+    }
+    let mut origins = BTreeMap::new();
+    walk(cache, &mut Vec::new(), &mut origins);
+    origins
 }
 
 /// The stem of the layer every environment reads first.

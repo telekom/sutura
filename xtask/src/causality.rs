@@ -29,7 +29,7 @@
 //!
 //! WHICH FILE IS WHICH. [`diff`] reads the diff into added lines that carry their post-image
 //! line numbers; [`regions`] decides which of those lines are test code, by where they sit in
-//! the file rather than by what the added set happens to contain; [`plan`] sorts the result into
+//! the file rather than by what the added set happens to contain; [`plan()`] sorts the result into
 //! what to revert, what to hold and what to measure. That middle module's own doc records the
 //! defect the earlier shape produced and the limits of what replaced it - a tests-only branch
 //! reported as "changes behaviour and adds tests in one file", which is a different message asking

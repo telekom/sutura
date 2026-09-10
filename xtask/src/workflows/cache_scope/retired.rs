@@ -54,9 +54,9 @@ use super::{key_of, steps};
 
 /// Publishers to a store OUTSIDE this repository.
 ///
-/// Not in [`WRITERS`]: gating one correctly is not enough on its own, and
+/// Not in [`super::WRITERS`]: gating one correctly is not enough on its own, and
 /// `cachix/cachix-action` was the entry whose correctly-gated presence once hid the store anchor's
-/// hole - see [`STORE_CACHE`]. One of these is now permitted in exactly one file ([`PUBLISH`]) and
+/// hole - see [`super::STORE_CACHE`]. One of these is now permitted in exactly one file ([`PUBLISH`]) and
 /// the other is refused everywhere.
 const HOSTED: [&str; 2] = ["cachix/cachix-action", "DeterminateSystems/flakehub-cache-action"];
 
@@ -184,7 +184,7 @@ const RECORD: &str = "docs/adr/0026-no-third-party-binary-cache.md";
 
 /// Where the files these two rules read live, relative to the repository root.
 ///
-/// Read directly rather than through [`Closure`], and that is the point of the pair: the closure is
+/// Read directly rather than through [`crate::workflows::reach::Closure`], and that is the point of the pair: the closure is
 /// what ordinary CI reaches, so a hosted publisher re-added to `release.yml` or to a workflow
 /// nobody has wired yet would pass it. `docs/adr/0026` is a statement about the repository.
 const GITHUB: [&str; 2] = [".github/workflows", ".github/actions"];

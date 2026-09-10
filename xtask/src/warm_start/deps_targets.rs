@@ -16,7 +16,7 @@
 //!
 //! WHAT IT DOES NOT HOLD, next to the claim. It holds that the choice is MADE, never that it is
 //! correct - `doCheck = true` passes this gate whether or not any consumer builds a test target.
-//! Deciding that would need the producer-to-consumer graph, which [`super::pairing`] builds for a
+//! Deciding that would need the producer-to-consumer graph, which [`crate::warm_start::pairing`] builds for a
 //! different question; the reason it is not reused here is that a `true` this gate accepted is
 //! still a line in a diff with a reason beside it, which is what review can act on.
 //!
