@@ -2521,6 +2521,36 @@ broker's answer to a value an adapter can execute with runs through the comparis
 still an enum whose variants a caller may match on; what it can get out of the granted one is a
 `LegCredentials` with no accessor that yields a leg.
 
+### `use AssertionDigest`
+
+A stable, non-reversible fingerprint of a caller's assertion, for correlation.
+
+**One constructor, no re-exposed field, no `Deref`/`Borrow`, and no `Deserialize`** -
+`crate::identity`'s standing rule that a wire document cannot mint a credential or an
+identity: a caller-supplied body cannot become a fingerprint it chose, the way it cannot become
+a `Secret` or a `RequestContext`.
+
+## `==` stays absent on `Secret`, so the digest is the only comparable shape
+
+`Secret` has no `PartialEq` and neither does this type's source matter: comparing the token
+itself is the timing oracle the identity skill forbids. What `==` means HERE is digest equality
+- the two fingerprints are equal exactly when the two assertions hash the same.
+
+```compile_fail
+let a = sutura_domain::identity::Secret::new("hunter2");
+let b = sutura_domain::identity::Secret::new("hunter2");
+assert!(a == b, "a `Secret` still has no `PartialEq` to call");
+```
+
+The compiling twin, comparing the digest shape instead - the only comparable form:
+
+```
+use sutura_domain::identity::{AssertionDigest, Secret};
+let digest = AssertionDigest::of(&Secret::new("hunter2"));
+let again = AssertionDigest::of(&Secret::new("hunter2"));
+assert_eq!(digest, again);
+```
+
 ### `use BoundToTheRequest`
 
 A grant that has been checked against the request it came back for.
@@ -2899,8 +2929,6 @@ no rendering surface (`Debug`, `Display`, `Self::as_str`) can emit it. Masking h
 at the boundary that turns a wire value into this type, not at print time. There is no
 other way in: the field is private, there is no `Deserialize`, and `TryFrom<String>`
 delegates to the same constructor.
-
-### `use None`
 
 ## Module `knowledge`
 
