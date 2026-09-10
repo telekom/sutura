@@ -2952,11 +2952,21 @@ the first predates signing. That is history, and it ages out. <strong>Nothing ne
 over every subject - but it lands in GitHub's attestation API, not on the release page, so the probe
 cannot see it. <strong>Publishing the provenance bundle as a release asset is a real improvement and not a
 badge move</strong>, for the same reason <code>docs/adr/0024</code> gives for signing blobs at all: <code>gh attestation
-verify</code> needs the forge and an authenticated client, so provenance today is not verifiable from
-mirrored bytes the way the signatures just were. It is <strong>not done here</strong> because it is a change to
+verify</code> needs the forge and an authenticated client, so provenance was not verifiable from mirrored
+bytes the way the signatures were.</p>
+<p><strong>DONE, and this paragraph used to say it was not.</strong> It was deferred here because it is a change to
 the release path that no gate in this tree can exercise, and shipping an unverifiable change to
-release signing to gain two points is the trade this record exists to refuse. <strong><code>#463</code></strong> is where
-it is tracked, with the open questions written out.</p>
+release signing to gain two points is the trade this record exists to refuse. <code>#463</code> carried the
+open questions and <code>#505</code> answered them rather than assuming: <code>.github/actions/attest-and-sign</code>
+makes FIVE <code>attest-build-provenance</code> calls and reads <code>bundle-path</code> from each, and <code>cargo xtask
+collect-provenance</code> validates the five records and the exact unique subject/digest set against the
+frozen release inputs before writing them as <code>dist/sutura-provenance.intoto.jsonl</code> - the one
+extension the probe reads. <code>release.yml</code>'s <code>Publish</code> step refuses to create the draft unless that
+asset is non-empty. So a mirror can now check WHERE the bytes came from, not only what they are.</p>
+<p><strong>The limits that remain, because the deferral's reasoning did not stop being true.</strong>
+<code>Signed-Releases</code> reaches 10 only once <code>v0.2.x</code> ages out of the five-release window. And no gate in
+this tree runs a tagged release: the export is held by <code>collect-provenance</code>'s own tests, not by an
+observed publish, so the first real tag is still where the wiring is seen end to end.</p>
 <h3 id="thirteen-unsigned-checksums-signed-not-dropped">Thirteen unsigned checksums: signed, not dropped<a class="headerlink" href="#thirteen-unsigned-checksums-signed-not-dropped" title="Permanent link">&para;</a></h3>
 <p>Of the 43 non-signature assets on <code>v0.4.1</code>, <strong>13 had no bundle, and every one was a <code>.sha256</code>
 sidecar.</strong> The action excluded them deliberately, and its argument was correct: a bundle over
