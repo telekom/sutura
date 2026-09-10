@@ -1,453 +1,363 @@
-//! The 2/4 cross-matrix split is held here, not by the inline ternary that spells it.
+//! Which triples each venue's cross matrix builds, held here rather than by the three literals.
 //!
-//! `cross-link.yml`'s `link` job builds two aarch64 targets on a `pull_request` and all four on a
-//! push to `main`, and until this module the only thing that *chose* was a single inline
-//! `${{ A && B || C }}` on `strategy.matrix.target` that no structural gate read. `check-workflows`,
-//! `check-shipped-binaries` and `max-lines` all stayed green on a 4-on-PR regression, because they
-//! ask whether references resolve, whether the shipped set agrees, and how long a file is - none of
-//! which is *which set an event selects*. The PR-2/main-4 claim that accompanies that literal was
-//! therefore a rule with no mechanism (AGENTS.md calls it a wish).
+//! Ordinary CI builds a REDUCED set - one cell per failure axis - on every event, and the FULL
+//! four survive only where a release is built. That is three literals in three files that have to
+//! agree, and until this module the only thing choosing was an inline `${{ A && B || C }}` on
+//! `strategy.matrix.target` that no structural gate read. `check-workflows`, `check-shipped-binaries`
+//! and `max-lines` all stayed green on a 4-on-PR regression, because they ask whether references
+//! resolve, whether the shipped set agrees, and how long a file is - none of which is *which
+//! triples a venue builds*.
 //!
-//! This module anchors the ternary: it locates `jobs.link.strategy.matrix.target`, requires the one
-//! `${{ }}`, splits it at top-level `&&`/`||` into the exact three operands `A && B || C`, pins `A`
-//! token-for-token to `github.event_name == 'pull_request'`, resolves `B`/`C` through the same
-//! `serde_json` parse the workflow's `fromJSON` does, and pins both leg lists order-sensitively.
-//! It rides the existing `check-workflows` gate - no new just task, no Task row, no gate-count
-//! change - and is covered by `just hygiene` like `sast`.
+//! # The three sets, and why each is where it is
+//!
+//! | Venue | Matrix | Why |
+//! | --- | --- | --- |
+//! | `cross-link.yml`'s `link` | [`REDUCED`] | one cell per failure axis, on every event |
+//! | `cachix-push.yml`'s `cross-build` | [`REDUCED`] | it fills the cache those legs substitute |
+//! | `release.yml`'s `build` | [`FULL`] | full coverage is MOVED here, not removed |
+//!
+//! The third row is the one that makes the reduction safe, so it is the row a reader should check
+//! first: `release.yml`'s `publish` asserts that exactly four artefacts arrived, so a link failure
+//! unique to a dropped triple blocks a release rather than shipping a broken artefact. Delete that
+//! matrix down to the reduced set and the reduction stops being *later signal* and becomes *no
+//! signal* - which is why this module refuses it.
 //!
 //! # What this holds
 //!
-//! * **One event runs one set.** A plain scalar list (the pre-#477 shape) or any `${{ }}` that is
-//!   not the exact `A && B || C` is refused, because such a shape lets a PR run the full four.
-//! * **Which set each event gets, and what is in it.** The `pull_request` leg pins to the aarch64
-//!   pair and the fallback to all four, both order-sensitively, so a third PR leg, a reordered
-//!   pair, a partial all-four, an inverted ternary or a swapped event all redden.
-//! * **The predicate is exactly the one the caller's event produces.** The `github` context of a
-//!   called workflow reflects the CALLER's event; pinning the token string refuses a rewrite to
-//!   `push` or `merge_group` or an inverted `!=`.
+//! * **One set, on every ordinary-CI event.** An event-scoped `${{ }}` on `cross-link.yml`'s
+//!   matrix is refused outright. A per-event set is exactly how the full four reached a pull
+//!   request before, and with both events on the same list a ternary could only mislead.
+//! * **Which triples, order-sensitively, in all three files.** A dropped cell, an added cell, a
+//!   reordering or a swap reddens - so does the drift between `cross-link.yml` and
+//!   `cachix-push.yml` that would publish a closure no leg reads, or build a leg nothing publishes.
+//! * **That the full set still exists somewhere.** [`RELEASE`] is the anchor; without it every
+//!   refusal here would pass on a tree that had quietly stopped cross-building anything.
 //!
 //! # What this does not hold
 //!
-//! * **Not whether Actions actually run 2 vs 4.** Executing the matrix is runtime behaviour, not a
-//!   string in this tree; this gate holds the literal that selects the set, and the header comment
-//!   next to it stays honest only if the two stay the same document.
+//! * **Not whether Actions actually runs these cells.** Executing a matrix is runtime behaviour,
+//!   not a string in this tree; this gate holds the literals that select the sets, and the header
+//!   comments beside them stay honest only if they and this module stay one document.
 //! * **Not the `ci.yml` caller's `cross` job condition** (`if:` / `on:`), which decides *when* the
 //!   called workflow runs at all, nor whether the legs are required contexts (`contexts` owns
-//!   that). A caller could drop the `cross` job entirely and this matrix literal would stay green -
-//!   the gate holds the matrix, not the invitation to it.
+//!   that). A caller could drop the `cross` job entirely and these literals would stay green - the
+//!   gate holds the matrices, not the invitation to them.
+//! * **Not what a dropped triple's `feature-probes` step used to prove.** Those steps ride
+//!   `cross-link.yml`'s matrix and nothing else runs them, so the reduction removes that coverage
+//!   rather than deferring it. `docs/adr/0017` carries the correction; no gate can.
 
 use std::path::Path;
 
 /// Where the workflows live, read directly (not through [`super::sources`]) exactly as `sast` does.
 const WORKFLOWS: &str = ".github/workflows";
 
-/// The file that owns the event-scoped cross matrix.
-const FILE: &str = "cross-link.yml";
+/// The reduced set every ordinary-CI venue builds: file, job.
+const LINK: (&str, &str) = ("cross-link.yml", "link");
 
-/// The predicate the caller's event must select on - the only value that means "pull request".
+/// The publisher that fills the cache those legs substitute: file, job.
+const PUBLISH: (&str, &str) = ("cachix-push.yml", "cross-build");
+
+/// The venue that still builds everything that ships: file, job.
+const RELEASE: (&str, &str) = ("release.yml", "build");
+
+/// One cell per failure axis, and the order is the canonical one.
 ///
-/// Pinned token-for-token (equality, not `contains`), so `push`, `merge_group`, or an inverted
-/// `!= 'pull_request'` all fail the pin.
-const PREDICATE: &str = "github.event_name == 'pull_request'";
+/// `x86_64-unknown-linux-musl` isolates the static-allocator C risk on the host architecture;
+/// `aarch64-unknown-linux-gnu` isolates the architecture the native `ci` job never compiles, on a
+/// libc the host already exercises. `aarch64-unknown-linux-musl` would combine both axes, and
+/// `x86_64-unknown-linux-gnu` is linked natively by `ci` on every run.
+const REDUCED: &[&str] = &["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-musl"];
 
-/// The two aarch64 triples a pull request proves. This is the only cross surface the native `ci`
-/// job never compiles, so a branch re-pays nothing for the host triple.
-const PR_PAIR: &[&str] = &["aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl"];
-
-/// The full four-triple set a push to `main` runs. Deliberately the same list as `release.yml`'s
-/// `build`. Order matters and is pinned: the canonical spelling is what a reader and the cache
-/// priming expect.
-const ALL_FOUR: &[&str] = &[
+/// Every published triple, which only the release path builds now.
+const FULL: &[&str] = &[
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
 ];
 
-/// Every way the cross-matrix split can have stopped being the 2/4 one it claims to be.
+/// Every way the three cross matrices can have stopped agreeing with the decision above.
 pub(super) fn problems(root: &Path) -> Vec<String> {
-    let path = root.join(WORKFLOWS).join(FILE);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) => return vec![format!("{FILE} could not be read: {error}")],
-    };
-
-    let Some((line, value)) = cross_matrix_target(&text) else {
-        return vec![format!(
-            "{FILE}: no `jobs.link.strategy.matrix.target` found - the cross matrix is gone"
-        )];
-    };
-
     let mut found = Vec::new();
-    if let Err(reason) = holds_the_split(&value) {
-        found.push(format!("{FILE}:{line}: {reason}"));
+    for ((file, job), expected, role) in [
+        (LINK, REDUCED, "the reduced ordinary-CI set"),
+        (PUBLISH, REDUCED, "the reduced set whose closures it publishes"),
+        (RELEASE, FULL, "the full published set"),
+    ] {
+        let path = root.join(WORKFLOWS).join(file);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) => {
+                found.push(format!("{file} could not be read: {error}"));
+                continue;
+            }
+        };
+        match matrix_target(&text, job) {
+            None => found.push(format!(
+                "{file}: no `jobs.{job}.strategy.matrix.target` found - that venue's cross matrix is gone"
+            )),
+            Some(Target { line, inline: Some(value), .. }) => found.push(format!(
+                "{file}:{line}: `target:` carries the expression `{value}`. An event-scoped matrix is \
+                 refused here: every venue runs one fixed set now, so a `${{{{ }}}}` could only \
+                 mislead - or bring back the per-event set that once put the full four on a pull \
+                 request. Spell {role} as a plain list."
+            )),
+            Some(Target { line, items, .. }) if items != expected => found.push(format!(
+                "{file}:{line}: `jobs.{job}.strategy.matrix.target` is not {role} - expected \
+                 {expected:?} in that order, found {items:?}"
+            )),
+            Some(_) => {}
+        }
     }
     found
 }
 
-/// Locate `jobs.link.strategy.matrix.target` and return its line number and raw value.
+/// One venue's `strategy.matrix.target`: where it is, and what it says.
+struct Target {
+    /// One-based, so a reader can open `cross-link.yml:130`.
+    line: usize,
+    /// The block-sequence items, in order. Empty when [`Target::inline`] is set.
+    items: Vec<String>,
+    /// A value written on the `target:` line itself - an expression, or a flow sequence.
+    inline: Option<String>,
+}
+
+/// Locate `jobs.<job>.strategy.matrix.target` inside `text`.
 ///
-/// The `link` job's `matrix:` block has exactly one child key, `target:`; the later
-/// `target: ${{ matrix.target }}` (line ~259) is a *reference* back into this matrix inside a
-/// later job's `with:`, not a second matrix. The block is identified by taking the first `target:`
-/// line that follows the file's first `matrix:` line - which is the cross matrix in production and
-/// in every refusal fixture.
-fn cross_matrix_target(text: &str) -> Option<(usize, String)> {
-    let in_matrix = text.lines().position(|line| line.trim() == "matrix:");
-    let start = in_matrix.map(|i| i + 1)?;
-    for (offset, later) in text.lines().enumerate().skip(start) {
-        if let Some(rest) = later.trim_start().strip_prefix("target:") {
-            return Some((offset + 1, rest.trim().to_owned()));
+/// Job-scoped rather than "the first `matrix:` in the file", because two of the three files hold
+/// more than one job and a whole-file scan would read the wrong one - silently, and green. The job
+/// header is the line `  <job>:` at the two-space column every job in this repository uses; the
+/// span ends at the next line indented two spaces or fewer that is not blank and not a comment.
+fn matrix_target(text: &str, job: &str) -> Option<Target> {
+    let header = format!("  {job}:");
+    let start = text.lines().position(|line| line.trim_end() == header)? + 1;
+    let mut in_matrix = false;
+    for (offset, line) in text.lines().enumerate().skip(start) {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
         }
+        // The next job, or the next top-level key: this job's span is over.
+        if indent <= 2 {
+            return None;
+        }
+        if trimmed == "matrix:" {
+            in_matrix = true;
+            continue;
+        }
+        if !in_matrix {
+            continue;
+        }
+        let Some(rest) = trimmed.strip_prefix("target:") else {
+            continue;
+        };
+        let rest = rest.trim();
+        if !rest.is_empty() {
+            return Some(Target { line: offset + 1, items: Vec::new(), inline: Some(rest.to_owned()) });
+        }
+        return Some(Target { line: offset + 1, items: items_after(text, offset), inline: None });
     }
     None
 }
 
-/// Assert `value` is the exact `${{ A && B || C }}`, with pinned predicate and pinned sets.
-fn holds_the_split(value: &str) -> Result<(), String> {
-    let value = value.trim();
-    // A plain scalar list (the pre-#477 shape) or any bare set has no event selection at all.
-    let inner = value
-        .strip_prefix("${{")
-        .and_then(|v| v.strip_suffix("}}"))
-        .map(str::trim)
-        .ok_or_else(|| {
-            "the target is not a single `${{ }}` expression - a plain scalar list lets one event \
-             run both sets"
-                .to_owned()
-        })?;
-
-    let split = split_top_level(inner);
-    let [a, b, c] = split.operands.as_slice() else {
-        return Err(format!(
-            "expected exactly the three operands `A && B || C`, found {}",
-            split.operands.len()
-        ));
-    };
-    if !matches!(split.operators.as_slice(), ["&&", "||"]) {
-        return Err(format!(
-            "expected the operators `&&` then `||` in that order, found {}",
-            split.operators.join("` then `")
-        ));
-    }
-
-    let a = a.trim();
-    if a != PREDICATE {
-        return Err(format!(
-            "the pull-request predicate is not exactly `{PREDICATE}` - found `{a}`"
-        ));
-    }
-
-    let b = parse_leg_set(b)?;
-    let c = parse_leg_set(c)?;
-
-    if b != PR_PAIR {
-        return Err(format!(
-            "the pull-request leg is not exactly the two-terminal aarch64 pair - found {b:?}"
-        ));
-    }
-    if c != ALL_FOUR {
-        return Err(format!(
-            "the fallback leg is not exactly the four-term all-four list - found {c:?}"
-        ));
-    }
-    Ok(())
-}
-
-/// Resolve a `fromJSON('<json>')` operand into its ordered leg list, or refuse it.
-fn parse_leg_set(operand: &str) -> Result<Vec<String>, String> {
-    let operand = operand.trim();
-    let rest = operand
-        .strip_prefix("fromJSON(")
-        .ok_or_else(|| format!("the leg `{operand}` is not a fromJSON(...) call - out of position"))?;
-    let rest = rest
-        .strip_suffix(')')
-        .ok_or_else(|| format!("the fromJSON for `{operand}` does not close with `)`"))?;
-    let json = rest
-        .trim()
-        .strip_prefix('\'')
-        .and_then(|r| r.strip_suffix('\''))
-        .ok_or_else(|| format!("the fromJSON argument for `{operand}` is not a single-quoted string"))?;
-    serde_json::from_str(json).map_err(|error| format!("unparseable JSON in fromJSON: {error}"))
-}
-
-/// Split at top-level `&&` / `||`, tracking `fromJSON` parentheses and single-quoted literals so a
-/// separator inside a leg's JSON string is never mistaken for a ternary operator. Returns one
-/// operand per top-level operator run, plus the operators between them.
+/// The block-sequence items that follow the `target:` line at `offset`, in order.
 ///
-/// A struct rather than a tuple so `-D clippy::type-complexity` stays quiet; operands are owned
-/// because the expression is rebuilt character by character instead of sliced, which is what keeps
-/// `-D clippy::string-slice` off an ASCII-only grammar.
-struct SplitParts {
-    operands: Vec<String>,
-    operators: Vec<&'static str>,
-}
-
-/// The operands of `expr` split at top-level `&&` / `||`, in order, with the operators between
-/// them. Quotes and `(...)` are tracked so a `&&`/`||` inside a leg's JSON string or a `fromJSON`
-/// argument is not treated as a separator.
-fn split_top_level(expr: &str) -> SplitParts {
-    let mut operands = Vec::new();
-    let mut operators = Vec::new();
-    let bytes = expr.as_bytes();
-    let mut depth = 0usize;
-    let mut in_quote = false;
-    let mut current = String::new();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        let Some(&b) = bytes.get(i) else { break };
-        // `&&`/`||` only at the top level: outside quotes and outside `(...)`.
-        let operator = if depth == 0 && !in_quote && i + 1 < bytes.len() {
-            if b == b'&' && bytes.get(i + 1) == Some(&b'&') {
-                Some("&&")
-            } else if b == b'|' && bytes.get(i + 1) == Some(&b'|') {
-                Some("||")
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        if let Some(op) = operator {
-            operands.push(std::mem::take(&mut current));
-            operators.push(op);
-            i += 2;
+/// Comment and blank lines inside the sequence are skipped rather than ending it, because this
+/// repository writes a reason next to nearly every literal. Anything else - a sibling key, a
+/// dedent - ends it.
+fn items_after(text: &str, offset: usize) -> Vec<String> {
+    let mut items = Vec::new();
+    for line in text.lines().skip(offset + 1) {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        match b {
-            b'\'' => in_quote = !in_quote,
-            b'(' if !in_quote => depth += 1,
-            b')' if !in_quote => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-        // The target is ASCII (a `github` context expression over JSON triples), so each byte is
-        // one code point; rebuilding it avoids `&expr[a..b]`, which `-D clippy::string-slice`
-        // refuses even on boundaries.
-        current.push(b as char);
-        i += 1;
+        let Some(item) = trimmed.strip_prefix("- ") else {
+            break;
+        };
+        items.push(item.trim().to_owned());
     }
-    operands.push(current);
-    SplitParts { operands, operators }
+    items
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    /// The predicate, and the aarch64 pair / all-four set spelled as the workflow does inside
-    /// `fromJSON`. Each refusal fixture builds one `target:` out of these.
-    const A: &str = "github.event_name == 'pull_request'";
-    const PAIR: &str = "[\"aarch64-unknown-linux-gnu\",\"aarch64-unknown-linux-musl\"]";
-    const ALL: &str = "[\"x86_64-unknown-linux-gnu\",\"aarch64-unknown-linux-gnu\",\"x86_64-unknown-linux-musl\",\"aarch64-unknown-linux-musl\"]";
-
-    /// A synthetic root carrying a working `cross-link.yml`, so a test can break exactly one input.
+    /// A synthetic root carrying all three matrices, so a test can break exactly one of them.
     ///
-    /// Named per test rather than shared: the workflow file is written into, and two tests sharing
-    /// one would pass or fail depending on which ran first.
-    fn sound_root(tag: &str, target: &str) -> PathBuf {
+    /// Named per test rather than shared: the files are written into, and two tests sharing one
+    /// root would pass or fail depending on which ran first.
+    fn sound_root(tag: &str, link: &str, publish: &str, release: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("sutura-cross-{}-{tag}", std::process::id()));
         if root.exists() {
             std::fs::remove_dir_all(&root).expect("a leftover temp tree is removable");
         }
         std::fs::create_dir_all(root.join(super::WORKFLOWS)).expect("temp workflows dir");
-        std::fs::write(
-            root.join(super::WORKFLOWS).join(super::FILE),
-            format!("jobs:\n  link:\n    strategy:\n      matrix:\n        target: {target}\n"),
-        )
-        .expect("write cross-link.yml");
+        for ((file, job), matrix) in
+            [(super::LINK, link), (super::PUBLISH, publish), (super::RELEASE, release)]
+        {
+            std::fs::write(
+                root.join(super::WORKFLOWS).join(file),
+                format!("jobs:\n  {job}:\n    strategy:\n      matrix:\n        target:{matrix}\n"),
+            )
+            .expect("write a workflow");
+        }
         root
     }
 
-    /// Swap the two fromJSON bodies of `GOOD` (used by tests that need exactly that mutation).
-    fn inverted() -> String {
-        wrap(&format!("{A} && fromJSON('{ALL}') || fromJSON('{PAIR}')"))
+    /// A block sequence at the column the real files use.
+    fn list(triples: &[&str]) -> String {
+        triples.iter().fold(String::new(), |mut out, triple| {
+            out.push_str("\n          - ");
+            out.push_str(triple);
+            out
+        })
+    }
+
+    fn reduced() -> String {
+        list(super::REDUCED)
+    }
+
+    fn full() -> String {
+        list(super::FULL)
     }
 
     fn drop_root(root: &PathBuf) {
         std::fs::remove_dir_all(root).expect("the temp tree this test created is removable");
     }
 
-    /// Wrap a bare inner expression in the literal `${{ ... }}` a workflow requires. Kept as a
-    /// helper because spelling that open brace pair through `format!` needs double escapes; the
-    /// inner expression is passed already-formed.
-    fn wrap(inner: &str) -> String {
-        format!("${{{{ {inner} }}}}")
-    }
-
     /// THE PRODUCTION ENTRY POINT, against the real tree. Every refusal below breaks one input to
     /// this same call, so `&& false` on any of them reddens one of the tests below rather than
     /// none - which is the difference between testing the predicate and testing the refusal.
     #[test]
-    fn the_production_tree_holds_the_2_4_split() {
+    fn the_production_tree_holds_the_three_sets() {
         let root = crate::repo::root().expect("repo root");
         let found = super::problems(&root);
-        assert!(
-            found.is_empty(),
-            "the production cross matrix no longer holds the 2/4 split: {found:?}"
+        assert!(found.is_empty(), "the production cross matrices have drifted: {found:?}");
+    }
+
+    /// The synthetic tree the refusals mutate is itself clean, or a refusal below could pass for
+    /// the wrong reason.
+    #[test]
+    fn the_synthetic_tree_is_clean() {
+        let root = sound_root("clean", &reduced(), &reduced(), &full());
+        let found = super::problems(&root);
+        assert!(found.is_empty(), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// The primary refusal: an event-scoped ternary back on the link matrix. That shape is how the
+    /// full four reached a pull request before, and with one set per venue it can only mislead.
+    #[test]
+    fn an_event_scoped_expression_is_refused() {
+        let target = " ${{ github.event_name == 'pull_request' && fromJSON('[\"aarch64-unknown-linux-gnu\"]') || fromJSON('[\"x86_64-unknown-linux-gnu\"]') }}";
+        let root = sound_root("expression", target, &reduced(), &full());
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("event-scoped matrix is refused"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// The regression this reduction exists to prevent coming back: the full four in ordinary CI.
+    #[test]
+    fn the_full_set_in_ordinary_ci_is_refused() {
+        let root = sound_root("full-in-ci", &full(), &reduced(), &full());
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("cross-link.yml"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// Both reduced cells are load-bearing, and each covers a different axis, so dropping either
+    /// one leaves an axis unproven anywhere before a tag.
+    #[test]
+    fn dropping_a_reduced_cell_is_refused() {
+        for (tag, kept) in [("keep-arch", "aarch64-unknown-linux-gnu"), ("keep-libc", "x86_64-unknown-linux-musl")] {
+            let root = sound_root(tag, &list(&[kept]), &reduced(), &full());
+            let found = super::problems(&root);
+            assert_eq!(found.len(), 1, "{found:?}");
+            assert!(found[0].contains("reduced ordinary-CI set"), "{found:?}");
+            drop_root(&root);
+        }
+    }
+
+    /// The set is pinned order-sensitively, so swapping the two cells is a change, not a no-op.
+    #[test]
+    fn a_reordered_reduced_set_is_refused() {
+        let swapped = list(&["x86_64-unknown-linux-musl", "aarch64-unknown-linux-gnu"]);
+        let root = sound_root("reordered", &swapped, &reduced(), &full());
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("in that order"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// A third cell in ordinary CI is the cost this reduction bought back, one triple at a time.
+    #[test]
+    fn a_third_ordinary_ci_cell_is_refused() {
+        let widened =
+            list(&["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]);
+        let root = sound_root("third-cell", &widened, &reduced(), &full());
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("reduced ordinary-CI set"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// The publisher must fill exactly what the legs substitute. A triple published that no leg
+    /// builds is store paths nothing reads; one built and not published is a leg with no carrier.
+    #[test]
+    fn a_publisher_that_has_drifted_is_refused() {
+        let root = sound_root("publisher-drift", &reduced(), &full(), &full());
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("cachix-push.yml"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// THE ANCHOR. Reducing the release matrix too would turn *the signal arrives later* into *no
+    /// signal arrives*, and every other refusal here would still pass.
+    #[test]
+    fn a_reduced_release_matrix_is_refused() {
+        let root = sound_root("release-reduced", &reduced(), &reduced(), &reduced());
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("release.yml"), "{found:?}");
+        assert!(found[0].contains("full published set"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// A matrix read out of the wrong job is the failure a whole-file scan would have: two of the
+    /// three files hold several jobs, and an earlier one carries its own matrix.
+    #[test]
+    fn a_matrix_in_another_job_is_not_read() {
+        let root = sound_root("wrong-job", &reduced(), &reduced(), &full());
+        let path = root.join(super::WORKFLOWS).join(super::PUBLISH.0);
+        let text = std::fs::read_to_string(&path).expect("read the publisher");
+        let decoy = format!(
+            "jobs:\n  push:\n    strategy:\n      matrix:\n        target:{}\n{}",
+            full(),
+            text.trim_start_matches("jobs:\n")
         );
-    }
-
-    /// The primary refusal: the pre-#477 shape, a plain four-list with no event selection. One
-    /// event would build all four.
-    #[test]
-    fn a_plain_four_list_is_refused() {
-        let root = sound_root("plain-list", "");
-        let text = std::fs::read_to_string(root.join(super::WORKFLOWS).join(super::FILE)).unwrap();
-        let text = text.replacen(
-            "target: \n",
-            "target:\n          - x86_64-unknown-linux-gnu\n          - aarch64-unknown-linux-gnu\n          - x86_64-unknown-linux-musl\n          - aarch64-unknown-linux-musl\n",
-            1,
-        );
-        std::fs::write(root.join(super::WORKFLOWS).join(super::FILE), text).unwrap();
+        std::fs::write(&path, decoy).expect("write the decoy");
         let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("plain scalar list"), "{found:?}");
+        assert!(found.is_empty(), "the decoy job's matrix was read instead: {found:?}");
         drop_root(&root);
     }
 
-    /// Correct three operands and correct sets, but the operators are the wrong way round
-    /// (`A || B && C`): a structurally-shaped ternary that still runs the wrong set.
+    /// A job whose matrix is gone entirely reads as clean to any rule written as a refusal, which
+    /// is why absence is its own failure.
     #[test]
-    fn a_correct_shaped_ternary_with_swapped_operators_is_refused() {
-        let target = wrap(&format!("{A} || fromJSON('{PAIR}') && fromJSON('{ALL}')"));
-        let root = sound_root("wrong-ops", &target);
+    fn a_missing_matrix_is_refused() {
+        let root = sound_root("missing", &reduced(), &reduced(), &full());
+        let path = root.join(super::WORKFLOWS).join(super::LINK.0);
+        std::fs::write(&path, "jobs:\n  link:\n    strategy:\n      fail-fast: false\n")
+            .expect("write a link job with no matrix");
         let found = super::problems(&root);
         assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("`&&` then `||`"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// The ternary inverted so a PR gets all four and `main` gets two - the M1 regression.
-    #[test]
-    fn an_inverted_ternary_is_refused() {
-        let root = sound_root("inverted", &inverted());
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("aarch64 pair"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// A third PR leg defeats "two aarch64 on a branch" by building more surface per PR.
-    #[test]
-    fn a_third_pull_request_leg_is_refused() {
-        let target = wrap(&format!(
-            "{A} && fromJSON('[\"aarch64-unknown-linux-gnu\",\"aarch64-unknown-linux-musl\",\"x86_64-unknown-linux-gnu\"]') || fromJSON('{ALL}')"
-        ));
-        let root = sound_root("third-leg", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("aarch64 pair"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// The pair is pinned order-sensitively, so swapping its two triples is a change, not a no-op.
-    #[test]
-    fn a_reordered_pull_request_pair_is_refused() {
-        let target = wrap(&format!(
-            "{A} && fromJSON('[\"aarch64-unknown-linux-musl\",\"aarch64-unknown-linux-gnu\"]') || fromJSON('{ALL}')"
-        ));
-        let root = sound_root("reordered", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("aarch64 pair"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// Dropping a leg from the all-four set shrinks the per-target store `main` writes for it.
-    #[test]
-    fn a_partial_all_four_set_is_refused() {
-        let target = wrap(&format!(
-            "{A} && fromJSON('{PAIR}') || fromJSON('[\"x86_64-unknown-linux-gnu\",\"aarch64-unknown-linux-gnu\",\"x86_64-unknown-linux-musl\"]')"
-        ));
-        let root = sound_root("partial-all", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("all-four"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// Rewriting the predicate event swaps which set a pull request gets.
-    #[test]
-    fn an_event_swap_is_refused() {
-        let target = wrap(&format!(
-            "github.event_name == 'push' && fromJSON('{PAIR}') || fromJSON('{ALL}')"
-        ));
-        let root = sound_root("event-swap", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("predicate"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// Inverting the comparison to `!=` makes every non-PR event the pair and a PR the four.
-    #[test]
-    fn a_predicate_inversion_is_refused() {
-        let target = wrap(&format!(
-            "github.event_name != 'pull_request' && fromJSON('{PAIR}') || fromJSON('{ALL}')"
-        ));
-        let root = sound_root("pred-inv", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("predicate"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// Moving the predicate off the first operand breaks the `A && B || C` contract even with the
-    /// right sets and operators in the right order.
-    #[test]
-    fn an_operand_reorder_is_refused() {
-        let target = wrap(&format!("fromJSON('{ALL}') && {A} || fromJSON('{PAIR}')"));
-        let root = sound_root("operand-order", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("predicate"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// A two-operand expression has no event split at all - the shape collapses to one set.
-    #[test]
-    fn a_two_operand_expression_is_refused() {
-        let target = wrap(&format!("{A} && fromJSON('{PAIR}')"));
-        let root = sound_root("two-operand", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("three operands"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// A four-operand expression is a ternary that has grown an event branch with a new set.
-    #[test]
-    fn a_four_operand_expression_is_refused() {
-        let target = wrap(&format!(
-            "{A} && fromJSON('{PAIR}') || fromJSON('{ALL}') || fromJSON('[\"aarch64-unknown-linux-musl\"]')"
-        ));
-        let root = sound_root("four-operand", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("three operands"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// A leg spelled as a bare array literal instead of `fromJSON(...)` is out of position: it
-    /// cannot be resolved the way the workflow resolves it.
-    #[test]
-    fn a_fromjson_out_of_position_is_refused() {
-        let target = wrap(&format!("{A} && {PAIR} || fromJSON('{ALL}')"));
-        let root = sound_root("fromjson-pos", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("fromJSON"), "{found:?}");
-        drop_root(&root);
-    }
-
-    /// Broken JSON inside `fromJSON` means the set cannot be resolved at all.
-    #[test]
-    fn an_unparseable_fromjson_is_refused() {
-        let target = wrap(&format!("{A} && fromJSON('[{PAIR}') || fromJSON('{ALL}')"));
-        let root = sound_root("unparseable", &target);
-        let found = super::problems(&root);
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("unparseable JSON"), "{found:?}");
+        assert!(found[0].contains("cross matrix is gone"), "{found:?}");
         drop_root(&root);
     }
 }
