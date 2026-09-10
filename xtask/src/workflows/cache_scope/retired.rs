@@ -1,7 +1,6 @@
 //! Is the RECORDED ABSENCE of a third-party binary cache still the truth?
 //!
-//! `docs/adr/0026` retired a binary cache that was wired into `ci.yml` and `cross-link.yml` and
-//! gated on `secrets.NIX_CACHE_SUBSTITUTER`, `secrets.NIX_CACHE_PUBLIC_KEY`, `vars.NIX_CACHE_NAME`
+//! `docs/adr/0026` retired a binary cache that was wired into `ci.yml` and `cross-link.yml` and gated on `secrets.NIX_CACHE_SUBSTITUTER`, `secrets.NIX_CACHE_PUBLIC_KEY`, `vars.NIX_CACHE_NAME`
 //! and `secrets.NIX_CACHE_AUTH_TOKEN` - **none of which has ever existed in this repository.** So
 //! its populate step was `completed/skipped` on every `main` push it ran on (run 34247863640,
 //! step 6), silently and green, and a deletion that nothing witnesses is one editor away from
