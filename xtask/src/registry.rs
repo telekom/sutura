@@ -108,7 +108,7 @@ impl Reads {
 /// refusing on a DIFFERENT arm - an absent input or an empty scan - which #371 can see. The
 /// `falsifier` slot makes the compiler ask the question a test used to be left to answer alone:
 /// a hygiene gate cannot be registered without declaring what proves its own-rule Fail arm.
-/// [`crate::falsifier`] carries the tree and the sweep that drives it; this is the declaration.
+/// `crate::falsifier` carries the tree and the sweep that drives it; this is the declaration.
 ///
 /// Non-`Option` by design, and for [`Reads`]'s reason on [`Kind::Hygiene`]: a new gate is forced
 /// to answer rather than reminded to. The seed-programme marker [`Falsifier::declared_in_programme`]
