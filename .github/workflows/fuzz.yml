@@ -6,47 +6,83 @@
 # shipped profiles compile with `panic = "abort"`, so such a panic is the process dying rather than
 # an error a caller sees. `fuzz/` is the only thing here that produces adversarial input.
 #
-# WHY THE SCHEDULE IS THE POINT, and the pull-request leg is not. Fuzzing is unbounded by nature: a
-# fixed budget on every push buys a few thousand executions of an already-explored corpus, and a
-# run that fails a merge on a fresh random path is a check that gets disabled - after which nothing
-# generates input at all. So the two triggers have different jobs to do, the way
-# `security-audit.yml` splits the same way:
+# WHEN IT RUNS. The release tag, and a manual dispatch. There is no pull-request leg, no
+# `merge_group` leg and - since this change - no push-to-`main` leg and no cron. A time-budgeted
+# search over random input is a poor merge gate, and the per-push leg was paying for one it could
+# not be. Measured over the twenty runs before this change, every one of them a push to `main`:
 #
-#   - schedule            -> spend a real budget per target and let the corpus grow.
-#   - push to the default -> did what just landed keep every committed seed passing its assertions?
+#   - a MEDIAN of 16.1 core-hours per push at 32 cores, 315.9 core-hours in total;
+#   - NONE of the twenty succeeded - eleven failed, and nine were cancelled by
+#     `cancel-in-progress` when the next push landed.
 #
-# THERE IS NO PULL-REQUEST LEG. It was path-scoped over the harness's own files and has been
-# removed by decision, so the seed-assertion answer now arrives AFTER a merge rather than before
-# it. The header used to describe a `harness change` trigger; that trigger is gone.
+# So the trigger was destroying the fuzzing it paid for: every run shared one concurrency group,
+# `refs/heads/main`, and the next push cancelled whatever was still running. A tag is its own ref,
+# so a release run cancels nothing. The weekly cron goes with it, by decision.
+#
+# IT DOES NOT GATE THE RELEASE, and that is the decision rather than an accident. This is its own
+# workflow on the same `v*` tag `release.yml` triggers on, so there is no dependency edge between
+# them: `release.yml`'s `publish` job needs `build` and `gates` and nothing here, and a red run
+# here cannot hold a tag back. A gating fuzz job would mean the first finding on a fresh random
+# path blocks every release until somebody fixes it, and that is not a remote scenario: ELEVEN of
+# the last twenty runs ended in a failure. A bound landing separately refuses both artifacts
+# anybody has kept, so these targets may well be clean today - which is not an argument for
+# gating, because finding the NEXT one is the whole job of a fuzzer. The report is the run: a red
+# job in the Actions tab on the tag, with the crash input attached as an artifact. `cargo xtask
+# check-fuzz` refuses an invocation of the fuzzer inside `release.yml` so it stays that way.
+#
+# WHAT THAT COSTS, and a reader six months from now must not have to work it out. SEARCHING - a
+# time-budgeted libFuzzer run over MUTATED input - now happens at a release and on a manual
+# dispatch, and nowhere else. There is no periodic search. REGRESSION CHECKING continues on the
+# commits that touch the surface: `just fuzz-smoke` replays every committed seed at `-runs=0` with
+# no mutation, in the `smoke` job here and in a path-scoped pre-commit hook, which is what keeps
+# the quarantined `unclosed-paren-*` artifacts from coming back, and `cargo xtask check-fuzz`
+# holds the harness itself on every pull request.
+#
+# So, plainly: THIS REPOSITORY STOPS SEARCHING FOR NEW DEFECTS BETWEEN RELEASES, AND KEEPS
+# CHECKING THAT KNOWN ONES STAY FIXED. A quiet fuzz surface here means nobody is searching - not
+# that there is nothing to find. `just fuzz seconds="300" target=""` is the local search.
 #
 # NOT IN `devco/required-contexts` AT ALL, and that is correct rather than an omission. That record
 # accounts for jobs reporting a status-check CONTEXT, and its gating events are `pull_request` and
-# `merge_group`. This workflow triggers on neither any more, so it reports no context and can gate
-# no merge - the two `[advisory]` entries it used to carry were removed with the pull-request leg.
-# What IS gated on every pull request is
-# `cargo xtask check-fuzz`, inside the hygiene sweep, which costs milliseconds and fails when a
-# target stops being declared, seeded, or run by this file.
+# `merge_group`. This workflow triggers on neither, so it reports no context and can gate no merge.
+# What IS gated on every pull request is `cargo xtask check-fuzz`, inside the hygiene sweep, which
+# costs milliseconds and fails when a target stops being declared, seeded, or run by this file.
+#
+# THE `actions/cache` STEPS ARE GONE, AND THE TRIGGER IS WHY - this is not a cost decision. A
+# caching action in a workflow a TAG can start is `zizmor`'s `cache-poisoning` audit, high
+# severity: a poisoned entry restored in a run the release tag started is a way to influence what
+# that release publishes. `just lint-workflows` was green with those steps under `push: branches`
+# and reports two high findings with the same steps under `push: tags` - so the steps could not
+# survive this trigger, and suppressing a correct finding to keep them was not an option.
+#
+# They could not have paid anyway, which is why nothing replaces them. Every cache WRITE in this
+# repository is gated on a push to `main` - `actions/cache` by the step's own `if:`,
+# `.github/actions/nix-store-cache` by the `save:` `cargo xtask check-workflows` pins - and
+# neither trigger above is one, so no run here can write either entry again. Widening to a
+# tag does not help: an entry written from `refs/tags/v1.2.3` is readable only from that ref,
+# which no later run is. The harness therefore builds cold on every run, and nothing waits on it -
+# and `devco/action-inputs` loses its `actions/cache` record with the last `uses:` of it.
+#
+# THE `nix-store-cache` STEP IS UNTOUCHED, AND NOT BECAUSE IT WAS CLEARED. `zizmor` is invoked over
+# `.github/workflows` and reads exactly those files, so it never opens a local composite action:
+# an `actions/cache` step planted inside that action produced NO finding, where the same step in
+# this file produced two. So a tag-started run here still RESTORES a store cache, and that is
+# unassessed by the audit rather than absolved by it. What bounds it is the store's own write
+# gate - `save:` on a push to `main`, which nothing here can satisfy - so the `fuzz` scope can only
+# go stale and be evicted. The change that removes the step owns the decision to remove it.
 #
 # THIRD-PARTY ACTIONS: pinned by digest, as everywhere else here.
 name: fuzz
 
 on:
-  # DEFAULT BRANCH ONLY, by decision. There is no pull-request leg at all - not even a path-scoped
-  # one over the harness's own files - so a pull request pays nothing for fuzzing.
-  #
-  # THE COST, stated rather than hidden: a change that breaks a fuzz target is no longer caught
-  # before it merges. The signal arrives on the next push to the default branch, or from the
-  # schedule. That is accepted because a time-budgeted search over random input is a poor merge
-  # gate - these jobs were `[advisory]` and could never block a merge anyway - while what DOES gate
-  # every pull request is `cargo xtask check-fuzz` inside the hygiene sweep, which costs
-  # milliseconds and still fails when a target stops being declared, seeded or named here.
+  # THE RELEASE TAG, the same `v*` `release.yml` triggers on - a separate run over the same tree,
+  # which is what keeps the release ungated by it. See the header for the two triggers this
+  # replaced and what was measured about them.
   push:
-    branches:
-      - main
-  schedule:
-    # Wednesday 03:23 UTC. Off the hour for `security-audit.yml`'s reason - scheduled jobs on the
-    # hour queue behind everyone else's - and midweek so a finding lands on a working day.
-    - cron: "23 3 * * 3"
+    tags: ["v*"]
+  # KEPT, deliberately. A manual trigger costs nothing while nobody invokes it, and without it the
+  # only way to reach these targets between releases is a local `just fuzz seconds="300" target=""`
+  # on somebody's machine.
   workflow_dispatch:
     inputs:
       seconds:
@@ -63,7 +99,8 @@ concurrency:
 
 jobs:
   # The deterministic half. Every committed seed executed once, no mutation, so the verdict is a
-  # function of the files in the tree - which is what makes it safe to run on a pull request.
+  # function of the files in the tree - the property that lets the same replay sit in a pre-commit
+  # hook and in `just fuzz-smoke`. It is a regression check over what is committed, not a search.
   smoke:
     runs-on: rust-mcp-32core
     # A cold nightly build with a sanitizer over this dependency graph is the cost here, not the
@@ -96,22 +133,6 @@ jobs:
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: fuzz
-
-      # The compiled fuzz harness is a RUNTIME cargo build into `target/fuzz` (`nix/fuzz.nix`
-      # sets `CARGO_TARGET_DIR`), not a nix store path, so the store cache above cannot carry it.
-      # `cargo fuzz` compiles the nightly + ASan dependency graph cold in minutes, on every run.
-      # Cache the target dir across pushes to `main` so a push that keeps the same dependency graph
-      # (the lockfile key) restores it and cargo rebuilds incrementally instead of from cold.
-      # Gated to a push to `main` for the same reason every cache write here is: a pull request
-      # writes an entry only itself can read, then `cache-prune.yml` deletes it on close. The
-      # Actions-cache gate (`cargo xtask check-workflows`) accepts this only `if:`-gated, never via
-      # a `save:` key on `actions/cache` - so a pull request still cold-builds. That is the stated
-      # limit: this is a `main`-to-`main` cache, the recurring cost on every push, not a PR one.
-      - uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        with:
-          path: target/fuzz
-          key: fuzz-${{ hashFiles('fuzz/Cargo.lock') }}-${{ hashFiles('devco/rust-toolchain-nightly.toml') }}
 
       - name: Replay the committed corpus
         run: bash nix/run-fuzz.sh smoke
@@ -148,14 +169,6 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-
-      # Same `target/fuzz` cache as the `smoke` job, same key, so the two legs and the replay share
-      # one compiled harness across `main` pushes. Pull requests cold-build - see `smoke`'s step.
-      - uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        with:
-          path: target/fuzz
-          key: fuzz-${{ hashFiles('fuzz/Cargo.lock') }}-${{ hashFiles('devco/rust-toolchain-nightly.toml') }}
 
       - name: Fuzz ${{ matrix.target }}
         run: bash nix/run-fuzz.sh run "${SECONDS_BUDGET}" "${{ matrix.target }}"

@@ -173,8 +173,10 @@ security-audit.yml:audit
 # absent here - a measurement tool, run by hand when a runner needs checking, never a reportable on
 # a gating event. `.github/workflows/runner-probe.yml` carries the design.
 
-# Generated input against the parsers that read untrusted input. BOTH jobs advisory, and the
-# `fuzz` matrix does not report on a pull request at all - `.github/workflows/fuzz.yml` argues why
-# a time-budgeted fuzz run must not gate a merge, and the entry is here so that argument is a
-# classification rather than an omission. What IS gated on every pull request is `check-fuzz`
-# inside the hygiene sweep, which reads the harness and costs milliseconds.
+# Generated input against the parsers that read untrusted input is DELIBERATELY ABSENT here, the
+# way the runner probe above is, and the sentence that used to stand here classified both its jobs
+# `[advisory]` over no entry at all. `.github/workflows/fuzz.yml` triggers on the release tag and
+# on `workflow_dispatch` - neither of them a gating event - so it reports no status-check context
+# and there is nothing for this record to classify. It argues at length why a time-budgeted search
+# over random input must gate neither a merge nor a release. What IS gated on every pull request is
+# `check-fuzz` inside the hygiene sweep, which reads the harness and costs milliseconds.

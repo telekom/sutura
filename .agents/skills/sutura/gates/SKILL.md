@@ -179,7 +179,7 @@ It is scoped to the domain crate because `--workspace` coverage is over six minu
 CPU-minutes; `docs/crap.md` carries the measured cost of every wider option and what the scope
 therefore does not see.
 
-## Fuzzing: the deterministic build gate vs. the scheduled run
+## Fuzzing: regression checking on the merge path vs. searching at a release
 
 `fuzz/` is a libFuzzer target set over the parsers that read input this deployment does not write.
 The two halves are deliberately different shapes, and reading one for the other is how a green run
@@ -197,18 +197,31 @@ stops meaning anything:
   reddened nothing on the merge path, and the only witness was a log line. **A job that cannot fail
   a merge and fails late is indistinguishable from one that works**, and the fix is not to read the
   log more carefully: it is a cheap gate on the merge path over the same input.
-- **Actual fuzzing is scheduled, never a merge gate.** `.github/workflows/fuzz.yml` runs on a cron
-  and `workflow_dispatch`, spends a time budget per target, and its `smoke` leg replays the
-  committed seeds. A run that failed a merge on a fresh random path would be a gate somebody turns
-  off, after which nothing generates input. A crash enters the tree as a **seed** and a regression,
-  never as a corpus entry.
+- **Actual fuzzing runs at a release and on dispatch, and gates neither a merge nor the release.**
+  The push-to-`main` leg was removed once measured: a median **16.1 core-hours per push** at 32
+  cores over the last twenty runs, **none of which succeeded** (eleven failed, nine cancelled by
+  the next push under one shared concurrency group, `refs/heads/main`) - per-push fuzzing was
+  destroying the fuzzing it paid for. The weekly cron went with it, by decision. `fuzz.yml` is its
+  own workflow rather than a job in `release.yml` precisely so no dependency edge can exist:
+  `publish` needs `build` and `gates`, so a crash cannot hold a tag back - and `check-fuzz`
+  refuses an invocation of the fuzzer inside `release.yml` to keep it that way. A crash enters the
+  tree as a **seed** and a regression, never as a corpus entry.
+- **The cost, and it is the whole of the coverage picture.** *Searching* - a budgeted run over
+  mutated input - happens at a release and on a manual dispatch, and nowhere else; there is no
+  periodic search. *Regression checking* continues on the commits that touch the surface:
+  `just fuzz-smoke` at `-runs=0` over every committed seed, in a path-scoped pre-commit hook, plus
+  `check-fuzz`. **So this repository stops searching for new defects between releases and keeps
+  checking that known ones stay fixed** - a quiet fuzz surface means nobody is searching, not that
+  there is nothing to find.
 
 The `smoke` leg is real but narrow: `-runs=0` replays every tracked seed once with no mutation, so
-its verdict is a function of committed files. Both `fuzz.yml` jobs are classified `[advisory]` in
-`devco/required-contexts`, so neither is required. **What is not covered by a green fuzz run:**
-DataFusion/DuckDB parsing (upstream), dialect differential fuzzing, and any parser the harness does
-not name in its own header - and a scheduled run that finds nothing proves only that the committed
-seeds and a finite budget did not find anything, never that a parser is panic-free.
+its verdict is a function of committed files. Neither `fuzz.yml` job appears in
+`devco/required-contexts` at all, and that record says why: the workflow triggers on no gating
+event, so it reports no status-check context and can be required by nothing. **What is not covered
+by a green fuzz run:** DataFusion/DuckDB parsing (upstream), dialect differential fuzzing, and any
+parser the harness does not name in its own header - and a release run that finds nothing proves
+only that the committed seeds and a finite budget did not find anything, never that a parser is
+panic-free.
 
 ## Checks that pass while the thing they describe is broken
 
