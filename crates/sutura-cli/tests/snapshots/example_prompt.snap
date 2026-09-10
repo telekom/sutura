@@ -112,6 +112,13 @@ Every reason you can be given, and what to do about each:
   recombined - its aggregate (a distinct count) is not additive the way a sum or an average is.
   Nothing you can change about the question. Ask the same metric without the dimension that sits on
   the second data system, or report it to a person.
+- **LegsDecideIdentityDifferently** - the question spans two data systems that decide who is asking
+  differently, so one answer would add rows read under one identity to rows read under another - a
+  total neither identity is entitled to.
+  Ask the same metric without the dimension that sits on the second data system, and the mono-source
+  question on each is still answered. Retrying changes nothing, and this is not an outage: it is a
+  fact about how the two data systems are declared. If every dimension you need crosses them, say so
+  to the person you are acting for.
 - **PlanTablesShareAnIdentifier** - answering would read two different tables that carry the same
   name, and one statement cannot tell them apart.
   Try a dimension that does not need that join - it is the join that puts both tables in one

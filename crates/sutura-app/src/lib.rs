@@ -37,7 +37,7 @@ use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, Pinned
 use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
-use sutura_semantic::{BundleInconsistent, Compiled, compile};
+use sutura_semantic::{CompileFailure, Compiled, compile};
 
 use crate::federated::answer_federated;
 pub use crate::warehouses::{SourceAlreadyOpen, Warehouses};
@@ -131,7 +131,15 @@ mod proof {
         }
     }
 
-    /// Re-runs every anchor against `warehouse`, and returns the bundle only if all of them held.
+    /// Holds every cardinality declaration and re-runs every anchor, and returns the bundle only if
+    /// both held.
+    ///
+    /// **Two checks rather than one, and the second was added against a defect the first cannot
+    /// see.** An anchor is one range and one number, so a dimension row that duplicates a join key
+    /// outside that range moves nothing an anchor compares - while it changes a grouped answer, and
+    /// changes it differently depending on how the plan was shaped. `crate::declared_keys` carries
+    /// the measurement, the three outcomes that are deliberately not refusals, and what the pair
+    /// still does not cover.
     ///
     /// The one operation that produces a [`Validated`] bundle. It takes the `Warehouse` and calls
     /// it, which is the whole of what the type is now allowed to claim: not "somebody asserted these
@@ -207,6 +215,11 @@ mod proof {
     where
         W: Warehouse,
     {
+        // The cardinality declarations first. `declared_keys` carries why that order, and why a
+        // violated `many_to_one` is a bundle that cannot be validated rather than a question that
+        // cannot be answered: the same question answers differently on one data system and on two,
+        // and neither topology refused it.
+        super::declared_keys::hold(&pinned, warehouses)?;
         let report = super::verify_anchors(&pinned, warehouses);
         report.verdict(&pinned)?;
         Ok(Validated(pinned))
@@ -224,10 +237,19 @@ mod proof {
 /// boundary gate bans `anyhow` for, arrived at by a different route.
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError<E, M> {
+    /// The pinned bundle would not compile this question, or the splitter built a two-source plan
+    /// this workspace could not then assemble.
+    ///
+    /// **Both are our own side being wrong, which is what keeps them out of a refusal.**
+    /// `telekom/sutura#338` is the second one's report: it used to arrive as
+    /// [`RefusalReason::FederationNotExecutable`], which is what a build whose adapter type does not
+    /// declare `Warehouse::EXECUTES_LEGS` is told, so a wiring defect was indistinguishable from a
+    /// build that cannot run a leg. `sutura_semantic::CompileFailure` keeps them apart and keeps the
+    /// typed cause.
     #[error("the question could not be compiled")]
     Compile {
         #[source]
-        cause: BundleInconsistent,
+        cause: CompileFailure,
     },
     #[error("the data system did not answer")]
     Warehouse {
@@ -694,7 +716,7 @@ fn causes(error: &dyn core::error::Error) -> Vec<String> {
 }
 
 /// A typed error, flattened for a [`NotExecutedReason`] variant that cannot name it.
-fn flatten(error: &dyn core::error::Error) -> (String, Vec<String>) {
+pub(crate) fn flatten(error: &dyn core::error::Error) -> (String, Vec<String>) {
     (error.to_string(), causes(error))
 }
 
@@ -874,6 +896,19 @@ pub fn grains_coarsest_first(pinned: &PinnedDefinitions, metric: &MetricName) ->
 /// module doc says why: a test module declared from HERE is orphaned when `test-causality` reverts
 /// this file, so the proof it produced was vacuous.
 mod federated;
+
+/// Holding a bundle's cardinality declarations against the data, at boot.
+///
+/// Private, because its callers are `verify_and_validate` and the composition roots' own reporting,
+/// and its refusal is a `NotValidated` both roots already render. Its header states what the
+/// remaining outcomes do and do not surface.
+///
+/// **It is orphaned from `test-causality`'s point of view for the reason the module above states**,
+/// and one level worse: this `mod` line is a plain declaration, so the gate reverts it, and the
+/// module's own `#[cfg(test)] mod tests` then compiles into nothing. Whether that suite is red
+/// against the base behaviour was therefore not proven mechanically - see the handoff for the
+/// mutations that stand in its place.
+mod declared_keys;
 /// This crate's own unit suite, in its own file.
 ///
 /// Moved out of this one when it reached the 1000-line gate. `cargo xtask max-lines` cannot exempt

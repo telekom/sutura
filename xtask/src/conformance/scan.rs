@@ -34,13 +34,24 @@
 
 use crate::serde_parse::scan::{code_lines, string_literals};
 
-/// The registry arm this gate reads, as it is written in the matcher.
+/// The data-systems registry arm this gate reads, as it is written in the matcher.
 ///
 /// Whitespace-dense, because every comparison here is against a line with its whitespace removed -
 /// so the arm may be reformatted without moving the gate. The arm rather than the macro's name:
 /// `docs/adr/0012` calls this the `data_systems` registry, and it is the arm - not the macro - that
 /// decides which list is the matrix over data systems.
 pub(crate) const REGISTRY_ARM: &str = "(data_systems:$cell:ident)";
+
+/// The catalogs registry arm. The metadata providers are registered here with a third argument -
+/// the registration `kind` (`golden` / `declaring`) - before the adapter type. Read by the category
+/// derive alongside [`REGISTRY_ARM`]; the conformance gate itself reads only the data-systems arm.
+pub(crate) const CATALOGS_ARM: &str = "(catalogs:$cell:ident)";
+
+/// The dialects registry arm. A dialect is not a data system - rendering a dialect's SQL says
+/// nothing about a deployment of it - so it is a third arm of the same macro rather than a
+/// `data_systems` cell. Read by the category derive, which maps a dialect to a data source only
+/// when a matching execution crate exists (`BigQuery` -> `sutura-exec-bigquery`).
+pub(crate) const DIALECTS_ARM: &str = "(dialects:$cell:ident)";
 
 /// The macro whose definition identifies the harness crate.
 ///
@@ -165,23 +176,48 @@ pub(crate) fn quoted(text: &str, needle: &str) -> Vec<usize> {
         .collect()
 }
 
-/// Every `$cell!(..)` entry of the arm opening at 1-based `line`.
+/// The parsed `$cell!(..)` argument lists of one registry arm, one entry per inner vec.
+pub(crate) type Cells = Vec<Vec<String>>;
+
+/// Every `$cell!(..)` entry of the arm opening at 1-based `line`, as raw argument lists.
 ///
 /// The arm's body is joined into one dense string before it is parsed, so a cell wrapped across
 /// lines by the formatter reads the same as a cell on one - which the `catalogs` arm next door
 /// already is, and this arm becomes the day an adapter type gets long enough.
-pub(crate) fn cells(dense: &[String], line: usize) -> Result<Vec<Cell>, String> {
-    let body = block(dense, line, REGISTRY_ARM)?;
+///
+/// The matcher is a parameter rather than [`REGISTRY_ARM`] read directly, so the category derive
+/// can read the `catalogs` and `dialects` arms without a second parser - the one gate that scans a
+/// language this hard is enough. The caller interprets the arguments, because the arms differ in
+/// how many they carry and which one is the adapter type.
+pub(crate) fn raw_cells(dense: &[String], line: usize, arm: &str) -> Result<Cells, String> {
+    let body = block(dense, line, arm)?;
     let mut found = Vec::new();
     let mut rest = body.as_str();
     while let Some(at) = rest.find("$cell!(") {
         let after = rest.get(at.saturating_add("$cell!(".len())..).unwrap_or_default();
         let (group, tail) = group(after).ok_or_else(|| format!("line {line}: a `$cell!(` never closes"))?;
-        let args = arguments(group);
+        found.push(arguments(group));
+        rest = tail;
+    }
+    if found.is_empty() {
+        return Err(format!("line {line}: the `{arm}` arm declares no `$cell!(..)` entry"));
+    }
+    Ok(found)
+}
+
+/// Every `$cell!(..)` entry of the data-systems arm opening at 1-based `line`.
+///
+/// The two-argument shape (`name`, `Adapter`) is the one the conformance gate reads, so it is
+/// kept as its own typed view over [`raw_cells`] for the gate's callers.
+pub(crate) fn cells(dense: &[String], line: usize) -> Result<Vec<Cell>, String> {
+    let raw = raw_cells(dense, line, REGISTRY_ARM)?;
+    let mut found = Vec::with_capacity(raw.len());
+    for args in raw {
         let [name, adapter] = args.as_slice() else {
             return Err(format!(
-                "line {line}: `$cell!({group})` has {} argument(s) and a data-system cell has two - \
+                "line {line}: `$cell!({})` has {} argument(s) and a data-system cell has two - \
                  the name and the adapter type",
+                args.join(", "),
                 args.len()
             ));
         };
@@ -189,10 +225,6 @@ pub(crate) fn cells(dense: &[String], line: usize) -> Result<Vec<Cell>, String> 
             name: name.clone(),
             adapter: adapter.clone(),
         });
-        rest = tail;
-    }
-    if found.is_empty() {
-        return Err(format!("line {line}: the `data_systems` arm declares no `$cell!(..)` entry"));
     }
     Ok(found)
 }
@@ -670,7 +702,10 @@ mod conformance {
     #[test]
     fn a_comment_that_spells_the_binding_is_not_a_literal() {
         let text = "// sutura_conformance::execute_packs! { adapter: duckdb, }\nfn f() {}\n";
-        assert!(super::quoted(text, super::BINDING).is_empty());
+        assert!(
+            super::quoted(text, super::BINDING).is_empty(),
+            "a comment spelling the binding is not a literal"
+        );
     }
 
     /// An unbalanced file is an ERROR, and this repository has three recorded instances of a scan

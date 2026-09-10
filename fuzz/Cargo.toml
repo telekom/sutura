@@ -1,0 +1,87 @@
+# The fuzz crate: libFuzzer targets over the parsers that read input this deployment does not write.
+#
+# ITS OWN WORKSPACE, and that is not cargo-fuzz boilerplate copied in. Three consequences are
+# deliberate:
+#
+#   * `#![no_main]` and `libfuzzer-sys` never enter the shipped workspace's dependency graph, so
+#     `cargo build` and every nix check on the root workspace are unchanged by this directory
+#     existing.
+#   * the root workspace's `[profile.*]` tables do not reach here, so the panic strategy this
+#     harness measures under is the one declared below rather than one inherited by accident.
+#   * a second `Cargo.lock`. `cargo xtask check-fuzz` fails if it is missing, because a fuzz run
+#     against an unlocked graph is not reproducible - but `cargo deny` reads the ROOT lock only, so
+#     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the five direct dependencies
+#     below, three are first-party path dependencies and the two third-party ones are
+#     `libfuzzer-sys` and `serde_json`.
+#
+# WHY TWO TARGETS, AND WHY THESE TWO. The issue #146 sweep measured that nothing generates input
+# against the parsers a caller or a catalog author reaches. `panic = "abort"` is on every shipped
+# profile, so a panic inside a third-party parser is the process dying rather than an error a caller
+# sees - and clippy at `-D warnings` (which denies `unwrap_used`, `expect_used`, `panic`,
+# `indexing_slicing`) does not reach inside those third-party parsers. These two targets close the
+# two caller-facing gaps the design scoped to:
+#
+#   * `sql_expression`  - `sutura_sql::expression::compile`, the boundary that turns an authored
+#     SQL fragment into a checked AST. It runs `polyglot-sql`'s parser over the fragment text - a
+#     third-party recursive-descent parser whose own fragment API has a known empty-token-list
+#     abort that is lint-held rather than input-held - plus this crate's refusal guards and a
+#     render-and-reparse per dialect.
+#   * `question_body`   - the caller JSON both transports accept, through
+#     `sutura_http::wire::QuestionBody` then `sutura_domain::query::Query::try_from`, which runs
+#     `serde_json` over the input with `deny_unknown_fields` and then the domain newtype parsers.
+#
+# What is deliberately NOT here, and why: the token path and the key-set path (`bearer_token`,
+# `keyset`), the catalog YAML document path (`catalog_document`) and the bigquery wire documents
+# are real untrusted boundaries but a different creature - they are covered by the sibling fuzz
+# set in this repository's other fuzzing PR. This crate is scoped to the two boundaries the query
+# surface and both transports agree on, and each target header states its own limit.
+
+# An empty table, which is what makes this directory a workspace root of its own. Without it cargo
+# refuses outright: "current package believes it's in a workspace when it's not".
+[workspace]
+
+[package]
+name = "sutura-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "libFuzzer targets over the SQL and JSON parsers that read untrusted input."
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sutura-domain = { path = "../crates/sutura-domain" }
+sutura-http = { path = "../crates/sutura-http" }
+sutura-sql = { path = "../crates/sutura-sql" }
+serde_json = "1"
+
+# `panic = "abort"`, matching every shipped profile in the root manifest - which is the whole
+# argument this directory exists for. A harness that unwound where the deployment aborts would be
+# measuring a build nobody runs.
+#
+# MEASURED, because the interaction is the thing that could have made this harness blind:
+# `libfuzzer-sys`'s `fuzz_target!` installs a panic hook that calls `abort()` regardless, and
+# libFuzzer handles `SIGABRT` by default - so the crash is still attributed to the input that
+# caused it and the artifact is still written under `fuzz/artifacts/<target>/`. Setting the
+# strategy explicitly changes what is compiled, not whether a finding is reportable.
+#
+# No `debug` key: cargo-fuzz passes `--config profile.release.debug="line-tables-only"` on the
+# command line, which wins over the manifest, so one written here would be a value with no effect.
+[profile.release]
+panic = "abort"
+
+[[bin]]
+name = "sql_expression"
+path = "fuzz_targets/sql_expression.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "question_body"
+path = "fuzz_targets/question_body.rs"
+test = false
+doc = false
+bench = false

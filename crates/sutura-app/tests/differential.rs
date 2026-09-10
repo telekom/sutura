@@ -43,6 +43,7 @@
 //! the limits.
 
 #[cfg(test)]
+#[path = "adapters/adapters.rs"]
 mod adapters;
 
 // `#[path]` for the reason `tests/golden.rs` gives: a bare `mod federated;` at a crate root resolves

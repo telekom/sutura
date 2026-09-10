@@ -197,16 +197,16 @@ bodies near-identical in what they carry.
   recorded is closed that way, and the reasoning is worth keeping: a transcript nobody runs goes
   stale in exactly this manner and says nothing while it does. What replaced it is
   `crates/sutura-http/src/wire/refusal.rs`, and it is the strongest of the three: `every_reason()`
-  lists all seventeen `RefusalReason` variants with the status and `code` each is given,
+  lists all eighteen `RefusalReason` variants with the status and `code` each is given,
   `every_refusal_carries_a_status_a_code_and_a_sentence` drives that list, and the exhaustive match
   with no wildcard arm makes a new variant a COMPILE error rather than an untested one - which is
   the property a transcript could never have. `crates/sutura-serve/tests/served.rs` asserts a
   refusal's status against the same directory over a real port, and
   `crates/sutura-http/src/harness.rs` asserts the envelope per status in process for **ten** of the
-  seventeen reasons, the seven it does not reach being `DimensionNotFilterable`,
+  eighteen reasons, the eight it does not reach being `DimensionNotFilterable`,
   `PlanSpansTooManySources`, `FederationLinkAmbiguous`, `MeasureDoesNotFederate`,
-  `PlanTablesShareAnIdentifier`, `ResourcesExhausted` and `CredentialUnavailable` - each of which
-  needs a fixture the default pair cannot produce. So the exhaustive claim is the unit table's, not
+  `PlanTablesShareAnIdentifier`, `ResourcesExhausted`, `CredentialUnavailable` and
+  `LegsDecideIdentityDifferently` - each of which needs a fixture the default pair cannot produce. So the exhaustive claim is the unit table's, not
   the transport harness's.
 - **The agent prompt still tells an agent a refusal is a successful call.** That is true at the tool
   level, where `sutura_app::prompt` speaks; over HTTP it is no longer true of the status. Whether the

@@ -28,6 +28,7 @@ use crate::pinned::PinnedDefinitions;
 use crate::warehouse::ParamValue;
 
 pub mod federated;
+pub mod label;
 pub mod leg;
 pub mod tables;
 
@@ -37,6 +38,7 @@ mod anchor_tests;
 pub use crate::plan::federated::{
     AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
 };
+pub use crate::plan::label::ResultLabel;
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 
@@ -162,22 +164,57 @@ impl PlanJoin {
 }
 
 /// The truncated time column, and the label it is projected under.
+///
+/// **The label is a [`ResultLabel`] and not a `String`, which is the third carrier
+/// `telekom/sutura#337` names.** Every producer in this workspace passes [`ResultLabel::bucket`],
+/// which takes no argument because there is nothing to choose:
+/// [`TIME_BUCKET_LABEL`](crate::catalog::TIME_BUCKET_LABEL) is the one spelling.
+///
+/// **The limit, next to the claim:** the type says the text came from something already parsed, not
+/// WHICH of the four constructors produced it - so a bucket labelled with a dimension's own name is
+/// still representable here, and what refuses that particular collision is
+/// [`Definitions::assemble`](crate::catalog::Definitions), which will not accept a dimension named
+/// `period` in the first place.
+///
+/// A computed bucket label is a compile error, which is the pair [`ResultLabel`] carries for a key
+/// applied to the carrier it did not reach:
+///
+/// ```compile_fail
+/// use sutura_domain::model::{ColumnName, Grain, TableName};
+/// use sutura_domain::plan::{PlanBucket, PlanColumn};
+///
+/// fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanBucket {
+///     PlanBucket::new(format!("0_leaf_{leaf}"), Grain::Month, PlanColumn::new(table, column))
+/// }
+/// ```
+///
+/// And the twin, so a rename cannot make that block pass vacuously:
+///
+/// ```
+/// use sutura_domain::model::{ColumnName, Grain, TableName};
+/// use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
+///
+/// fn _parsed(table: TableName, column: ColumnName) -> PlanBucket {
+///     PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table, column))
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PlanBucket {
-    label: String,
+    label: ResultLabel,
     grain: Grain,
     column: PlanColumn,
 }
 
 impl PlanBucket {
     #[inline]
-    pub const fn new(label: String, grain: Grain, column: PlanColumn) -> Self {
+    pub const fn new(label: ResultLabel, grain: Grain, column: PlanColumn) -> Self {
         Self { label, grain, column }
     }
 
+    /// The text the bucket is projected under.
     #[inline]
     pub fn label(&self) -> &str {
-        &self.label
+        self.label.as_str()
     }
 
     #[inline]
@@ -192,21 +229,31 @@ impl PlanBucket {
 }
 
 /// One group-by key.
+///
+/// **The label is a [`ResultLabel`] and not a `String`, which is `telekom/sutura#337`.** A key used
+/// to be labelled with whatever text its producer computed, and what kept that out of the internal
+/// namespace a federated leg also projects into was a derivation held by review. The type is the
+/// mechanism now: `ResultLabel` carries the compile-fail pair that says so.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PlanKey {
-    label: String,
+    label: ResultLabel,
     column: PlanColumn,
 }
 
 impl PlanKey {
     #[inline]
-    pub const fn new(label: String, column: PlanColumn) -> Self {
+    pub const fn new(label: ResultLabel, column: PlanColumn) -> Self {
         Self { label, column }
     }
 
+    /// The text this key is projected under.
+    ///
+    /// Text rather than the [`ResultLabel`], because every reader of a label renders it: the
+    /// generator quotes it as an alias and the combiner looks a column up by it. What the type
+    /// holds is the way IN.
     #[inline]
     pub fn label(&self) -> &str {
-        &self.label
+        self.label.as_str()
     }
 
     #[inline]
@@ -362,7 +409,7 @@ pub struct QueryPlan {
     bucket: PlanBucket,
     keys: Vec<PlanKey>,
     measure: PlanMeasure,
-    measure_label: String,
+    measure_label: ResultLabel,
     filters: Vec<PlanFilter>,
     params: Vec<ParamValue>,
     range: TimeRange,
@@ -384,7 +431,7 @@ impl QueryPlan {
         bucket: PlanBucket,
         keys: Vec<PlanKey>,
         measure: PlanMeasure,
-        measure_label: String,
+        measure_label: ResultLabel,
         filters: Vec<PlanFilter>,
         params: Vec<ParamValue>,
         range: TimeRange,
@@ -455,7 +502,7 @@ impl QueryPlan {
 
     #[inline]
     pub fn measure_label(&self) -> &str {
-        &self.measure_label
+        self.measure_label.as_str()
     }
 
     #[inline]
@@ -506,7 +553,7 @@ impl QueryPlan {
     pub fn result_labels(&self) -> Vec<String> {
         let mut labels: Vec<String> = self.keys.iter().map(|k| String::from(k.label())).collect();
         labels.push(String::from(self.bucket.label()));
-        labels.push(self.measure_label.clone());
+        labels.push(String::from(self.measure_label.as_str()));
         labels
     }
 

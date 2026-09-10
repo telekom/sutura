@@ -33,8 +33,8 @@ downstream re-checks it. A newtype that merely *can* be checked has moved the pr
 | `pub struct Digest(pub String)` | a private field, and `parse` as the only way in | `check-boundaries` - a `pub` field on a `pub struct` in a library crate fails it |
 | a constructor returning `Self` plus a separate `is_valid()` | one `parse(..) -> Result<Self, E>`; after `Ok`, nothing re-checks | *review* |
 | a check that accepts more than the name claims - `!raw.trim().is_empty()` for a content hash | validate the actual shape: hex, and the exact length | *review*. This was a real bug here: `DefinitionDigest::parse("not a hash")` succeeded |
-| `#[derive(Deserialize)]` on a validated newtype | `#[serde(try_from = "String")]` plus a `TryFrom` that calls `parse` | `cargo xtask check-serde-parse` - **the one that bites**, and the reason it is gated first: a derived `Deserialize` writes straight into the private field, so every check is bypassed by the one path that carries untrusted input. What makes a type subject to it is having a fallible constructor (`-> Result<Self`); a hand-written `impl Deserialize` counts as a route through it |
-| `#[serde(try_from = ..)]` beside a derived `Serialize` | `#[serde(into = ..)]` too, or a hand-written `Serialize` | `cargo xtask check-serde-parse` - `try_from` moves `Deserialize` and leaves `Serialize` where it was, so the type reads text and writes a field layout. `Date` shipped that, and the definition digest is taken over the serialized form. A newtype over the `try_from` target is exempt: serde writes one as its inner value |
+| `#[derive(Deserialize)]` on a struct or enum with a fallible constructor | `#[serde(try_from = "Input")]` plus a `TryFrom` that calls the constructor | `cargo xtask check-serde-parse` recognises `-> Result<Self` and requires a route: `try_from` or a handwritten `Deserialize`. It checks the spelling, not whether the implementation calls the constructor; that needs behavioural proof. Declaration and constructor must be recognised by the same file's lexical scan |
+| `#[serde(try_from = ..)]` beside a derived `Serialize` on a struct | `#[serde(into = ..)]` too, or a hand-written `Serialize` | `cargo xtask check-serde-parse` - `try_from` moves `Deserialize` and leaves `Serialize` where it was, so the type reads text and writes a field layout. `Date` shipped that, and the definition digest is taken over the serialized form. A newtype over the `try_from` target is exempt: serde writes one as its inner value. Enum layouts are outside this rule |
 | a second constructor that repeats the checks | `From` / `TryFrom` delegate to `parse` - one place a future rule gets added | *review* |
 | normalising at comparison sites (`eq_ignore_ascii_case`) | normalise inside `parse`, so derived `PartialEq`/`Hash`/`Serialize` all agree which value this is | *review* |
 | `impl Deref for MyNewtype` | an inherent method, or `AsRef<T>` if a borrow is genuinely wanted | `cargo xtask check-newtype-leaks` - `Deref` re-exports the inner type's whole API, and the invariant leaks out with it |
@@ -54,7 +54,7 @@ chore, the type is doing too much.
 | `Err(MyError::Invalid(format!("digest has {n} chars")))` | `MyError::WrongLength { value, len, expected }` - typed fields, not a sentence | *review*. The variant and its fields are the contract; the `#[error(..)]` text may be reworded, and a caller that parsed it was never promised anything |
 | one umbrella `Error` for a whole module | one enum per fallible operation, carrying only what that operation can produce | *review*. Ten variants where two apply makes the caller filter noise |
 | `.map_err(\|_\| MyError::Bad)` | `#[from]` or `#[source]`, so the cause survives the boundary | `clippy::map_err_ignore` - the `restriction` category is on |
-| an expected outcome returned as `Err` | a variant of the result. A governance refusal is `ToolOutcome::Refusal { reason }`, never an error | *review* for the CHOICE of `Ok` over `Err`. What is gated is the consequence: `cargo xtask check-refusal-coverage` fails a `RefusalReason` variant no test NAMES and no snapshot records, unless `devco/refusals-unprovoked-allow` excuses it with a date and a reason. **A name is not a provocation** - `xtask/src/refusals.rs` states that as its own limit, because deciding otherwise means knowing what a test asserts - so what it buys is that a variant nothing mentions cannot arrive silently |
+| an expected outcome returned as `Err` | a variant of the result. A governance refusal is `ToolOutcome::Refusal { reason }`, never an error | *review* for the CHOICE of `Ok` over `Err`. `check-refusal-coverage` fails a variant of an ENROLLED refusal enum that no test NAMES and no snapshot records, unless that enum's own allow file excuses it with a date and reason. Enrolled today: `RefusalReason`, `NotFitToServe`, `NotValidated`. **A name is not a provocation or venue execution**; snapshot words are unqualified. **A refusal-shaped enum nobody enrolled is subject to nothing**, and the enrolment is a list rather than a discovery. `xtask/src/refusals.rs` holds that narrow check, not the choice of result type |
 
 Two local deviations from the guide, both deliberate: `#[non_exhaustive]` is **not** used
 (`exhaustive_enums` is allowed in the lint table - nothing is published, so the compatibility
@@ -92,7 +92,7 @@ for a job API, a reader for a metadata aspect - and several do; those are intern
 their crate, not to the interior. One of them, `sutura_http::inbound::keys::KeySetSource`, is
 allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason. The whole set is what
 `grep -rn 'pub trait ' crates --include='*.rs' | grep '/src/'` answers:
-11 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
+12 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
 paragraph is about.
 
 **The count is gated; the rows are not, and the difference is worth reading exactly.**
@@ -201,12 +201,13 @@ crate. The task prints that in its own output, so you do not have to remember it
 question is "does what I touched compile", `just check-changed` with no arguments reads the working
 tree and narrows to those packages; `just lint` is the workspace gate.
 
-The second line runs **twice** in the hooks - once on commit and again on push, from the same YAML
-node so the two are the identical invocation and the second reuses the first's fingerprints. The
-push run is there because `git rebase` and `git rebase --continue` run no commit hook at all, so a
-conflict resolution used to reach the remote with nothing having compiled it. Do not resolve a
-conflict and trust `just check`: it compiles one crate, and the merge that broke this repo was a
-clean one whose call site no longer matched a changed signature.
+The second line runs once in the hooks: the `rust-clippy` commit hook is the only place clippy runs.
+It USED to run twice - once on commit and again on a `pre-push` alias, so that `git rebase` and
+`git rebase --continue`, which run no commit hook at all, could not push a conflict resolution
+nobody had compiled. That push-compile tier is deliberately retired: `just lint` and the commit hook
+are the compile gates, and an uncompiled rebase now reaches CI rather than being caught locally. Do
+not resolve a conflict and trust `just check`: it compiles one crate, and the merge that broke this
+repo was a clean one whose call site no longer matched a changed signature.
 
 `sutura-domain` must acquire **no** framework dependency - no tokio, axum, rmcp, datafusion,
 arrow. `cargo xtask check-boundaries` enforces it.
@@ -222,11 +223,11 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask line-endings` | CRLF. `fmt` fixes it |
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |
 | `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; a normal dependency between two adapters of the same class; a `pub trait` in a crate that declares `sutura-app`; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
-| `cargo xtask check-serde-parse` | a derived `Deserialize` on a type with a fallible constructor and no `#[serde(try_from = ..)]`; and a `try_from` whose derived `Serialize` writes a different shape |
-| `cargo xtask check-refusal-coverage` | a `RefusalReason` variant no test names and no snapshot records - a file naming EVERY variant is a census and counts for none of them |
+| `cargo xtask check-serde-parse` | a recognised struct or enum deriving `Deserialize` beside a fallible constructor without an allowed route; for structs only, a `try_from`/derived `Serialize` shape mismatch or a named input struct without `deny_unknown_fields` |
+| `cargo xtask check-refusal-coverage` | a variant of an enrolled refusal enum (`RefusalReason`, `NotFitToServe`, `NotValidated`) that no test names and no snapshot records, unless separately excused - a file naming EVERY variant of an enum is a census and counts for none of that enum. Also a walk that disagrees with the enrolled variant count, in either direction |
 | `cargo xtask check-newtype-leaks` | a first-party `impl Deref`, `DerefMut`, `Borrow` or `BorrowMut`. It started green and its job is to stay that way |
 | `just lint`'s `disallowed_methods` | a call to `Secret::expose_secret`, `Warehouse::verify_anchor`, `tokio::task::spawn_blocking` or the panicking fragment parser with no `#[expect]` naming why |
-| `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles nothing, and a push-stage clippy invocation that is not the commit stage's own |
+| `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles first-party code, or that runs anything outside the two security checks (`secret-sweep`, `cargo-deny`) |
 | `cargo xtask commit-msg` | a subject that is not a conventional commit, over 72 chars |
 
 ## What stays advisory, and this list is the point of it
@@ -257,6 +258,35 @@ Generics for a driven port and `dyn` exactly once for the driving one. No serde 
 type for a transport's convenience. And any cross-adapter edge outside the classes
 `check-boundaries` knows about, since a crate joins one by name.
 
+**Assertions over rendered text.** A substring assertion is a probabilistic one unless something
+makes it deterministic, and two properties do - **either** suffices:
+
+- the needle carries a character the **haystack's own alphabet cannot spell**. Haystack-relative, and
+  it cannot be written as a fixed list of characters: `-` and `_` are IN base64url, so `key-id` over
+  a JWK coordinate collides exactly as `kid` did, and `/`, `.` and `-` are all in a filesystem path.
+- the haystack is **deterministic** - free of nondeterministic bytes. Not "hand-written": a `Debug`
+  rendering and a line parsed out of this repository's own source both qualify. And the reason is
+  never *"the value cannot be in there"* when that is the property the assertion exists to test -
+  that argument assumes its own conclusion.
+
+Three further habits, each of which has cost a test its meaning here:
+
+- **Read the value, not the text**, wherever a parsed form is reachable - the member rather than the
+  serialized document, the field set rather than the rendered log line.
+- **Presence is not a role.** A sentence promising two numbers needs each asserted where it belongs;
+  two bare numbers pass with the two swapped.
+- **Search the words, not the lines**, over anything wrapped, or a formatter reddens the cell instead
+  of the thing it names.
+
+A **needle-side** lint would catch the first of these and needs no knowledge of haystacks - *a needle
+carries a non-alphanumeric character, or is at least N characters*. It is not here on measured cost
+rather than difficulty: over `crates/`, `xtask/` and `dev/` a `.contains("...")` literal appears 1116
+times, 268 with an alphanumeric needle, and the rule flags **52 at N=5**, 95 at N=6, 179 at N=8. The
+predicate is quoted because a bare count is not checkable, and because the figure moves with the
+tree - the same count against two merge bases four weeks apart differs by more than the rule's own
+threshold does. And the two commonest real offenders are a `const` and a `to_string()`, which a
+literal scan does not see at all. The decision is `github.com/telekom/sutura#429`.
+
 **Borrowing.** Preferring a borrow to a clone, and knowing which clones are cheap. There is no
 mechanism and there is not going to be one: a clone is a decision with a reason, and a gate cannot
 read the reason.
@@ -269,7 +299,8 @@ correct code gets disabled - which costs more than the rule was worth.
 ## Conventions
 
 - Rust 2024. One version for the workspace; crates inherit with `version.workspace = true`.
-- The compiler pin is `rust-toolchain.toml` and nowhere else - rustup and Nix both read it.
+- The compiler pin is the single pinned nightly in `devco/rust-toolchain-nightly.toml`, which
+  Nix reads; the top-level `rust-toolchain.toml` is the rustup-facing copy rustup reads directly.
 - Ports get **fakes**, not mocked HTTP. A test asserting on source text proves nothing.
 - Adding a dependency: `unused-deps` requires it to be referenced, and `cargo-deny` checks
   its licence and advisories. Both run in the gates.

@@ -1,0 +1,167 @@
+# THE ACTIONS CACHE, READ EVERYWHERE AND WRITTEN ONLY FROM A PUSH TO `main`.
+#
+# **This buys hygiene and legibility, not speed, and the measurement says so.** On a pull request
+# with unchanged lockfiles the cache already restored 742 store paths against 37 built on the first
+# run of a branch and 654 against 39 on the second - so the dependency closure was being reused
+# before this action existed. What it was ALSO doing was writing: a run restores caches from its own
+# ref or the default branch only, so every entry a pull request wrote was readable by exactly one
+# pull request and then deleted by `cache-prune.yml` when it closed. 6,393 active entries, ~97% of
+# them under `refs/pull/<n>/merge`, measured 2026-09-08.
+#
+# WHAT THAT CHURN COST, measured on the `ci` job's own step timings rather than inferred: the
+# retired `magic-nix-cache-action`'s post step - the upload - took 107 s, 225 s, 254 s and 315 s on
+# four of nine `pull_request` runs (27.6% of one 1140 s job, 52.3% of a 430 s docs-only one) and 1 s
+# on the other five AND on all four `main` pushes measured. So the upload fired on the first run of
+# a pull-request ref and nowhere else, and gating it removes a cost only pull requests paid.
+#
+# DO NOT READ THAT AS A LATENCY WIN. The same branch at identical dependency state took 1351 s and
+# 825 s - a 64% run-to-run spread - so no total-duration claim below that is measurable. The
+# per-step number above measures the step, not the job.
+#
+# WHY NOT `magic-nix-cache-action`: it has no restore-only mode. Read from its `action.yml` at the
+# commit this repository used to pin, `use-gha-cache` takes `enabled`/`disabled`/`no-preference` and
+# turns the GitHub Actions cache off for READS and WRITES together - there is no third value. So the
+# asymmetry this file exists for is unreachable with it, which is what forced the swap rather than a
+# preference between the two. `cargo xtask check-workflows` refuses it in ordinary CI by name.
+#
+# WHY NOT a local file-based binary cache (`nix copy --to file://<dir>` plus a `substituters` line):
+# it needs the cache directory AND the store, and it decompresses and re-imports every NAR after the
+# archive is already on disk - the same bytes paid for twice. The dependency closure alone measures
+# 3.27 GB over 459 paths. Disk is not the reason these runners report 1657 G available. The double
+# import is.
+#
+# THE ENTRY SIZE IS THE ONE THING THIS CANNOT KNOW BEFORE A `main` PUSH, and the limit belongs here
+# rather than beside a claim: GitHub refuses a single cache entry over 10 GB, and the store this
+# saves has never been weighed. `gc-max-store-size` is deliberately NOT set - `nix store gc` would
+# collect the dependency closure, because a `nix build` step overwrites `./result` and the check
+# outputs are therefore not GC roots, so bounding the entry that way would throw away exactly what
+# is worth saving. If a save is refused, the summary line below says so on every `main` push.
+#
+# THE SECOND CARRIER IS NOT THIS ACTION, and the two are different kinds of carrier. `docs/adr/0026`
+# retired a third-party binary cache that this file used to name as its fallback - that wiring was
+# gated on repository secrets and variables that never existed here, so its populate step was
+# `completed/skipped` on every `main` push it ever ran on, silently, and green. `docs/adr/0027`
+# then provisioned this repository's own OSS binary cache, `sutura.cachix.org`, which every
+# installer in `.github/workflows` already names as a substituter with its public key committed.
+# That cache substitutes a large share of the store a run restores - measured at ~71-74% of
+# substituted paths - so this Actions entry is NOT the whole mechanism: if ITS save is refused,
+# the next run still substitutes what `sutura.cachix.org` serves and compiles the rest. This
+# action is the write-half for the `main`-gate, per-scope store entry; `sutura.cachix.org` is the
+# live second carrier behind it. `cargo xtask check-workflows` refuses a secret-gated writer coming
+# back.
+name: nix-store-cache
+description: Restore /nix/store from the Actions cache on every event; write it only from a push to main.
+
+inputs:
+  scope:
+    # ONE ENTRY PER JOB SHAPE. The cross legs build a different closure per target and the
+    # acceptance job builds a different crate, so a shared key would have them overwrite each
+    # other's entry. A pull request restores the entry its own scope wrote on `main`.
+    description: What this job's store is, so two jobs do not share one entry - `ci`, `bq`, a target triple.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # KEYED ON THE LOCKFILES AND NOTHING ELSE, so `main` writes one entry per dependency
+    # generation instead of one per push. A source-only change on `main` leaves the key alone and
+    # the save is skipped - which is right, because the dependency closure the entry holds has not
+    # moved either, and the workspace's own crates are recompiled every run regardless. Keying on
+    # the commit would refresh the entry on every push and accumulate one multi-gigabyte entry per
+    # push against an allocation `cache-prune.yml` deliberately does not touch for `main`.
+    #
+    # `restore-prefixes-first-match` is the fallback for the push that DOES move a lockfile: it
+    # restores the newest entry for this scope, so that build starts from the previous generation
+    # rather than from nothing.
+    - id: store
+      uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+      with:
+        # TWO DIGESTS, and the second one is why an entry can be REPLACED at all. The lock digest
+        # alone missed every input that moves a dependency derivation without moving a lockfile:
+        # measured, a `[profile.ci]` change, a `.cargo/config.toml` change and a crate's `[features]`
+        # change each moved the deps derivation while this key stayed identical - and because the
+        # action SKIPS SAVING on an exact primary-key hit, such an entry could never acquire the new
+        # derivations. It rebuilt them every run, forever, while the summary printed a hit: slow, and
+        # reported as fast.
+        #
+        # The second digest therefore covers what the artifacts actually depend on - every manifest
+        # (`[profile.*]` is codegen for the whole closure), the cargo config (linker, link args,
+        # per-target features), the flake, and the nix module tree that defines the producers.
+        # Globbed wholesale rather than by an allowlist of "the modules that matter", because such a
+        # list rots and over-invalidating only costs "slow and right".
+        #
+        # NO COMMIT SHA, deliberately: a source-only edit must reuse the generation, or every push
+        # writes a multi-gigabyte entry. Measured on the same variants - a source-only change leaves
+        # both digests untouched.
+        #
+        # KNOWN COST: crane strips `description`, `lints` and `package.metadata` from the manifests it
+        # builds from, so editing one of those fields invalidates where the derivation did not move.
+        # The error direction is "slow and right", and the alternative - reproducing crane's filter
+        # outside nix - would be a fidelity claim held by nothing.
+        primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('flake.nix', 'nix/**', 'devco/rust-toolchain-nightly.toml', '.cargo/config.toml', '**/Cargo.toml') }}
+        # TWO TIERS, first match wins. Tier 1 is the same lock generation, so a manifest-only change
+        # starts from the newest entry that shares its dependency set. Tier 2 is the previous
+        # behaviour verbatim - any generation of this scope - so nothing that reasoned about the
+        # coarse prefix changes.
+        restore-prefixes-first-match: |
+          nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}-
+          nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-
+        # THE ASYMMETRY, AND THE ONE LINE THIS FILE EXISTS FOR. `cargo xtask check-workflows` pins
+        # this expression token for token and fails on any other shape, so a `pull_request` path
+        # that can save is red rather than merely discouraged. Purging is NOT enabled here:
+        # `cache-prune.yml` owns deletion, and two deleters would race for the same ids.
+        save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+    # THE WITNESS, AND ITS SHAPE IS THE POINT: IT REPORTS AND NEVER FAILS.
+    #
+    # An unprovisioned or ineffective cache used to be `skipped`, green and invisible - the hosted
+    # populate step `docs/adr/0026` deleted was `completed/skipped` on every `main` push it ran on
+    # and nothing anywhere said so. A step that goes RED on that is inverted logic: publication
+    # working is the success condition, and #476 deleted exactly such a step. So this prints, and a
+    # legitimately cold cache prints a miss rather than failing a run.
+    #
+    # `nix path-info --all | wc -l` is what the cache CARRIED - the paths available before a single
+    # derivation is built. It is not a hit RATE on its own; the `ci` job pairs it with a count taken
+    # after the gates run, and that ratio is the reported number. Nothing else in the run can say
+    # it: the split between restored and built otherwise lives only in a build log, which is how
+    # issue #487's ~94% had to be obtained.
+    - name: What the Actions cache carried
+      shell: bash
+      env:
+        SCOPE: ${{ inputs.scope }}
+        HIT: ${{ steps.store.outputs.hit }}
+        HIT_PRIMARY: ${{ steps.store.outputs.hit-primary-key }}
+        PRIMARY: ${{ steps.store.outputs.primary-key }}
+        RESTORED: ${{ steps.store.outputs.restored-key }}
+        # PERMITTED to save, which is not the same as having saved: an exact primary-key hit skips
+        # the save, so a run can report this true and write nothing. The wording below says
+        # "permitted" for that reason.
+        WRITES: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      run: |
+        set -eu
+        carried="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
+        # A file rather than a step output: the `ci` job's closing step reads it to report a ratio,
+        # and a composite action cannot register a post step to do that itself.
+        printf '%s\n' "$carried" > "$RUNNER_TEMP/nix-store-cache-carried"
+        if [ "$HIT_PRIMARY" = "true" ]; then
+          restore="hit on this dependency generation"
+        elif [ "$HIT" = "true" ]; then
+          restore="restored an older generation ($RESTORED)"
+        else
+          restore="MISS - no entry for this dependency generation; this run derives them, substituting what an upstream cache serves"
+        fi
+        if [ "$WRITES" = "true" ]; then
+          write="this run is PERMITTED to write the entry (push to main); an exact-key hit skips the save"
+        else
+          write="restore-only, nothing written"
+        fi
+        {
+          printf '### nix store cache (%s)\n\n' "$SCOPE"
+          printf '| | |\n| --- | --- |\n'
+          printf '| restore | %s |\n' "$restore"
+          printf '| write | %s |\n' "$write"
+          printf "| key | \`%s\` |\n" "$PRIMARY"
+          printf '| paths present after restore | %s |\n' "$carried"
+        } >> "$GITHUB_STEP_SUMMARY"
+        printf 'nix-store-cache(%s): %s; %s; %s path(s) present after restore\n' \
+          "$SCOPE" "$restore" "$write" "$carried"

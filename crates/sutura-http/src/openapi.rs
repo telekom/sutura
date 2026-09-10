@@ -24,7 +24,7 @@
 //!
 //! **This service sets no extension anywhere, so the repair is not built.** That is a statement
 //! about today rather than a claim about the format, and it is enforced rather than asserted:
-//! [`tests::the_document_is_byte_stable_across_independent_builds`] builds the document twice, from
+//! `tests::the_document_is_byte_stable_across_independent_builds` builds the document twice, from
 //! scratch, and compares the bytes. Because the randomisation is per instance, that test fails the
 //! moment an `x-*` extension is added - and the failure is the signal to build the ordered-tree
 //! repair, which needs one more dependency and belongs in this file.

@@ -92,7 +92,7 @@ jobs:
   # a commit no branch contains, so CI never validated that tree at all: "main was green"
   # would have shipped something nothing had ever checked.
   gates:
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 60
     permissions:
       contents: read
@@ -173,6 +173,61 @@ jobs:
           # embedded dependency list. `nix/shipped.nix` decides it; this is what asserts it.
           nix build .#checks.x86_64-linux.shipped-features -L
 
+      # THE ATTRIBUTION ASSET, GENERATED HERE AND COMMITTED NOWHERE. It used to be a `cp` of a
+      # committed `ATTRIBUTION.md` in a job of its own, on the argument that the tagged tree
+      # already carried a current one and generating here would be a second owner. The premise
+      # was what cost: a committed derived file falls behind `Cargo.lock` on every dependency
+      # bump, Dependabot cannot regenerate it under a read-only token, and so every bot bump was
+      # RED ON ARRIVAL - `github.com/telekom/sutura#431`. `#462` established that the artefact
+      # discharges a real obligation and that its committed form is the part to drop, so the
+      # generator is now the single owner and this is where it runs. `cargo xtask
+      # check-attribution-owner` refuses a committed copy coming back.
+      #
+      # In `gates` rather than in a job of its own because generation needs what this job already
+      # has - nix, the pinned toolchain and a resolvable registry - and the separate
+      # `ubuntu-latest` job existed only because copying a file needs none of that.
+      #
+      # Deliberately WIDER than any one binary - every crate the workspace resolves - because for
+      # attribution the safe error is naming a crate that did not ship, not omitting one that did.
+      #
+      # The count is a FLOOR, for the reason the SBOM assertion in `build` gives: pinning it would
+      # make a dependency bump fail on a correct tree. What it catches is the silent case, a
+      # generator that still writes a well formed document naming nothing - and it is asserted
+      # against the BYTES that will be signed, not against the generator's own exit code.
+      - name: Generate the attribution document
+        run: |
+          set -eu
+          mkdir -p dist
+          nix run .#xtask -- attribution dist/sutura-attribution.md
+          if [ ! -s dist/sutura-attribution.md ]; then
+            echo "::error::the generator wrote no attribution document"
+            exit 1
+          fi
+          ( cd dist && sha256sum sutura-attribution.md > sutura-attribution.md.sha256 )
+          named="$(grep -c '^| `' dist/sutura-attribution.md || true)"
+          if [ "$named" -lt 100 ]; then
+            echo "::error::sutura-attribution.md names ${named} package(s); a workspace this size resolves hundreds"
+            exit 1
+          fi
+          printf 'attribution: %s packages\n' "$named"
+
+      # NOT `release-*`, deliberately, and this is the one thing about the handover worth reading.
+      # `upload-artifact` roots an artifact at the least common ancestor of what it matched, so a
+      # single `path: dist/` produces an artifact whose entries are BARE FILE NAMES - where the
+      # matrix, matching three directories, produces one whose entries are `dist/...`. Merged into
+      # `publish` under the `release-*` pattern this would have unpacked to the workspace root and
+      # the arrival check would have reported both documents missing. So it is named out of that
+      # pattern and `publish` downloads it in its own step, into `dist`, where its bare names land
+      # correctly.
+      - name: Hand the licence statement to publish
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: licence-statement
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
   # `release`, not `release-performance`: the default shipped profile is the cheap one.
   # release-performance.yml builds the other, on request.
   #
@@ -184,7 +239,7 @@ jobs:
   # that compiles happens here, under a token that can read the repository and nothing else.
   build:
     needs: [gates]
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 90
     permissions:
       contents: read
@@ -256,64 +311,6 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-  # The committed attribution document is copied into the release beside the per-binary SBOMs.
-  # `needs: [gates]` lets this run beside the four cross builds; `publish` signs the result.
-  licence:
-    needs: [gates]
-    runs-on: rust-mcp
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # THE COMMITTED DOCUMENT, copied rather than generated: `just attribution` writes it from
-      # `cargo metadata` and `cargo xtask check-attribution` fails when it falls behind
-      # `Cargo.lock`, so the tagged tree already carries a current one and generating a second
-      # copy here would be a second owner for one artefact. Deliberately WIDER than any one
-      # binary - every crate the workspace resolves - because for attribution the safe error is
-      # naming a crate that did not ship, not omitting one that did.
-      #
-      # The count is a FLOOR, for the reason the SBOM assertion in `build` gives: pinning it would
-      # make a dependency bump fail on a correct tree. What it catches is the silent case, a
-      # generator that still writes a well formed document naming nothing.
-      - name: The attribution document travels with the report
-        run: |
-          set -eu
-          mkdir -p dist
-          if [ ! -s ATTRIBUTION.md ]; then
-            echo "::error::ATTRIBUTION.md is missing from the checkout; 'just attribution' writes it"
-            exit 1
-          fi
-          cp ATTRIBUTION.md dist/sutura-attribution.md
-          ( cd dist && sha256sum sutura-attribution.md > sutura-attribution.md.sha256 )
-          named="$(grep -c '^| `' dist/sutura-attribution.md || true)"
-          if [ "$named" -lt 100 ]; then
-            echo "::error::sutura-attribution.md names ${named} package(s); a workspace this size resolves hundreds"
-            exit 1
-          fi
-          printf 'attribution: %s packages\n' "$named"
-
-      # NOT `release-*`, deliberately, and this is the one thing about the handover worth reading.
-      # `upload-artifact` roots an artifact at the least common ancestor of what it matched, so a
-      # single `path: dist/` produces an artifact whose entries are BARE FILE NAMES - where the
-      # matrix, matching three directories, produces one whose entries are `dist/...`. Merged into
-      # `publish` under the `release-*` pattern this would have unpacked to the workspace root and
-      # the arrival check would have reported both documents missing. So it is named out of that
-      # pattern and `publish` downloads it in its own step, into `dist`, where its bare names land
-      # correctly.
-      #
-      - name: Hand the report to publish
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: licence-statement
-          path: dist/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
-
   # The only job that can write anything, and the only one that builds nothing.
   #
   # Gated at the JOB level rather than per step, so on a branch dispatch the job holding the
@@ -321,9 +318,9 @@ jobs:
   # not redundant: `startsWith(github.ref, 'refs/tags/v')` accepts `v-nonsense`, and only a
   # `vN.N.N` tag may move `:latest`, which is what consumers pull.
   publish:
-    needs: [build, licence]
+    needs: [build, gates]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 60
     permissions:
       contents: write      # create the release, upload assets
@@ -354,11 +351,9 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      # NO cache step here, and this time the absence really is deliberate. This job compiles
-      # nothing: its only nix invocation is `nix run .#git-cliff`, which is substituted from
-      # cache.nixos.org rather than built. So the job holding `contents: write` and
-      # `packages: write` is also the one job that never touches the shared build cache - a
-      # property that falls out of the split rather than one that had to be arranged.
+      # No shared build-cache action in this publishing job. Its Nix tools may be substituted
+      # or built on a cache miss, including xtask for provenance collection; that does not give
+      # this job a shared-cache write step alongside its publication permissions.
 
       # Into the workspace root, so `dist/`, `images/` and `facts/` land exactly where the
       # steps below expect them: the same layout a single job would have produced. None of
@@ -826,7 +821,7 @@ jobs:
             echo
             echo "| Document | Covers |"
             echo "| --- | --- |"
-            printf "| [\`sutura-attribution.md\`](%s/sutura-attribution.md) | every third-party crate this workspace resolves and the licence it declares; committed, generated from \`cargo metadata\` |\n" "$base"
+            printf "| [\`sutura-attribution.md\`](%s/sutura-attribution.md) | every third-party crate this workspace resolves and the licence it declares; generated by \`cargo metadata\` from the \`Cargo.lock\` of this tag, never committed |\n" "$base"
           } >> notes.md
 
           {
@@ -898,6 +893,12 @@ jobs:
           set -eu
           tag="${GITHUB_REF_NAME}"
           cat notes.md
+          # The collector already validated the five records and exact subject set. Require its
+          # output to have arrived before creating the draft; dist/* below uploads it unchanged.
+          if [ ! -s dist/sutura-provenance.intoto.jsonl ]; then
+            echo "::error::missing provenance release asset"
+            exit 1
+          fi
 
           state="$(gh release view "$tag" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo none)"
           case "$state" in

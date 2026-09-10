@@ -65,6 +65,11 @@ insta = { workspace = true }
 # in-memory duplex. That is what "with no client of ours in the loop" means - nothing this crate
 # wrote sits between the assertion and the protocol.
 rmcp = { workspace = true, features = ["client"] }
+# The SAME dependency as above, with the log-capture writer turned on. A cancelled MCP request gets
+# no response by protocol, so the handler finishing its wait is observable only as a log line. The
+# writer comes from `sutura-runtime` rather than being copied here, and the feature stays out of the
+# shipped graph because this is a dev-dependency.
+sutura-runtime = { workspace = true, features = ["test-capture"] }
 # `macros` and `rt-multi-thread` for the tests themselves, `io-util` for `tokio::io::duplex`, which
 # is the pipe the client and the server are joined by.
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }

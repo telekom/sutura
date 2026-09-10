@@ -46,8 +46,8 @@ const MAX_PRINCIPAL_LEN: usize = 256;
 
 /// Why an identifier naming a principal was rejected.
 ///
-/// One error for all three newtypes below, because they are one parse. The variants carry the
-/// offending input as typed fields; the `#[error]` text is a convenience for a human.
+/// One error for all three newtypes below, because they are one parse. The variants carry only the
+/// shape of the rejected input; the principal itself is personal data and this error reaches logs.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidPrincipalId {
     /// Empty or whitespace-only. An unnamed principal must not be able to claim it is one - the
@@ -58,8 +58,8 @@ pub enum InvalidPrincipalId {
     /// Holds a control character. This is the one that matters: the record a call is written to is
     /// one line, so a newline here appends a record nobody wrote - a forged attribution, in the one
     /// artifact whose entire job is attribution.
-    #[error("a principal identifier must not contain control characters: {value:?}")]
-    ControlCharacter { value: String },
+    #[error("a principal identifier must not contain the control character {code:#06x}")]
+    ControlCharacter { code: u32 },
     /// Holds an invisible or direction-changing code point. The second half of the reason the
     /// variant above exists: `char::is_control` is false for every one of these - general category
     /// `Cf`, not `Cc` - so the check that refuses a newline cannot see a right-to-left override.
@@ -72,8 +72,8 @@ pub enum InvalidPrincipalId {
     /// would print as though it were correct.
     #[error("a principal identifier must not contain the invisible or direction-changing character {code:#06x}")]
     InvisibleCharacter { code: u32 },
-    #[error("a principal identifier may be at most {limit} characters, {value:?} has {len}")]
-    TooLong { value: String, len: usize, limit: usize },
+    #[error("a principal identifier may be at most {limit} characters, found {len}")]
+    TooLong { len: usize, limit: usize },
 }
 
 /// Parses one principal identifier, rejecting anything that is not one.
@@ -92,9 +92,20 @@ pub(crate) fn parse_principal_id(raw: &str) -> Result<String, InvalidPrincipalId
     if trimmed.is_empty() {
         return Err(InvalidPrincipalId::Empty);
     }
-    if trimmed.chars().any(char::is_control) {
+    // Bound the size before either character scan, so an oversized identifier costs one walk to
+    // refuse rather than two: the length ceiling is the availability half, and the character classes
+    // are the forging half. Ordering the bound first also means a value that is both too long and
+    // control-bearing reports its size, which is what its source needs to hear.
+    let len = trimmed.chars().count();
+    if len > MAX_PRINCIPAL_LEN {
+        return Err(InvalidPrincipalId::TooLong {
+            len,
+            limit: MAX_PRINCIPAL_LEN,
+        });
+    }
+    if let Some(offending) = trimmed.chars().find(|character| character.is_control()) {
         return Err(InvalidPrincipalId::ControlCharacter {
-            value: String::from(trimmed),
+            code: u32::from(offending),
         });
     }
     // Beside the control-character check rather than folded into it, because it is a second
@@ -103,13 +114,6 @@ pub(crate) fn parse_principal_id(raw: &str) -> Result<String, InvalidPrincipalId
     if let Some(offending) = first_invisible(trimmed) {
         return Err(InvalidPrincipalId::InvisibleCharacter {
             code: u32::from(offending),
-        });
-    }
-    if trimmed.chars().count() > MAX_PRINCIPAL_LEN {
-        return Err(InvalidPrincipalId::TooLong {
-            value: String::from(trimmed),
-            len: trimmed.chars().count(),
-            limit: MAX_PRINCIPAL_LEN,
         });
     }
     Ok(String::from(trimmed))
@@ -126,7 +130,7 @@ macro_rules! principal_newtype {
         ///
         /// Construct it with `parse`. There is no other way in: the field is private, there is no
         /// `Deserialize`, and `TryFrom<String>` delegates to the same constructor.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(String);
 
         impl $name {
@@ -152,10 +156,31 @@ macro_rules! principal_newtype {
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(&self.0)
+                mask_principal(&self.0, f)
+            }
+        }
+
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                mask_principal(&self.0, f)
             }
         }
     };
+}
+
+/// Writes a stable masked form without copying the principal.
+fn mask_principal(raw: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let mut segment_start = true;
+    for character in raw.chars() {
+        if matches!(character, '.' | '@') {
+            write!(f, "{character}")?;
+            segment_start = true;
+        } else if segment_start {
+            write!(f, "{character}***")?;
+            segment_start = false;
+        }
+    }
+    Ok(())
 }
 
 principal_newtype! {
@@ -193,9 +218,11 @@ principal_newtype! {
 /// string; as an enum it cannot be, and a reader gets the distinction from a match it cannot skip.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Subject {
-    /// A caller the transport verified. Nothing constructs this yet: it arrives with the record that
-    /// decides how a caller proves who it is, and the type is what that step fills in rather than
-    /// adds.
+    /// A caller the transport verified. `sutura_http`'s `TokenValidator::verify` constructs it, on
+    /// the chain it hands the request path - the record that decided how a caller proves who it is
+    /// (`docs/adr/0014`) has landed, and this variant is what it filled in. The sentence that used
+    /// to stand here said nothing constructed it, which had already stopped being true in one file
+    /// and been carried to no other.
     Verified { id: SubjectId },
     /// No caller identity was established. The transport authenticated the deployment and not
     /// whoever asked, so the deployment is the only principal there is.
@@ -586,7 +613,7 @@ mod tests {
         );
         assert_eq!(chain.count(), 3);
         // The rendering an audit record carries, in the same order.
-        assert_eq!(chain.to_string(), "orchestrator > planner > query_agent");
+        assert_eq!(chain.to_string(), "o*** > p*** > q***");
     }
 
     #[test]
@@ -596,7 +623,7 @@ mod tests {
         let chain = ActorChain::of(actor("query_agent"));
         assert_eq!(chain.outermost(), chain.immediate());
         assert_eq!(chain.count(), 1);
-        assert_eq!(chain.to_string(), "query_agent");
+        assert_eq!(chain.to_string(), "q***");
     }
 
     #[test]
@@ -650,9 +677,7 @@ mod tests {
         // The refusal that matters most: the record is one line, so a newline is a second record.
         assert_eq!(
             SubjectId::parse("someone@example.com\nsubject=admin"),
-            Err(InvalidPrincipalId::ControlCharacter {
-                value: String::from("someone@example.com\nsubject=admin"),
-            })
+            Err(InvalidPrincipalId::ControlCharacter { code: 0x0A })
         );
         // And the class a control-character check provably cannot see.
         assert_eq!(
@@ -664,14 +689,24 @@ mod tests {
         let long = "a".repeat(257);
         assert_eq!(
             TaskId::parse(&long),
-            Err(InvalidPrincipalId::TooLong {
-                value: long,
-                len: 257,
-                limit: 256,
-            })
+            Err(InvalidPrincipalId::TooLong { len: 257, limit: 256 })
         );
         // Exactly the limit is fine, so the bound is the bound and not one off it.
         drop(TaskId::parse("a".repeat(256)).expect("exactly the limit parses"));
+    }
+
+    #[test]
+    fn an_oversized_identifier_is_refused_for_its_size_before_its_characters() {
+        // The length ceiling is checked before the character classes, so a value that is both too
+        // long and control-bearing reports its size rather than the character: the bound is the
+        // availability defence, and ordering it first is what makes an oversized input cost one
+        // walk to refuse instead of two. Reverting the order reports `ControlCharacter` here and
+        // reddens this test.
+        let oversized_and_control = format!("{}\u{0007}", "a".repeat(300));
+        assert_eq!(
+            SubjectId::parse(&oversized_and_control),
+            Err(InvalidPrincipalId::TooLong { len: 301, limit: 256 })
+        );
     }
 
     #[test]
@@ -685,9 +720,7 @@ mod tests {
         assert_eq!(parsed.as_str(), "someone@example.com");
         assert_eq!(
             SubjectId::try_from(String::from("bad\u{0007}")),
-            Err(InvalidPrincipalId::ControlCharacter {
-                value: String::from("bad\u{0007}")
-            })
+            Err(InvalidPrincipalId::ControlCharacter { code: 0x07 })
         );
     }
 }

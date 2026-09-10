@@ -59,6 +59,56 @@ mod contexts;
 // whose own `on:` block gates and therefore classified none of a CALLED workflow's.
 mod reach;
 
+// A BADGE IS A PUBLIC CLAIM, held against the mechanism it claims. Its own file because it reads
+// two more authorities - `README.md` and `devco/scorecard-publication` - and because a new entry
+// in `main.rs`'s task table is not available: that file stands at 999 lines against a cap
+// `crates/` and `xtask/` cannot be exempted from. It belongs here regardless: *what may a workflow
+// do* is this gate's question, and it already walks every place CI invokes something from.
+mod scorecard;
+
+// CAN THE PUBLICATION THE BADGE IS SERVED FROM LAND? `scorecard` holds badge <-> publication
+// DECLARED; this holds the workflow against the shape `api.scorecard.dev` will actually accept,
+// because three runs reported success while the API refused every one of them.
+mod publication;
+
+// AN ACCEPTED SCORE IS A CLAIM ABOUT ITS STAND-IN, and `docs/adr/0025` accepts Scorecard's SAST
+// zero on the strength of two mechanisms inside the required context. Its own file for
+// `scorecard`'s reasons plus one: that module stands at 912 lines against the same cap, so the
+// rule could not join it. See `sast`'s header for each refusal and what it does not hold.
+mod sast;
+
+// CAN A `pull_request` PATH WRITE THE ACTIONS CACHE? Its own file for `sast`'s reason - this one
+// is against the unexemptable 1000-line cap - and the seam is the question: every other rule here
+// asks whether a reference RESOLVES, this one asks what a step is ALLOWED to do. See its header for
+// the name list it is limited to and why a job-level condition is deliberately not accepted. Its
+// `retired` child holds the other half - is `docs/adr/0026`'s recorded ABSENCE of a third-party
+// binary cache still absent - split off when the same cap bit a second time.
+mod cache_scope;
+
+// DOES A STEP NAME A COMPILER BACKEND? Its own file for `sast`'s reason - this one is against the
+// unexemptable 1000-line cap - and the seam is the question: every other rule here asks whether a
+// reference RESOLVES or what a step is ALLOWED to do; this asks whether CI config NAMES a
+// nightly-only codegen-backend env variable, refused so a backend switch stays reviewable. See its
+// header for the exact-name list and the forms it does not reach.
+mod codegen;
+
+// DOES THE 2/4 CROSS MATRIX STILL SPLIT BY EVENT? A single inline ternary on
+// `jobs.link.strategy.matrix.target` once chose the set with no structural gate reading it - the
+// M1 gap `#477`'s own review found. This module pins that ternary: exact `A && B || C` shape,
+// the `pull_request` predicate token-for-token, and both leg lists order-sensitively. Its own
+// file because it reads `cross-link.yml`'s structure (a matrix literal, not a flake reference) and
+// holds nothing about resolution, cache writes or badges. See its header for what it cannot hold.
+mod cross_link;
+
+// READING A NAMED BLOCK OUT OF `flake.nix`, in its own file because this one reached the
+// 1000-line cap the moment two changes registered a rule module in the same window. The seam is
+// the question, not the line count: that module answers *which attributes does this block
+// declare, and did it close*, for four callers. See its header.
+mod nix_block;
+pub(crate) use nix_block::declared_block;
+// Raw bodies also let check-scope compare literal nextest selectors without a second Nix lexer.
+pub(crate) use nix_block::block_source;
+
 /// Which output namespace a reference points into.
 ///
 /// `Runnable` and not `App`: `nix run .#name` resolves an app OR a package with a matching main
@@ -158,24 +208,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
-    // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
-    // readers and checked by nothing - and it was false.
-    let unclassified = contexts::problems(&root, &ordinary);
-    if !unclassified.is_empty() {
-        eprintln!(
-            "xtask check-workflows: FAILED - {} job(s) or context(s) are not accounted for\n",
-            unclassified.len()
-        );
-        for problem in &unclassified {
-            eprintln!("  {problem}");
-        }
-        eprintln!();
-        eprintln!("A job nobody requires gates nothing, and a required context nothing reports is a");
-        eprintln!("permanently pending merge. Which of the two a job is belongs in the record, not in");
-        eprintln!("a reader's assumption - see the header of devco/required-contexts for what that");
-        eprintln!("record can and cannot hold.");
-        return Verdict::Fail;
+    if let Some(verdict) = check_gates(&root, &ordinary, &flake, &references) {
+        return verdict;
     }
 
     let missing: Vec<&Reference> = references
@@ -195,7 +229,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             walked.len(),
             walked.join(", ")
@@ -213,6 +247,144 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     eprintln!();
     eprintln!("A deleted output is a workflow that fails minutes into a run, after the push.");
     Verdict::Fail
+}
+
+/// Every rule that compares what a workflow is ALLOWED to do against what is declared to hold
+/// it. Kept out of `run` so the walker stays a single responsibility per function; returns
+/// `Some(Fail)` with the report already printed the moment any one rule breaks.
+fn check_gates(
+    root: &std::path::Path,
+    ordinary: &contexts::OrdinaryCi,
+    flake: &str,
+    references: &[Reference],
+) -> Option<Verdict> {
+    // WHICH JOBS GATE A MERGE. Nothing in this repository could say so before: the required set
+    // lived only in GitHub's API, so *the four cross link legs block a merge* was believed by
+    // readers and checked by nothing - and it was false.
+    let unclassified = contexts::problems(root, ordinary);
+    if !unclassified.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} job(s) or context(s) are not accounted for\n",
+            unclassified.len()
+        );
+        for problem in &unclassified {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A job nobody requires gates nothing, and a required context nothing reports is a");
+        eprintln!("permanently pending merge. Which of the two a job is belongs in the record, not in");
+        eprintln!("a reader's assumption - see the header of devco/required-contexts for what that");
+        eprintln!("record can and cannot hold.");
+        return Some(Verdict::Fail);
+    }
+
+    // WHAT A BADGE CLAIMS, AGAINST WHAT HOLDS IT. Beside the classification above because both
+    // are rules about what a workflow is ALLOWED to assert rather than about whether it resolves -
+    // and a badge is the one thing in this tree that asserts a control to somebody who cannot read
+    // the tree. See `scorecard`'s header for each rule and the limit beside it.
+    let mut badges = scorecard::problems(root);
+    badges.extend(publication::problems(root));
+    if !badges.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} badge/publication rule(s) broken\n",
+            badges.len()
+        );
+        for problem in &badges {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A badge is a public claim, and an overstated control is itself the defect here.");
+        eprintln!("docs/adr/0024 is the decision; devco/scorecard-publication is what publishing");
+        eprintln!("sends and why it is on.");
+        return Some(Verdict::Fail);
+    }
+
+    // AN ACCEPTED ZERO IS A CLAIM TOO, and it is the same class of defect one row over: a badge
+    // asserts a control to somebody who cannot read the tree, and so does a published score whose
+    // low row this repository has argued is held by other means. `docs/adr/0025` makes that
+    // argument about clippy and zizmor; this reads whether they are still there.
+    let stand_ins = sast::problems(root, flake, references);
+    if !stand_ins.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} SAST stand-in rule(s) broken\n",
+            stand_ins.len()
+        );
+        for problem in &stand_ins {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("docs/adr/0025 accepts Scorecard's SAST zero because clippy under -D warnings and");
+        eprintln!("zizmor run inside the one required context. A record that outlives its stand-in is");
+        eprintln!("an overstated control, which AGENTS.md calls the defect itself.");
+        return Some(Verdict::Fail);
+    }
+
+    // WHO MAY WRITE THE ACTIONS CACHE. Third rule in a row about what a workflow is ALLOWED to do
+    // rather than whether it resolves, and the newest: an entry a pull request writes is readable
+    // by exactly one pull request, so ordinary CI restores on every event and saves only from a
+    // push to `main`. Nothing held that before - `check-workflows` read flake references and
+    // `zizmor` reads security shapes, and neither can tell a cache action that saves from one that
+    // does not.
+    let writes = cache_scope::problems(root, ordinary.closure());
+    if !writes.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} Actions-cache write rule(s) broken\n",
+            writes.len()
+        );
+        for problem in &writes {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("An entry a pull request writes is readable by exactly one pull request and is then");
+        eprintln!("pruned: restore everywhere, save only from a push to main, per");
+        eprintln!(".github/actions/nix-store-cache. docs/adr/0026 retired the third-party cache, so a");
+        eprintln!("substituter NAMED in a workflow is refused - `name = value` and `--name value` both.");
+        return Some(Verdict::Fail);
+    }
+
+    // IS THE COMPILER BACKEND CHOSEN IN CI? The single pinned nightly chooses it - that is the
+    // whole point of consolidating every build onto `devco/rust-toolchain-nightly.toml` - and the
+    // two codegen-backend env vars are filled only by a developer opting into cranelift in the
+    // dev shell. So a step that SETS one is an unremarked backend switch overriding the pinned
+    // toolchain. Refused by name so a reviewer sees the choice; see the module header for the
+    // exact-name list.
+    let codegen = codegen::problems(root);
+    if !codegen.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} codegen-backend env variable rule(s) broken\n",
+            codegen.len()
+        );
+        for problem in &codegen {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A workflow or action must not select the compiler backend itself - the toolchain a");
+        eprintln!("reviewer pinned is what chooses one. See xtask/src/workflows/codegen.rs for the");
+        eprintln!("name list and what it does not reach.");
+        return Some(Verdict::Fail);
+    }
+
+    // WHICH SET AN EVENT RUNS. `cross-link.yml`'s matrix literal once chose two aarch64 legs on a
+    // pull request and four on `main` with nothing holding it - every gate stayed green on a
+    // 4-on-PR regression. `#477`'s own review rated that M1 gap compute-only, not blocking, but
+    // called it a claim no mechanism held. This pins the ternary.
+    let cross = cross_link::problems(root);
+    if !cross.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} cross-matrix rule(s) broken\n",
+            cross.len()
+        );
+        for problem in &cross {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A pull request proves the two aarch64 triples the native ci job never compiles,");
+        eprintln!("and a push to `main` builds all four; that split lives in one inline ternary in");
+        eprintln!("cross-link.yml. A gate that holds it keeps `cannot silently run 4 on a PR` true");
+        eprintln!("instead of merely written beside it - see xtask/src/workflows/cross_link.rs.");
+        return Some(Verdict::Fail);
+    }
+    None
 }
 
 fn joined(names: &BTreeSet<String>) -> String {
@@ -462,7 +634,7 @@ pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
 
 /// The code half of a Nix file, one `String` per line, comments and string interiors blanked.
 ///
-/// `pub(crate)` for the reason [`block_attributes`] gives one screen down: `crate::warm_start`
+/// `pub(crate)` for the reason [`declared_block`] gives: `crate::warm_start`
 /// asks a different question of the same files - which of them bind `cargoArtifacts`, and which
 /// bind `preBuild` - and a second Nix reader for it would be a second reader to get wrong, three
 /// times over, since this one's own doc comment lists the three shapes that fooled the brace
@@ -470,117 +642,6 @@ pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
 /// the enclosing set*, which nothing outside this module asks.
 pub(crate) fn nix_code_lines(text: &str) -> Vec<String> {
     code_lines(text).into_iter().map(|line| line.code).collect()
-}
-
-/// Every attribute at the top level of an output block.
-///
-/// Depth-tracked rather than stopping at the first `};`. The first version broke out there and
-/// so missed everything after the first NESTED close - which meant `checks.hygiene`, declared
-/// well below `clippy`, read as undeclared while CI built it happily every run. A parser that
-/// silently sees half a file is worse than no parser.
-///
-/// THE BLOCK'S OWN OPENING BRACE IS COUNTED rather than assumed to be on the header line, and
-/// that is a second version of the same bug. `depth` used to be set to 1 the moment the header
-/// matched, which is right only while the `{` is on that line: written as
-///
-/// ```text
-/// packages = crossPackages // ociImages
-///   // nativeImages // {
-/// ```
-///
-/// the brace on the continuation line read as a NESTED attrset, so depth became 2 and every name
-/// in the block was invisible - `packages.xtask` among them, which `ci.yml` runs three times.
-/// Measured, on the change that split that line. Counting the header's braces like any other
-/// line's makes both shapes the same case, and `opened` is what keeps the `depth <= 0` break from
-/// firing before the block has started.
-/// `pub(crate)` rather than private: `crate::compose::file` asks the same question of the same
-/// block - which checks does `flake.nix` declare - and a second parser for it would be a second
-/// thing to keep in step with the shapes this doc comment records.
-///
-/// `None` where the header matched and the block never closed. That case USED TO BE SILENT, and
-/// silence is what made the comment-brace defect expensive: the scan ran off the end of the block
-/// into the rest of `outputs`, so it reported `formatter` as a check, lost six real ones, and the
-/// failure surfaced as eighteen workflow references that "do not exist". A gate whose parse has
-/// desynchronised must say the parse is broken - never answer the question with a guess.
-pub(crate) fn declared_block(text: &str, header: &str) -> Option<BTreeSet<String>> {
-    scan_block(text, header).map(|(names, _)| names)
-}
-
-/// The RAW source of one output block, header line to closing line.
-///
-/// Raw and not the code projection, because the question its caller asks - does this block name
-/// `sutura-<service>-tier` - is about a store path inside a string literal, which the projection
-/// blanks out. `#[cfg(test)]` because `crate::compose::file`, the gate that asks, is a unit test:
-/// a field nothing reads in the binary is dead code the compiler is right to refuse.
-#[cfg(test)]
-pub(crate) fn block_source(text: &str, header: &str) -> Option<String> {
-    scan_block(text, header).map(|(_, source)| source)
-}
-
-/// One parsed output block: the attributes it declares, and its raw source.
-///
-/// An alias and not a struct, and that is the compiler choosing between two lints rather than a
-/// style preference. `clippy::type_complexity` refuses the tuple written out; a struct puts the
-/// source in a named field, whose only reader is `crate::compose::file` - a `#[cfg(test)] mod` -
-/// so `dead_code` refuses that in the binary. The alias satisfies both without an `allow`.
-type Block = (BTreeSet<String>, String);
-
-/// One scan, shared by both faces above, because a second one would be a second thing to keep in
-/// step with the shapes recorded here.
-fn scan_block(text: &str, header: &str) -> Option<Block> {
-    let mut names = BTreeSet::new();
-    let mut depth = 0_i32;
-    let mut inside = false;
-    let mut opened = false;
-    let mut block_closed = false;
-    let mut source = String::new();
-    let raw: Vec<&str> = text.lines().collect();
-    for (number, line) in code_lines(text).into_iter().enumerate() {
-        let trimmed = line.code.trim();
-        let header_line = !inside && trimmed.starts_with(header);
-        if header_line {
-            inside = true;
-        } else if !inside {
-            continue;
-        }
-        if let Some(original) = raw.get(number) {
-            source.push_str(original);
-            source.push('\n');
-        }
-
-        // Only the outermost level of the block declares an output; everything deeper belongs
-        // to one. Counted after the name check so the closing line of a nested attrset does
-        // not look like a declaration, and never on the header line, which declares the block
-        // rather than a member of it.
-        let opens = i32::try_from(trimmed.matches('{').count()).unwrap_or(0);
-        let closes = i32::try_from(trimmed.matches('}').count()).unwrap_or(0);
-
-        if !header_line
-            && opened
-            && depth == 1
-            && line.lets == 0
-            && let Some((key, _)) = trimmed.split_once('=')
-        {
-            let key = key.trim();
-            let plain = !key.is_empty()
-                && !key.contains(' ')
-                && !key.contains('.')
-                && key.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_');
-            if plain {
-                names.insert(String::from(key));
-            }
-        }
-
-        depth = depth.saturating_add(opens).saturating_sub(closes);
-        if depth > 0 {
-            opened = true;
-        }
-        if opened && depth <= 0 {
-            block_closed = true;
-            break;
-        }
-    }
-    block_closed.then_some((names, source))
 }
 
 /// What one scan of `.github` found: the references, and how many files were read.
@@ -779,168 +840,5 @@ mod tests {
         super::collect("        run: nix run .#mkdocs -- build --strict\n", "docs.yml", &mut found);
         assert_eq!(found.len(), 1);
         assert!(!apps.contains(&found[0].name), "mkdocs must read as missing");
-    }
-
-    #[test]
-    fn a_block_whose_opening_brace_is_on_a_continuation_line_still_declares_its_members() {
-        // The `packages = ` line in flake.nix grew past one line when a second shipped binary
-        // was added, and the brace moved with it. Depth was pinned to 1 at the header, so the
-        // brace on the second line read as a NESTED attrset and every member of the block became
-        // invisible - including `xtask`, which `ci.yml` runs three times. This is that shape.
-        let flake = concat!(
-            "        packages = crossPackages // ociImages\n",
-            "          // nativeImages // {\n",
-            "          default = sutura;\n",
-            "          xtask = craneLib.buildPackage (ciArgs // {\n",
-            "            pname = \"xtask\";\n",
-            "          });\n",
-            "        };\n",
-        );
-        let names = super::declared_block(flake, "packages = ").expect("the block closes");
-        assert!(names.contains("xtask"), "xtask must be declared, got {names:?}");
-        assert!(names.contains("default"), "default must be declared, got {names:?}");
-        assert!(!names.contains("pname"), "a nested attribute is not a declaration");
-    }
-
-    #[test]
-    fn a_block_whose_opening_brace_is_on_the_header_line_is_unchanged() {
-        // The shape every other block in flake.nix has, asserted beside the one above so a fix
-        // for one cannot quietly become a regression in the other.
-        let flake = concat!(
-            "        checks = {\n",
-            "          clippy = craneLib.cargoClippy (ciArgs // {\n",
-            "            cargoArtifacts = ciArtifacts;\n",
-            "          });\n",
-            "          hygiene = pkgs.runCommand \"h\" { } \"\";\n",
-            "        };\n",
-        );
-        let names = super::declared_block(flake, "checks = {").expect("the block closes");
-        assert!(names.contains("clippy"), "got {names:?}");
-        assert!(names.contains("hygiene"), "declared below a nested close, got {names:?}");
-        assert!(!names.contains("cargoArtifacts"), "a nested attribute is not a declaration");
-    }
-
-    #[test]
-    fn a_brace_inside_a_comment_does_not_shift_the_block() {
-        // THE DEFECT THAT SHIPPED. A sentence in `flake.nix` quoting the block's own header in
-        // prose - `checks = {` inside a `#` comment - was skipped when reading a name and counted
-        // when counting depth, so everything below it sat one level too deep. Six checks that CI
-        // builds every run became undeclared, and the gate reported eighteen workflow references
-        // as pointing at outputs that do not exist.
-        let flake = concat!(
-            "        checks = {\n",
-            "          clippy = craneLib.cargoClippy { };\n",
-            "          # `checks = {` is the block two xtask gates read, so it stays here.\n",
-            "          hygiene = pkgs.runCommand \"h\" { } \"\";\n",
-            "        };\n",
-            "        formatter = pkgs.nixfmt;\n",
-        );
-        let names = super::declared_block(flake, "checks = {").expect("the block closes");
-        assert!(names.contains("hygiene"), "a comment's brace must not hide it, got {names:?}");
-        assert!(!names.contains("formatter"), "the scan ran past the block, got {names:?}");
-        assert_eq!(names.len(), 2, "got {names:?}");
-    }
-
-    #[test]
-    fn shell_inside_an_indented_string_declares_nothing() {
-        // `checks.keycloak-tier`'s body is an inline shell script. At raw-text depth its
-        // assignments sat at the block's own level, so `port` and `realm` were reported as
-        // declared checks - a gate INVENTING outputs, which is worse than losing them because a
-        // caller cannot tell the difference. The `${...}` is code and its braces still balance.
-        let flake = concat!(
-            "        checks = {\n",
-            "          keycloak-tier = pkgs.runCommand \"k\" { } ''\n",
-            "            port=\"$(jq -r '.port' \"$f\")\"\n",
-            "            realm=.sutura-dev/keycloak-realm.json\n",
-            "            case \"$x\" in *a*) echo ${tier.realm} ;; esac\n",
-            // A brace shell leaves unbalanced, which is the half a `matches('{').count()` cannot
-            // survive at all: one of these shifts every line below it.
-            "            sed -n 's|.*}||p' \"$log\"\n",
-            "          '';\n",
-            "          fmt = craneLib.cargoFmt { };\n",
-            "        };\n",
-        );
-        let names = super::declared_block(flake, "checks = {").expect("the block closes");
-        assert_eq!(names.len(), 2, "shell text is not a declaration, got {names:?}");
-        assert!(names.contains("keycloak-tier"), "got {names:?}");
-        assert!(
-            names.contains("fmt"),
-            "an unbalanced shell brace must not hide it, got {names:?}"
-        );
-    }
-
-    #[test]
-    fn a_let_binding_inside_a_check_is_not_a_check() {
-        // `let` opens no brace, so a binding in a check's own value is at the same brace depth as
-        // the check. Seven of them read as declared outputs on `main` for as long as the release
-        // checks were written inline in `flake.nix`.
-        let flake = concat!(
-            "        checks = {\n",
-            "          one-binary =\n",
-            "            let\n",
-            "              cells = map f binaries;\n",
-            "              checkOne = p: \"x\";\n",
-            "            in\n",
-            "            pkgs.runCommand \"one\" { } \"\";\n",
-            "          reuse = pkgs.runCommand \"r\" { } \"\";\n",
-            "        };\n",
-        );
-        let names = super::declared_block(flake, "checks = {").expect("the block closes");
-        assert_eq!(names.len(), 2, "a let binding is not an output, got {names:?}");
-        assert!(names.contains("one-binary"), "got {names:?}");
-        assert!(names.contains("reuse"), "got {names:?}");
-    }
-
-    #[test]
-    fn a_block_that_never_closes_is_an_error_and_not_an_answer() {
-        // The direction this gate has to fail in. Answering with the names it happened to collect
-        // is how a desynchronised parse became eighteen confusing reference failures instead of
-        // one clear "the scan is broken".
-        let flake = concat!(
-            "        checks = {\n",
-            "          clippy = craneLib.cargoClippy { };\n",
-            "          hygiene = pkgs.runCommand \"h\" { } \"\";\n",
-        );
-        assert!(
-            super::declared_block(flake, "checks = {").is_none(),
-            "an unclosed block must not answer the question"
-        );
-    }
-
-    #[test]
-    fn an_interpolation_holding_an_attrset_keeps_the_scan_aligned() {
-        // `${pkgs.closureInfo { rootPaths = [ drv ]; }}` - a `${` whose code contains its own
-        // braces. Popping the interpolation on the FIRST `}` swallows the second, and the block
-        // then never closes.
-        let flake = concat!(
-            "        checks = {\n",
-            "          one-binary = pkgs.runCommand \"o\" { } ''\n",
-            "            grep -q x ${pkgs.closureInfo { rootPaths = [ drv ]; }}/store-paths\n",
-            "          '';\n",
-            "          reuse = pkgs.runCommand \"r\" { } \"\";\n",
-            "        };\n",
-        );
-        let names = super::declared_block(flake, "checks = {").expect("the block closes");
-        assert_eq!(names.len(), 2, "got {names:?}");
-        assert!(names.contains("reuse"), "the scan lost alignment, got {names:?}");
-    }
-
-    #[test]
-    fn the_real_flake_declares_the_checks_ci_builds() {
-        // The unit fixtures above are shapes; this is the file. Anchored on names `ci.yml` and
-        // `justfile` both build, so a parse that regresses on the real tree fails here rather
-        // than in a nix step minutes into a run.
-        let Some(root) = crate::repo::root() else { return };
-        let Ok(flake) = std::fs::read_to_string(root.join("flake.nix")) else {
-            return;
-        };
-        let names = super::declared_block(&flake, "checks = {").expect("flake.nix's `checks = {` block must close");
-        for required in ["clippy", "nextest", "hygiene", "fmt", "doctest", "crap", "api-docs"] {
-            assert!(names.contains(required), "`checks.{required}` is not declared, got {names:?}");
-        }
-        assert!(
-            !names.contains("formatter"),
-            "`formatter` is a sibling of `checks`, so the scan ran past the block: {names:?}"
-        );
     }
 }

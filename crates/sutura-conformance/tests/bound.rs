@@ -236,6 +236,64 @@ fn a_source() -> Fixture<Fake<false>> {
     Fixture::standing(Fake::<false>::faithful())
 }
 
+// Its own `#[cfg(test)]` module, because `clippy::tests_outside_test_module` asks for one and
+// the strict lints exempt what is inside it - the same reason the three modules below have one.
+#[cfg(test)]
+mod location {
+    use sutura_conformance::corpus;
+    use sutura_dev::scope::Scope;
+
+    /// **The corpus this harness materialises is THIS WORKTREE'S state, through the type that owns
+    /// that answer.**
+    ///
+    /// `telekom/sutura#405`'s first instance: the corpus landed on
+    /// `<temp_dir>/sutura-conformance/<table>.csv`, a name carrying no worktree and no key, so
+    /// every checkout of this repository on the machine was a writer of one file. Reproduced with
+    /// two worktrees and one differing row - the `DuckDB` binding failed two cases as content
+    /// faults while the run that overwrote the file was green.
+    ///
+    /// **Why this cell is in `tests/` and not in `corpus.rs`.** `sutura-conformance` may reach
+    /// `sutura-dev` only as a DEV-dependency - `xtask/src/boundaries/harness.rs` holds the packs to
+    /// the interior - so `corpus.rs` spells the state directory a second time and this is where the
+    /// two spellings are COMPARED, through `Scope` itself rather than against a literal. Exactly
+    /// the arrangement `the_requirement_this_harness_reads_is_the_one_the_provisioner_writes` is in,
+    /// for the same boundary and the same reason.
+    ///
+    /// The root is derived here independently, from this test's own manifest directory, so what is
+    /// compared is two answers rather than one answer twice.
+    #[test]
+    fn the_corpus_is_this_worktrees_own_state_and_not_a_machine_shared_path() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest
+            .ancestors()
+            .find(|dir| dir.join("flake.nix").is_file() && dir.join("Cargo.lock").is_file())
+            .expect("this crate is inside a checkout of this repository");
+        let scope = Scope::from_root(root).expect("the checkout root resolves");
+
+        let written = std::fs::canonicalize(corpus::on_disk()).expect("the corpus was written");
+        let declared = scope.state_dir();
+        // EXISTENCE FIRST, and with the corpus's real location in the message: materialising the
+        // corpus is what creates this directory, so an absent one means the rows went somewhere
+        // else - and `canonicalize` on a missing path reports only `NotFound`, which sends a reader
+        // looking for a filesystem problem instead of at the path they got.
+        assert!(
+            declared.is_dir(),
+            "the corpus landed at {} and this worktree's state directory {} was never created - so \
+             the rows are not under this checkout at all",
+            written.display(),
+            declared.display()
+        );
+        let state = std::fs::canonicalize(&declared).expect("it is a directory");
+        assert!(
+            written.starts_with(&state),
+            "the corpus is at {} and this worktree's state is {} - a path outside it is reachable \
+             from every other checkout on this machine",
+            written.display(),
+            state.display()
+        );
+    }
+}
+
 // The fault half, in its own `#[cfg(test)]` module because `clippy::tests_outside_test_module`
 // asks for one and the strict lints exempt what is inside it.
 #[cfg(test)]
@@ -328,8 +386,10 @@ mod faults {
 
     /// An adapter that declares it does not execute a leg, and executes one, is a fault.
     ///
-    /// The declared-absence direction `docs/adr/0012` says is worth having: nothing upstream builds a
-    /// leg today, so the adapter's own guard is exercised by this and by nothing else.
+    /// The declared-absence direction `docs/adr/0012` says is worth having. It used to rest on
+    /// *nothing upstream builds a leg today*; a leg is built and executed on the shipped answer path
+    /// now, so what this is worth is narrower and still real - it is the only thing that exercises
+    /// the guard of an adapter with no leg venue of its own.
     #[test]
     fn an_adapter_that_answers_a_leg_it_declares_it_cannot_is_a_fault() {
         let fake = Fake::<false> {

@@ -39,8 +39,9 @@ use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::knowledge::Knowledge;
 use crate::model::{MetricName, SourceName};
 use crate::query::RefusalReason;
-use crate::source::ExecutedAs;
+use crate::source::UniformlyExecuted;
 use crate::text::first_invisible;
+use crate::warehouse::cardinality::{KeyNotCounted, KeyNotUnique};
 
 pub use manifest::{Contribution, ContributionManifest, RequiredOrOptional};
 
@@ -161,7 +162,7 @@ impl core::fmt::Display for DefinitionVersion {
 pub struct Provenance {
     version: DefinitionVersion,
     digest: DefinitionDigest,
-    executed_as: ExecutedAs,
+    executed_as: UniformlyExecuted,
 }
 
 impl Provenance {
@@ -173,7 +174,7 @@ impl Provenance {
     /// carries a `Provenance` beside its rows, and an enum variant is always constructible by
     /// whoever can build its fields. Nothing outside this crate built one - checked before narrowing
     /// it - so this costs no caller.
-    const fn new(version: DefinitionVersion, digest: DefinitionDigest, executed_as: ExecutedAs) -> Self {
+    const fn new(version: DefinitionVersion, digest: DefinitionDigest, executed_as: UniformlyExecuted) -> Self {
         Self {
             version,
             digest,
@@ -194,9 +195,11 @@ impl Provenance {
     /// What each leg of this answer ran as.
     ///
     /// Read off the posture the **adapter was handed**, never off a settings tree - see
-    /// [`crate::source`]. Non-empty, because [`ExecutedAs`] has no empty form.
+    /// [`crate::source`]. Non-empty, because [`crate::source::ExecutedAs`] has no empty form, and
+    /// uniform, because [`UniformlyExecuted`] is the only thing [`PinnedDefinitions::provenance`]
+    /// accepts.
     #[inline]
-    pub const fn executed_as(&self) -> &ExecutedAs {
+    pub const fn executed_as(&self) -> &UniformlyExecuted {
         &self.executed_as
     }
 }
@@ -381,7 +384,41 @@ impl PinnedDefinitions {
     /// prompt - reads [`Self::version`] and [`Self::digest`] instead. Nothing executed for it, and a
     /// `Provenance` with an empty execution record would be the one shape this argument exists to
     /// make unrepresentable.
-    pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance {
+    ///
+    /// # And a MIXED execution record is unrepresentable the same way
+    ///
+    /// The argument is [`UniformlyExecuted`] rather than [`crate::source::ExecutedAs`], so an answer
+    /// combining rows read under one posture with rows read under another cannot be built at all -
+    /// not refused at a call site somebody may move, but absent from the type system. A record with
+    /// two legs reaches this only through [`crate::source::ExecutedAs::uniform`], which is where the
+    /// verdict is made.
+    ///
+    /// **A mixed record has no way in:**
+    ///
+    /// ```compile_fail
+    /// use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+    /// use sutura_domain::source::ExecutedAs;
+    ///
+    /// fn _mixed(pinned: &PinnedDefinitions, both_legs: ExecutedAs) -> Provenance {
+    ///     pinned.provenance(both_legs)
+    /// }
+    /// ```
+    ///
+    /// The compiling twin, differing by exactly the one call that makes the verdict - so the block
+    /// above cannot be passing on a typo:
+    ///
+    /// ```
+    /// use sutura_domain::pinned::{PinnedDefinitions, Provenance};
+    /// use sutura_domain::source::{ExecutedAs, LegsDecideIdentityDifferently};
+    ///
+    /// fn _uniform(
+    ///     pinned: &PinnedDefinitions,
+    ///     both_legs: ExecutedAs,
+    /// ) -> Result<Provenance, LegsDecideIdentityDifferently> {
+    ///     Ok(pinned.provenance(both_legs.uniform()?))
+    /// }
+    /// ```
+    pub fn provenance(&self, executed_as: UniformlyExecuted) -> Provenance {
         Provenance::new(self.version.clone(), self.digest.clone(), executed_as)
     }
 
@@ -611,6 +648,39 @@ pub enum NotValidated {
     AnchorUnchecked { metric: MetricName },
     #[error("a check was recorded for {metric}, which this bundle does not define")]
     UnknownMetricChecked { metric: MetricName },
+    /// A declared join key the data contradicts.
+    ///
+    /// **The one boot outcome that stops a deployment over a cardinality declaration**, and it is a
+    /// `NotValidated` rather than a warning because of what the declaration buys: a `many_to_one` is
+    /// what licenses a join to be measure-preserving, and a target column that is not unique makes
+    /// the same question answer differently depending on how the plan was shaped. See
+    /// [`cardinality`](crate::warehouse::cardinality) for the two numbers that measurement produced.
+    ///
+    /// **The counts and no key value**, deliberately: this reaches an operator's log, and a
+    /// duplicated dimension key printed there is source data copied into a sink nobody scoped for
+    /// it. What it carries locates the table; the operator queries it.
+    ///
+    /// **Boxed**, because `result_large_err` is deliberately left on in this workspace and five
+    /// parsed names inline made this the widest `Result` the boot path returns.
+    #[error("{0}")]
+    DeclaredKeyNotUnique(Box<KeyNotUnique>),
+    /// A declared join key no data system would count.
+    ///
+    /// **A refusal rather than a warning, and the direction is the opposite of
+    /// [`crate::warehouse::Warehouse::preflight`]'s on purpose.** A pre-flight runs in a composition
+    /// root, where *could not verify* has somewhere to go: a `WARN` line and a deployment that
+    /// serves. This runs inside the operation that mints the proof, where the only two outcomes are
+    /// *validated* and *not* - and where the existing rule for a statement the data system would not
+    /// run is already refusal ([`NotValidated::AnchorNotExecuted`]). Silence was the third option and
+    /// is the one this variant exists to remove: it made *the identity may not read the dimension
+    /// table* - the identity-relevant case in an identity-aware runtime - indistinguishable from a
+    /// clean check.
+    ///
+    /// **What it costs**, stated with the claim: a data system briefly unreachable at boot now stops
+    /// a deployment that would have served, for a source carrying no anchored metric. For every
+    /// source that carries one, the anchor pass already refused it.
+    #[error("{0}")]
+    DeclaredKeyNotCounted(Box<KeyNotCounted>),
 }
 
 /// Which class of catalog adapter this is: held to the whole model, or supplying part of it.

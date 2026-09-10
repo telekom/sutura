@@ -82,7 +82,7 @@ pub const MAX_RANGE_DAYS: i32 = 3653;
 ///   one field held to a laxer rule was the asymmetry, not the fix.
 /// * **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
 ///   used to be compared against the allowlist and refused, having been read, cloned into
-///   [`Self::literals`] and rendered into whatever an audit sink keeps.
+///   [`Query::literals`] and rendered into whatever an audit sink keeps.
 /// * **A second character rule is a rule nothing compares against the first.** [`crate::text`] exists
 ///   because one such rule was written down twice and the copies drifted. A request-side value type
 ///   with its own idea of what a value may hold would be that mistake, deliberately, in a place where
@@ -268,17 +268,31 @@ pub enum RefusalReason {
     ///
     /// **Exactly two is served** - a question that spans two sources is split into two legs and
     /// combined above them (the splitter reaches `sutura_semantic::Plan::Federated`, and `answer`
-    /// either executes it or refuses it as [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)
-    /// while no adapter executes a leg). So this is the bound on an unbounded fan-out: the "too many"
-    /// is a named count against the limit the deployment serves.
+    /// executes it where the registered adapter can run a leg and otherwise refuses it as
+    /// [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)). So this is the bound on
+    /// an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
     PlanSpansTooManySources { sources: usize, limit: usize },
     /// The question asked is served by two sources, but this build has no adapter that can execute
     /// a leg.
     ///
-    /// The splitter and the combiner exist, but every shipped adapter answers an execution leg with
-    /// a typed refusal, so a two-source question cannot be answered yet - only the compile-side is
-    /// built. `answer` refuses here rather than surface the adapter's refusal as a retryable 503:
-    /// this is not a data system being down, and a caller must not retry it.
+    /// **A fact about the BUILD, not about the question or the sources.** `Warehouses<W>` holds one
+    /// adapter type, so this reads that type's `Warehouse::EXECUTES_LEGS` once: a build whose adapter
+    /// declares it answers every two-source question it can plan, and a build whose adapter takes the
+    /// default refuses all of them. The in-process engine declares it and is non-optional in both
+    /// published binaries, so a release answers; an adapter that takes the default - `BigQuery`, or a
+    /// fake - still arrives here.
+    ///
+    /// `answer` refuses here rather than surface the adapter's own refusal as a retryable 503: this
+    /// is not a data system being down, and a caller must not retry it.
+    ///
+    /// **One producer, and that is `telekom/sutura#338`.** The compile stage used to raise this too,
+    /// for a two-source plan it had built and could not then assemble - a defect in this workspace
+    /// wearing a governance refusal's clothes. It mattered most while every published build refused
+    /// here anyway, because the two were then the same answer to a caller; it still matters now that
+    /// a release executes legs, because the question a caller has to be able to ask is *is this
+    /// build unable to run a leg, or did sutura fail to assemble a plan it had already decided on*.
+    /// That failure leaves as `sutura_semantic::CompileFailure` now, so this variant means the
+    /// capability and nothing else.
     FederationNotExecutable,
     /// The question's remote dimensions join the metric's own through more than one relationship.
     ///
@@ -381,6 +395,72 @@ pub enum RefusalReason {
     /// system's to say, and guessing it here would be this deployment holding a second opinion about
     /// somebody else's authorization.
     CredentialUnavailable { source: SourceName },
+    /// The legs of one answer would not all decide identity the same way.
+    ///
+    /// **Not a source count, and that distinction is the whole variant.**
+    /// [`PlanSpansTooManySources`](RefusalReason::PlanSpansTooManySources) bounds a fan-out and says
+    /// *sources*; this says what a combined number would be made of. Two sources under one posture
+    /// are answered - that is the shape that ships - and two sources deciding identity two different
+    /// ways are refused, because adding rows one identity was permitted to see to rows another
+    /// identity was permitted to see produces a total no identity is entitled to, under a certified
+    /// metric name and with valid provenance attached.
+    ///
+    /// Refused rather than disclosed, and *disclosed* is not the third option it reads as: an answer
+    /// carries `executed_as` and `rows` in one body on both transports, with no streaming and no
+    /// second message, so the only outcome that reaches a caller before the rows is a refusal. The
+    /// per-leg record still ships and is still worth having - it documents a disclosure that
+    /// happened, which is a different job from preventing one.
+    ///
+    /// **Carries the posture LABELS and never a `SourcePosture`.** That type's shared variant holds
+    /// the operator's own acknowledgement text and both are `Serialize`, so a value here would
+    /// publish operator prose to every caller, log and agent context - the same rule
+    /// [`PlanTablesShareAnIdentifier`](RefusalReason::PlanTablesShareAnIdentifier) follows when it
+    /// carries the identifier and neither path. The labels come from a closed set of two.
+    ///
+    /// **What it cannot decide, stated with the claim.** *Same posture* is decidable and *same
+    /// asker* is not: nothing in this workspace names WHICH shared identity a source is read as, so
+    /// two `shared-service-user` legs may be two different deployment-held identities and this
+    /// passes them.
+    LegsDecideIdentityDifferently { postures: BTreeSet<&'static str> },
+}
+
+impl RefusalReason {
+    /// The machine-readable `code` a client or an agent branches on, shared by every transport.
+    ///
+    /// **The one place this is decided.** The HTTP and agent surfaces used to spell their own
+    /// tables and nothing compared them, so a code could drift until the two transports disagreed
+    /// about what a refusal was. Both now read [`RefusalReason::code`] and neither writes its own
+    /// list, so there is one spelling for the whole surface.
+    ///
+    /// Being exhaustive with no wildcard arm, a variant added here either gets its code in the same
+    /// edit or does not compile. The derivation is fixed by
+    /// [`the_code_is_the_variant_name_in_snake_case`](self): each code is the `snake_case` spelling
+    /// of the variant's own name, read off this type's own `Serialize` rather than a list typed
+    /// beside it - so a hand-written code that drifted from the variant fails that test, and the two
+    /// transports, both reading this one method, cannot drift from each other without first drifting
+    /// from the variant.
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::MetricUnknown { .. } => "metric_unknown",
+            Self::GrainNotSupported { .. } => "grain_not_supported",
+            Self::DimensionNotPermitted { .. } => "dimension_not_permitted",
+            Self::DimensionNotFilterable { .. } => "dimension_not_filterable",
+            Self::DimensionValueNotAllowed { .. } => "dimension_value_not_allowed",
+            Self::DuplicateDimension { .. } => "duplicate_dimension",
+            Self::TooManyDimensions { .. } => "too_many_dimensions",
+            Self::ResultTooLarge { .. } => "result_too_large",
+            Self::TimeRangeTooLong { .. } => "time_range_too_long",
+            Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",
+            Self::FederationNotExecutable => "federation_not_executable",
+            Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
+            Self::MeasureDoesNotFederate { .. } => "measure_does_not_federate",
+            Self::PlanTablesShareAnIdentifier { .. } => "plan_tables_share_an_identifier",
+            Self::SourceUnavailable { .. } => "source_unavailable",
+            Self::ResourcesExhausted { .. } => "resources_exhausted",
+            Self::CredentialUnavailable { .. } => "credential_unavailable",
+            Self::LegsDecideIdentityDifferently { .. } => "legs_decide_identity_differently",
+        }
+    }
 }
 
 /// Which bound a result was too large for.
@@ -456,7 +536,7 @@ impl ToolOutcome {
 
 #[cfg(test)]
 mod tests {
-    use super::{Filter, Query, RefusalReason, ToolOutcome};
+    use super::{Filter, Query, RefusalReason, ResultBound, ToolOutcome};
     use crate::calendar::{Date, TimeRange};
     use crate::catalog::DimensionValue;
     use crate::model::{DimensionName, Grain, MetricName};
@@ -530,6 +610,29 @@ mod tests {
     }
 
     #[test]
+    fn a_mixed_posture_refusal_carries_the_labels_and_no_acknowledgement_text() {
+        // **The disclosure rule for OPERATOR text, which this enum's own note states for CALLER
+        // text.** `SourcePosture::SharedServiceUser` carries a `SharedIdentityDeclared` ->
+        // `AcknowledgementReason`, and both derive `Serialize` - so a posture VALUE in this variant
+        // would publish the sentence an operator wrote on a source's entry to every caller, every
+        // log and every agent's context. The variant carries labels off a closed set of two instead.
+        //
+        // Asserted on the serialized body as well as on `Debug`, because the body is what a
+        // transport hands out and `Debug` is what reaches a log by accident.
+        let reason = RefusalReason::LegsDecideIdentityDifferently {
+            postures: crate::source::SourcePosture::NAMES.iter().copied().collect(),
+        };
+        let serialized = serde_json::to_string(&reason).expect("a refusal serializes");
+        for rendered in [format!("{reason:?}"), serialized] {
+            assert!(rendered.contains("shared-service-user"), "{rendered}");
+            assert!(rendered.contains("impersonation-at-source"), "{rendered}");
+            // No route to operator prose: the type the labels came from has none in it.
+            assert!(!rendered.contains("acknowledg"), "{rendered}");
+            assert!(!rendered.contains("declared"), "{rendered}");
+        }
+    }
+
+    #[test]
     fn a_rejected_filter_value_is_not_echoed_back() {
         // Deliberate: a refusal message reaches a log, a UI and an agent's context. Reflecting the
         // caller's text into all three turns a rejected value into somebody else's input, so the
@@ -543,5 +646,101 @@ mod tests {
         let rendered = format!("{reason:?}");
         assert!(!rendered.contains("north"), "{rendered}");
         assert!(rendered.contains("region"), "{rendered}");
+    }
+
+    /// Every variant, so the cross-transport contract is checked over the whole enum and not over
+    /// whichever ones somebody remembered.
+    fn every_reason() -> Vec<RefusalReason> {
+        use crate::model::{Aggregate, SourceName, TableName};
+        vec![
+            RefusalReason::MetricUnknown {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+            },
+            RefusalReason::GrainNotSupported {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+                grain: Grain::Week,
+            },
+            RefusalReason::DimensionNotPermitted {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+            },
+            RefusalReason::DimensionNotFilterable {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+            },
+            RefusalReason::DimensionValueNotAllowed {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+            },
+            RefusalReason::DuplicateDimension {
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+            },
+            RefusalReason::TooManyDimensions { requested: 5, limit: 4 },
+            RefusalReason::ResultTooLarge {
+                bound: ResultBound::Rows { limit: 10_000 },
+            },
+            RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
+            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::FederationNotExecutable,
+            RefusalReason::FederationLinkAmbiguous {
+                source: SourceName::parse("warehouse").expect("a test source"),
+            },
+            RefusalReason::MeasureDoesNotFederate {
+                metric: MetricName::parse("active_subscriptions").expect("a test metric"),
+                aggregate: Aggregate::CountDistinct,
+            },
+            RefusalReason::PlanTablesShareAnIdentifier {
+                table: TableName::parse("orders").expect("a test table"),
+            },
+            RefusalReason::SourceUnavailable {
+                source: SourceName::parse("local").expect("a test source"),
+            },
+            RefusalReason::ResourcesExhausted {
+                ceiling_bytes: 1024 * 1024 * 1024,
+            },
+            RefusalReason::CredentialUnavailable {
+                source: SourceName::parse("warehouse").expect("a test source"),
+            },
+            RefusalReason::LegsDecideIdentityDifferently {
+                postures: crate::source::SourcePosture::NAMES.iter().copied().collect(),
+            },
+        ]
+    }
+
+    /// The derivation that keeps the two transports' vocabularies equal without either being able
+    /// to see the other - in the crate both read.
+    ///
+    /// The transport surfaces each read [`RefusalReason::code`], so a drift in that single method
+    /// is a drift in BOTH transports at once, and this is the test that would see it: the code is
+    /// held to the `snake_case` spelling of the variant's own name. The variant name is read out of
+    /// this type's own `Serialize` - externally tagged, so the one key of the serialized object IS
+    /// the variant name - rather than from a list typed here, which would be the same hand-written
+    /// table the transports used to carry.
+    #[test]
+    fn the_code_is_the_variant_name_in_snake_case() {
+        for reason in every_reason() {
+            let value = serde_json::to_value(&reason).expect("a refusal serializes");
+            let variant = match value {
+                serde_json::Value::Object(map) => map.keys().next().cloned().expect("an externally tagged enum has one key"),
+                serde_json::Value::String(name) => name,
+                _ => panic!("a refusal serializes to an object or a unit string"),
+            };
+            assert_eq!(reason.code(), &snake_case(&variant), "{variant}");
+        }
+    }
+
+    fn snake_case(name: &str) -> String {
+        let mut out = String::with_capacity(name.len().saturating_add(4));
+        for (index, character) in name.char_indices() {
+            if character.is_ascii_uppercase() {
+                if index != 0 {
+                    out.push('_');
+                }
+                out.push(character.to_ascii_lowercase());
+            } else {
+                out.push(character);
+            }
+        }
+        out
     }
 }

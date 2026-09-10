@@ -54,7 +54,7 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 
 ### Variants
 
-- `Compile`
+- `Compile` - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.
 - `Warehouse`
 - `Federated` - The federated combiner could not assemble the two legs' rows.
 - `Broker` - The credential broker could not mint. Nothing about the question was wrong.
@@ -348,7 +348,7 @@ means rather than a field added to one.
 
 #### Variants
 
-- `Compile`
+- `Compile` - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.
 - `Warehouse`
 - `Broker` - The credential broker did not answer, so nothing could be executed as the asking subject.
 - `Miswired` - Credentials came back that do not fit the request: a wiring defect on this side.
@@ -498,12 +498,12 @@ the guidance here would teach an agent to attempt something the surface refuses 
 which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is
 one short section saying the field does not exist and that there is no way to widen it.
 
-**No column, no table, no model and no measure expression.** This is the same content
-`GET /v1/catalog` already returns and deliberately not one field more: a metric's name, its
-prose, its grains, its dimensions and their permitted values. A caller needs those to ask a valid
+**No column, no table, no model and no measure expression.** This is the same content `GET
+/v1/catalog` already returns and deliberately not one field more: a metric's name, its prose,
+its grains, its dimensions and their permitted values. A caller needs those to ask a valid
 question; it needs no column name to do it, and a column name in an agent's context is a name it
-will eventually try to use. `tests` asserts that no model name, table name or column name from
-the bundle appears in the output.
+will eventually try to use. The `tests` module below asserts that no model name, table name or
+column name from the bundle appears in the output.
 
 **Nothing about identity.** There is none - the deployment token authenticates the deployment and
 not the caller - and a prompt that mentioned per-caller scoping would describe a control that does
@@ -773,9 +773,9 @@ The data systems this process opened, keyed by the name a plan selects them with
 
 # Why a registry rather than one warehouse
 
-A plan resolves to a single source for one answer - a question spanning two is federated and
-refused as `FederationNotExecutable` while no adapter executes a leg (three or more are refused at
-plan time) - but a
+A plan resolves to a single source for one answer - a question spanning two is federated, and
+answered where every registered adapter declares `Warehouse::EXECUTES_LEGS` and refused as
+`FederationNotExecutable` where one does not (three or more are refused at plan time) - but a
 *deployment* holds as many as its catalog names, and until now the service held exactly one. That
 made two facts indistinguishable: "this question is for a data system nobody configured" and "this
 question is for the other one of the two we opened". The first is a refusal an operator has to fix
@@ -839,7 +839,7 @@ pub fn each(&self) -> impl Iterator<Item>
 Every open data system, in source order.
 
 ```rust
-pub fn executed_on(&self, source: &SourceName) -> Option<ExecutedAs>
+pub fn executed_on(&self, source: &SourceName) -> Option<UniformlyExecuted>
 ```
 
 The execution record for an answer that ran on `source` and nowhere else.
@@ -847,6 +847,11 @@ The execution record for an answer that ran on `source` and nowhere else.
 The one place a mono-source answer's provenance comes from, so the posture in an answer is the
 posture the adapter that executed it was holding. `None` when nothing is open for that source,
 which is the case the caller has already turned into a refusal by the time it asks.
+
+`UniformlyExecuted` rather than `ExecutedAs`, and it needs no verdict on the way: one leg
+cannot decide identity two ways, so the mono answer path has no arm for a refusal it could
+never provoke. The federated path builds its own record from both adapters and asks
+`ExecutedAs::uniform` for the verdict.
 
 ```rust
 pub fn get(&self, source: &SourceName) -> Option<&W>
@@ -1224,7 +1229,7 @@ from inside the decision and no test could see it - so the mechanism the argumen
 rests on was held by review, which `AGENTS.md` does not accept as held.
 
 `sutura_domain::warehouse::Warehouse::preflight` is the port, and its own documentation carries
-why the answer has three shapes and why *could not verify* is an `Err` rather than a fourth.
+why an answered inventory and *could not verify* are different outcomes.
 
 **The limit, stated with the claim:** what a pre-flight establishes is that a table EXISTS. Not
 that the columns a model names are on it, and not that a question's identity may read it - a
@@ -1239,12 +1244,19 @@ pub enum Verdict<E>
 
 What one data system answered about the tables one bundle names in it.
 
-**Five outcomes and not three, because a root treats two of the failures differently.** The port
-answers three things and fails in one way, and that one failure splits on
-`Warehouse::preflight_was_refused`: a data system that REFUSED to be listed will refuse
-identically on every launch and the fix is one grant, while one that could not be reached is a
-condition that passes. A root that collapsed them would either stop a deployment that would have
-worked or hide the check being off in the deployment least likely to read a startup log.
+A root treats two failures differently, and an incomplete or unreadable inventory is not a
+finding about the catalog. The port answers five things and fails in one way,
+and that one failure splits on `Warehouse::preflight_was_refused`: a data system that REFUSED to
+be listed will refuse identically on every launch and the fix is one grant, while one that could
+not be reached is a condition that passes. A root that collapsed them would either stop a
+deployment that would have worked or hide the check being off in the deployment least likely to
+read a startup log.
+
+**`Self::Unaccounted` is a REFUSAL, not a failure to get an answer.** The
+data system answered; its answer did not account for its own inventory. Reading that as
+`Self::Absent` is what `telekom/sutura#275` is - a shortfall rounded down to zero and charged
+to the catalog - and reading it as `Self::Unverified` would be worse still: that is the warning
+half, so the one shape the cross-check exists to catch would end in a deployment that serves.
 
 Generic in the adapter's error so the cause travels: nothing here can read `W::Error`, and the
 root that composed the adapter is the one that can flatten it.
@@ -1254,6 +1266,8 @@ root that composed the adapter is the one that can flatten it.
 - `Present` - Asked, and every table is there. Carries how many, for a line that says so.
 - `NotReported` - The adapter did not report - `TablesPresent::NotAsked`, the port's default.
 - `Absent` - Asked, and these tables are not there. A refusal, and the models to name in it.
+- `UnreadableInventory` - An unreadable inventory established neither presence nor absence for these tables. A refusal without a count or model names: no catalog declaration was shown wrong.
+- `Unaccounted` - Asked, answered, and the answer did not account for every table the data system said it holds - so these tables are neither established present nor established absent.
 - `Refused` - The data system refused to be asked: this identity may not list it.
 - `Unverified` - The data system could not be asked, for a reason that is not a refusal.
 

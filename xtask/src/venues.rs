@@ -14,44 +14,12 @@
 //! * **Every cell states a verdict from a closed vocabulary.** An unclassifiable cell is a venue
 //!   that has silently lost its limit for that claim. Two were in that state when this was
 //!   written - see `a_cell_that_states_a_sentence_instead_of_a_verdict_fails`.
-//! * **A test that is WRITTEN and has never run says `unrun`, and its venue's section has to use
-//!   that word.** The verdict exists because `can` was carrying two states that a reader cannot
-//!   tell apart and a citation must: *the standing test lives in another venue* and *the standing
-//!   test lives here and nothing has run it*. The second is not evidence for anything, and the
-//!   first is. Before this, a venue in that state had to say `can` and explain itself in prose -
-//!   which put the difference exactly where nothing reads it.
-//! * **A venue CI INVOKES may not say `unrun`**, which is the half review found missing and the
-//!   reason [`invoked`] exists. The three page-shaped rules above hold a spelling; not one of them
-//!   reads whether a run has happened, so the transition out of `unrun` was still held by recall -
-//!   and the concrete failure was cheap to reach: wire the leg into a job, watch it go green on
-//!   every push, and the page goes on telling its next reader that nothing has run it while
-//!   `just validate` stays green. So the venue's `Reached by` task is now resolved against every
-//!   `just <task>` and `nix run .#<app>` the workflows, the local composite actions and the shared
-//!   `nix/` shell invoke - the same three places `crate::workflows` scans, through the one walk
-//!   both gates share, for the reason `crate::workflows::sources` gives - and an `unrun` cell
-//!   whose venue is among them is refused.
-//!
-//!   **The limit, stated where the claim is:** what this reads is an INVOCATION, not a green run.
-//!   A wired job that always skips still reddens the cell, and a run somebody did by hand is
-//!   invisible to it - so *`unrun` is no longer honest* is mechanical, and *`yes` is earned* stays
-//!   review's, with the run named beside it. That is one half of a two-sided rule, and it is the
-//!   half whose failure was silent.
-//! * **A venue CI DOES invoke, whose run nobody has seen, says `wired`** - the state the rule above
-//!   left with nowhere to go. `unrun` and `yes` were the only two ends of that transition, and the
-//!   change that wires a leg into a job is not the change that can produce its first green run: the
-//!   run happens after the push. So a correct wiring had exactly two moves, one refused by the rule
-//!   above and one an overstatement, which is a gate that can only be satisfied by a lie. Measured
-//!   on telekom/sutura#287: wiring `nix run .#bigquery-two-principals` into `ci.yml` reddens
-//!   `check-venues`, and the leg cannot be green because the five values it is pointed at do not
-//!   exist yet. `wired` says *something reaches this and no run has been observed*, and it is
-//!   **not citable** - it counts exactly as `unrun` does towards a row having a reason to exist,
-//!   and exactly as `unrun` does towards a claim being answered, which is not at all.
-//!
-//!   **Its two rules are `unrun`'s pointing the other way**, so the pair cannot both be satisfied
-//!   and neither can be satisfied vacuously: the section has to use the word, and a `wired` cell
-//!   whose venue CI does **not** invoke is refused - because the honest state for a venue nothing
-//!   reaches is `unrun`, and a `wired` that nothing reaches would be the softer spelling this whole
-//!   vocabulary exists to refuse.
+//! * **The three rules over the two un-citable verdicts and the one over a citable one** live in
+//!   `mod verdicts`, beside the code, and its header carries why each exists and the limit each
+//!   does not reach: `unrun` expires when CI reaches a venue, `wired` is refused until it does,
+//!   and a citable verdict needs an invocation that CI runs AND that runs tests.
+//! * **A venue's `Where it runs` cell states a place from a closed vocabulary**, because it decides
+//!   whether the row may be cited at all and was free prose. [`page::RUN_SITES`] has the measurement.
 //! * **A venue nothing runs claims nothing**, and a venue that IS reached and answers no claim is
 //!   a row with no reason to be there.
 //! * **Every venue has its own section**, and every `##` section is a venue's or one of the three
@@ -102,137 +70,32 @@ mod environment;
 // 1000-line gate is what forced it here too: every `#[test]` stayed, only the parsing moved.
 mod page;
 
-use page::{NOT_BUILT, STRUCTURAL, VERDICTS, Venue, cited_tests, claims, key, section_body, venues, verdict};
+use page::{NOT_BUILT, STRUCTURAL, VERDICTS, cited_tests, claims, key, venues, verdict};
 
 // What the TREE holds - which tests exist, and which tasks CI really runs - as against what the
 // page says about it. The third side of the seam `mod page;` opens, and the 1000-line gate is what
 // forced it: every `#[test]` stayed here, only the readers moved.
+// What a venues ROW must HOLD before a verdict rule may read one. Split out when this file
+// reached the 1000-line gate a third time; every `#[test]` stayed here.
+mod rows;
+
+use rows::row_problems;
+
+// What a VERDICT has to be consistent with, once a row can be judged at all. The fourth seam, and
+// the 1000-line gate forced this one too; every `#[test]` stayed here.
+mod verdicts;
+
+use verdicts::{anchor_problems, transition_problems};
+
 mod sources;
 
-use sources::{cited_invocations, invoked, test_names};
+use sources::{invoked, test_names, test_tasks};
 
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
 
-/// Every built venue whose `Reached by` names nothing its own readers can resolve.
-///
-/// **The cheapest bypass on the page, and it closes one that predates `wired`.** Every rule that
-/// decides a venue's state resolves this cell through [`cited_invocations`], which wants a
-/// backticked `just <task>` or `nix run .#<app>` - so dropping that prefix, to *the
-/// `bigquery-two-principals` task*, made the cell resolve to nothing and the venue's verdict
-/// permanent at exit 0, whatever CI ran.
-///
-/// Its own function rather than a loop inside [`page_problems`], because that function is at the
-/// line budget this workspace sets and a rule with a paragraph belongs where the paragraph fits.
-fn resolvable_problems(listed: &[Venue]) -> Vec<String> {
-    listed
-        .iter()
-        .filter(|venue| venue.is_built() && cited_invocations(&venue.reached).is_empty())
-        .map(|venue| {
-            format!(
-                "{PAGE}: `{}` is reached by `{}`, which names no `just <task>` and no \
-                 `nix run .#<app>` in backticks - every rule that decides this venue's state \
-                 resolves that cell, so a `Reached by` nothing can resolve is a venue whose state \
-                 cannot be judged. Either name the invocation the way this page names one, or the \
-                 cell is `{NOT_BUILT}`",
-                venue.name, venue.reached
-            )
-        })
-        .collect()
-}
-
-/// Everything the two un-citable verdicts have to be consistent with, for the venues stating them.
-///
-/// Together rather than beside the other page rules, because these are the whole difference
-/// between `unrun`/`wired` being tokens and being caveats, and they fail in opposite directions:
-/// one catches a cell whose section never explains it, the others a cell that has stopped being
-/// true - in either direction, since `unrun` expires when CI reaches a venue and `wired` is not yet
-/// earned until it does.
-fn transition_problems(
-    text: &str,
-    listed: &[Venue],
-    unrun: &BTreeSet<&str>,
-    wired: &BTreeSet<&str>,
-    invoked: &BTreeSet<String>,
-) -> Vec<String> {
-    let mut problems = Vec::new();
-    // The shared half: a cell stating one of these has to say the same word in its own SECTION.
-    // One loop over both, because the argument is identical and two copies of it would be two
-    // places for the wording to drift - which is the failure this whole module is about.
-    for (word, venues) in [("unrun", unrun), ("wired", wired)] {
-        for venue in listed.iter().filter(|venue| venues.contains(venue.name.as_str())) {
-            if !section_body(text, &venue.name).is_some_and(|body| body.contains(word)) {
-                problems.push(format!(
-                    "{PAGE}: `{}` says `{word}` in the matrix and its own section never uses that \
-                     word - the cell is where the state is read and the section is where it is \
-                     explained, and a section that explains it in other words is how the two came \
-                     apart",
-                    venue.name
-                ));
-            }
-        }
-    }
-    for venue in listed.iter().filter(|venue| unrun.contains(venue.name.as_str())) {
-        // **A venue CI INVOKES may not say `unrun`**, which is the half the page-shaped rules do
-        // not hold. They read a spelling; none of them reads whether a run has happened, so a leg
-        // wired into a job could go green on every push while this page went on saying nothing had
-        // run it - green `just validate` included. The `Reached by` cell is the venue's own answer
-        // to *what reaches me*, so it is what gets resolved.
-        //
-        // THE LIMIT, and it is why this is stated here as well as in the header: an INVOCATION is
-        // not a green run. A wired job that always skips reddens this too, and a hand-run is
-        // invisible to it. What is mechanical is that `unrun` stops being honest; that `yes` is
-        // EARNED stays review's.
-        let reached_by_ci: BTreeSet<String> = cited_invocations(&venue.reached)
-            .into_iter()
-            .filter(|name| invoked.contains(name))
-            .collect();
-        if !reached_by_ci.is_empty() {
-            problems.push(format!(
-                "{PAGE}: `{}` says `unrun` and CI invokes {reached_by_ci:?} - `unrun` is a test \
-                 that EXISTS and has not been run, and a venue a job reaches is no longer in that \
-                 state. Either the run has happened and the cell is `yes` with the run named in \
-                 the section, or nobody has seen one yet and the cell is `wired`, or the job does \
-                 not reach this venue and its `Reached by` cell ({}) is not what reaches it. What \
-                 is read here is the INVOCATION and not a green run: a job that always skips \
-                 reddens this too, and a hand-run is invisible to it",
-                venue.name, venue.reached
-            ));
-        }
-    }
-    // And the mirror. `wired` says *CI reaches this and no run has been observed*, so a cell
-    // stating it over a venue no job invokes is claiming a wiring that is not there - which would
-    // make `wired` a spelling of `unrun` that skips `unrun`'s own expiry rule.
-    for venue in listed.iter().filter(|venue| wired.contains(venue.name.as_str())) {
-        // A job reaches it, so it does not run nowhere. Two cells of one row contradicting each
-        // other is the shape the `yes`/`can` guard above was found missing.
-        if venue.runs_nowhere() {
-            problems.push(format!(
-                "{PAGE}: `{}` says `wired` and its own `Where it runs` cell says `{}` - `wired` is \
-                 *a job reaches this*, so the two cells of this row contradict each other. A venue \
-                 that runs nowhere and has a written test is `unrun`",
-                venue.name, venue.runs
-            ));
-        }
-        let reached_by_ci: BTreeSet<String> = cited_invocations(&venue.reached)
-            .into_iter()
-            .filter(|name| invoked.contains(name))
-            .collect();
-        if reached_by_ci.is_empty() {
-            problems.push(format!(
-                "{PAGE}: `{}` says `wired` and CI invokes nothing its `Reached by` cell ({}) \
-                 names - `wired` is *a job reaches this and no run has been observed*, so a venue \
-                 no job reaches is `unrun` instead. Either the wiring is missing from the \
-                 workflows or the `Reached by` cell does not name what reaches it",
-                venue.name, venue.reached
-            ));
-        }
-    }
-    problems
-}
-
 /// Everything wrong with the page.
-fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String>) -> Vec<String> {
+fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String>, runs_tests: &BTreeSet<String>) -> Vec<String> {
     let listed = match venues(text) {
         Ok(listed) => listed,
         Err(problem) => return vec![problem],
@@ -293,6 +156,10 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
     // `unrun` arm below refusing a venue nothing reaches; a set of citable venues collected here
     // would have been read by nothing, which `clippy::collection_is_never_read` said out loud.
     let mut claimed: BTreeSet<&str> = BTreeSet::new();
+    // The venues that state a verdict only something RUNNING them may state - `yes` and `can`
+    // because they are the two citable ones, `wired` because it asserts a job reaches this venue.
+    // `unrun` is excluded by its own rule, which refuses a venue CI invokes at all.
+    let mut citable: BTreeSet<&str> = BTreeSet::new();
     let mut unrun: BTreeSet<&str> = BTreeSet::new();
     let mut wired: BTreeSet<&str> = BTreeSet::new();
     for row in &claims {
@@ -316,6 +183,7 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
                 )),
                 Some(word @ ("yes" | "can")) => {
                     claimed.insert(venue.name.as_str());
+                    citable.insert(venue.name.as_str());
                     if !venue.is_built() {
                         problems.push(format!(
                             "{PAGE}: `{}` is `{NOT_BUILT}` and claims `{word}` about `{claim}` - a \
@@ -351,6 +219,7 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
                         unrun.insert(venue.name.as_str());
                     } else {
                         wired.insert(venue.name.as_str());
+                        citable.insert(venue.name.as_str());
                     }
                     if !venue.is_built() {
                         problems.push(format!(
@@ -404,8 +273,9 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
         }
     }
 
-    problems.extend(resolvable_problems(&listed));
+    problems.extend(row_problems(&listed));
     problems.extend(transition_problems(text, &listed, &unrun, &wired, invoked));
+    problems.extend(anchor_problems(&listed, &citable, invoked, runs_tests));
 
     for name in cited_tests(text) {
         if !tests.contains(&name) {
@@ -421,9 +291,12 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-venues: could not determine the repo root");
-        return Verdict::Fail;
+    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Venues)) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask check-venues: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
     let Ok(page) = std::fs::read_to_string(root.join(PAGE)) else {
         eprintln!("xtask check-venues: {PAGE} is not readable - it IS the map");
@@ -458,17 +331,25 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let mut problems = page_problems(&page, &tests, &invoked);
+    // The second half of the anchor, resolved out of the justfile rather than the workflows: CI
+    // invokes lints and builds too, so *CI invokes it* alone never said a venue was RUN.
+    let Some(runs_tests) = test_tasks(&root) else {
+        eprintln!("xtask check-venues: no `just` task in this workspace runs a test - the justfile scan is broken, not the page");
+        return Verdict::Fail;
+    };
+
+    let mut problems = page_problems(&page, &tests, &invoked, &runs_tests);
     problems.extend(acceptance::problems(&workflow));
     let contract = environment::problems(&root);
     problems.extend(contract.problems);
 
     if problems.is_empty() {
         println!(
-            "xtask check-venues: ok - {PAGE} and the `{}` job, {} cited test(s), {} CI invocation(s) resolved, {} environment name(s) reconciled across three lists",
+            "xtask check-venues: ok - {PAGE} and the `{}` job, {} cited test(s), {} CI invocation(s) resolved, {} task(s) that run tests, {} environment name(s) reconciled across three lists",
             acceptance::JOB,
             cited_tests(&page).len(),
             invoked.len(),
+            runs_tests.len(),
             contract.names
         );
         return Verdict::Pass;
@@ -489,7 +370,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::sources::{invocation, starts_a_command};
+    use super::sources::{cited_invocations, invocation, starts_a_command};
     use super::{PAGE, VERDICTS, page_problems, verdict};
 
     /// A page with two venues too few is refused, so the fixtures below carry three.
@@ -499,7 +380,7 @@ mod tests {
 | Venue | Where it runs | What it costs | Reached by |
 | --- | --- | --- | --- |
 | **A fake at the port** | in process | nothing | `just test` |
-| **A real dataset under a shared key** | an environment | a key | `just bigquery-acceptance` |
+| **A real dataset under a shared key** | a GitHub environment | a key | `just bigquery-acceptance` |
 | **A real token exchange** | nowhere yet | a pool | not built |
 
 ## Which venue answers which claim
@@ -529,18 +410,41 @@ Not built.
         std::iter::once("a_refusal_is_a_result_and_reachable".to_owned()).collect()
     }
 
-    /// A CI that invokes nothing the fixture map cites, so every assertion below is about the page.
-    fn invokes_nothing() -> BTreeSet<String> {
-        std::iter::once("xtask".to_owned()).collect()
+    /// The CI [`MAP`] describes: it invokes what the map's two citable venues cite, and one task
+    /// no venue cites at all. Both halves matter - the anchor rule refuses a citable venue whose
+    /// task no job invokes, so a fixture CI that invoked NOTHING would fail every assertion below
+    /// for the wrong reason, and one that invoked everything would hide the `unrun` expiry.
+    fn invokes_the_cited_tasks() -> BTreeSet<String> {
+        ["test", "bigquery-acceptance", "xtask"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// The fixture's tasks that RUN tests - every task the map cites, plus one that is not a task
+    /// at all. So the anchor rule turns here on whether CI invokes the name, which is the half each
+    /// assertion is about; the other half has its own two arms below.
+    fn task_runs_tests() -> BTreeSet<String> {
+        ["test", "bigquery-acceptance", "bigquery-exchanged-identity"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
     }
 
     fn problems(page: &str) -> Vec<String> {
-        page_problems(page, &known(), &invokes_nothing())
+        page_problems(page, &known(), &invokes_the_cited_tasks(), &task_runs_tests())
     }
 
     fn problems_with_ci(page: &str, invoked: &[&str]) -> Vec<String> {
         let invoked: BTreeSet<String> = invoked.iter().map(|name| (*name).to_owned()).collect();
-        page_problems(page, &known(), &invoked)
+        page_problems(page, &known(), &invoked, &task_runs_tests())
+    }
+
+    /// [`problems`] with the map's own CI and a stated set of test-running tasks, which is the one
+    /// input the two arms below vary.
+    fn problems_with_test_tasks(page: &str, runs_tests: &[&str]) -> Vec<String> {
+        let runs_tests: BTreeSet<String> = runs_tests.iter().map(|name| (*name).to_owned()).collect();
+        page_problems(page, &known(), &invokes_the_cited_tasks(), &runs_tests)
     }
 
     #[test]
@@ -590,7 +494,9 @@ Not built.
         // The state `can` used to have to carry: the standing test is HERE and nothing has run it.
         // It is not evidence, so it is not `yes` or `can` - and it IS a reason for the row, so the
         // *claims nothing in the matrix* arm must not fire.
-        assert_eq!(problems(&map_with_an_unrun_cell()), Vec::<String>::new());
+        // With `bigquery-acceptance` absent from the fixture CI, because that is the state an
+        // `unrun` cell is honest in - the anchor rule and the expiry rule read the same name.
+        assert_eq!(problems_with_ci(&map_with_an_unrun_cell(), &["test"]), Vec::<String>::new());
     }
 
     #[test]
@@ -640,7 +546,7 @@ Not built.
         // runs it lands: a written test, nothing wired, so `unrun` is honest and must pass. Without
         // this, the arm above would be satisfied by refusing every `unrun` cell there is.
         assert_eq!(
-            problems_with_ci(&map_with_an_unrun_cell(), &["deny", "crap", "xtask"]),
+            problems_with_ci(&map_with_an_unrun_cell(), &["deny", "crap", "xtask", "test"]),
             Vec::<String>::new()
         );
     }
@@ -667,7 +573,7 @@ Not built.
         // `yes` nobody has earned. This is the third, and it passes only while CI really does
         // invoke the name the `Reached by` cell states.
         assert_eq!(
-            problems_with_ci(&map_with_a_wired_cell(), &["bigquery-acceptance"]),
+            problems_with_ci(&map_with_a_wired_cell(), &["bigquery-acceptance", "test"]),
             Vec::<String>::new()
         );
     }
@@ -764,6 +670,28 @@ Not built.
     }
 
     #[test]
+    fn a_synonym_for_nowhere_is_not_a_place_this_page_may_state() {
+        // **RED WHEN WRITTEN.** `runs_nowhere` matched the SUBSTRING `nowhere`, and it is the only
+        // remaining guard on `yes` for the row carrying leg 2. Measured on the real page: spell the
+        // cell `not anywhere yet`, point `Reached by` at a real CI-invoked lint, and *whether two
+        // subjects read two different row sets* published `yes` at exit 0.
+        let reworded = map_with_a_venue_that_runs_nowhere_but_names_a_task()
+            .replace("| nowhere yet | a pool |", "| not anywhere yet | a pool |")
+            .replace(
+                "| An exchange endpoint accepts it | no | no | **unrun** |",
+                "| An exchange endpoint accepts it | no | no | **yes** |",
+            );
+        let found = problems_with_ci(&reworded, &["bigquery-exchanged-identity"]);
+        assert!(found.iter().any(|p| p.contains("about where it runs")), "{found:?}");
+
+        // And the direction that gets a gate deleted, which is why `runs_nowhere` reads the
+        // classified site: a venue that DOES run, whose cell spells the word while saying so, is
+        // not a venue that runs nowhere.
+        let explained = MAP.replace("| in process |", "| in process, nowhere near a warehouse |");
+        assert_eq!(problems(&explained), Vec::<String>::new());
+    }
+
+    #[test]
     fn a_venue_that_runs_nowhere_may_not_say_wired_either() {
         // `wired` is *a job reaches this*, so it contradicts a row that says the venue runs
         // nowhere. Two cells of one row disagreeing is the shape the `yes` guard was found missing.
@@ -782,8 +710,8 @@ Not built.
         // the page uses - so dropping `just ` made the cell resolve to nothing and `unrun`
         // permanent at exit 0, whatever CI ran.
         let unresolvable = map_with_an_unrun_cell().replace(
-            "| **A real dataset under a shared key** | an environment | a key | `just bigquery-acceptance` |",
-            "| **A real dataset under a shared key** | an environment | a key | the `bigquery-acceptance` task |",
+            "| **A real dataset under a shared key** | a GitHub environment | a key | `just bigquery-acceptance` |",
+            "| **A real dataset under a shared key** | a GitHub environment | a key | the `bigquery-acceptance` task |",
         );
         let found = problems_with_ci(&unresolvable, &["bigquery-acceptance"]);
         assert!(found.iter().any(|p| p.contains("names no `just <task>`")), "{found:?}");
@@ -837,9 +765,9 @@ Not built.
         // A `Reached by` cell is read from its BACKTICKED spans and not word by word, because the
         // cells that are prose ("a GitHub environment, on demand") would otherwise contribute
         // whatever follows the word `just` in a sentence.
-        let cited = super::cited_invocations("`just test`, `just validate` - not on a fork");
+        let cited = cited_invocations("`just test`, `just validate` - not on a fork");
         assert_eq!(cited, ["test".to_owned(), "validate".to_owned()].into_iter().collect());
-        assert!(super::cited_invocations("not built").is_empty());
+        assert!(cited_invocations("not built").is_empty());
     }
 
     #[test]
@@ -927,16 +855,117 @@ Not built.
     }
 
     #[test]
+    fn a_citable_verdict_needs_a_task_that_runs_a_test() {
+        // **RED WHEN WRITTEN, and the finding is that nothing was red.** `Reached by` earned a
+        // citation by naming a task, and for `wired` also by CI invoking it - and CI invokes lints,
+        // builds, docs and release jobs. Recorded on the page with the measurement: pointing the
+        // two-keys row at a real, CI-invoked, entirely unrelated lint and moving its cell passed at
+        // exit 0. Here the fixture's shared-key venue keeps its `yes` and its CI invocation, and
+        // only *does that task run a test* changes.
+        let found = problems_with_test_tasks(MAP, &["test"]);
+        assert!(
+            found.iter().any(|p| p.contains("that runs a test")),
+            "a `yes` anchored on a task that runs no test has to fail: {found:?}"
+        );
+
+        // The direction that gets a gate deleted: the same page, the same CI, with the task
+        // recognised as one that runs tests, passes. Without this the arm above would be satisfied
+        // by refusing every citable cell there is.
+        assert_eq!(
+            problems_with_test_tasks(MAP, &["test", "bigquery-acceptance"]),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn an_on_demand_venue_needs_a_job_to_demand_the_run_and_an_in_process_one_does_not() {
+        // The half that closes the two-edit path this issue measured: only `unrun` and `wired` read
+        // the invocation set, so a venue nothing invokes could reach `yes` by moving its
+        // `Where it runs` cell to an accepted token and then its verdict. *On demand* means a job
+        // is the only thing that can demand a run, so for that run site the invocation is required.
+        let found = problems_with_ci(MAP, &["test", "xtask"]);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("ON DEMAND")),
+            "a `yes` over an on-demand venue no job invokes has to fail: {found:?}"
+        );
+
+        // **And the direction that gets a gate disabled, which a universal rule got wrong here.**
+        // This workspace's suite runs in CI as a nix CHECK, so `just test` is genuinely run by CI
+        // and invisible to the invocation reader - requiring an invocation of it refused the two
+        // `in process` venues, whose claims are answered on every push. Their token says so, and
+        // the rule reads it: no complaint about the in-process venue with no CI at all.
+        let found = problems_with_ci(MAP, &["bigquery-acceptance"]);
+        assert!(
+            !found.iter().any(|p| p.contains("A fake at the port")),
+            "an `in process` venue is run by the suite itself and must not need an invocation: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_wired_cell_anchored_on_a_task_that_runs_no_test_is_refused() {
+        // The shape the page recorded as review's: `wired` asked only whether CI invoked the name,
+        // so an unrelated lint satisfied it. The lint is in the CI set and not in the test-task
+        // set, which is exactly the state a lint is really in.
+        let repointed = map_with_a_wired_cell().replace(
+            "| a GitHub environment | a key | `just bigquery-acceptance` |",
+            "| a GitHub environment | a key | `just lint-workflows` |",
+        );
+        let found = problems_with_ci(&repointed, &["lint-workflows", "test"]);
+        assert!(
+            found.iter().any(|p| p.contains("runs a test")),
+            "a `wired` cell anchored on a lint has to fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn the_justfile_scan_separates_this_workspace_s_real_test_tasks_from_its_lints() {
+        // The anchor without which the three arms above are satisfied by a broken scan, and there
+        // is no golden here to compare against - so three oracles that are not this reader.
+        // `just --list` names the recipes, `justfile` carries the `cargo nextest` lines, and the
+        // page cites the two names below; the reader has to agree with all three.
+        let root = crate::repo::root().expect("the repo root");
+        let runs_tests = super::test_tasks(&root).expect("the justfile defines tasks that run tests");
+        for task in [
+            "test",
+            "bigquery-acceptance",
+            "bigquery-two-principals",
+            "bigquery-exchanged-identity",
+        ] {
+            assert!(
+                runs_tests.contains(task),
+                "`just {task}` runs `cargo nextest run` in the justfile and the scan resolved {} \
+                 task(s) without it - the reader is broken, not the justfile",
+                runs_tests.len()
+            );
+        }
+        // And the direction the whole rule exists for: a lint CI really does invoke is not a venue
+        // a claim is proven in. `lint-workflows` is `nix run .#actionlint`, which is the exact task
+        // the recorded bypass repointed a venue at.
+        for lint in ["lint-workflows", "lint-actions", "docs", "hygiene"] {
+            assert!(
+                !runs_tests.contains(lint),
+                "`just {lint}` runs no test and the scan counted it as one - a lint CI invokes \
+                 would then anchor any citation on this page"
+            );
+        }
+    }
+
+    #[test]
     fn the_real_page_is_what_this_gate_is_for() {
         // The gate over the tree rather than over a fixture: the assertion that goes red when
         // somebody edits the page, which the fixtures above cannot do.
         let root = crate::repo::root().expect("the repo root");
-        let crate::repo::RepoFiles { files, .. } = crate::repo::all_files().expect("could not list the repo");
+        let (_root, files) = crate::repo::all_files()
+            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Venues))
+            .expect("could not list the repo");
         let page = std::fs::read_to_string(root.join(PAGE)).expect(PAGE);
         let tests = super::test_names(&root, &files);
         let invoked = super::invoked(&root).expect("the CI scan reads .github/workflows");
+        let runs_tests = super::test_tasks(&root).expect("the justfile defines tasks that run tests");
         assert!(tests.len() >= 100, "found {} tests - the scan is broken", tests.len());
-        assert_eq!(page_problems(&page, &tests, &invoked), Vec::<String>::new());
+        assert_eq!(page_problems(&page, &tests, &invoked, &runs_tests), Vec::<String>::new());
     }
 
     #[test]

@@ -84,6 +84,12 @@ name = "corpus"
 path = "tests/corpus.rs"
 required-features = ["wire", "fixtures"]
 
+# Explicit disposable-dataset / read-only-project venues; ordinary acceptance excludes this binary.
+[[test]]
+name = "cross_resource"
+path = "tests/cross_resource.rs"
+required-features = ["wire", "fixtures"]
+
 # The TWO-PRINCIPAL cell - the one leg here whose claim is about identity rather than about SQL.
 #
 # A third target rather than more of `acceptance.rs`, for the same two reasons the corpus leg is one:
@@ -105,6 +111,23 @@ required-features = ["wire", "fixtures"]
 [[test]]
 name = "two_principals"
 path = "tests/two_principals.rs"
+required-features = ["wire"]
+
+# The EXCHANGED-IDENTITY cell - the only leg here that holds no principal's key.
+#
+# A fourth target rather than more of `two_principals.rs`, and the reason is the claim rather than
+# the line count: that cell holds a service-account key per principal and this one holds none, so a
+# reader who ran one must not have to work out which of the two they got. `wire` only, and for the
+# same reason that cell needs no `fixtures`: this leg loads nothing and creates nothing - it projects
+# one fixed statement about the caller.
+#
+# It is NOT picked up by `nix run .#bigquery-acceptance`, which excludes this binary,
+# `two_principals`, and the explicitly selected `cross_resource` venue. Filtering by binary keeps
+# newly added ordinary acceptance tests reachable without a test-name list; each separate venue
+# retains its own input and execution contract.
+[[test]]
+name = "exchanged_identity"
+path = "tests/exchanged_identity.rs"
 required-features = ["wire"]
 
 [dependencies]

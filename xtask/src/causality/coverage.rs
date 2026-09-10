@@ -35,7 +35,7 @@
 //! line earlier. `super::prove` printed this ratio BEFORE the head run - a `measured:` line the
 //! reader meets first - and then an inconclusive verdict twenty lines below corrected it to
 //! `0 of N`. Two numerators, one sentence, in one output: reviewed and reproduced on the head that
-//! introduced [`super::base::earned`], whose whole purpose was to stop exactly that wording being
+//! introduced `super::base::earned`, whose whole purpose was to stop exactly that wording being
 //! printed by an arm that measured nothing. The wording fix does not reach a caller that never
 //! consults an outcome.
 //!
@@ -73,6 +73,7 @@ use crate::causality::names::Ident;
 use crate::causality::place::AddedTest;
 use crate::causality::provenance::Moved;
 use crate::causality::regions::PostImage;
+use crate::causality::reverted::Attempts;
 use crate::causality::scoped::Scan;
 
 /// The grep key for a MEASUREMENT, in one place.
@@ -348,6 +349,13 @@ pub(crate) struct Scope<'s> {
     /// tests that were MOVED into this diff is a different question from one over tests it added,
     /// and `super::base::classify_base` needs both to say what a green run means.
     pub(crate) moved: &'s Moved,
+    /// Whether the files put back at base restore anything these tests could execute - once per
+    /// ATTEMPT, because the retry reverts the held-back files too.
+    ///
+    /// The same argument as `moved` on the other side of the premise. That one asks whether the
+    /// tests were ADDED here; this one asks whether what was reverted is BEHAVIOUR they can reach,
+    /// and a green run is the defect this gate names only when both answers are yes.
+    pub(crate) reverted: &'s Attempts,
 }
 
 #[cfg(test)]
@@ -395,7 +403,10 @@ mod tests {
         };
         let coverage = Coverage::of(measured.tests(), &files, &read);
         assert_eq!(coverage.ratio(), "1 of 1 added tests measured");
-        assert!(coverage.unmeasured().is_empty());
+        assert!(
+            coverage.unmeasured().is_empty(),
+            "the fully measured diff leaves no unmeasured added tests"
+        );
     }
 
     #[test]
@@ -549,6 +560,9 @@ mod tests {
         let read = tree(&[("crates/x/src/a.rs", helper), ("crates/x/Cargo.toml", &manifest("x"))]);
         let coverage = Coverage::of(&[], &files, &read);
         assert_eq!(coverage.ratio(), "0 of 0 added tests measured");
-        assert!(coverage.unmeasured().is_empty());
+        assert!(
+            coverage.unmeasured().is_empty(),
+            "an empty added set leaves nothing unmeasured"
+        );
     }
 }

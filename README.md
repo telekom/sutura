@@ -9,6 +9,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue.svg" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/badge/rust-2024-orange.svg" alt="Rust 2024">
   <a href="https://zizmor.sh"><img src="https://img.shields.io/badge/workflows-zizmor-brightgreen.svg" alt="zizmor"></a>
+  <a href="https://api.reuse.software/info/github.com/telekom/sutura"><img src="https://api.reuse.software/badge/github.com/telekom/sutura" alt="REUSE status"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/telekom/sutura"><img src="https://api.scorecard.dev/projects/github.com/telekom/sutura/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
 (Italian) sutura is a surgical stitching technique to bring wound edges together.

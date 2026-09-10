@@ -45,14 +45,14 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use datafusion::common::JoinType as EngineJoin;
 use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
-use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionConfig, SessionContext};
+use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-use sutura_domain::model::{JoinType, QualifiedTable, SourceName, TableName};
-use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
+use sutura_domain::model::{QualifiedTable, SourceName, TableName};
+use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, RowSet, Value, Warehouse};
 
 /// Why this data system could not answer.
@@ -172,6 +172,16 @@ pub enum DataFusionError {
     /// and answering from it would return a number from a column nobody chose.
     #[error("the result columns are {actual:?}, and the plan's labels are {expected:?}")]
     SchemaMismatch { expected: Vec<String>, actual: Vec<String> },
+    /// A key probe's result was not the pair of counts its aggregate projects.
+    ///
+    /// A defect in this crate's aliasing or in its value mapping rather than anything about the
+    /// data - two aggregates over no group produce one row of two integers - and it travels as an
+    /// `Err` from the port, which the boot path reads as *this declaration went unchecked*.
+    #[error("the key probe did not come back as two counts")]
+    KeyCounts {
+        #[source]
+        cause: CountsNotRead,
+    },
     /// A predicate named a parameter index the plan does not have.
     ///
     /// Predicates are resolved by their recorded index rather than by position, so this is what a
@@ -186,20 +196,6 @@ pub enum DataFusionError {
     /// about an unbounded scan.
     #[error("a plan must carry the two bounds of its range, and this one carries no predicate")]
     NoPredicate,
-    /// One leg of a federated answer, which this adapter has nothing to assemble above.
-    ///
-    /// **Not a refusal and not a default body.** [`Warehouse::execute`] takes an
-    /// [`Executable`](sutura_domain::plan::Executable), so this adapter's match over what it can be
-    /// handed is exhaustive - which is the mechanism, and this variant is what it costs today.
-    /// Nothing constructs a [`LegPlan`](sutura_domain::plan::LegPlan) outside a test: there is no
-    /// splitter and no combiner, so no code path reaches here. When the combiner arrives this arm is
-    /// where the engine's leg path lands, and until then an error naming the leg is more honest than
-    /// a silently non-federating default.
-    ///
-    /// It carries the table rather than a sentence, because that is the one thing a reader chasing
-    /// this needs and the message may be reworded.
-    #[error("this adapter executes a whole plan, and the leg against {table} needs a combiner above it")]
-    LegWithoutCombiner { table: String },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     ///
     /// **An `Err` and never a refusal, and the direction is the point.** Nothing about the question
@@ -247,6 +243,10 @@ mod translate;
 /// labels.
 mod collect;
 
+/// One LEG becomes expressions here, which is `translate`'s sibling rather than a part of it: what
+/// differs from a whole plan is the SHAPE of the plan, not how a piece of one renders.
+mod leg;
+
 /// The working-set ceiling.
 ///
 /// The pool, the never-spill policy, and how a refused reservation is recognised. Its own file
@@ -256,7 +256,7 @@ pub mod pool;
 pub use crate::pool::WorkingSet;
 
 use crate::collect::{cell, outputs};
-use crate::translate::{bucket_expression, column, measure_expression, predicate, table_reference};
+use crate::translate::{bucket_expression, column, key_counts, measure_expression, predicate, table_reference};
 
 /// An in-process engine, behind the [`Warehouse`] port.
 pub struct DataFusionWarehouse {
@@ -524,27 +524,17 @@ impl DataFusionWarehouse {
 
         for join in plan.joins() {
             let right = self.scan(join.table()).await?;
-            let on = column(join.origin()).eq(column(join.target()));
-            // A LEFT join, always, matching the SQL path - and there it was a bug before it was a
-            // decision. An INNER join drops every fact row whose dimension row is missing, so a
-            // grouped answer totals less than the ungrouped one with nothing raising an error. The
-            // catalog`s duplication check cannot see it: that guard is about fan-out, not about
-            // elimination. `a_dimension_join_does_not_change_the_measure` asserts the reconciliation
-            // over real data, and it fails on an inner join.
-            //
-            // `OneToMany` never reaches here: a join that can duplicate the metric's rows is refused
-            // when the definitions are assembled. Matched exhaustively anyway, so a fourth
-            // cardinality is a compile error rather than a silently wrong plan.
-            builder = match join.join_type() {
-                JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => builder
-                    .join_on(right, EngineJoin::Left, [on])
-                    .map_err(|cause| DataFusionError::Build { cause })?,
-            };
+            // The SHARED decision, in `leg::dimension_join`: a LEFT join, always, matching the SQL
+            // path. Both plan shapes call it, so the join kind cannot be one thing for a whole
+            // answer and another for one source's share of one - `a_dimension_join_does_not_change_the_measure`
+            // fails on an inner join and now fails for either. That module documents what was
+            // measured before the two were shared.
+            builder = leg::dimension_join(builder, right, join)?;
         }
 
         let mut conjuncts = Vec::with_capacity(plan.filters().len());
         for filter in plan.filters() {
-            conjuncts.push(predicate(plan, filter.predicate())?);
+            conjuncts.push(predicate(plan.params(), filter.predicate())?);
         }
         let mut remaining = conjuncts.into_iter();
         let Some(first) = remaining.next() else {
@@ -598,9 +588,34 @@ impl DataFusionWarehouse {
         Ok(frame.into_unoptimized_plan())
     }
 
-    /// Runs the plan and collects its rows.
-    async fn rows(&self, plan: &QueryPlan) -> Result<RowSet, DataFusionError> {
-        let logical = self.logical_plan(plan).await?;
+    /// One leg, as a logical plan.
+    ///
+    /// The scans are resolved here because a table lookup needs this adapter's session, and nothing
+    /// else about a leg does - so everything that turns the leg's own vocabulary into nodes is
+    /// [`crate::leg::logical`], which takes no session and is synchronous. The order is the one that
+    /// function documents: the leg's own table first, then one per same-source hop.
+    async fn leg_plan(&self, leg: &LegPlan) -> Result<LogicalPlan, DataFusionError> {
+        let from = self.scan(leg.table()).await?;
+        let hops = leg::joins(leg);
+        let mut joined = Vec::with_capacity(hops.len());
+        for join in hops {
+            joined.push((join, self.scan(join.table()).await?));
+        }
+        leg::logical(leg, from, joined)
+    }
+
+    /// Runs whatever was handed to the port and collects its rows.
+    ///
+    /// **One execution and one schema check for both plan shapes**, and the two shapes differ only
+    /// in the plan that is built. [`Executable::result_labels`] is the domain's own definition of
+    /// what each shape projects, so a leg cannot be read back under labels a whole answer's
+    /// arithmetic derived - and the comparison below is the same one, once, rather than two copies
+    /// that could drift.
+    async fn rows(&self, executable: Executable<'_>) -> Result<RowSet, DataFusionError> {
+        let logical = match executable {
+            Executable::Query(plan) => self.logical_plan(plan).await?,
+            Executable::Leg(leg) => self.leg_plan(leg).await?,
+        };
         let frame = self
             .context
             .execute_logical_plan(logical)
@@ -610,30 +625,69 @@ impl DataFusionWarehouse {
         // The columns come from the frame's own schema rather than from the labels we asked for, and
         // then the two are compared. Building the result set from `result_labels` directly would
         // make a projection that came back a different shape look correct.
-        let expected = plan.result_labels();
-        let actual: Vec<String> = frame
-            .schema()
-            .fields()
-            .iter()
-            .map(|f| String::from(f.name().as_str()))
-            .collect();
+        let expected = executable.result_labels();
+        let actual = labels_of(&frame);
         if actual != expected {
             return Err(DataFusionError::SchemaMismatch { expected, actual });
         }
 
-        let batches = frame.collect().await.map_err(|cause| DataFusionError::Execute { cause })?;
-        let mut out: Vec<Vec<Value>> = Vec::new();
-        for batch in &batches {
-            for row in 0..batch.num_rows() {
-                let mut cells = Vec::with_capacity(batch.num_columns());
-                for (array, label) in batch.columns().iter().zip(actual.iter()) {
-                    cells.push(cell(label, array.as_ref(), row)?);
-                }
-                out.push(cells);
-            }
-        }
-        RowSet::new(actual, out).map_err(|cause| DataFusionError::Shape { cause })
+        collected(frame, actual).await
     }
+
+    /// Counts a declared join key's values and its distinct values, in one aggregate.
+    ///
+    /// No filter, no group and no ordering: what a `many_to_one` promises is unconditional, so a
+    /// probe that narrowed itself would answer a different question than the one the join path
+    /// spends. The two aggregates carry the domain's own labels - `translate::key_counts` is where -
+    /// so the field names on the batch are the ones the counts are read back under.
+    async fn key_uniqueness(&self, key: &DeclaredKey<'_>) -> Result<KeyUniqueness, DataFusionError> {
+        let scan = self.scan(key.table()).await?;
+        let logical = LogicalPlanBuilder::from(scan)
+            .aggregate(Vec::<Expr>::new(), key_counts(key))
+            .and_then(LogicalPlanBuilder::build)
+            .map_err(|cause| DataFusionError::Build { cause })?;
+        let frame = self
+            .context
+            .execute_logical_plan(logical)
+            .await
+            .map_err(|cause| DataFusionError::Analyze { cause })?;
+        let labels = labels_of(&frame);
+        let rows = collected(frame, labels).await?;
+        KeyUniqueness::read(&rows).map_err(|cause| DataFusionError::KeyCounts { cause })
+    }
+}
+
+/// The field names a frame's own schema carries, which is what a result set is labelled by.
+///
+/// Read off the frame rather than off whatever asked for it, so a projection that came back a
+/// different shape cannot be relabelled into the shape the caller wanted.
+fn labels_of(frame: &DataFrame) -> Vec<String> {
+    frame
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| String::from(f.name().as_str()))
+        .collect()
+}
+
+/// A frame's batches, as one result set under `labels`.
+///
+/// **One collector for both the answer path and the boot probe**, so the Arrow-to-domain mapping
+/// cannot be one thing for a question and another for a check. `labels` is passed in rather than
+/// re-read because the answer path has already compared it against the plan's own.
+async fn collected(frame: DataFrame, labels: Vec<String>) -> Result<RowSet, DataFusionError> {
+    let batches = frame.collect().await.map_err(|cause| DataFusionError::Execute { cause })?;
+    let mut out: Vec<Vec<Value>> = Vec::new();
+    for batch in &batches {
+        for row in 0..batch.num_rows() {
+            let mut cells = Vec::with_capacity(batch.num_columns());
+            for (array, label) in batch.columns().iter().zip(labels.iter()) {
+                cells.push(cell(label, array.as_ref(), row)?);
+            }
+            out.push(cells);
+        }
+    }
+    RowSet::new(labels, out).map_err(|cause| DataFusionError::Shape { cause })
 }
 
 impl Warehouse for DataFusionWarehouse {
@@ -649,6 +703,26 @@ impl Warehouse for DataFusionWarehouse {
     /// The boot check reads this against the configured posture, so a source declared
     /// `impersonation-at-source` on this adapter does not start.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    /// **This engine runs one source's share of a two-source answer, and it is the only adapter a
+    /// release links that does.** Declared rather than defaulted, and the default it overrides is
+    /// documented on the port as *a missed-optimisation default rather than a missed-security one:
+    /// the cost of being wrong is a refused question, never a wrong number* - which is precisely
+    /// what makes opting ONE adapter in an ordinary capability statement and opting every adapter in
+    /// a change of that argument.
+    ///
+    /// **What the port's default asks for, and why this adapter can answer it:** the default's own
+    /// condition is *a combiner above it to hand a leg's rows to*, and there is one - the combine is
+    /// `sutura_domain::plan::FederatedPlan::combine`, a pure domain function that no adapter is on
+    /// the path of. So the engine's role here is the data source's, not the combiner's, and
+    /// `docs/adr/0007`'s *the engine is also a data source* is the sentence that permits it.
+    ///
+    /// **The limit, next to the claim.** This is single-player federation. Two sources are not two
+    /// identities: [`Warehouse::IMPERSONATION`] above is
+    /// [`ImpersonationCapability::NoPlaceForASubject`], so every leg this adapter runs runs under
+    /// one operating-system identity and none of them runs as the asker. A two-source answer
+    /// records both legs' postures; both are the shared one.
+    const EXECUTES_LEGS: bool = true;
 
     fn source(&self) -> &SourceName {
         &self.source
@@ -689,15 +763,13 @@ impl Warehouse for DataFusionWarehouse {
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| DataFusionError::PresentedDisagreesWithPosture { cause })?;
+        // **Both shapes, one path, and the match stays exhaustive.** It would read more simply as a
+        // single call now that `rows` takes the `Executable` - and that is exactly what it must not
+        // be: `Executable` is the port's whole vocabulary, and the arm is what makes a third plan
+        // shape a compile error in this adapter rather than something it silently ran as one of
+        // these two.
         match executable {
-            Executable::Query(plan) => self.runtime()?.block_on(self.rows(plan)),
-            // Stated rather than defaulted. This adapter is the engine and it belongs ABOVE the
-            // port once federation lands, so a leg arriving here would mean the composition is
-            // wrong - not that the leg is unanswerable. Nothing reaches this today: there is no
-            // splitter to build a leg.
-            Executable::Leg(leg) => Err(DataFusionError::LegWithoutCombiner {
-                table: leg.table().to_string(),
-            }),
+            Executable::Query(_) | Executable::Leg(_) => self.runtime()?.block_on(self.rows(executable)),
         }
     }
 
@@ -708,7 +780,22 @@ impl Warehouse for DataFusionWarehouse {
     /// available: one process, one operating-system identity, nowhere for a subject to arrive.
     /// [`AnchorRows`] is what keeps the result from being handed back to a caller as an answer.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        self.runtime()?.block_on(self.rows(plan.plan())).map(AnchorRows::of)
+        self.runtime()?
+            .block_on(self.rows(Executable::Query(plan.plan())))
+            .map(AnchorRows::of)
+    }
+
+    /// Counts a declared join key's values and its distinct values, in this process.
+    ///
+    /// **Overridden rather than defaulted, and this is the adapter where it matters most:** it is
+    /// what a released binary links, so without it the check would exist on nothing a deployment
+    /// runs. The cost argument the missing `dry_run` makes does not apply - a probe is one aggregate
+    /// over one column, not most of an answer computed twice.
+    ///
+    /// No credential, for [`Warehouse::verify_anchor`]'s reason: there is no caller at boot, and for
+    /// this adapter that is not a limitation but the only truth available.
+    fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
+        self.runtime()?.block_on(self.key_uniqueness(&key))
     }
 
     /// The one question the domain asks about this adapter's error, answered from the one variant
@@ -768,6 +855,83 @@ pub(crate) fn test_leg() -> Presented {
         SourcePosture::SharedServiceUser { declared } => Presented::SharedServiceUser { declared },
         SourcePosture::ImpersonationAtSource => panic!("the fixture posture is shared, one function above"),
     }
+}
+
+/// The plan every engine-execution question drives, and its helpers - one definition shared by
+/// `width_tests.rs` and `pool/ceiling_tests.rs`, where a second copy drifted into a byte-identical
+/// clone and tripped the copy/paste gate. Inline (not a `mod`) so the causality gate holds these
+/// as test-only items rather than a test module that names no test.
+#[cfg(test)]
+use sutura_domain::calendar::{Date, TimeRange};
+#[cfg(test)]
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
+#[cfg(test)]
+use sutura_domain::plan::{
+    PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, ResultLabel,
+    StatementTables,
+};
+#[cfg(test)]
+use sutura_domain::warehouse::ParamValue;
+
+#[cfg(test)]
+pub(crate) fn day(iso: &str) -> Date {
+    Date::parse(iso).expect("a test date is a date")
+}
+
+#[cfg(test)]
+pub(crate) fn source() -> SourceName {
+    SourceName::parse("local").expect("a test source is a source")
+}
+
+#[cfg(test)]
+pub(crate) fn orders() -> TableName {
+    TableName::parse("orders").expect("a test table is a table")
+}
+
+#[cfg(test)]
+pub(crate) fn on(name: &str) -> PlanColumn {
+    PlanColumn::new(orders(), ColumnName::parse(name).expect("a test column is a column"))
+}
+
+/// Revenue by region for one month - a grouped aggregate, which is exactly the operator that
+/// matters when the memory ceiling is the thing under test, because it is the one that reserves.
+#[cfg(test)]
+pub(crate) fn question() -> QueryPlan {
+    QueryPlan::new(
+        source(),
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        StatementTables::only(orders()),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, on("order_date")),
+        vec![PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
+            on("region"),
+        )],
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: on("amount_cents"),
+            },
+        },
+        ResultLabel::measure(&MetricName::parse("revenue").expect("a test metric is a metric")),
+        vec![
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::AtOrAfter {
+                    column: on("order_date"),
+                    param: 0,
+                },
+            ),
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::Before {
+                    column: on("order_date"),
+                    param: 1,
+                },
+            ),
+        ],
+        vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-07-01"))],
+        TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
+    )
 }
 
 /// The adapter is safe to drop where its nested runtime alone is not, pinned inline rather than in

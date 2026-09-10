@@ -87,7 +87,9 @@ operations that caller may invoke. What is absent is **leg 2**: no adapter in th
 for a per-subject credential to arrive, both declare so, and the broker mints what an operator
 configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
 a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
-and still read every row as one identity. Arrow results and federation are also still ahead. [The HTTP
+and still read every row as one identity. Arrow results are also still ahead. Federation is not:
+the splitter, two executions and the combiner all run in a published build, because the engine
+declares `Warehouse::EXECUTES_LEGS`. [The HTTP
 surface](serving.md) is not, and its bearer token authenticates the deployment rather than the caller.
 [What exists today](architecture.md#what-exists-today) is the honest inventory.
 
@@ -102,3 +104,10 @@ surface](serving.md) is not, and its bearer token authenticates the deployment r
 | Read the Rust API | [API reference](api/index.md) |
 
 To work *on* sutura, start at [Contributing](contributing.md) under **Development**.
+
+## Feedback and reporting
+
+For questions, feature ideas and bug reports, open an issue in the
+[issue tracker](https://github.com/telekom/sutura/issues). For a suspected vulnerability, report it
+privately rather than in a public issue - see
+[SECURITY.md](https://github.com/telekom/sutura/blob/main/SECURITY.md).

@@ -210,10 +210,11 @@ application-default credential and no project. So a leg exists at
 `just bigquery-acceptance`, and **it is unexecuted**. **It is also narrower than what 0017 specifies**
 - one hand-built `SUM` over a two-column table, exercising none of the constructs the parse check was
 measured to be blind about, so a green run of it would close a smaller gap than the records first
-claimed; the wider leg is #78's importer shape pointed at a dataset. No composition root links the
-crate,
-`sutura-serve` still refuses `kind: bigquery` by name, and the `data_systems:` axis still gains no
-entry. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
+claimed; the wider leg is #78's importer shape pointed at a dataset. **Two of the three clauses
+that used to end this paragraph are spent**: a composition root DOES link the crate and
+`sutura-serve` DOES dispatch `kind: bigquery`, both behind its default-off `bigquery` feature, which
+`docs/adr/0017`'s second amendment recorded. What survives is the third - the `data_systems:` axis
+still gains no entry. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
 five mechanisms can tell, and ONE has now been run.** On 2026-08-30 the leg passed against a real
 dataset under a service-account key - a statement generated here accepted by `BigQuery`, answered as one
 complete page, with the fixture's own numbers - and `docs/adr/0017`'s amendment puts the repeat of it in

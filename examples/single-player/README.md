@@ -358,7 +358,7 @@ in-process harness in `crates/sutura-http/src/harness.rs`: a refusal carries the
 maps to, with one test per status checking the `code` and that `reason.status` agrees with the
 status line, a missing token is a `401` carrying `code: unauthorized`, a body holding `sql` is a
 `400` naming the field, `/health` is those fifteen bytes exactly, and the interface description is
-served in development and not in production. That harness reaches ten reasons, not all seventeen -
+served in development and not in production. That harness reaches ten reasons, not all eighteen -
 the exhaustive table is `crates/sutura-http/src/wire/refusal.rs`, where every variant's status and
 `code` are listed and the match assigning them has no wildcard arm, so a new refusal fails to
 compile until somebody decides. What nothing pins is the JSON *formatting* of a response or the

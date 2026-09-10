@@ -230,8 +230,11 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(code, "time_range_too_long");
-    // The bound is in the sentence, so narrowing needs no second request to discover the number.
-    assert!(detail.contains("3653"), "{detail}");
+    // EACH NUMBER IN ITS OWN ROLE: `contains("3653")` passed with the two swapped. The general rule
+    // is in `.agents/skills/engineering/rust`; this file had applied it one line over and not here.
+    let max_days = sutura_domain::query::MAX_RANGE_DAYS;
+    assert!(detail.contains("the period spans "), "{detail}");
+    assert!(detail.contains(&format!("and the maximum is {max_days}")), "{detail}");
 
     let (status, code, _) = refusal(
         &app,
@@ -248,7 +251,12 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(code, "too_many_dimensions");
-    assert!(detail.contains('4'), "the sentence does not name the maximum: {detail}");
+    // BOTH HALVES of what `wire/refusal.rs` promises. `contains('4')` held only the bound, so
+    // dropping `{requested}` from the renderer passed 168 of 168; reading the cap fails the cell
+    // when it moves and the sentence does not.
+    let max_dims = sutura_domain::query::MAX_DIMENSIONS;
+    assert!(detail.contains("5 group-by keys were asked for"), "{detail}");
+    assert!(detail.contains(&format!("and the maximum is {max_dims}")), "{detail}");
 }
 
 #[tokio::test]
@@ -284,10 +292,13 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 
 #[tokio::test]
 async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes() {
-    // Issue #72's splitter and combiner exist and are tested, but neither shipped adapter can execute
-    // a leg yet - both answer `Executable::Leg` with a typed refusal. Until one does, `answer` keeps
-    // refusing a two-source question here rather than surfacing the adapter's refusal as a 503, the
-    // status reserved for a retryable outage. This pins the restored 409.
+    // **Still green, and it is about the FAKE rather than about the shipped set.** This runs over
+    // `fake_warehouse()`, which takes the port's defaulted `EXECUTES_LEGS`, so what it pins is the
+    // status a build whose adapter cannot run a leg gives: a 409 out of `answer`'s own gate rather
+    // than an adapter's typed refusal surfacing as a 503, the status reserved for a retryable
+    // outage. `sutura-exec-datafusion` declares the constant now, so the shipped engine no longer
+    // reaches this branch - `sutura-exec-bigquery` and any adapter taking the default still do, and
+    // this is where the transport's half of that is held.
     let app = over(two_source_bundle(), fake_warehouse(), settings(Environment::Development, ""));
     let (status, code, detail) = refusal(
         &app,
@@ -703,6 +714,9 @@ async fn the_interface_description_is_behind_the_token_when_one_is_configured() 
 //
 // `SUTURA_TEST_LOG=1` also prints it, which is what makes a failure here readable. See
 // `sutura_runtime::testing::Capture`.
+
+#[cfg(test)]
+mod logging;
 
 /// Runs one request through `app` with a subscriber over a buffer, and returns what was written.
 ///

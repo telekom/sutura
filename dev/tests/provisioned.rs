@@ -55,24 +55,28 @@ mod tests {
         }
     }
 
-    /// Whether the discovered tier is docker's, and if not, why the skip.
+    /// Whether `service` was provisioned by DOCKER here, and if not, why the skip.
     ///
     /// These tests validate the DOCKER provisioner - an ephemeral port, a worktree-derived
-    /// project, a live socket. The nix sandbox tier (`nix/postgres-tier.nix`) writes the same
-    /// discovery file but declares its own provisioner, so where that is what is discovered there
-    /// is no docker tier to exercise. Read here (not via `provisioned::here`) because `here`
+    /// project, a live socket. A nix-native tier (`nix/postgres-tier.nix`) merges into the same
+    /// discovery file, so the question is asked **per entry**: one document-level answer stopped
+    /// meaning anything the moment two provisioners contributed to one file, and where it said
+    /// `nix` these cells skipped over a docker service that was up and published beside it
+    /// (`github.com/telekom/sutura#317`). Read here (not via `provisioned::here`) because `here`
     /// honours `SUTURA_DEV_REQUIRE_TIER`, which the nix tier sets - asking for a service it did
     /// not provision would then fail rather than skip.
     ///
     /// The skip is written to stderr and names the tier, because this file's contract is that a
     /// green run nobody can see is a green run that tested nothing.
-    fn docker_tier() -> bool {
+    fn docker_provisioned(service: &str) -> bool {
         let provisioner = sutura_dev::discovery::Endpoints::discover(&provisioned_scope())
             .ok()
-            .and_then(|endpoints| endpoints.provisioner().map(str::to_owned))
-            .unwrap_or_else(|| "absent/unmarked".to_owned());
-        if provisioner != "docker" {
-            eprintln!("SKIPPED: the docker-provisioner wiring tests do not apply to the tier here ({provisioner})");
+            .and_then(|endpoints| endpoints.endpoint(service).ok().map(Endpoint::provisioner));
+        if provisioner != Some(sutura_dev::discovery::Provisioner::Docker) {
+            eprintln!(
+                "SKIPPED: `{service}` is not docker-provisioned here ({}), so the docker wiring cells do not apply",
+                provisioner.map_or_else(|| String::from("absent"), |found| found.to_string())
+            );
             return false;
         }
         true
@@ -93,10 +97,10 @@ mod tests {
     /// constant, and that something answers on it.
     #[test]
     fn a_harness_reaches_the_port_docker_allocated_and_not_the_one_in_the_declaration() {
-        if !docker_tier() {
-            return;
-        }
         for service in SERVICES.iter().filter(|service| service.is_default()) {
+            if !docker_provisioned(service.name()) {
+                continue;
+            }
             let Some(endpoint) = provisioned(service.name()) else {
                 continue;
             };
@@ -124,7 +128,7 @@ mod tests {
     /// against a scope derived here is what says which instance answered.
     #[test]
     fn the_endpoint_that_answered_belongs_to_this_worktree() {
-        if !docker_tier() {
+        if !docker_provisioned("clickhouse") {
             return;
         }
         let scope = provisioned_scope();
@@ -152,7 +156,7 @@ mod tests {
     /// nine-line function.
     #[test]
     fn clickhouse_answers_on_the_discovered_port_and_not_on_its_container_port() {
-        if !docker_tier() {
+        if !docker_provisioned("clickhouse") {
             return;
         }
         let Some(endpoint) = provisioned("clickhouse") else {

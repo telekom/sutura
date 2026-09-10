@@ -256,10 +256,10 @@ const MAX_PARTS: usize = 3;
 /// A table, and where it lives when that is more than the default.
 ///
 /// **A model that names only a table keeps working, byte for byte**, and that is the compatibility
-/// property rather than a hope: [`Self::parse`] of a bare name yields no qualifier, [`Display`]
-/// writes the bare name back, and [`serde::Serialize`] writes that same text - so a catalog document,
-/// a serialized plan and a definition digest over an unqualified model are unchanged by this type
-/// existing.
+/// property rather than a hope: [`Self::parse`] of a bare name yields no qualifier,
+/// [`Display`](core::fmt::Display) writes the bare name back, and [`serde::Serialize`] writes that
+/// same text - so a catalog document, a serialized plan and a definition digest over an unqualified
+/// model are unchanged by this type existing.
 ///
 /// See this module's header for why it is a composition and not a string.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -333,7 +333,7 @@ impl QualifiedTable {
     /// workspace renders for, `FROM a.b.c` gives the reference an implicit alias of `c`. It is also
     /// the name a file-registering engine registers under. So the two readings of "the table" are
     /// both real and both needed, and they are two accessors rather than one that guesses:
-    /// [`Self::name`] is the last part, [`Display`] is the whole path.
+    /// [`Self::name`] is the last part, [`Display`](core::fmt::Display) is the whole path.
     #[inline]
     #[must_use]
     pub const fn name(&self) -> &TableName {

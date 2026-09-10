@@ -138,10 +138,17 @@ pub(crate) enum Origin {
     /// **The degenerate endpoint of *the diff can only shrink*, and shrinking to EMPTY is a pass.**
     /// A base equal to HEAD makes `git diff <base> --` the uncommitted working tree alone, so the
     /// gate answers *no changed tests - nothing to prove* at exit 0 over every file the branch
-    /// actually changed. Review reproduced it twice on this gate's own branch, and the trigger is
-    /// this repository's house style rather than a corner: merge-forward-never-rebase means a
-    /// parent with this branch merged INTO it is an ordinary thing to have locally, and so is
-    /// metadata retargeted at the branch above.
+    /// actually changed. Review reproduced it twice on this gate's own branch. **The trigger is a
+    /// condition, not a list of shapes: it fires whenever HEAD is an ancestor of the recorded
+    /// parent's commit** - reflexively, so a parent sitting exactly ON HEAD counts. Ordinary states
+    /// that satisfy it include metadata still naming the branch ABOVE after a hand retarget, and a
+    /// branch with no commit of its own yet whose parent's tip IS HEAD; there are others, and
+    /// counting them here would be the mistake recorded below in a second spelling. A parent
+    /// STRICTLY behind HEAD cannot fire, and strictly is the load-bearing word: merging `main` into
+    /// a branch that has a commit of its own leaves `main` a strict ancestor of the merge commit,
+    /// so the fork point is `main`'s own tip and this arm is not reached - while `main`
+    /// FAST-FORWARDED onto that same branch satisfies *ancestor* without the strictness, and
+    /// fires.
     ///
     /// **It is strictly worse than the defect this module was written for.**
     /// `github.com/telekom/sutura#358` reddened correct work loudly; this passed incorrect work in

@@ -710,7 +710,10 @@ mod tests {
         // base run means. Nothing is printed when every test in scope is new here - the ordinary
         // case, and a line saying so on every run is noise - and the ALL arm says out loud that
         // the run about to happen cannot prove anything.
-        assert!(moved_lines(&Moved::Nothing).is_empty());
+        assert!(
+            moved_lines(&Moved::Nothing).is_empty(),
+            "a run that moved nothing prints no moved-line report"
+        );
         let one = vec![String::from("a_moved_assertion")];
         let some = moved_lines(&Moved::Partly(one.clone()));
         assert!(
