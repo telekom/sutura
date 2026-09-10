@@ -2644,6 +2644,20 @@ security bound is that key boundary, not the text gate: even a compromised PR ru
 amendment is the <code>xtask</code> trust rule's counterpart and is enforced by it - see
 <code>xtask/src/workflows/cache_scope/retired.rs</code>, which pins both value lists ([<code>ALLOWED</code>] / the
 PR-gated pair) so the records and the gate cannot disagree.</p>
+<p><strong>Amendment, 2026-09-10 (read every store this repository writes):</strong> the inventory is now <strong>the
+stores CI publishes, all of them</strong>. <code>cachix-push.yml</code> writes three - the shared closure, the cross
+build, the connectors closure - and until this amendment only the first was ever READ back, so two
+buckets were filled at the cost of a publish and substituted nothing. Every installer's
+<code>extra_nix_config</code> now names all three with their public signing keys, and the pull-request path
+names those three plus <code>sutura-prs</code>. Two things did <strong>not</strong> change: the default branch still never
+lists <code>sutura-prs</code>'s key, and <code>sutura-fuzzing</code> is still absent because nothing pushes to it.</p>
+<p>The keys are the bound, and the limit belongs next to it: nix accepts a path only when its signer is
+in the trusted list, and what keeps these lists safe to trust is that <strong>every one of these stores is
+written solely by this repository's own CI</strong>, each under its own environment-gated credential that
+only a push to the default branch can reach. Content-addressing alone would not give that - a store
+anybody could write would be poisonable no matter how a path is named. <code>extraPullNames</code> was weighed
+and refused for the reason the committed pair exists: it configures a substituter at RUNTIME, where
+no reviewer sees it in the diff and no text gate can compare against it.</p>
 <h2 id="what-changed-and-it-is-two-things-rather-than-a-preference">What changed, and it is two things rather than a preference<a class="headerlink" href="#what-changed-and-it-is-two-things-rather-than-a-preference" title="Permanent link">&para;</a></h2>
 <p><strong>1. The repository is public</strong>, so an OSS tier exists that did not apply to the question 0026
 answered.</p>
