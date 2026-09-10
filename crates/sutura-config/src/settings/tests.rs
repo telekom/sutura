@@ -302,6 +302,63 @@ fn a_non_loopback_bind_needs_a_tls_termination_declaration_in_every_environment(
 }
 
 #[test]
+fn an_off_host_bind_from_a_variable_names_the_variable_in_the_refusal() {
+    // #440's improvement over #386's candidate list: when a refusal is about a value, the operator
+    // is told which variable actually carried it, not handed every `SUTURA__*` variable that happens
+    // to be exported. The variable layer has no file to point at, so this is the case where naming
+    // the reconstructed variable name is the whole of the clue.
+    let sources = Sources::defaults(Environment::Development).with_variables(variables(&[
+        ("SUTURA__SERVER__HOST", "0.0.0.0"),
+        ("SUTURA__SECURITY__ACCESS_TOKEN", TOKEN),
+    ]));
+    let error = Settings::load(&sources).expect_err("an off-host bind from a variable needs a TLS declaration");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    let origin = refusals
+        .iter()
+        .find_map(|r| match r {
+            NotFitToServe::TlsTerminationUndeclared { origin, .. } => Some(origin),
+            _ => None,
+        })
+        .expect("the undeclared bind is the refusal here");
+    assert_eq!(origin, "SUTURA__SERVER__HOST");
+}
+
+#[test]
+fn an_off_host_bind_from_a_file_names_the_file_in_the_refusal() {
+    // The other direction, and the one #386's variable-only remedy could not see at all: a refusal
+    // about a key that came from DISK must not answer by listing exported variables. The file layer
+    // stamps the value with its own path, and the refusal keeps it.
+    let dir = scratch("origin-file");
+    std::fs::write(
+        dir.join("base.yaml"),
+        format!("server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n"),
+    )
+    .expect("a scratch file is writable");
+    let sources = Sources::defaults(Environment::Development).with_directory(dir.clone());
+    let error = Settings::load(&sources).expect_err("an off-host bind from a file needs a TLS declaration");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    let origin = refusals
+        .iter()
+        .find_map(|r| match r {
+            NotFitToServe::TlsTerminationUndeclared { origin, .. } => Some(origin),
+            _ => None,
+        })
+        .expect("the undeclared bind is the refusal here");
+    // The `config` crate records a file's URI relative to the process CWD, so the origin is not the
+    // spelling `dir.join("base.yaml")` has here - but it is the same file. Compare through the
+    // canonical path, which is the only equality that is not a hostage of where the test ran.
+    assert_eq!(
+        std::fs::canonicalize(origin).expect("the origin names a real file"),
+        std::fs::canonicalize(dir.join("base.yaml")).expect("the scratch file exists")
+    );
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+#[test]
 fn a_declared_non_loopback_bind_still_needs_a_token() {
     // The two controls are separate questions - "what protects the path to this" and "who may
     // reach it" - so answering only the first is still a refusal.

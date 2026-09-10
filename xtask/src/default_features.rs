@@ -19,7 +19,7 @@
 //! `#[cfg(not(feature = "bigquery"))]` doc comment, which is why this runs clippy as well as check:
 //! the two commands see different code, and neither is `just lint`'s.
 //!
-//! **NOT a hygiene gate, for `check-attribution-current`'s reason.** It invokes cargo, so it needs a
+//! **NOT a hygiene gate, for `check-attribution`'s reason.** It invokes cargo, so it needs a
 //! resolvable registry and a target directory; the nix sandbox `hygiene` runs in has neither. So it
 //! lives in `just gates`, which is where every gate that shells out to cargo lives.
 //!
@@ -27,7 +27,7 @@
 //! existed, what CI had for this lane was the four `cross` link builds for the COMPILE half - and
 //! they are `needs: [ci]`, so a `ci` failure skips them, which is exactly how the branch above
 //! reached review - and nothing at all for the LINT half. An app rather than a check for the reason
-//! the paragraph above gives. [`tests::both_lanes_still_invoke_this_gate`] is what holds the
+//! the paragraph above gives. `tests::both_lanes_still_invoke_this_gate` is what holds the
 //! wiring, in both venues, by reading the step rather than the file.
 //!
 //! **The profile is DERIVED from the target directory and not passed as a flag** -

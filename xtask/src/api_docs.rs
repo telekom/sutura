@@ -23,8 +23,8 @@
 //!     forbidden in the workspace lint table, so the `cargo rustdoc` line below fails on a link
 //!     rustdoc cannot resolve - 15 of those were warnings behind exit 0 until
 //!     `github.com/telekom/sutura#360`. **This is the only venue that enforces it**: the doctest
-//!     lane does not, measured, and reaches no binary-only member either - `lints` carries both
-//!     measurements and the 30 errors that consequently sit unjudged. A lint also cannot say
+//!     lane does not, measured. This check also documents each binary-only target, without
+//!     rendering API pages for it; `lints` states that scope. A lint also cannot say
 //!     whether it was ARMED, so that submodule asserts the table exists and that every workspace
 //!     member inherits it, before a single crate is documented. That is a precondition rather
 //!     than a finding: an unarmed run compares pages nobody judged. The test that holds the
@@ -131,6 +131,10 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                  {} resolved by cargo metadata, {} inheriting",
                 outcome.arming.level, outcome.arming.declared, outcome.arming.resolved, outcome.arming.inheriting
             );
+            println!(
+                "  {} binary-only target(s) documented for links; API pages remain library-only",
+                outcome.binaries
+            );
             Verdict::Pass
         }
         Ok(outcome) => {
@@ -151,6 +155,8 @@ struct Outcome {
     problems: Vec<String>,
     /// The doc-link lint's level, and the three counts that say it reached every member.
     arming: lints::Arming,
+    /// Binary-only targets whose rustdoc invocation succeeded, not generated pages.
+    binaries: usize,
 }
 
 /// Regenerate every library crate's page and collect what disagrees.
@@ -166,6 +172,7 @@ fn check(root: &Path) -> Result<Outcome, String> {
     // that they match would be a green verdict over a question nobody asked. See `lints`.
     let arming = lints::check(root, &metadata)?;
     let packages = library_packages(&metadata)?;
+    let binaries = binary_targets(&metadata)?;
     let target_dir = target_directory(root, &metadata);
 
     let generator = root.join(GENERATOR);
@@ -176,7 +183,7 @@ fn check(root: &Path) -> Result<Outcome, String> {
     let cargo = cargo_bin();
     let mut inputs = Vec::new();
     for package in &packages {
-        rustdoc_json(&cargo, root, package)?;
+        rustdoc_json(&cargo, root, package, None)?;
         let json = target_dir.join("doc").join(json_file_name(package));
         if !json.is_file() {
             return Err(format!(
@@ -187,6 +194,12 @@ fn check(root: &Path) -> Result<Outcome, String> {
             ));
         }
         inputs.push(json);
+    }
+    // Binary and library Rust identifiers can coincide. Their JSON must not share a directory.
+    let binary_target_dir = target_dir.join("binary-api-docs");
+    for (package, binary) in &binaries {
+        rustdoc_json(&cargo, root, package, Some((binary, &binary_target_dir)))
+            .map_err(|error| format!("binary target `{package}/{binary}`: {error}"))?;
     }
 
     let scratch = scratch_dir()?;
@@ -203,7 +216,71 @@ fn check(root: &Path) -> Result<Outcome, String> {
 
     // Best-effort: a scratch directory left behind is untidy, not a verdict.
     drop(std::fs::remove_dir_all(&scratch));
-    Ok(Outcome { problems, arming })
+    Ok(Outcome {
+        problems,
+        arming,
+        binaries: binaries.len(),
+    })
+}
+
+/// Binary-only package and target names selected from metadata.
+type BinaryTargets = BTreeSet<(String, String)>;
+
+/// Explicit binary targets in packages without a library or proc-macro target.
+///
+/// Cargo's target name can differ from its package, and one package can have several binaries.
+/// Missing target metadata must not silently turn either case into an unjudged package.
+fn binary_targets(metadata: &serde_json::Value) -> Result<BinaryTargets, String> {
+    let packages = metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| String::from("cargo metadata had no `packages` array"))?;
+    let mut binaries = BTreeSet::new();
+    for package in packages {
+        let name = package
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| String::from("cargo metadata had an unnamed package"))?;
+        let targets = package
+            .get("targets")
+            .and_then(serde_json::Value::as_array)
+            .filter(|targets| !targets.is_empty())
+            .ok_or_else(|| format!("cargo metadata had no targets for `{name}`"))?;
+        let mut has_library = false;
+        for target in targets {
+            let kinds = target
+                .get("kind")
+                .and_then(serde_json::Value::as_array)
+                .filter(|kinds| !kinds.is_empty())
+                .ok_or_else(|| format!("cargo metadata had no target kind for `{name}`"))?;
+            if kinds.iter().any(|kind| kind.as_str().is_none()) {
+                return Err(format!("cargo metadata had a non-text target kind for `{name}`"));
+            }
+            has_library |= kinds
+                .iter()
+                .any(|kind| matches!(kind.as_str(), Some("lib" | "rlib" | "proc-macro")));
+        }
+        if has_library {
+            continue;
+        }
+        for target in targets {
+            if !target
+                .get("kind")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|kinds| kinds.iter().any(|kind| kind.as_str() == Some("bin")))
+            {
+                continue;
+            }
+            let binary = target
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| format!("cargo metadata had an unnamed binary target for `{name}`"))?;
+            binaries.insert((String::from(name), String::from(binary)));
+        }
+    }
+    Ok(binaries)
 }
 
 /// Every workspace package with a library target.
@@ -293,7 +370,7 @@ fn cargo_bin() -> String {
 /// the caller named - `$CARGO`, which the Nix check sets to the nightly. This binary itself is
 /// compiled on the same nightly toolchain every gate uses, which is why the check can share their
 /// dependency closure.
-fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
+fn rustdoc_json(cargo: &str, root: &Path, package: &str, binary: Option<(&str, &Path)>) -> Result<(), String> {
     let profile = std::env::var(PROFILE_ENV).ok();
     let status = std::process::Command::new(cargo)
         .current_dir(root)
@@ -306,6 +383,8 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
         .env_remove("CARGO_PROFILE_DEV_CODEGEN_BACKEND")
         .env_remove("CARGO_UNSTABLE_CODEGEN_BACKEND")
         .args(["rustdoc", "-q", "-p", package, "--all-features"])
+        .args(binary.into_iter().flat_map(|(name, _)| ["--bin", name]))
+        .envs(binary.map(|(_, target)| ("CARGO_TARGET_DIR", target)))
         .args(profile_args(profile.as_deref()))
         .args(["--", "-Z", "unstable-options", "--output-format", "json"])
         .status()

@@ -433,3 +433,15 @@ declaration. Neither touches a pack body, and that is the property the requireme
   YAML, which is the quiet way a new adapter ends up conformance-tested locally and untested in CI.
 - Compile packs make the semantic compiler testable against N catalogs with no data system, which is
   the tier most of the value lives in and the one that can run on every push.
+- **The compile packs live behind a default-off `compile` feature of the harness crate.** They need
+  `sutura-semantic` and `sutura-sql` - two crates the harness is otherwise forbidden from reaching,
+  because crossing to them would let a pack body be written against something concrete. Growing them
+  unconditionally would break the portability contract `crates/sutura-conformance/src/corpus.rs`
+  states - a pack can be bound to an adapter without acquiring a catalog adapter, the compiler or the
+  renderer - and would add the compiler+renderer+dialect closure to data adapters' test builds, most
+  materially `sutura-exec-datafusion`, whose test build links neither today. So the manifest names an
+  empty `default`, a `compile` feature carrying exactly the three dependencies
+  (`sutura-semantic`, `sutura-sql`, `serde_json`), and `xtask/src/boundaries/harness.rs`'s harness
+  gate holds the shape: the default-feature walk keeps the closure to the interior, a `compile_feature`
+  check refuses `default = ["compile"]`, and the `--all-features` lanes of `just test`/`just lint`
+  build and run the compile cells, so neither direction is a switch nobody flips.

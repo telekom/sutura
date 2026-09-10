@@ -239,7 +239,7 @@ pub(super) fn cleaning(isolated: &Isolated) -> Command {
 ///
 /// Measured wordings on cargo 1.100.0-nightly: `     Removed 44 files, 1.2MiB total` when something
 /// went, `     Removed 0 files` when nothing did. `--dry-run` says `Summary <n> files` instead, which
-/// is why both spellings are read - [`removed_by_a_dry_run`] uses the second.
+/// is why both spellings are read - the test helper `removed_by_a_dry_run` uses the second.
 fn counted(said: &str) -> Option<usize> {
     said.lines()
         .filter_map(|line| {
