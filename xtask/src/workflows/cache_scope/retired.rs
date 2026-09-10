@@ -26,10 +26,10 @@
 //!   `${{ }}` interpolations inside `install-nix-action`'s `extra_nix_config` VALUE, neither a gate
 //!   nor a step. A substituter plus a trusted key means CI fetches paths signed elsewhere, so it is
 //!   refused as a LINE.
-//! * **The one store on every path, and the additive PR-only pair** ([`ALLOWED`] and
-//!   [`ALLOWED_PRS`]). Half (a) lets a pull request trust its own additive cache in addition to
-//!   sutura: the singleton anywhere, the two-store list ONLY behind a pull_request-only `if:`
-//!   ([`narrower_than_pr`]); main's resolver never lists the PR key.
+//! * **The stores trusted on every path, and the additive PR-only pair** ([`ALLOWED`] and
+//!   [`ALLOWED_PRS`]). Every store this repository WRITES it also reads, so the two lists are the
+//!   write list: the three-store list anywhere, the four-store list (those three plus the PR cache)
+//!   ONLY behind a pull_request-only `if:` ([`narrower_than_pr`]); main never lists the PR key.
 //! * **And the record itself.** Missing or empty is refused, for `sast`'s reason.
 //!
 //! # What this does NOT hold, and one sentence of it used to claim otherwise
@@ -346,35 +346,33 @@ fn undashed(token: &str) -> (bool, &str) {
     (bare.len() < token.len(), bare)
 }
 
-/// The one store outside this repository that CI trusts, with the key that signs it.
+/// The stores outside this repository that CI trusts on EVERY path, and the keys that sign them.
+///
+/// **Three, because `cachix-push.yml` WRITES three** - the shared closure, the cross build, the
+/// connectors closure. A store this repository fills and never reads is spend with no return, so the
+/// read list is the write list; `sutura-fuzzing` is absent because nothing pushes to it.
 ///
 /// **Committed rather than held in a secret or a variable, deliberately.** A committed value is one a
 /// reviewer sees in the diff and one this gate can compare against; a variable can be swapped with no
-/// diff at all and nothing would notice. The write credential is the only half that is a secret, and
-/// it is an *environment* secret so only a push to the default branch can reach it.
-const ALLOWED: [(&str, &str); 2] = [
-    ("substituters", "https://sutura.cachix.org"),
-    (
-        "trusted-public-keys",
-        "sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=",
-    ),
-];
+/// diff at all and nothing would notice. Nix's signature check is what bounds the trust. What bounds
+/// the POISON risk is narrower and belongs beside the claim: every write credential is an
+/// *environment* secret only a push to the default branch can reach, so these stores hold what this
+/// repository's own CI built under scoped tokens - content-addressing alone would not give that.
+const ALLOWED: [(&str, &str); 2] = [("substituters", STORES), ("trusted-public-keys", KEYS)];
+const STORES: &str = "https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org";
+const KEYS: &str = "sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=";
 
-/// The additive PR-path pair: sutura plus the repository's PR cache. Permitted ONLY in a step whose
-/// `if:` forces the `pull_request` event ([`narrower_than_pr`]). FIXED store name, so the gate pins
-/// the exact two-store value list and a third store appended still refuses.
+/// The additive PR-path pair: [`ALLOWED`]'s three plus the repository's PR cache. Permitted ONLY in a
+/// step whose `if:` forces the `pull_request` event ([`narrower_than_pr`]). FIXED store names, so the
+/// gate pins the exact four-store value list and a fifth store appended still refuses.
 ///
 /// The security bound is the KEY, not this text: main never lists `sutura-prs`'s key here, so even
 /// a compromised PR run that wrote attacker paths to `sutura-prs` is read only by PR-gated runs,
-/// never by a merged-main resolver. A PR run still needs `sutura`'s key to restore the shared
-/// closure, which is why the pair carries both.
-const ALLOWED_PRS: [(&str, &str); 2] = [
-    ("substituters", "https://sutura.cachix.org https://sutura-prs.cachix.org"),
-    (
-        "trusted-public-keys",
-        "sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=",
-    ),
-];
+/// never by a merged-main resolver. A PR run still needs the main three to restore what they hold,
+/// which is why the pair carries all four.
+const ALLOWED_PRS: [(&str, &str); 2] = [("substituters", PR_STORES), ("trusted-public-keys", PR_KEYS)];
+const PR_STORES: &str = "https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org";
+const PR_KEYS: &str = "sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=";
 
 /// The pull-request gate, token for token - the ONLY place [`ALLOWED_PRS`] is permitted.
 const PR_EVENT: &str = "github.event_name == 'pull_request'";
@@ -402,8 +400,8 @@ fn narrower_than_pr(gate: &str) -> bool {
 ///
 /// Only the additive `extra-substituters` form, never plain `substituters` (the DESTRUCTIVE
 /// spelling that drops nix's defaults) and never a flag; against the WHOLE value list, so
-/// appending a second store still refuses. [`ALLOWED`] (sole `sutura`) is permitted everywhere;
-/// [`ALLOWED_PRS`] (the PR two-store list) only when the value line sits inside a
+/// appending one more store still refuses. [`ALLOWED`] (the three written on every path) is permitted
+/// everywhere; [`ALLOWED_PRS`] (those three plus the PR cache) only when the value line sits inside a
 /// `cachix/install-nix-action` step's `extra_nix_config` whose `if:` is PR-only
 /// ([`narrower_than_pr`]) - removing that `if:` reopens main = red. The value AND its placement are
 /// the gate.
@@ -419,22 +417,20 @@ fn permitted(code: &str, setting: &str, is_pr_gated_config_line: bool) -> bool {
     if name.trim() != format!("extra-{setting}") {
         return false;
     }
-    let in_main = ALLOWED
-        .iter()
-        .find(|(named, _)| *named == setting)
-        .is_some_and(|(_, allowed)| value.split_whitespace().eq(std::iter::once(*allowed)));
-    if in_main {
-        return true;
-    }
-    is_pr_gated_config_line
-        && ALLOWED_PRS
+    // Token-wise against the WHOLE list, so a store dropped, added or reordered all refuse. ONE
+    // closure for both tables: the copy that used to serve the main path compared the value against
+    // a single token, so it silently refused any list longer than one store.
+    let listed = |table: &[(&str, &str); 2]| {
+        table
             .iter()
             .find(|(named, _)| *named == setting)
             .is_some_and(|(_, allowed)| value.split_whitespace().eq(allowed.split_whitespace()))
+    };
+    listed(&ALLOWED) || (is_pr_gated_config_line && listed(&ALLOWED_PRS))
 }
 
 /// Line indices (0-based) inside a PR-gated install-nix-action step's `extra_nix_config` block -
-/// the only container where the two-store [`ALLOWED_PRS`] list is law (installer step AND PR-only
+/// the only container where the four-store [`ALLOWED_PRS`] list is law (installer step AND PR-only
 /// `if:`; a bare/moved/ungated line is not, so the list there is refused).
 fn pr_gated_config_lines(text: &str) -> BTreeSet<usize> {
     let mut out = BTreeSet::new();
@@ -490,7 +486,7 @@ fn trusted_stores(label: &str, text: &str) -> Vec<String> {
                 Names::Flag => format!("passes `{setting}` as a command-line option, so that nix invocation trusts it"),
             };
             out.push(format!(
-                "{label}:{}  {how} - a store outside this repository, and {RECORD} records the main resolver as trusting only sutura (an additive PR-only cache is permitted only behind a pull_request gate), so update that record rather than this gate",
+                "{label}:{}  {how} - a store outside this repository, and {RECORD} records which stores the main resolver trusts - the ones this repository itself publishes, an additive PR-only cache only behind a pull_request gate - so update that record rather than this gate",
                 index.saturating_add(1)
             ));
         }
@@ -592,25 +588,26 @@ mod tests {
         );
     }
 
-    /// The allowance is the whole risk of enabling a binary cache: it has to admit exactly one store
-    /// and refuse every neighbouring shape, or it reads as coverage while trusting anything.
+    /// The allowance is the whole risk of enabling a binary cache: it has to admit exactly the stores
+    /// this repository publishes and refuse every neighbouring shape, or it reads as coverage while
+    /// trusting anything.
     #[test]
-    fn exactly_one_store_is_permitted_and_every_neighbour_is_still_refused() {
-        let allowed = "      extra_nix_config: |\n        extra-substituters = https://sutura.cachix.org\n        extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=\n";
+    fn exactly_the_published_stores_are_permitted_and_every_neighbour_is_still_refused() {
+        let allowed = "      extra_nix_config: |\n        extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org\n        extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=\n";
         assert!(
             super::trusted_stores("ci.yml", allowed).is_empty(),
-            "the committed store and its key are the one permitted pair"
+            "the committed stores and their keys are the one permitted pair"
         );
 
         for (why, text) in [
             (
-                "a second store appended to the permitted line",
-                "        extra-substituters = https://sutura.cachix.org https://example.invalid\n",
+                "a FOURTH store appended to the permitted line",
+                "        extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://example.invalid\n",
             ),
             ("a different store", "        extra-substituters = https://example.invalid\n"),
             (
                 "the DESTRUCTIVE spelling, which replaces nix's default list and cost a bootstrap build",
-                "        substituters = https://sutura.cachix.org\n",
+                "        substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org\n",
             ),
             (
                 "the permitted key on another host",
@@ -629,60 +626,57 @@ mod tests {
                 "        run: nix build --option substituters https://sutura.cachix.org .#xtask\n",
             ),
             (
-                "a literal per-consumer store on the main path (-a)",
+                "ONE permitted store alone - the whole value list has to match, not a subset",
                 "        extra-substituters = https://sutura-cross-build.cachix.org\n",
             ),
             (
-                "the PR two-store list UNGATED on the main path (-a2) - a merged main run must not",
-                "        extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org\n",
+                "the PR store list UNGATED on the main path (-a2) - a merged main run must not",
+                "        extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org\n",
             ),
         ] {
             assert!(!super::trusted_stores("ci.yml", text).is_empty(), "still refused: {why}");
         }
     }
 
-    /// The trust rule is PATH-aware: the two-store list is law ONLY inside an install step whose
-    /// `if:` is PR-only (green there, red on a third store).
+    /// The trust rule is PATH-aware: the PR store list is law ONLY inside an install step whose
+    /// `if:` is PR-only (green there, red on one more store).
     #[test]
-    fn the_pr_path_allows_its_two_store_list_and_refuses_a_third() {
-        // (-b): the exact two-store list inside a PR-gated install step is GREEN.
+    fn the_pr_path_allows_its_own_store_list_and_refuses_one_more() {
+        // (-b): the exact PR store list inside a PR-gated install step is GREEN.
         let pr_step = concat!(
             "      - uses: cachix/install-nix-action@13d8dd58 # v31.11.1\n",
             "        if: github.event_name == 'pull_request'\n",
             "        with:\n",
             "          extra_nix_config: |\n",
-            "            extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org\n",
-            "            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=\n",
+            "            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org\n",
+            "            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=\n",
         );
         assert!(
             super::trusted_stores("ci.yml", pr_step).is_empty(),
             "the PR path accepts its own additive cache behind a pull_request gate"
         );
-        // (-b2): a THIRD store appended to the PR list is still refused.
-        let third = pr_step.replace(
-            "https://sutura.cachix.org https://sutura-prs.cachix.org",
-            "https://sutura.cachix.org https://sutura-prs.cachix.org https://evil.cachix.org",
-        );
+        // (-b2): one MORE store appended to the PR list is still refused.
+        let more = pr_step.replace(super::PR_STORES, &format!("{} https://evil.cachix.org", super::PR_STORES));
         assert!(
-            !super::trusted_stores("ci.yml", &third).is_empty(),
-            "a third store appended to the PR list is still refused"
+            !super::trusted_stores("ci.yml", &more).is_empty(),
+            "a further store appended to the PR list is still refused"
         );
     }
 
     /// THE LOAD-BEARING ROW: dropping (or weakening) the PR gate reopens main = red - the identical
-    /// two-store lines with the `if:` gone are a main-run installer and must be refused.
+    /// PR-list lines with the `if:` gone are a main-run installer and must be refused.
     #[test]
     fn removing_the_pr_gate_reopens_main_and_is_refused() {
         let ungated = concat!(
             "      - uses: cachix/install-nix-action@13d8dd58 # v31.11.1\n",
             "        with:\n",
             "          extra_nix_config: |\n",
-            "            extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org\n",
-            "            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=\n",
+            "            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org\n",
+            "            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=\n",
         );
         assert!(
             !super::trusted_stores("ci.yml", ungated).is_empty(),
-            "the two-store list UNGATED is a merged-main installer and must be refused"
+            "the PR store list UNGATED is a merged-main installer and must be refused"
         );
 
         // Weakening the gate to not-PR-only is the same re-opening and the same red.

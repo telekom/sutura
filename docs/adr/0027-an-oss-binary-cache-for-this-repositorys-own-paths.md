@@ -19,6 +19,22 @@ amendment is the `xtask` trust rule's counterpart and is enforced by it - see
 `xtask/src/workflows/cache_scope/retired.rs`, which pins both value lists ([`ALLOWED`] / the
 PR-gated pair) so the records and the gate cannot disagree.
 
+**Amendment, 2026-09-10 (read every store this repository writes):** the inventory is now **the
+stores CI publishes, all of them**. `cachix-push.yml` writes three - the shared closure, the cross
+build, the connectors closure - and until this amendment only the first was ever READ back, so two
+buckets were filled at the cost of a publish and substituted nothing. Every installer's
+`extra_nix_config` now names all three with their public signing keys, and the pull-request path
+names those three plus `sutura-prs`. Two things did **not** change: the default branch still never
+lists `sutura-prs`'s key, and `sutura-fuzzing` is still absent because nothing pushes to it.
+
+The keys are the bound, and the limit belongs next to it: nix accepts a path only when its signer is
+in the trusted list, and what keeps these lists safe to trust is that **every one of these stores is
+written solely by this repository's own CI**, each under its own environment-gated credential that
+only a push to the default branch can reach. Content-addressing alone would not give that - a store
+anybody could write would be poisonable no matter how a path is named. `extraPullNames` was weighed
+and refused for the reason the committed pair exists: it configures a substituter at RUNTIME, where
+no reviewer sees it in the diff and no text gate can compare against it.
+
 ## What changed, and it is two things rather than a preference
 
 **1. The repository is public**, so an OSS tier exists that did not apply to the question 0026

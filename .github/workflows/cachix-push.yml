@@ -1,7 +1,7 @@
 name: cachix-push
 
-# Publish this repository's own store paths to the OSS binary cache, so a later run substitutes them
-# instead of rebuilding. READS need nothing from here - every job's installer already names the
+# Publish this repository's own store paths to the OSS binary caches, so a later run substitutes them
+# instead of rebuilding. READS need nothing from here - every job's installer already names each
 # substituter and its public key, committed in the clear. This workflow is only the WRITE half.
 #
 # **Why a workflow of its own rather than a step in `ci`.** An `environment:` is declared per JOB, and
@@ -55,8 +55,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # The same scope the `ci` job wrote moments ago, so realising the checks below is a restore
       # rather than a rebuild. A miss here costs a build and publishes the same paths regardless.
@@ -108,11 +108,11 @@ jobs:
   # untouched. The runner is the same big one `push` uses, because realising these closures (the
   # cross build most of all) is the disc-heavy half of a publish.
   #
-  # NONE OF THESE CACHES IS TRUSTED IN TEXT: cachix-action configures `name:` as a substituter at
-  # RUNTIME, which a text rule cannot see, and every job below still installs nix with only
-  # `sutura.cachix.org` trusted - the main resolver is unchanged. The per-consumer keys are therefore
-  # not added to `xtask/src/workflows/cache_scope/retired.rs::ALLOWED`; nothing here NAMES them as a
-  # substituter.
+  # EVERY CACHE HERE IS ALSO READ, AND IN TEXT. The per-consumer public keys are committed in
+  # `xtask/src/workflows/cache_scope/retired.rs::ALLOWED` and named in every installer's
+  # `extra_nix_config`, this workflow's included - so a reviewer sees the trusted set in the diff and
+  # the gate compares against it. `extraPullNames` would configure the same substituters at RUNTIME,
+  # where no reviewer and no text rule can see them, which is why the list is committed instead.
 
   cross-build:
     name: push the cross-build closure
@@ -140,8 +140,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
       # Restore ONLY this leg's scope - the same per-triple entry `cross-link.yml` writes. A shared
       # key would have the four legs overwrite each other.
       - uses: ./.github/actions/nix-store-cache
@@ -179,8 +179,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
       # Restore the `bq` scope the acceptance job wrote on `main` - the closure `nix run
       # .#bigquery-acceptance` needs. It is the warm start a realise step below recompiles
       # against, and it is NOT the thing published: cachix-action's post-build hook pushes only

@@ -265,34 +265,37 @@ jobs:
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
           # goes HERE, where the workflow diff shows it - never read from flake.nix.
           #
-          # ONE store outside this repository is trusted, and both halves are COMMITTED rather than
-          # held in a secret or a variable: a committed value is one a reviewer sees and one
-          # `cargo xtask check-workflows` can compare against, while a variable swaps with no diff
-          # and nothing notices. The gate permits exactly this pair in exactly this spelling - an
-          # added store, a different key, that key on another host, or this store passed as
-          # `--extra-substituters` are all still refused. Nix's signature check bounds the trust.
-          # The WRITE credential is the only secret; it is an *environment* secret and it lives in
-          # `cachix-push.yml`, so no job on this path can reach it. Residual limit: a value
-          # assembled from pieces, or one arriving via another action's input, passes unseen.
+          # THE STORES THIS REPOSITORY PUBLISHES ARE THE ONES IT READS - every bucket
+          # `cachix-push.yml` writes is named here, since one it fills and never reads is spend with
+          # no return. Both halves are COMMITTED rather than held in a secret or a variable: a
+          # committed value is one a reviewer sees and one `cargo xtask check-workflows` compares
+          # against, while a variable swaps with no diff. The gate permits exactly this list in
+          # exactly this spelling - a store added or dropped, a different key, a key on another host,
+          # or any of them passed as `--extra-substituters` are all still refused. Nix's signature
+          # check bounds the trust. What bounds the POISON risk is narrower: every WRITE credential
+          # is an *environment* secret reachable only from a push to the default branch, so these
+          # stores hold what this repository's own CI built and nothing else - content-addressing
+          # alone would not. Residual limit: a value assembled from pieces, or one arriving via
+          # another action's input, passes unseen.
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # HALF (a): the pull-request path also trusts the PR's OWN additive cache in addition to
-      # sutura. The two-store list is SELF-CONTAINED on purpose: a second install must not depend
-      # on the first config surviving, so whichever nix.conf wins, a PR run ends trusting both.
-      # It is gated to exactly `pull_request`, so a merged main run and a merge-queue entry read
-      # only sutura. Removing or fuzzing this `if:` reopens main = the gate reddens. A PR still
-      # restores sutura's shared closure AND reads its own branch cache: nix verifies a signature
-      # against the intersection of the signer and the trusted keys, so both keys must be named.
+      # HALF (a): the pull-request path also trusts the PR's OWN additive cache, on top of the
+      # published set above. That list is SELF-CONTAINED on purpose: a second install must not depend
+      # on the first config surviving, so whichever nix.conf wins, a PR run ends trusting all of
+      # them. It is gated to exactly `pull_request`, so a merged main run and a merge-queue entry
+      # read only the published set. Removing or fuzzing this `if:` reopens main = the gate reddens.
+      # A PR still restores the published closures AND reads its own branch cache: nix verifies a
+      # signature against the intersection of signer and trusted keys, so every key must be named.
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         if: github.event_name == 'pull_request'
         with:
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
       - uses: ./.github/actions/nix-store-cache
         with:
@@ -907,8 +910,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
       - uses: ./.github/actions/nix-store-cache
         with:
@@ -1104,8 +1107,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       - uses: ./.github/actions/nix-store-cache
         with:
