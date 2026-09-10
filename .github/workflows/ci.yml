@@ -1223,8 +1223,19 @@ jobs:
   # (its trigger excludes `merge_group`); in both the leg is skipped not by a filter bug but by the
   # event, so the aggregator does not require it there. On every in-repo pull request and push it
   # is held to the run-or-fail rule above.
+  #
+  # `ubuntu-latest`, WHICH IS WHAT `.github/actionlint.yaml` ALREADY DECLARES FOR A JOB LIKE THIS:
+  # `rust-mcp-32core` where Rust is compiled, `ubuntu-latest` where nothing is. This job checks out
+  # nothing, installs nothing, builds nothing and runs one bash step over its two `needs` results -
+  # measured at 2-5 s over the last 14 `main` runs that reached it - so a 32-core host was paying
+  # for a string comparison. What it can and cannot say about the LABEL: an org runner group has to
+  # serve this repository for `rust-mcp-32core` to resolve at all, which is a permission on the
+  # GitHub side that no gate here can read (`.github/actionlint.yaml` says so of its own list), and
+  # every run above proves it is served today - so this is a cost move, not a reachability fix. The
+  # reported CONTEXT does not move: `devco/required-contexts` names it, and a context is a job's
+  # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
   ci-aggregate:
-    runs-on: rust-mcp-32core
+    runs-on: ubuntu-latest
     needs: [ci, bigquery-acceptance]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
