@@ -19,7 +19,7 @@
 //! `#[cfg(not(feature = "bigquery"))]` doc comment, which is why this runs clippy as well as check:
 //! the two commands see different code, and neither is `just lint`'s.
 //!
-//! **NOT a hygiene gate, for `check-attribution-current`'s reason.** It invokes cargo, so it needs a
+//! **NOT a hygiene gate, for `check-attribution`'s reason.** It invokes cargo, so it needs a
 //! resolvable registry and a target directory; the nix sandbox `hygiene` runs in has neither. So it
 //! lives in `just gates`, which is where every gate that shells out to cargo lives.
 //!
