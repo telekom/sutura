@@ -25,8 +25,10 @@
 //!   sealed witness type in `check-newtype-leaks` for that reason.
 //! * **[`Reached`] carries one outcome per subject BY CONSTRUCTION.** `each` pushes the closure's
 //!   return value once per call, and [`Reached::of`] refuses a payload whose length is not the
-//!   number of subjects offered - so a `.take(n)` written *inside* `each` is a [`Short`] rather
-//!   than a shorter walk. That is the arm the two absences instances above are red on now.
+//!   number of subjects offered - so a `.take(n)` written on `each`'s loop after that number is
+//!   derived is a [`Short`] rather than a shorter walk. That is the arm the two absences instances
+//!   above are red on now. A constructor selects the subjects before either number exists, which
+//!   is outside this guarantee.
 //! * **A witness cannot be minted while unequal**, and the number a verdict prints is the
 //!   witness's own length rather than a count the caller kept. Generalised from
 //!   `warm_start::pairing::Swept`, which keeps its own derivation on purpose.
@@ -34,11 +36,14 @@
 //!   the walk then makes, so narrowing the glob *itself* - in the table, or inside `matching` -
 //!   moves both sides and is held by review and by the caller's own floors, not by this type.
 //!   That is the same residue [`super::census`] records for a narrowed `Scope`.
-//! * **It does NOT hold what the closure DOES.** A closure is `FnMut` and may capture, so it can
-//!   count its own calls and decline the rest with `return;` - `#414`'s instance 8 one level down.
-//!   What closes that here is the caller comparing its own record of reached subjects against
-//!   [`Reached::subjects`], which `absences` does per sighting; nothing in this type can require
-//!   it, because Rust has no effect system and a closure's body is the caller's business.
+//! * **It does NOT hold what the closure DOES.** A closure is `FnMut` and may capture. The caller's
+//!   independent record can expose a subject the closure declines; `absences` compares that record
+//!   with the payload per sighting. It cannot expose a closure that returns the earned-looking
+//!   outcome without doing the work. Measured on `823e4ebf`: guarding the needle search with
+//!   `number <= 100` while still returning `true` for every production line left `just hygiene` at
+//!   exit 0 and its `check-guidance` witness byte-identical to the clean run - 165 files and 300176
+//!   production lines. Rust has no effect system, so closing that needs a structural operation in
+//!   place of the opaque closure rather than another count.
 
 /// The subjects one scan is about, selected HERE rather than in the caller's loop.
 ///
@@ -83,8 +88,12 @@ impl<'a> Offered<'a> {
     ///
     /// **The weakest of the three constructors and the only honest way to say so is here**: the
     /// caller built the slice, so a narrowing written *before* this call is not visible to
-    /// anything. It closes the loop only - `for path in revert` narrowed to `.take(3)` - which is
-    /// exactly the third measured instance.
+    /// anything. The same is true inside this constructor: measured on `823e4ebf`, adding
+    /// `.take(3)` to `subjects.iter()` shortened four subjects to three while `just test` stayed
+    /// green at 2962 passed. Both counts are then derived from the shortened vector. The held claim
+    /// begins after construction: every subject stored here reaches `visit`. There is no independent
+    /// constructor-side derivation, because adding one would add another count that needs its own
+    /// witness.
     pub(crate) fn over(what: &'static str, subjects: &'a [String]) -> Self {
         Self {
             what,

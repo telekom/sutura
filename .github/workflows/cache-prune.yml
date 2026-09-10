@@ -32,9 +32,10 @@
 # repository allocation and its headroom cannot be re-read by a contributor. The 100 GB above is
 # #472's measurement, not one taken here.
 #
-# What it costs when it is wrong: re-running CI on an already-closed pull request rebuilds
-# from scratch instead of restoring. That is slower and still correct, and it is rare enough
-# to be the right trade against evicting main's cache.
+# What it costs when it is wrong: re-running CI on an already-closed pull request loses this
+# Actions-cache restore. It still substitutes what the binary caches serve and compiles the rest.
+# That is slower and still correct, and it is rare enough to be the right trade against evicting
+# main's cache.
 #
 # A close event deletes only the exact `refs/pull/<n>/merge` scope. `pull_request_target` supplies
 # the base workflow and a write token for forks too; this is safe because no pull-request code or
