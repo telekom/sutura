@@ -58,6 +58,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::Expr;
 use polyglot_sql::expressions::{Expression, Identifier, Paren, Raw};
+use polyglot_sql::tokens::TokenType;
 use polyglot_sql::traversal::{self, ExpressionWalk as _};
 use sutura_domain::expression::{AuthoredSql, DialectTag, SqlFragment};
 use sutura_domain::model::{ColumnName, TableName};
@@ -269,6 +270,40 @@ fn check(
     if holds_comment_delimiter(fragment.as_str()) {
         return Err(refused(tag, Construct::Comment));
     }
+    // Last of the three questions asked before the text is handed over, and the only one that has
+    // to be: the parse it guards does not return. See `unclosed_parenthesis`.
+    //
+    // TODO(#589): delete this guard once the pinned parser returns on its own. The mechanism is
+    // written up upstream as `tobilg/polyglot#445`.
+    //
+    // It exists ONLY because `polyglot-sql 0.9.2`'s `Parser::parse_data_type` does not terminate -
+    // `a.:S1(` is the whole repro, six characters - and NOT because a fragment with an unclosed
+    // parenthesis is invalid. That judgement belongs to the parse, which makes it with a better
+    // diagnostic, and would make it here again the moment upstream returns.
+    //
+    // Removable when all three hold: a released `polyglot-sql` whose `parse_data_type` terminates
+    // at the end of the token stream, this workspace bumped to it, and the
+    // `fuzz/seeds/sql_expression/unclosed-paren-*` seeds still green under `just fuzz-smoke` with
+    // the guard gone.
+    //
+    // **NOTHING ENFORCES THE REMOVAL**, and that is a fact about this guard rather than a complaint.
+    // The refusal census enumerates `RefusalReason`, the domain type both transports carry, and this
+    // crate's error enums are not enrolled in it - `git grep ExpressionError -- xtask` is empty. So
+    // no gate holds this refusal and none would notice it going away: this comment and #589 are the
+    // whole of what points at it. A tripwire on the dependency's version was considered and declined.
+    //
+    // It is not a line deletion either, and the cost is worth knowing before someone starts.
+    // `ExpressionError::UnclosedParenthesis` goes with it - a public variant of this crate's error,
+    // though nothing outside this crate names it today - and so do the `unbounded` cells, which
+    // assert over the SENTENCE that variant renders rather than over the variant, `docs/adr/0004`'s
+    // section, and the committed rustdoc page that lists it, which `just api` regenerates and a gate
+    // byte-compares.
+    if let Some(column) = unclosed_parenthesis(fragment.as_str()) {
+        return Err(ExpressionError::UnclosedParenthesis {
+            tag: tag.clone(),
+            column,
+        });
+    }
     let expression = parse(fragment, tag)?;
     // Before the node walk, because a FILTER's predicate IS walked as an ordinary child: without
     // this the refusal for `SUM(a) FILTER (WHERE b = 1)` would be about `b`.
@@ -359,6 +394,74 @@ fn dialect_layer_refusal(expression: &Expression) -> Option<Construct> {
 /// field names, and neither is the other's proof.
 fn holds_comment_delimiter(text: &str) -> bool {
     text.contains("/*") || text.contains("*/") || text.contains("--")
+}
+
+/// Where the fragment opens a parenthesis it never closes, if it does.
+///
+/// **The parse this guards does not fail, it does not RETURN**, which is what makes this the one
+/// text-level question that is load-bearing rather than a refusal about quality. Measured against
+/// the pinned 0.9.2 and reduced from a fuzz artifact to six characters, `a.:S1(`: the argument loop
+/// in `Parser::parse_data_type` breaks only on `check(TokenType::RParen)`, that answers `false` at
+/// the end of the token stream, and `advance()` past the end returns the last token WITHOUT moving
+/// the cursor - so the loop runs forever while `*last = format!("{} {}", last, token.text)` grows a
+/// string a byte at a time. Timeout and out-of-memory are the same defect at two ages, and neither
+/// existing bound can see either. `MAX_DEPTH` is asked in [`parse`] of a tree the parse has already
+/// RETURNED, so on this input it is never reached at all - and it would be unremarkable if it were,
+/// because no deep tree is ever built. `MAX_FRAGMENT_LEN` is the wrong axis for a kindred reason:
+/// the recorded artifacts are 24 and 26 bytes. The condition refused here is the one every
+/// scan-to-a-closer loop in that parser needs, so it is a bound on the class rather than on the
+/// route the first artifact happened to take: `.:` reads the next word as a custom data type, and
+/// `CAST(mrr_eur AS S1(9` reaches the same argument loop with no `.:` in it at all.
+///
+/// **Which is why the bound is not on the construct - `.:` is neither necessary nor sufficient,
+/// measured on the pinned 0.9.2 rather than reasoned about.** `mrr_eur.:S1(9)` parses and returns,
+/// so refusing the construct would refuse a harmless spelling; `CAST(mrr_eur AS S1(9` loops with
+/// no `.:` present, so it would still miss one. The earlier wording here named `::` beside `CAST`
+/// and was wrong about that half: `mrr_eur::S1(`, `mrr_eur::DECIMAL(` and `mrr_eur::STRUCT(a` all
+/// error and return.
+///
+/// **Asked of the TOKENS the authoring dialect produces, and that is the whole of why this is not a
+/// count of `(` against `)`.** A count fails open exactly the way the count in
+/// [`holds_comment_delimiter`] did, one character class over: in `mrr_eur.:S1(')'` the two
+/// characters balance, while the `)` is a string literal the tokenizer hands over as one token and
+/// never as an `RParen` - so the count agrees and the parser is left with a parenthesis that has no
+/// closer. Asking the tokenizer costs nothing that was not going to be spent, because it is the
+/// tokenizer [`parse`] is about to run: there is no second scanner here to disagree with it about
+/// dollar-quoting, which is the disagreement `holds_comment_delimiter` exists not to have. The
+/// dialect layer's own `guard::token_guard_tests` holds this token stream and the parser's own to
+/// the same parenthesis depth.
+///
+/// A tokenizer failure is deliberately **not** this guard's to report: [`parse`] runs the same
+/// tokenizer one step later and returns its error as [`ExpressionError::Unparsable`], which
+/// terminates. Measured rather than reasoned - `mrr_eur.:S1( '` does not tokenize, so this guard
+/// says nothing about it and the parse it falls through to errors instead of looping. **Nothing
+/// mechanical holds that**: it is true because the parse tokenizes before it descends, which is a
+/// property of the pinned version rather than of its API, and no cell here can be red against a
+/// base tree that has no guard at all.
+fn unclosed_parenthesis(text: &str) -> Option<usize> {
+    let authoring = polyglot_sql::dialects::Dialect::get(AUTHORING);
+    let tokens = authoring.tokenize(text).ok()?;
+    // The columns of the parentheses still open, innermost last. A depth counter would answer
+    // *whether* and this answers *where*, for a refusal an author can act on.
+    //
+    // From the token's own `span.start`, which the dialect layer documents as a byte offset, and
+    // NOT from its `span.column`: that field is one past the token here - measured, `(` at offset
+    // eleven reports thirteen - so a refusal built on it would point an author at the wrong
+    // character. Byte offset and character position are the same number because the guard above
+    // has already refused every non-ASCII fragment.
+    let mut opened: Vec<usize> = Vec::new();
+    for token in &tokens {
+        match token.token_type {
+            TokenType::LParen => opened.push(token.span.start + 1),
+            TokenType::RParen => {
+                opened.pop();
+            }
+            _ => {}
+        }
+    }
+    // A `)` with no opener leaves this empty, and is left to the parser: `SUM(mrr_eur))` is a parse
+    // error in the authoring dialect, which returns.
+    opened.first().copied()
 }
 
 /// Does this fragment aggregate anything?

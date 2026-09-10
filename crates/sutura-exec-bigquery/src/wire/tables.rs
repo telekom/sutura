@@ -332,14 +332,21 @@ where
     Err(WireError::ListingDidNotFinish { pages: MAX_PAGES })
 }
 
-/// Whether a listing failure was the endpoint REFUSING, rather than failing to answer.
+/// Whether a failure was the endpoint REFUSING, rather than failing to answer.
 ///
 /// **A free function here rather than a method in `wire.rs`, for the reason `document.rs` exists:**
 /// that file was at the length gate, and everything about the listing belongs together anyway.
 ///
+/// **It is also the ONE classifier both transport predicates delegate to.** The wire's
+/// [`crate::transport::JobTransport::listing_was_refused`] and its query-time sibling
+/// [`crate::transport::JobTransport::job_was_refused`] both call this, so the boot-time and query-time splits cannot
+/// drift apart: a refused status is refused the same way whether the refused read listed a dataset
+/// or ran a statement. The match is over the shared [`WireError`], which both reads produce.
+///
 /// A `401` means the identity this source was opened with could not authenticate at all, and a `403`
-/// USUALLY means it may not list the dataset - which fails identically on every boot, and which one
-/// IAM grant fixes. Everything else is `false`, exhaustively rather than through a wildcard: an
+/// USUALLY means it may not do what it asked - list the dataset, read the statement - which fails
+/// identically on every retry and which one IAM grant fixes. Everything else is `false`, exhaustively
+/// rather than through a wildcard: an
 /// unreachable host, an unreadable body, a listing that would not decode, a page token this transport
 /// will not send, a dataset that did not finish listing. Each of those is a condition that can pass,
 /// so telling a composition root to stop would refuse a deployment that would have worked.

@@ -880,6 +880,7 @@ splitting a message on `", "`, which is a contract nothing checks and a format e
 - `Unrenderable` - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a `Shape`, because a `Shape` carries no cause and this one has one worth keeping.
 - `Refused`
 - `NonAscii` - A character the pinned dialect layer's generator cannot survive.
+- `UnclosedParenthesis` - A parenthesis the fragment opens and never closes.
 - `UnknownColumn`
 - `UnknownFunction` - A called function that is not one of the names a measure may call.
 - `TooDeep` - A fragment nesting deeper than the checks can walk. See the guard in `super::parse`, in the parent module.
