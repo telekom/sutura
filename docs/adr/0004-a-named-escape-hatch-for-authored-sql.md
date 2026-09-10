@@ -316,11 +316,67 @@ paragraph about `.:` above exists to avoid, and an overstated control is worse t
 Taking it is a behavioural change with its own variant, its own generated page and its own review,
 and the bar is the one this section's guard met: 32 authored fragments with zero over-refusals.
 
+### Amendment, 2026-09-11: the candidate was taken
+
+**Two facts arrived that the paragraph above did not have, and both of them change what is being
+traded.** The paragraph weighs *a recorded slow parse* against *an overstated control*. Neither half
+survived the next run.
+
+The first: the next 900 s budget on this same guarded tree - a clean worktree at the tip of this
+branch, seeded from a 4787-input corpus rather than the 15 committed seeds - **exited 1 with an
+out-of-memory**, `oom-f4c88f04765061d943ab1c38fb950d2d764d76bb`, 252 bytes, no parenthesis in them.
+So this is not a ceiling somebody recorded; it is the `fuzz (sql_expression)` leg red, found twice
+from a corpus richer than CI's and reachable from CI's own 900 s budget. Live heap ~50 MB behind
+4.3M quarantined chunks, so what libFuzzer reports is churn from re-parsing rather than one
+allocation - which is also why `cargo fuzz tmin` cannot reduce it and answers *did not crash*.
+
+The second, and it is the one that retires *slow load* as the description: **on the tree without this
+bound, under the unoptimized `ci` profile, that artifact kills the process with `SIGBUS` in 0.16 s.**
+The re-parse recurses through the whole precedence ladder once per keyword `IF`, so the thread's
+stack goes long before the clock does. `MAX_DEPTH` cannot see it for the reason stated above - `parse`
+asks `tree_depth` of a tree the parse has already RETURNED - and on this input it never returns one.
+A process kill on a boundary whose author this threat model does not trust is not a cost to weigh
+against an imperfect bound.
+
+**And the control is narrower than *the route this run found*.** What
+`ExpressionError::UncalledIf` refuses is `Parser::parse_primary`'s own branch condition, read off the
+pinned 0.9.2 and mirrored literally - an `If` token followed by neither `.` nor `(`, with the RAW
+next token and a missing one counted as neither, exactly as `!check_next(..)` counts it at the end of
+the stream. The speculative path becomes unreachable rather than unlikely, so the claim is not *the
+sixteen words are the keyword set*; it is *this branch cannot be entered*. Stated the other way, and
+this is the limit the paragraph above was right to insist on: **it closes one SITE and not the
+class.** `NEXT VALUE FOR` is another speculative retreat in the same function and the TSQL
+`OBJECT_ID` path a third, and nothing here bounds parse cost in general.
+
+**The over-refusal bar, met and then some.** The accepted cost is exactly one spelling:
+`IF condition THEN a ELSE b END` stops compiling. It compiled before - measured, and it rendered as
+`IF(condition, a, b)` in all four dialects - so the capability survives as `IF(..)`, which is what the
+pinned parser normalises the keyword form to anyway, and as `CASE WHEN .. THEN .. END`, which is what
+every conditional in this repository's tests, corpus and seeds already writes. The whole suite is
+green with the bound and **no other cell moved** - 3027 tests - and the four allowlisted names that
+contain the letters (`COUNTIF`, `COUNT_IF`, `SUMIF`, `SUM_IF`) are asserted accepted rather than
+measured once in prose, which is the half the paragraph above left as a measurement. The cost itself
+is asserted too, so withdrawing it is a decision somebody takes rather than a drift.
+
+**A note on the proof, because the obvious cell ordering does not work.** `just causality` reads a
+base run that died without naming a test as INCONCLUSIVE, not as a red - and on base the recorded
+artifact aborts the process in 0.16 s. Measured: with the artifact asserted first the gate reported
+*the base run named no failure*, exit 3, proving nothing. The cell therefore asserts the accepted
+COST first, which base fails cleanly in microseconds, and the artifact second. Do not reorder it.
+
 The three inputs are **deliberately not committed as seeds.** `just fuzz-smoke` replays every seed
 in `fuzz/seeds/<target>/` and runs as a pre-commit hook, so a 225 s seed takes that hook from
 seconds to minutes and makes committing unusable. The reduced forms are cheap enough to commit -
 0.2 to 0.3 s each - and are still not committed, because with no bound there is nothing for a
 replay to be a regression against: it would assert that a parse still returns slowly.
+
+**Amended by the same change, and the objection is answered by the bound rather than waived.** The
+artifact that turned the leg red IS committed, as `fuzz/seeds/sql_expression/uncalled-if-oom`,
+byte-identical. Both halves of the paragraph above stop applying once the refusal exists: the seed
+replays in microseconds because it is refused before the parser sees it - `just fuzz-smoke` reports
+`Done 20 runs in 0 second(s)` - so the pre-commit hook stays in seconds, and there IS something for
+the replay to be a regression against, namely the refusal. The three `slow-unit` inputs remain
+uncommitted, because for those the paragraph still holds exactly as written.
 
 ### The fragment is bounded in depth as well as in length
 

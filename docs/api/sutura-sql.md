@@ -881,6 +881,7 @@ splitting a message on `", "`, which is a contract nothing checks and a format e
 - `Refused`
 - `NonAscii` - A character the pinned dialect layer's generator cannot survive.
 - `UnclosedParenthesis` - A parenthesis the fragment opens and never closes.
+- `UncalledIf` - An `IF` this fragment writes as a KEYWORD, which the pinned parser re-parses the rest of the fragment for and then throws away.
 - `UnknownColumn`
 - `UnknownFunction` - A called function that is not one of the names a measure may call.
 - `TooDeep` - A fragment nesting deeper than the checks can walk. See the guard in `super::parse`, in the parent module.

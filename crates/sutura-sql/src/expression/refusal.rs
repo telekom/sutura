@@ -333,6 +333,50 @@ pub enum ExpressionError {
          dialect layer's parser does not return on that input"
     )]
     UnclosedParenthesis { tag: DialectTag, column: usize },
+    /// An `IF` this fragment writes as a KEYWORD, which the pinned parser re-parses the rest of the
+    /// fragment for and then throws away.
+    ///
+    /// **One branch, and it is the parser's own.** Found by the `sql_expression` fuzz target as an
+    /// out-of-memory. `Parser::parse_primary` takes an `IF` followed by neither `.` nor `(`,
+    /// remembers the cursor, and calls `Parser::parse_if`; that parses a whole disjunction looking
+    /// for a `THEN`, and when the remainder cannot be parsed at all it answers `None`, at which
+    /// point `parse_primary` restores the cursor and parses the same remainder AGAIN as an
+    /// identifier. Every nested keyword `IF` therefore parses the tail twice, so the cost DOUBLES
+    /// per `IF`. Measured against the pinned 0.9.2 in the harness that found it,
+    /// `("IF~" * k) + "I?{"`: 1.2 s at k=16, 22.5 s at k=20, 91.1 s at k=22, 389.1 s at k=24 - and
+    /// k=24 is 75 bytes against a [`sutura_domain::expression::MAX_FRAGMENT_LEN`] of 1024, so
+    /// neither that bound nor `Self::TooDeep` is anywhere near this. Two report shapes for one
+    /// defect, as with [`Self::UnclosedParenthesis`]: a slow unit while the re-parsing is cheap, an
+    /// out-of-memory once the churn is large - the recorded artifact's LIVE heap was ~50 MB behind
+    /// 4.3M quarantined chunks, which is churn and not one large allocation. **And a third shape,
+    /// which is the worst of them and was measured on the tree without this bound: under the
+    /// unoptimized `ci` profile the recorded artifact kills the process with `SIGBUS` in 0.16 s.**
+    /// The re-parse recurses through the whole precedence ladder once per keyword `IF`, so it
+    /// exhausts the thread's stack long before it exhausts the clock - which is why `Self::TooDeep`
+    /// cannot help: `super::parse` asks `tree_depth` of a tree the parse has already RETURNED, and
+    /// on this input it never gets one. So this is a process kill on the authored-SQL boundary and
+    /// not a slow load. `cargo fuzz tmin`
+    /// cannot reduce it for that reason and reports "did not crash", which is why the seed beside it
+    /// is byte-identical to the artifact and the reduction is the parametric family above.
+    ///
+    /// `column` is 1-based in the author's own fragment, as in [`Self::UnclosedParenthesis`].
+    ///
+    /// **What this costs, stated rather than left to be discovered.** The keyword spelling
+    /// `IF condition THEN a ELSE b END` stops compiling, and it compiled before - measured, not
+    /// assumed. The capability is not lost: `IF(condition, a, b)` is accepted and is what the pinned
+    /// parser renders the keyword spelling as in all four dialects anyway, and
+    /// `CASE WHEN condition THEN a ELSE b END` is the spelling every conditional in this
+    /// repository's own tests and fuzz seeds already uses. What is refused is exactly the parser's
+    /// branch condition, so that speculative path becomes unreachable - **which closes this SITE and
+    /// not the class.** The same parser retreats the same way elsewhere (`NEXT VALUE FOR` is one),
+    /// nothing here bounds parse cost in general, and no gate holds this refusal: see
+    /// `super::uncalled_if`.
+    #[error(
+        "the {tag} fragment writes IF as a keyword at character {column}, with no '(' after it, and the \
+         dialect layer's parser re-parses the rest of the fragment once per such IF; write \
+         IF(condition, a, b) or CASE WHEN condition THEN a ELSE b END"
+    )]
+    UncalledIf { tag: DialectTag, column: usize },
     #[error("the {tag} fragment reads column {column:?}, which model table {table} does not declare")]
     UnknownColumn {
         tag: DialectTag,

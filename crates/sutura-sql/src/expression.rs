@@ -270,8 +270,8 @@ fn check(
     if holds_comment_delimiter(fragment.as_str()) {
         return Err(refused(tag, Construct::Comment));
     }
-    // Last of the three questions asked before the text is handed over, and the only one that has
-    // to be: the parse it guards does not return. See `unclosed_parenthesis`.
+    // Third of the four questions asked before the text is handed over, and the only one whose
+    // parse does not RETURN at all. See `unclosed_parenthesis`.
     //
     // TODO(#589): delete this guard once the pinned parser returns on its own. The mechanism is
     // written up upstream as `tobilg/polyglot#445`.
@@ -293,11 +293,17 @@ fn check(
     // 14.6 s in a release build with no sanitizer, +-10% run to run. All three reduce to a chain of
     // `IF~` pairs with a tail that cannot parse, and the cost doubles per `IF`:
     // `("IF~" * 24) + "I?{"` is 75 bytes and 14 s, so `MAX_FRAGMENT_LEN` is nowhere near a bound on
-    // it. Nothing here bounds it either - the time is re-parsing inside `polyglot_sql::parser`, the
-    // dependency's own complexity options all sit far above these inputs, and `MAX_DEPTH` is asked
-    // once the parse has already paid.
-    // `docs/adr/0004` records the measurements, the candidate refusal that was left on the table,
-    // and why: it would bound the one route measured while reading as a bound on the class.
+    // it. The time is re-parsing inside `polyglot_sql::parser`, the dependency's own complexity
+    // options all sit far above these inputs, and `MAX_DEPTH` is asked once the parse has already
+    // paid.
+    //
+    // **`uncalled_if` below is what bounds that now, and this paragraph used to end with "nothing
+    // here bounds it either".** What changed the trade is in `docs/adr/0004`'s amendment: the next
+    // 900 s budget on this guarded tree exited 1 with an out-of-memory the parenthesis question
+    // passes, and the same artifact kills the process with `SIGBUS` in 0.16 s under the `ci`
+    // profile - so the second class is a process kill rather than a slow load. What is still true
+    // of THIS question is the heading: it stops non-termination, and the superlinear route is the
+    // next guard's, not this one's.
     //
     // **NOTHING FORCES THE REMOVAL**, and that is a fact about this guard rather than a complaint.
     // The refusal census enumerates `RefusalReason`, the domain type both transports carry, and this
@@ -317,6 +323,22 @@ fn check(
     // byte-compares.
     if let Some(column) = unclosed_parenthesis(fragment.as_str()) {
         return Err(ExpressionError::UnclosedParenthesis {
+            tag: tag.clone(),
+            column,
+        });
+    }
+    // The FOURTH text-level question, and the second one that has to be here: the parse it guards
+    // returns, and does work the fragment's length does not bound. See `uncalled_if`.
+    //
+    // Asked after the parenthesis question rather than before it, and the order is a diagnostic
+    // choice: a fragment that is short a closer is told that first, because closing it is the edit
+    // its author was going to make anyway, and the two conditions are independent - the recorded
+    // artifact for this one carries no parenthesis at all.
+    //
+    // TODO(#589): both of these go when the pinned parser stops needing them, and they go
+    // separately - a `parse_data_type` that terminates says nothing about this branch.
+    if let Some(column) = uncalled_if(fragment.as_str()) {
+        return Err(ExpressionError::UncalledIf {
             tag: tag.clone(),
             column,
         });
@@ -486,6 +508,51 @@ fn unclosed_parenthesis(text: &str) -> Option<usize> {
     // A `)` with no opener leaves this empty, and is left to the parser: `SUM(mrr_eur))` is a parse
     // error in the authoring dialect, which returns.
     opened.first().copied()
+}
+
+/// The column of an `IF` this fragment writes as a KEYWORD rather than as a call, if there is one.
+///
+/// **The parse this guards RETURNS, and that is the difference from [`unclosed_parenthesis`]**: it
+/// comes back with an answer, having done work that the fragment's length does not bound. On the
+/// pinned 0.9.2, `Parser::parse_primary` reaching an `IF` that is followed by neither `.` nor `(`
+/// saves the cursor, calls `Parser::parse_if`, and - when that answers `None`, which it does
+/// whenever the remainder is not a parseable disjunction - restores the cursor and parses the same
+/// remainder again. So the tail is parsed twice per keyword `IF`, and nesting them doubles the cost:
+/// `("IF~" * 24) + "I?{"` is 75 bytes and 389 s, `MAX_FRAGMENT_LEN` allows 1024, and the recorded
+/// artifact is what a run does with that - an out-of-memory from allocation churn.
+///
+/// **This mirrors the parser's own branch condition, deliberately and literally.** `check_next`
+/// there is a RAW `tokens[current + 1]` with no trivia skipped and no bounds fallback other than
+/// `false`, so this asks the same question the same way: the immediately following token, and a
+/// missing one counts as neither `.` nor `(` - exactly as `!check_next(..)` does at the end of the
+/// stream. Forming an opinion here about what a space between `IF` and `(` means would be a second
+/// scanner disagreeing with the parser's, which is the disagreement [`holds_comment_delimiter`]
+/// exists not to have. [`AUTHORING`] is neither `TSQL` nor `Fabric`, the only pair for which that
+/// branch reads a following `(` as a statement rather than as a call, so the dialect half of the
+/// condition is constant here and is not asked.
+///
+/// **Asked of the TOKENS for [`unclosed_parenthesis`]'s reason and one of its own.** A text scan for
+/// `IF` matches inside `NULLIF`, `COUNTIF`, `SUM_IF` and a quoted `"if"` column, none of which is an
+/// `If` token, so it would refuse four ordinary fragments. The same one-tokenizer-two-entry-points
+/// limit applies: `Dialect::tokenize` and the parse's own `tokenize_for_parser` run the same state
+/// machine over two token types, so the sequence of TYPES is the same, and what this call does not
+/// make is the input-size check the parse makes before it.
+///
+/// **What it does not cover.** The keyword `IF` is one speculative retreat in that parser and not
+/// the only one - `NEXT VALUE FOR` is another in the same function - and nothing here bounds parse
+/// cost in general. This closes the site the fuzzer found, at the price stated on
+/// [`ExpressionError::UncalledIf`], and a fragment is still free to be expensive some other way.
+fn uncalled_if(text: &str) -> Option<usize> {
+    let authoring = polyglot_sql::dialects::Dialect::get(AUTHORING);
+    let tokens = authoring.tokenize(text).ok()?;
+    tokens.iter().enumerate().find_map(|(index, token)| {
+        let calls_or_qualifies = tokens
+            .get(index + 1)
+            .is_some_and(|next| matches!(next.token_type, TokenType::Dot | TokenType::LParen));
+        // From `span.start`, one-based, for the reason `unclosed_parenthesis` gives about
+        // `span.column`.
+        (token.token_type == TokenType::If && !calls_or_qualifies).then(|| token.span.start + 1)
+    })
 }
 
 /// Does this fragment aggregate anything?

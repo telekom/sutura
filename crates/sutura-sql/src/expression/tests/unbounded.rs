@@ -21,6 +21,14 @@
 //! with no guard at all, because such a tree accepts that fragment too. What it is red against is a
 //! guard that counts `(` against `)` in the text - measured. It rides inside a `#[test]` that IS
 //! red on base, so the gate's verdict on this module does not come from it.
+//!
+//! **Two bounds live here now, and they are different defects with the same cause.**
+//! `UnclosedParenthesis` refuses a parse that does not RETURN; `UncalledIf` refuses one that
+//! returns having done work no bound on the fragment can see. The second half's accepted-spelling
+//! assertions are NOT red against base - base accepts them too - and are written down rather than
+//! counted as coverage: what they are red against is a bound that refuses every `IF`, which is the
+//! over-refusal a reader of this file would reach for first. They ride inside a `#[test]` whose
+//! other assertions ARE red on base, so the gate's verdict on this module does not come from them.
 
 use std::thread;
 use std::time::{Duration, Instant};
@@ -188,4 +196,107 @@ fn the_bound_is_over_tokens_so_a_closer_inside_a_string_literal_closes_nothing()
         accepted.starts_with("ACCEPTED"),
         "a parenthesis inside a string literal is balanced in the TOKENS and must compile, got: {accepted}"
     );
+}
+
+/// The artifact the `sql_expression` target recorded for the SPECULATIVE-IF defect, quarantined
+/// byte-identical as `fuzz/seeds/sql_expression/uncalled-if-oom` so `just fuzz-smoke` replays it.
+///
+/// **A `&str` rather than a byte literal, and every byte here is ASCII** - so this IS the artifact
+/// and not a transcription of one, and `from_utf8_lossy` would be the identity on it.
+///
+/// **`include_bytes!` on the seed was tried first and `just causality` refuses it**, which is worth
+/// knowing before someone reaches for it again: the gate reconstructs a base tree by reverting the
+/// non-test files in the diff, an ADDED file is simply absent from that tree, and a test module that
+/// cannot compile without it makes the gate report *the tests this diff added did not run on base*
+/// rather than a red. So the bytes are duplicated on purpose, and the cost of that is the cost
+/// [`RECORDED`] already pays: editing the seed without editing this leaves the cell green over the
+/// copy. Nothing holds the two equal.
+///
+/// **One artifact and no smaller one, and `cargo fuzz tmin` is why.** It was reported as an
+/// out-of-memory whose live heap was ~50 MB behind 4.3M quarantined chunks - churn from re-parsing,
+/// not one large allocation - so replayed alone it never crosses the resident-set limit and the
+/// minimisation answers "did not crash". The reduction is parametric instead: the doubling family in
+/// the cell below is what isolates the trigger. **There is no parenthesis anywhere in these bytes**,
+/// which is why the sibling bound cannot see it.
+const RECORDED_UNCALLED_IF: &str = concat!(
+    "L2[[[[ IF~ [$1>N$D* IF~ L2[[[L2[[[[[N[[[[NN[[[[NIF~IF = IF~IF~ [IF~I~S[L%SW<=IF~IF~S[L%SW<=NL4",
+    "[%%L%SW<=%%L%EIF~IF =IF = IF~IF~ [IF~IFDISNL4[%%LIF~IF~S[L%SW<=NL4[%%L%SW<=%%L%EIF~IF =IF = IF",
+    "~IF~ [IF~IFDISTINT[ IF~ [[[N!z*[$2>2[[[[ IF~ [$2>N|I[[[NN!!~~*le",
+);
+
+/// The character the recorded artifact's first keyword `IF` sits at, 1-based.
+const UNCALLED_IF_COLUMN: usize = 8;
+
+/// The sentence this bound produces, without the character it names.
+const UNCALLED: &str = "as a keyword at character";
+
+#[test]
+fn a_keyword_if_is_refused_where_it_is_written_and_a_called_one_is_not() {
+    // **FIRST, and the order is load-bearing for `just causality` rather than for a reader.** This
+    // is the assertion that is red against base CLEANLY: base accepts this spelling and answers in
+    // microseconds, so the cell fails here with a message naming the test. The two assertions below
+    // it are red against base as well and neither is USABLE as the proof - the recorded artifact
+    // kills the base process with `ABORT SIG 10` in 0.16 s under the unoptimized `ci` profile,
+    // because `parse_primary` -> `parse_if` -> the whole precedence ladder recurses once per keyword
+    // `IF` and exhausts the thread's stack, and the gate reads a process that died without naming a
+    // test as INCONCLUSIVE rather than as a red. Measured: putting the artifact first reported
+    // *the base run named no failure*, exit 3, proving nothing. Do not reorder these.
+    //
+    // It is also the COST on the record rather than a surprise: this spelling compiled before this
+    // bound and rendered as `IF(..)` in all four dialects, and it does not compile now.
+    let keyword_form = verdict_within_the_deadline("SUM(IF status = 'active' THEN mrr_eur ELSE 0 END)");
+    assert!(
+        keyword_form.contains(&format!("{UNCALLED} 5")),
+        "the keyword spelling is the accepted cost of this bound and must be refused, got: {keyword_form}"
+    );
+
+    // The recorded artifact. On base this does not return a verdict at all - see above - so what it
+    // proves is that the bound refuses the exact bytes the fuzzer recorded, at the character it
+    // names, which is the half a seed replay cannot assert.
+    let verdict = verdict_within_the_deadline(RECORDED_UNCALLED_IF);
+    assert!(
+        verdict.contains(&format!("{UNCALLED} {UNCALLED_IF_COLUMN}")),
+        "the recorded fuzz artifact must be refused at character {UNCALLED_IF_COLUMN}, got: {verdict}"
+    );
+
+    // **The axis, and the reason the bound is on the keyword rather than on the artifact's shape.**
+    // Each `IF~` doubles the parse: measured in the harness that found it, this family costs 1.2 s
+    // at k=16, 22.5 s at k=20, 91.1 s at k=22 and 389.1 s at k=24, so 75 bytes crosses libFuzzer's
+    // own 1200 s timeout two doublings later while `MAX_FRAGMENT_LEN` still allows 1024. It never
+    // runs on base, because the assertion above it has already failed the cell there; what it holds
+    // is that the bound is on the KEYWORD and so refuses the whole family rather than one recorded
+    // shape. The first keyword `IF` is at character 1.
+    let mut doubling = "IF~".repeat(24);
+    doubling.push_str("I?{");
+    let verdict = verdict_within_the_deadline(&doubling);
+    assert!(
+        verdict.contains(&format!("{UNCALLED} 1")),
+        "a chain of keyword IFs must be refused at the first of them, got: {verdict}"
+    );
+
+    // What the bound must NOT touch, and the half that is not red on base - see the module comment.
+    // `IF(..)` is a call, so the parser never takes the speculative branch for it; `CASE WHEN` is
+    // the spelling every other conditional in this repository uses. A guard that refused the `IF`
+    // TOKEN rather than an uncalled one would be red here, which is the over-refusal worth pinning.
+    //
+    // The four allowlisted names that CONTAIN the letters are here for the same reason, and this is
+    // the half `docs/adr/0004` previously carried as a measurement rather than an assertion: none of
+    // them tokenizes to an `If` token, so a guard that matched the TEXT `IF` would refuse four
+    // ordinary aggregates. `NULLIF` is a fifth, inside a ratio, because the guard rides on the same
+    // token walk the parenthesis one does and a ratio is the shape that walk exists for.
+    for accepted in [
+        "SUM(IF(status = 'active', mrr_eur, 0))",
+        "SUM(CASE WHEN status = 'active' THEN mrr_eur END)",
+        "COUNTIF(status = 'active')",
+        "COUNT_IF(status = 'active')",
+        "SUMIF(mrr_eur, status = 'active')",
+        "SUM_IF(mrr_eur, status = 'active')",
+        "SUM(mrr_eur) / NULLIF(COUNT(status), 0)",
+    ] {
+        let verdict = verdict_within_the_deadline(accepted);
+        assert!(
+            verdict.starts_with("ACCEPTED"),
+            "{accepted:?} calls IF or does not write it, so this bound must not reach it, got: {verdict}"
+        );
+    }
 }
