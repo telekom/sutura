@@ -142,11 +142,14 @@ jobs:
         with:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
           # substituter stays absent, so a pull request cannot point CI at a store it controls.
-          # No third-party substituter is configured here either - `docs/adr/0026` records the
-          # Actions cache as the only carrier. `cargo xtask check-workflows` refuses one NAMED in
-          # a workflow, in either spelling nix accepts (`name = value` and `--name value`); it
-          # cannot see a URL assembled from pieces or handed to nix by another action, so this
-          # says what is configured here rather than what nix can possibly be told.
+          # ONE store outside this repository is trusted - `sutura.cachix.org`, this repository's
+          # own OSS binary cache, provisioned by `docs/adr/0027` and named below with its public
+          # key committed - beside the Actions store cache. It is a live second carrier behind the
+          # Actions cache, not a third-party one. `cargo xtask check-workflows` refuses a store
+          # NAMED in a workflow, in either spelling nix accepts (`name = value` and `--name value`)
+          # unless it is exactly this permitted pair in the `extra-` assignment form; it cannot see
+          # a URL assembled from pieces or handed to nix by another action, so this says what is
+          # configured here rather than what nix can possibly be told.
           extra_nix_config: |
             fallback = true
             extra-substituters = https://sutura.cachix.org

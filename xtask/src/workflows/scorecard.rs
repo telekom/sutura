@@ -225,7 +225,16 @@ fn reuse_badge_problems(root: &Path, readme: &str, slug: &str, package: &str) ->
 
     match sources::ci_sources(root) {
         Some(found) => {
-            if !found.iter().any(|source| source.text.contains(REUSE_CHECK)) {
+            // `uncommented` rather than `text.contains`, and that is
+            // `github.com/telekom/sutura#447`: the whole text mentions the check from a
+            // commented-out line as readily as from the one that runs it, so a `#` in front of
+            // `ci.yml`'s licence step left this rule answering `true` at exit 0 with the badge in
+            // place. Measured both ways - commenting the line out was exit 0 before this and is
+            // exit 1 after it, while replacing the line was already refused. The reader is the one
+            // two functions below, which `publishes` uses for the same reason, and it agrees with
+            // `super::collect`'s `a_comment_is_not_a_reference` - that reader walked the same file
+            // in the same pass and its count fell 67 -> 66 on the mutation this rule could not see.
+            if !builds_reuse_check(&found) {
                 problems.push(format!(
                     "{README} claims REUSE compliance and no workflow, action or CI script builds `{REUSE_CHECK}` - a declared check nothing invokes measures nothing"
                 ));
@@ -438,6 +447,17 @@ pub(super) fn publishes(workflow: &str) -> bool {
     })
 }
 
+/// Does any CI source actually BUILD the licence check, as opposed to mentioning it?
+///
+/// A separate function so a fixture can drive the rule: `reuse_badge_problems` reads the README,
+/// `flake.nix`, `REUSE.toml` and the whole CI tree off a root, and a rule reachable only through
+/// all four is a rule tested by the repository happening to be correct.
+fn builds_reuse_check(found: &[sources::Source]) -> bool {
+    found
+        .iter()
+        .any(|source| uncommented(&source.text).any(|line| line.contains(REUSE_CHECK)))
+}
+
 /// Every line that is not wholly a comment.
 ///
 /// Whole lines only, deliberately. Stripping from the first `#` would also cut the `# v7.0.1`
@@ -449,6 +469,49 @@ pub(super) fn uncommented(text: &str) -> impl Iterator<Item = &str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A CI source carrying `text` and a label nothing asserts on.
+    fn source(text: &str) -> sources::Source {
+        sources::Source {
+            label: String::from("ci.yml"),
+            text: String::from(text),
+        }
+    }
+
+    #[test]
+    fn a_commented_out_licence_step_does_not_build_the_reuse_check() {
+        // `github.com/telekom/sutura#447`. The badge asserts REUSE compliance is CHECKED, and the
+        // rule under it used to ask whether the file's whole text mentioned the check - so one `#`
+        // switched the check off and left the claim standing at exit 0. Both spellings the real
+        // workflow uses are here, because commenting out only one of them leaves the other running.
+        let commented = source(concat!(
+            "      - name: Licensing\n",
+            "        # run: nix build .#checks.x86_64-linux.reuse -L\n",
+            "      - name: Gates\n",
+            "        run: |-\n",
+            "          nix build -L --keep-going \\\n",
+            "            .#checks.x86_64-linux.hygiene \\\n",
+            "        #     .#checks.x86_64-linux.reuse \\\n",
+        ));
+        assert!(
+            !builds_reuse_check(std::slice::from_ref(&commented)),
+            "a commented-out step counts as building the check, which is the defect"
+        );
+
+        // The other direction, so the rule is not simply always false: the same file with the
+        // comment markers gone is the tree this repository actually has.
+        let live = source(concat!(
+            "      - name: Licensing\n",
+            "        run: nix build .#checks.x86_64-linux.reuse -L\n",
+        ));
+        assert!(
+            builds_reuse_check(std::slice::from_ref(&live)),
+            "the step that does run the check has to satisfy the rule, or the gate reddens a correct tree"
+        );
+
+        // And an absent mention is still absent - the arm that was already correct.
+        assert!(!builds_reuse_check(&[source("      - name: Nothing to do here\n")]));
+    }
 
     #[test]
     fn the_slug_comes_from_the_declared_download_location() {

@@ -164,22 +164,17 @@ macro_rules! principal_newtype {
     };
 }
 
-/// Writes a stable pseudonymous form without copying the principal.
+/// Writes a stable masked form without copying the principal.
 fn mask_principal(raw: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    let (local, domain) = raw
-        .split_once('@')
-        .map_or((raw, None), |(local, domain)| (local, Some(domain)));
-    for (position, segment) in local.split('.').enumerate() {
-        if position > 0 {
-            f.write_str(".")?;
+    let mut segment_start = true;
+    for character in raw.chars() {
+        if matches!(character, '.' | '@') {
+            write!(f, "{character}")?;
+            segment_start = true;
+        } else if segment_start {
+            write!(f, "{character}***")?;
+            segment_start = false;
         }
-        if let Some(initial) = segment.chars().next() {
-            write!(f, "{initial}")?;
-        }
-        f.write_str("***")?;
-    }
-    if let Some(domain) = domain {
-        write!(f, "@{domain}")?;
     }
     Ok(())
 }

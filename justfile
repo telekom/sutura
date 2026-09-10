@@ -348,11 +348,13 @@ gates: hygiene
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
-    # The BYTE-COMPARE half of the attribution gate. Here rather than in `hygiene` because it runs
+    # The DERIVING half of the attribution gate. Here rather than in `hygiene` because it runs
     # `cargo metadata`, which needs a resolvable registry the nix sandbox has not got - the same
-    # reason `check-api-docs` is not a hygiene gate. `check-attribution` in the sweep only sees that
-    # a licence cell is non-empty, so without this the main content of a generated file is trusted.
-    cargo run -q -p xtask -- check-attribution-current
+    # reason `check-api-docs` is not a hygiene gate. The document is generated and NOT committed, so
+    # there is nothing to byte-compare: this generates one and refuses an incomplete result. The
+    # sweep's `check-attribution-owner` is the offline half, and it holds the ABSENCE of a committed
+    # copy - which is the property that keeps a dependency bump from being red on arrival.
+    cargo run -q -p xtask -- check-attribution
     # The DEFAULT-feature lane, and it is here for the line above's reason: it shells out to cargo.
     # Every other compiling gate in this repo passes `--all-features`, and `nix/shipped.nix`
     # publishes cargo's default set - so a `#[cfg(feature = ...)]` compiled only with the feature on
@@ -575,10 +577,16 @@ lint-workflows:
 devenv-linter:
     devenv shell devenv-linter
 
-# Regenerate the committed attribution document from `cargo metadata`. `ATTRIBUTION.md` is the
-# statement a distributor hands on - every third-party crate this workspace resolves and the licence
-# it declares - and `cargo xtask check-attribution` is the gate that fails when it falls behind the
-# lock. Through a bare `cargo` rather than nix, because `cargo metadata` is the tool and it needs the
+# Write the attribution document from `cargo metadata` - every third-party crate this workspace
+# resolves and the licence it declares, which is the statement a distributor hands on.
+#
+# **It is NOT committed, and that is the point.** A committed copy fell behind `Cargo.lock` on every
+# dependency bump, and since Dependabot cannot regenerate it, every bot bump was red on arrival.
+# `cargo xtask check-attribution-owner` refuses a committed copy; `.github/workflows/release.yml`
+# generates the released asset from the tagged tree. So this writes under `/target`, which
+# `.gitignore` already excludes, and exists for a human who wants to read the current list.
+#
+# Through a bare `cargo` rather than nix, because `cargo metadata` is the tool and it needs the
 # workspace's own resolver, not a pinned binary.
 attribution:
     #!/usr/bin/env bash
@@ -743,30 +751,10 @@ infra-set:
     test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
     STACK="{{stack}}" BQ_TEST_ENV="{{bq_test_env}}" PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/sync-bq-test-env.sh
 
-# The live BigQuery acceptance suite. It is outside `just validate` because nix checks have no
-# network. CI runs the same suite in its own `bq-test` environment job for pushes and same-repository
-# pull requests; fork pull requests skip it because they cannot receive that environment's secret.
-#
-# `--run-ignored only` reaches every `#[ignore]`d test in the two targets this task runs -
-# `tests/acceptance.rs` and `tests/corpus.rs` - rather than a listed set, so a test added there is
-# reached without this comment being edited. That is deliberate: a count here is a second thing to
-# keep true, and the copy of it in `flake.nix` had already fallen out of step by five. The
-# two-principal cell is excluded by BINARY and not by name, which is what keeps that property true
-# of both tasks rather than trading it for a list.
-# Every other test task skips them, and an unconfigured run fails rather than reporting green without
-# reaching a real project.
-#
-# **The dataset is SHARED** - the `SUTURA_BQ_DATASET` this targets is the same one CI's
-# `bq-test` job targets, by configuration. Since the closure of #119 every run names its own tables
-# with a per-run token (the CI run id, or a local clock+pid value), so a local run and a CI run
-# pointing at one dataset no longer race - each reads, and drops, only its own tables, which also
-# carry a 24-hour expiration in case a run is cancelled. A local run ANNOUNCES itself the same way
-# a CI run does: its table names, printed as they load, carry its token, so a log says which run
-# wrote them.
-#
-# Needs `just gcloud-login` once, and three values in the developer's own environment. Their names
-# are in that file's header; their values belong on the machine, which is what `.envrc` already
-# sources a file outside this repository for.
+# Live BigQuery acceptance is outside `just validate`: nix checks have no network. CI runs it in `bq-test` for pushes and same-repository PRs, not forks without secrets.
+# The ignored acceptance/corpus cells run by binary selection; missing inputs fail. Separate principal, exchange and cross-resource venues are excluded by binary.
+# The dataset is shared with CI. Per-run table suffixes isolate fixture reads and drops; 24-hour expiration bounds cancelled-run leftovers. Printed names identify the run.
+# Run `just gcloud-login` first and supply the test headers' environment inputs. Keep resource values in the invoking environment, never in this repository.
 
 # Run the live BigQuery acceptance suite against the configured project.
 bigquery-acceptance:
@@ -775,15 +763,34 @@ bigquery-acceptance:
     echo "bigquery-acceptance: scope sutura-exec-bigquery - the acceptance leg only, against a real project."
     echo "bigquery-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
-    # **The filter is the same one `apps.bigquery-acceptance` uses, and the two are held apart by
-    # nothing but this line.** Adding the exchanged-identity target without this exclusion made the
-    # task run that cell's `#[ignore]`d legs: red for every developer, because it fails on an
-    # environment value that does not exist rather than skipping - and where the two `_EMAIL`
-    # variables ARE set, it ran the exchange venue's control leg under the acceptance task's name,
-    # which is the venue confusion `docs/where-identity-is-proven.md` exists to prevent. It also
-    # made the echo above false. Nothing derives one filter from the other; see telekom/sutura#430.
+    # Keep this filter aligned with apps.bigquery-acceptance; neither derives the other (#430).
+    # Identity and cross-resource venues must not run under the ordinary acceptance name.
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
-      -E 'not binary(two_principals) and not binary(exchanged_identity)'
+      -E 'not binary(two_principals) and not binary(exchanged_identity) and not binary(cross_resource)'
+
+# One shared credential, two disposable datasets in its billing project. Not run by ordinary acceptance.
+bigquery-cross-dataset:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash nix/mask-bigquery-resources.sh
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "bigquery-cross-dataset: explicit writable fixture venue; not a local gate or identity proof."
+    echo 'scope: sutura-exec-bigquery; run `just test` for the whole workspace.'
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
+      -E 'binary(cross_resource) and test(join_across_datasets_)'
+
+# Read-only preprovisioned mirrors, with no fixture creation or changed billing semantics.
+bigquery-cross-project:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash nix/mask-bigquery-resources.sh
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "bigquery-cross-project: explicit read-only mirror venue; not provisioning or identity proof."
+    echo 'scope: sutura-exec-bigquery; run `just test` for the whole workspace.'
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
+      -E 'binary(cross_resource) and test(join_across_projects_)'
 
 # The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s eighth
 # amendment and issue #123.
