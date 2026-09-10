@@ -230,6 +230,7 @@ pub(crate) enum Unmigrated {
     MaxLines,
     NewtypeLeaks,
     OneBound,
+    OrphanModules,
     Refusals,
     ShippedBinaries,
     UnusedDeps,
@@ -262,7 +263,7 @@ pub(crate) enum Unmigrated {
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
 /// fixtures already avoid reporting their own source. **44 became 47 when the file skip went**,
 /// and all three are this module's own `#[cfg(test)]` calls - which the old rule could not see.
-pub(crate) const UNMIGRATED_DOORS: usize = 49;
+pub(crate) const UNMIGRATED_DOORS: usize = 50;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.
