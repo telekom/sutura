@@ -272,6 +272,25 @@ fn check(
     }
     // Last of the three questions asked before the text is handed over, and the only one that has
     // to be: the parse it guards does not return. See `unclosed_parenthesis`.
+    //
+    // TODO(#TRACKING): delete this guard once the pinned parser returns on its own.
+    //
+    // It exists ONLY because `polyglot-sql 0.9.2`'s `Parser::parse_data_type` does not terminate -
+    // `a.:S1(` is the whole repro, six characters - and NOT because a fragment with an unclosed
+    // parenthesis is invalid. That judgement belongs to the parse, which makes it with a better
+    // diagnostic, and would make it here again the moment upstream returns.
+    //
+    // Removable when all three hold: a released `polyglot-sql` whose `parse_data_type` terminates
+    // at the end of the token stream, this workspace bumped to it, and the
+    // `fuzz/seeds/sql_expression/unclosed-paren-*` seeds still green under `just fuzz-smoke` with
+    // the guard gone.
+    //
+    // It is not a line deletion, and the cost is worth knowing before someone starts.
+    // `ExpressionError::UnclosedParenthesis` goes with it - a public variant of this crate's error,
+    // though nothing outside this crate names it today - and so do the `unbounded` cells, which
+    // assert over the SENTENCE that variant renders rather than over the variant, `docs/adr/0004`'s
+    // section, and the committed rustdoc page that lists it, which `just api` regenerates and a gate
+    // byte-compares. It is not a `RefusalReason`, so no transport match and no refusal census moves.
     if let Some(column) = unclosed_parenthesis(fragment.as_str()) {
         return Err(ExpressionError::UnclosedParenthesis {
             tag: tag.clone(),
