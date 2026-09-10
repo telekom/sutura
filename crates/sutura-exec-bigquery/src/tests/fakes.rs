@@ -215,6 +215,13 @@ impl JobTransport for Refusing {
         true
     }
 
+    // The query-time sibling of `listing_was_refused`, answered `true` for the same reason: this
+    // fake is the stand-in for a source that REFUSES, whichever read it was asked about, so the
+    // adapter's `source_refused` can be shown delegating to it the way `preflight_was_refused` does.
+    fn job_was_refused(&self, _error: &Self::Error) -> bool {
+        true
+    }
+
     #[cfg(feature = "fixtures")]
     fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
         Err(ListingRefused)

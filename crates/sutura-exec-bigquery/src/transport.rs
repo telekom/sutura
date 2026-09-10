@@ -803,6 +803,29 @@ pub trait JobTransport {
         false
     }
 
+    /// Was this JOB failure the endpoint REFUSING the statement at the identity/authorization level,
+    /// rather than failing to answer?
+    ///
+    /// **The `Warehouse::source_refused` question one port further down, and it has to be asked here
+    /// for the same reason [`Self::listing_was_refused`] and [`Self::result_did_not_fit`] do:** the
+    /// HTTP status is a fact about the wire, and `Self::Error` is the implementor's own type, so the
+    /// adapter above - which holds the failure as `BigQueryError::Endpoint` - cannot read it.
+    ///
+    /// `true` for an authorization failure: the identity this job ran as may not read what it asks
+    /// for, which will be refused again on every retry and is fixed by one grant. `false` for
+    /// everything else - a dead endpoint, a dropped connection, a spent deadline, a `500`/`503`/`504`
+    /// - each of which a retry may answer.
+    ///
+    /// **The same split as [`Self::listing_was_refused`], asked of the read that runs a statement
+    /// rather than the one that lists a dataset**, so the two reads cannot drift apart: the wire's
+    /// implementor answers both through one classifier of a refused HTTP status.
+    ///
+    /// Defaulted to `false`, which is the answer a fake gives unless a test is about this split, and
+    /// which is the direction that keeps a transport failure retryable.
+    fn job_was_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
     /// Runs a statement that produces no result set.
     ///
     /// **A method of its own rather than a use of [`Self::run`], and it is behind the `fixtures`
