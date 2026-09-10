@@ -46,6 +46,12 @@ exit 0
 
     const RENDERER: &str = r#"
 set -eu
+# The generator's own self-test, which check-api-docs now runs first: it renders a
+# fixture and exits non-zero on a regression. The real script passes on it; the fake
+# must too, without touching the render ledger the cases below assert on.
+if [ "$#" -eq 2 ] && [ "$2" = --self-test ]; then
+  exit 0
+fi
 [ "$#" -eq 3 ] || exit 42
 [ "$1" = "$PWD/docs/.tools/rustdoc_to_markdown.py" ] || exit 42
 [ "$2" = "$PWD/target/doc/doc_library.json" ] || exit 42

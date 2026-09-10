@@ -210,17 +210,162 @@ The grains a metric declares, coarsest first.
 A small helper the composition root uses to describe a metric, kept here so the ordering is the
 same one `verify_anchors` picks a grain by.
 
-## `use None`
+## `use SourceAlreadyOpen`
 
-## `use None`
+Two adapters were registered for one source.
 
-## `use None`
+Its own type rather than a silent overwrite, because whichever adapter lost would then be the one
+nobody opened and nothing would say so. It is not the same failure as a duplicate *alias* in the
+settings tree - that one is refused before any adapter is built - it is a composition root that
+built two adapters naming one source.
 
-## `use None`
+## `use Warehouses`
 
-## `use None`
+The data systems this process opened.
 
-## `use None`
+Keyed by each adapter's own `Warehouse::source` rather than by a name the caller passes
+alongside it, so the key and the adapter cannot disagree about which source this is - the same
+reason `PinnedDefinitions::pin` computes its digest from the definitions it stores.
+
+## `use Capability`
+
+One thing this surface can be asked to do.
+
+Closed, and closed on purpose: a third capability is a third exhaustive match to satisfy - the
+walk in `Capability::next`, the scope in `Capability::scope` and the identifier in
+`Capability::id` - plus whatever each transport's own match needs. There is no wildcard arm in
+any of them, so a variant added here does not compile until every one of those has been answered.
+
+**Declaration order is `Ord`, and it runs from the least to the most a caller can get out of this
+deployment**: describing what is measured comes before asking for a number. A
+`BTreeSet<Capability>` therefore iterates in that order, which is what makes a rendered tool list
+deterministic.
+
+## `use Permitted`
+
+What one caller may do on this surface.
+
+**Two named constructors and no third way in**, because the two cases are the two honest answers to
+*who is asking* and a reader has to name which one a deployment is in:
+
+* `Permitted::every_capability` - nothing established a caller identity, so there is no verified
+  claim to narrow by. A single-player deployment, and the agent surface over standard input and
+  output.
+* `Permitted::granted_by` - a verified token's scopes decide, and **only** they do.
+
+# It fails closed, and the consequence is named rather than softened
+
+A verified caller whose token names no capability scope is permitted **nothing**: it sees no tools
+and every call is refused. That follows from `AGENTS.md`'s *fail closed on the query path* and from
+`docs/implementation-plan.md`'s own *"a caller without a scope cannot see the tool it lacks"*, and
+it means a deployment that switches `security.inbound` on without authoring scopes at its
+authorization server has switched every caller off.
+
+**What keeps that discoverable rather than mysterious is the refusal**: the HTTP surface answers
+`403` with `code: insufficient_scope` and a sentence naming the exact scope string to grant, so an
+operator reads the fix out of the response rather than out of this comment.
+
+# Why this takes strings rather than a parsed scope type
+
+`sutura_http::inbound::Scopes` is where a scope claim is parsed and bounded, and it stays there.
+Moving it would be taking a decision `docs/adr/0014`'s closing section explicitly reserves - *"how
+[the agent surface] is reached at all, and then which crate the validator moves to ... is an
+architecture decision, not a refactor"* - and nothing here needs the parse: this compares against
+two fixed literals, and a string that could not be a scope simply matches neither.
+
+## `use Validated`
+
+A `T` that has been shown to hold up.
+
+**The service accepts only this, so an unvalidated bundle is unrepresentable rather than
+merely refused.** The field is private to the module this type is declared in, and
+`verify_and_validate` is the only thing in that module which builds one.
+
+Generic in the type it wraps, but obtainable only for `PinnedDefinitions`, and that
+asymmetry is the point: validating means re-running every anchor the bundle declares, so
+whatever mints this has to be able to enumerate them and to execute them. A blanket
+constructor for any `T` would be a wrapper that proves nothing, which is worse than no
+wrapper because it reads like proof.
+
+## `use verify_and_validate`
+
+Holds every cardinality declaration and re-runs every anchor, and returns the bundle only if
+both held.
+
+**Two checks rather than one, and the second was added against a defect the first cannot
+see.** An anchor is one range and one number, so a dimension row that duplicates a join key
+outside that range moves nothing an anchor compares - while it changes a grouped answer, and
+changes it differently depending on how the plan was shaped. `crate::declared_keys` carries
+the measurement, the three outcomes that are deliberately not refusals, and what the pair
+still does not cover.
+
+The one operation that produces a `Validated` bundle. It takes the `Warehouse` and calls
+it, which is the whole of what the type is now allowed to claim: not "somebody asserted these
+anchors match", but "these statements were executed against this data system and reproduced
+the numbers their author certified".
+
+**What it still does not claim.** `W` is a port, so a caller may pass a fake - and a fake is
+exactly what the golden suite passes, deliberately, because the alternative is a test suite
+that needs a database to check a refusal. What the type proves is that a warehouse was
+called; that the warehouse was the one holding the business's data is a composition-root
+decision no signature can make. `answer` narrows it a little further by refusing a plan whose
+source is not the adapter's own.
+
+The forgery this closes does not compile:
+
+```compile_fail
+use sutura_app::Validated;
+use sutura_domain::model::MetricName;
+use sutura_domain::pinned::{AnchorCheck, AnchorReport, PinnedDefinitions};
+
+// Enumerate the anchors, claim each one matched, hand the claim to the validator.
+// No data system is opened and no statement is executed.
+fn _forge(pinned: PinnedDefinitions) -> Validated<PinnedDefinitions> {
+    let names: Vec<MetricName> = pinned.anchored_metrics().map(|(name, _)| name.clone()).collect();
+    let mut report = AnchorReport::new();
+    for name in names {
+        report.record(name, AnchorCheck::Matched);
+    }
+    // Neither the constructor that was here nor the tuple constructor is reachable.
+    Validated::new(pinned, &report).unwrap()
+}
+
+fn _wrap(pinned: PinnedDefinitions) -> Validated<PinnedDefinitions> {
+    Validated(pinned)
+}
+```
+
+The twin of that block, which pins the names so a rename cannot make it pass vacuously:
+
+```
+use sutura_app::{Validated, Warehouses, verify_and_validate};
+use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
+use sutura_domain::warehouse::Warehouse;
+
+fn _served(_bundle: &Validated<PinnedDefinitions>) {}
+
+fn _mint<W: Warehouse>(
+    pinned: PinnedDefinitions,
+    warehouses: &Warehouses<W>,
+) -> Result<Validated<PinnedDefinitions>, NotValidated> {
+    verify_and_validate(pinned, warehouses)
+}
+```
+
+# It takes the registry, not one warehouse
+
+Each metric's anchor runs against the data system that metric's own plan names, so a bundle
+spanning two configured sources verifies both halves. Under one warehouse every anchor on the
+second source came back as a source mismatch, which is a bundle that cannot be validated for a
+reason that has nothing to do with its numbers.
+
+**What it still does not take is an identity**, and that is the honest limit on what an executed
+anchor proves. The registry says which posture each adapter was handed; it does not hand the
+adapter a credential to re-run the anchor under, because the port has no parameter for one yet.
+So the bundle is proven to compute its certified numbers for whatever identity each adapter is
+configured with - the process, for the file engine that ships - and the composition root refuses
+a bundle with an anchor on a source that declared no verification identity, which is the half
+available before the port changes.
 
 ## `type_alias Answering`
 
@@ -689,7 +834,20 @@ Deterministic in its inputs: every collection walked here is a `BTreeMap` or a `
 the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
 what lets the rendering be pinned by a snapshot rather than described.
 
-### `use None`
+### `use guidance`
+
+What a refusal means and what to do about it: `(meaning, remedy)`, in the order the prompt renders
+them.
+
+**The accessor a composition root prints from, and it publishes no new prose.** `sutura-cli` used
+to hand a person the Rust `Debug` of a governance decision, which names the variant and says
+nothing about what to do; the wording it needed was already written twice - here for the
+agent-facing prompt, and on the HTTP surface for a client - so this is a third READER of the first
+table rather than a third table.
+
+`&'static str` because `GUIDES` owns the wording: nothing here composes a message and nothing
+here reads the refusal's own fields. A caller that wants those still has the `RefusalReason` it
+passed in.
 
 ### Module `refusal`
 
