@@ -12,11 +12,121 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rmcp::model::{CallToolRequest, CancelledNotificationParam, ClientRequest};
+use rmcp::service::PeerRequestOptions;
 use sutura_app::Permitted;
 use sutura_app::prompt::CatalogProse;
+use sutura_config::{LogFilter, LogFormat, ServiceName, TelemetrySettings};
 
 use super::{a_certified_question, admission, ask, eventually, reply, served, text_of};
 use crate::testing;
+
+/// A cancelled request receives no response by protocol, so the handler ending its wait is observed
+/// at the operational surface that reports why it ended.
+const CANCELLED_WAIT: &str = "stopped waiting for a tool call because its peer cancelled";
+
+/// **`telekom/sutura#362`, over the actual MCP wire.** A peer cancellation reaches the handler
+/// before its configured reply deadline, while the synchronous work it started and the execution
+/// slot that work owns both remain occupied.
+///
+/// The pinned rmcp suppresses a response produced after `notifications/cancelled`.
+/// The client therefore observes `ServiceError::Cancelled`, and the captured line is the evidence
+/// that the server handler itself stopped waiting rather than merely that the client sent a
+/// notification. The fake is read before it is released: cancellation ends the async wait and does
+/// not cancel `Surface::answer`, free its worker, or return its slot. Those are #160's open questions.
+#[test]
+fn a_cancelled_call_stops_waiting_before_its_deadline_and_keeps_its_worker_and_slot() {
+    let capture = sutura_runtime::testing::Capture::new();
+    let telemetry = TelemetrySettings::new(
+        ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        LogFilter::parse("trace").expect("a test directive is a directive"),
+        LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, capture.clone()).expect("a valid directive builds a subscriber");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("the test runtime builds");
+
+    tracing::subscriber::with_default(subscriber, || {
+        runtime.block_on(cancelled_call(capture));
+    });
+}
+
+async fn cancelled_call(capture: sutura_runtime::testing::Capture) {
+    let overlay = "runtime:\n  max_concurrent_queries: 1\nserver:\n  request_timeout_seconds: 3\n";
+    let deadline = reply(overlay);
+    let admission = admission(overlay);
+    let bound = admission.bound();
+    let (surface, holding) = testing::surface_that_can_be_held();
+    let client = served(
+        surface,
+        Permitted::every_capability(),
+        CatalogProse::Quoted,
+        admission.clone(),
+        deadline,
+    )
+    .await;
+    holding.arm();
+
+    let request = ClientRequest::CallToolRequest(CallToolRequest::new(ask(&a_certified_question())));
+    let handle = client
+        .send_cancellable_request(request, PeerRequestOptions::no_options())
+        .await
+        .expect("the call reaches the wire");
+    assert!(
+        eventually(|| holding.inside() == 1).await,
+        "the question never reached the port"
+    );
+
+    let began = Instant::now();
+    client
+        .notify_cancelled(CancelledNotificationParam::new(
+            Some(handle.id.clone()),
+            Some(String::from("the peer stopped waiting")),
+        ))
+        .await
+        .expect("the cancellation reaches the wire");
+    let cancelled = handle
+        .await_response()
+        .await
+        .expect_err("rmcp suppresses a response to a cancelled request");
+    let rmcp::ServiceError::Cancelled { .. } = cancelled else {
+        panic!("the peer observed something other than cancellation: {cancelled:?}");
+    };
+
+    let handler_stopped = tokio::time::timeout(deadline.duration(), async {
+        while !capture.contents().contains(CANCELLED_WAIT) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .is_ok();
+    let elapsed = began.elapsed();
+    let inside = holding.inside();
+    let free = admission.free();
+
+    holding.release();
+    assert!(
+        eventually(|| holding.inside() == 0).await,
+        "the worker never left the port after it was released"
+    );
+    drop(client.cancel().await);
+
+    assert!(handler_stopped, "the handler did not stop waiting before its reply deadline");
+    assert!(
+        elapsed < deadline.duration(),
+        "the cancellation was not observed before the configured reply deadline: {elapsed:?}"
+    );
+    assert_eq!(inside, 1, "cancellation stopped the synchronous work inside the port");
+    assert_eq!(
+        free,
+        bound - 1,
+        "cancellation returned the slot while its synchronous work was still running"
+    );
+}
 
 /// What one reply-deadline cell observed: how long the peer waited, and what it got.
 ///

@@ -2023,13 +2023,14 @@ pub struct AccessToken
 
 A pre-shared secret a caller presents to reach the service.
 
-Held as a `Secret`, so the whole settings tree can be written to the startup log with
-`Debug` and the token cannot come out with it.
+The configured token is reduced to its SHA-256 digest at parse and nothing else is retained, so
+the whole settings tree can be written to the startup log with `Debug` and the token cannot
+come out with it. `Debug` prints a placeholder for the same reason `Secret`'s does.
 
-**Not comparable with `==`, and that is inherited rather than reimplemented.** `Secret`
-implements no `PartialEq` on purpose: a derived comparison on credential material returns on
-the first differing byte, which is a timing oracle at whatever call site adds it. The
-comparison lives here instead, once, as `AccessToken::matches_in_constant_time`.
+**Not comparable with `==`.** `AccessToken` implements no `PartialEq`: a derived comparison on
+credential material returns on the first differing byte, which is a timing oracle at whatever
+call site adds it. The comparison lives here instead, once, as
+`AccessToken::matches_in_constant_time`.
 
 #### Methods
 
@@ -2042,12 +2043,13 @@ Does `presented` equal the configured token?
 Named for the property rather than for the operation, because the property is the only
 reason this function exists rather than a `==`.
 
-**Both sides are hashed first, and that is not ceremony.** `subtle` compares equal-length
-byte slices without branching, which removes the early-return oracle - but comparing the
-raw strings would still have to decide what to do about differing lengths, and every
-answer to that leaks the length before it leaks anything else. Reducing both sides to a
-fixed 32 bytes removes the question: every comparison is over the same number of bytes
-whatever arrived.
+**The expected side is the digest stored at parse, and the presented side is hashed here.**
+`subtle` compares equal-length byte slices without branching, which removes the
+early-return oracle - but comparing the raw strings would still have to decide what to do
+about differing lengths, and every answer to that leaks the length before it leaks anything
+else. Reducing both sides to a fixed 32 bytes removes the question: every comparison is over
+the same number of bytes whatever arrived, and the configured token is never re-hashed per
+request because it is already a digest.
 
 What this still does not do: it is not a password hash. There is no salt and no work
 factor, because the input is a high-entropy secret an operator generated rather than
@@ -2078,6 +2080,7 @@ Why a string is not usable as an access token.
 #### Variants
 
 - `TooShort` - Shorter than `AccessToken::MIN_LENGTH`.
+- `TooLong` - Longer than `AccessToken::MAX_LENGTH`.
 - `Untrimmed` - Whitespace at either end, which is almost always a copy-paste artefact and would otherwise make every request fail for a reason nobody can see in a log.
 - `NotRepresentableOnTheWire` - A character no `Authorization` header could carry to us.
 
@@ -3398,6 +3401,7 @@ Why a string is not a filter directive.
 
 - `Empty` - Empty, or only whitespace.
 - `ControlCharacter` - A control character, which in practice is a newline pasted in with the value. A newline in a filter is a log line an attacker can forge if the value ever reaches the log itself.
+- `TooLong` - Longer than `LogFilter::MAX_LENGTH`. A directive that long is not a filter anyone wrote by hand, and an unbounded configured string is an availability surface.
 
 #### Implements
 
@@ -3445,6 +3449,7 @@ Why a string is not a service name.
 
 - `Empty`
 - `NotAnIdentifier`
+- `TooLong` - Longer than `ServiceName::MAX_LENGTH`. The name is the field a collector groups by and it appears on every log line, so an unbounded one is both an availability surface and a log line an operator has to read on every record.
 
 #### Implements
 
