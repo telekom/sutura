@@ -88,6 +88,9 @@ pub mod capability;
 // under it were byte-identical in the two roots.
 pub mod preflight;
 
+mod boot_root;
+
+pub use crate::boot_root::{BootIdentity, BootRoot};
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
 
