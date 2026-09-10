@@ -1,6 +1,6 @@
 //! The category axis over the workspace, emitted by `xtask classify` for the category filter.
 //!
-//! One diff is judged at two granularities that do not share a key. [`changes::classify`] maps a
+//! One diff is judged at two granularities that do not share a key. [`crate::changes::classify`] maps a
 //! changed path to AREAS (rust, nix, build, ...) which the existing CI steps already gate on. This
 //! module maps the same paths to CATEGORIES, named by the adapter CRATE the change lives in, and
 //! lets a workflow start or skip the legs that cost real money - provisioning a tier, calling a
@@ -13,7 +13,7 @@
 //! registry's adapter TYPE's first path segment is the crate, and the category is derived from it,
 //! not transcribed.
 //!
-//! The selection fails OPEN exactly the way `changes::classify` does: an empty diff, a git refusal,
+//! The selection fails OPEN exactly the way [`crate::changes::classify`] does: an empty diff, a git refusal,
 //! an unmapped path or a registry the derive could not read all set `core`, and `core` subsumes
 //! every category. A new adapter arrives by registering it in the registry (or by being a crate);
 //! no workflow line is asked to know its name in advance.
@@ -68,14 +68,14 @@ pub(crate) struct Categories {
 
 impl Categories {
     /// Is this category's leg required? `core` subsumes every category, the same fail-open rule
-    /// [`changes::Classification::needs`] gives every area.
+    /// [`crate::changes::Classification::needs`] gives every area.
     pub(crate) fn needs(&self, category: &str) -> bool {
         self.core || self.selected.contains(category)
     }
 }
 
 /// Derive the categories a diff selects, report them and append them to `GITHUB_OUTPUT`. Called
-/// from [`changes::run_classify`] beside the area emission, so CI reads one classification, one
+/// from [`crate::changes::run_classify`] beside the area emission, so CI reads one classification, one
 /// verdict.
 pub(crate) fn finish(paths: &[String]) -> Categories {
     let cats = derive(paths);
