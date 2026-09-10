@@ -832,7 +832,7 @@ jobs:
       # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
       #
       # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
-      # so the four `cross` jobs stay the authority on a musl LINK - and nothing here reaches a
+      # so the `cross` legs stay the authority on a musl LINK - and nothing here reaches a
       # feature no shipped binary enables, which is what the `--all-features` gates are for.
       #
       # BOTH WRAPPED IN `measure-host` (#562): the post-graph cargo tail (~300-450 s) had NO

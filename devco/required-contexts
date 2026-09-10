@@ -94,22 +94,24 @@ ci-aggregate
 # with no override and no bypass - nobody has to click anything. Present tense on purpose: see the
 # dated paragraph in the header for what a ruleset's representation does and does not say about
 # its own past. That is the status quo made visible, not a recommendation: whether any of these
-# should become required is a decision, and the cost of requiring one is four context names to
-# maintain by hand - which `cargo xtask check-workflows` REFUSES, because it derives a plain job's
+# should become required is a decision, and the cost of requiring one is one context name per
+# matrix cell, maintained by hand - which `cargo xtask check-workflows` REFUSES, because it derives a plain job's
 # context and cannot spell `cross / link (<triple>)` - or one aggregating job to add, whose plain
 # context it can check like any other.
 
 # The cross link matrix. It calls `cross-link.yml`, so its legs report `cross / link (<triple>)`
-# and the required set contains none of them. The risk the job exists for - the allocator's C for
-# the two musl triples - is therefore covered advisorily: a pull request that breaks the cross link
-# for a published triple can merge with the leg red.
+# and the required set contains none of them. The risk the job exists for - the allocator's C,
+# which for ordinary CI is now isolated on `x86_64-unknown-linux-musl` alone - is therefore covered
+# advisorily: a pull request that breaks the cross link for a published triple can merge with the
+# leg red. Which cells run is `cross-link.yml`'s matrix and `cargo xtask check-workflows` holds it;
+# the full four survive only in `release.yml`.
 ci.yml:cross
 
-# The called workflow's own job - the one that reports those four legs. ADVISORY DELIBERATELY, and
+# The called workflow's own job - the one that reports those legs. ADVISORY DELIBERATELY, and
 # this is the entry where that decision is written down rather than left to the reader:
 #
-#   * REQUIRING THE LEGS DIRECTLY was weighed and refused. Four context strings maintained by
-#     hand, each carrying a matrix value and the caller's job name, and `cargo xtask
+#   * REQUIRING THE LEGS DIRECTLY was weighed and refused. One context string per cell,
+#     maintained by hand, each carrying a matrix value and the caller's job name, and `cargo xtask
 #     check-workflows` cannot derive any of them - so the gate would be blind exactly where the
 #     cost is. Note what does NOT discriminate here, because the first draft of this bullet leaned
 #     on it: *a required context that stops reporting is a permanently pending merge* is equally
