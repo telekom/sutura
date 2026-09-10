@@ -309,14 +309,28 @@ fn from_git(root: &Path, tracked: &Listed, untracked: &Listed) -> Option<Census>
     if !tracked.ok {
         return None;
     }
+    let mut unreachable = Vec::new();
     let mut files: Vec<String> = tracked
         .stdout
         .split(|b| *b == 0)
         .filter(|raw| !raw.is_empty())
-        .filter_map(|raw| staged_path(&String::from_utf8_lossy(raw)))
+        .filter_map(|raw| {
+            let entry = String::from_utf8_lossy(raw);
+            let path = staged_path(&entry)?;
+            let empty_in_index = entry.split_once('\t').and_then(|(meta, _)| meta.split_whitespace().nth(1))
+                == Some("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+            if empty_in_index
+                && std::fs::symlink_metadata(root.join(&path)).is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+            {
+                unreachable.push(format!(
+                    "{path}: the index records a zero-byte blob while the worktree copy is \
+                     non-empty - stage the file's contents before running gates"
+                ));
+            }
+            Some(path)
+        })
         .collect();
 
-    let mut unreachable = Vec::new();
     if untracked.ok {
         files.extend(
             untracked
@@ -631,6 +645,48 @@ mod tests {
             subjects.first().is_some_and(|why| why.starts_with("git ls-files --stage: ")),
             "{subjects:?}"
         );
+    }
+
+    #[test]
+    fn an_empty_index_blob_for_nonempty_rust_source_refuses_but_empty_fuzz_seeds_remain_valid() {
+        const EMPTY_BLOB: &str = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
+        const SOURCE: &str = "xtask/src/new_gate.rs";
+        const SEED: &str = "fuzz/seeds/question_body/empty";
+
+        let root = std::env::temp_dir().join(format!("sutura-empty-index-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("xtask/src")).expect("the source directory");
+        std::fs::create_dir_all(root.join("fuzz/seeds/question_body")).expect("the seed directory");
+        std::fs::write(root.join(SOURCE), "pub fn run() {}\n").expect("the non-empty worktree source");
+        std::fs::write(root.join(SEED), "").expect("the deliberate empty seed");
+        let tracked = format!(
+            "100644 {EMPTY_BLOB} 0\t{SOURCE}\0\
+             100644 {EMPTY_BLOB} 0\t{SEED}\0"
+        );
+
+        let refused = super::from_git(&root, &listed(&tracked, ""), &listed("", ""))
+            .expect("the listing answered")
+            .into_listing(super::Unmigrated::Docs);
+
+        match refused {
+            Err(super::Refusal::Unreachable(subjects)) => assert_eq!(
+                subjects,
+                [format!(
+                    "{SOURCE}: the index records a zero-byte blob while the worktree copy is non-empty - stage the file's contents before running gates"
+                )]
+            ),
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(listing) => panic!("an intent-to-add source produced a listing of {} subject(s)", listing.1.len()),
+        }
+
+        let seed_only = format!("100644 {EMPTY_BLOB} 0\t{SEED}\0");
+        let listing = super::from_git(&root, &listed(&seed_only, ""), &listed("", ""))
+            .expect("the seed listing answered")
+            .into_listing(super::Unmigrated::Docs)
+            .expect("a deliberate empty fuzz seed remains reachable");
+        assert_eq!(listing.1, [String::from(SEED)]);
+
+        let _swept = std::fs::remove_dir_all(&root);
     }
 
     #[test]
