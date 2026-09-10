@@ -227,6 +227,58 @@ Keyed by each adapter's own `Warehouse::source` rather than by a name the caller
 alongside it, so the key and the adapter cannot disagree about which source this is - the same
 reason `PinnedDefinitions::pin` computes its digest from the definitions it stores.
 
+## `use BootIdentity`
+
+The process's own static root identity, under which boot-time trust runs.
+
+The deployment's own word for who it is - `Subject::TheDeploymentItself` in the domain - and the
+identity `verify_anchor` and the shared-service-user legs run as. A marker rather than a
+credential, and deliberately a unit: there is one deployment, one value, and no way to confuse
+it with a caller. `BootRoot` holds exactly one of these, and nothing on the request path can
+mint one.
+
+## `use BootRoot`
+
+The single root of trust boot holds: the validated bundle and nothing a request needs.
+
+## A caller's assertion cannot make it in
+
+The constructor's second argument is the deployment's OWN identity, so a `RequestContext` is a
+compile error wherever a `BootRoot` is being built - the root cannot be handed, or repurposed
+to answer as, a caller.
+
+```compile_fail
+use sutura_app::{BootIdentity, BootRoot};
+use sutura_domain::identity::RequestContext;
+use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
+use sutura_domain::warehouse::Warehouse;
+
+// No parameter takes a caller's assertion: the second argument is the root's own identity.
+fn _boot<W: Warehouse>(
+    pinned: PinnedDefinitions,
+    context: RequestContext,
+    warehouses: &sutura_app::Warehouses<W>,
+) -> Result<BootRoot, NotValidated> {
+    BootRoot::validate(pinned, context, warehouses)
+}
+```
+
+The twin, with the root's only other argument:
+
+```
+use sutura_app::{BootIdentity, BootRoot};
+use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
+use sutura_domain::warehouse::Warehouse;
+
+fn _boot<W: Warehouse>(
+    pinned: PinnedDefinitions,
+    identity: BootIdentity,
+    warehouses: &sutura_app::Warehouses<W>,
+) -> Result<BootRoot, NotValidated> {
+    BootRoot::validate(pinned, identity, warehouses)
+}
+```
+
 ## `use Capability`
 
 One thing this surface can be asked to do.
@@ -366,10 +418,6 @@ So the bundle is proven to compute its certified numbers for whatever identity e
 configured with - the process, for the file engine that ships - and the composition root refuses
 a bundle with an anchor on a source that declared no verification identity, which is the half
 available before the port changes.
-
-## `use None`
-
-## `use None`
 
 ## `type_alias Answering`
 
