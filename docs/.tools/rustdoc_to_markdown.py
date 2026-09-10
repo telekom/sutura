@@ -357,6 +357,21 @@ def item_kind(item: dict) -> str:
     return next(iter(inner)) if isinstance(inner, dict) else str(inner)
 
 
+def reexport_name_and_docs(doc: Doc, item: dict) -> tuple[str, dict | None]:
+    """The caller-visible name and the documented target of a public re-export.
+
+    rustdoc's JSON for a `pub use` carries a NULL outer `name` and `docs`; the public name lives
+    in `inner.use.name` and `inner.use.id` points at the item being re-exported, which is where
+    the documentation actually is. Following that id is why the page can render real docs instead
+    of a `use None` stub. A glob re-export mints no target (there is no single `id`), so it falls
+    back to its own name - or `None` when it has none - rather than inventing one that is not there.
+    """
+    use = item["inner"]["use"]
+    name = use.get("name") or item.get("name")
+    target = doc.item(use["id"]) if use.get("id") else None
+    return name, target
+
+
 def struct_or_enum_body(doc: Doc, page: Page, item: dict, level: int) -> None:
     inner = item["inner"][item_kind(item)]
 
@@ -441,8 +456,18 @@ def render_module(doc: Doc, page: Page, module_id: str, level: int) -> None:
         page.docs(item.get("docs"))
 
     for item in others:
-        page.heading(level, f"`{item_kind(item)} {item['name']}`")
-        page.docs(item.get("docs"))
+        kind = item_kind(item)
+        name = item.get("name")
+        docs = item.get("docs")
+        if kind == "use":
+            # `pub use` has no outer name or docs: both live on the target (inner.use.id),
+            # which is where the page's reader expects the documentation. Without this the
+            # heading renders a literal `use None` and the docs are silent - #470.
+            name, target = reexport_name_and_docs(doc, item)
+            if target is not None:
+                docs = target.get("docs")
+        page.heading(level, f"`{kind} {name}`")
+        page.docs(docs)
 
     for sub in submodules:
         page.heading(level, f"Module `{sub['name']}`")
@@ -489,7 +514,80 @@ def render_crate(data: dict, crate_name: str) -> str:
     return page.render()
 
 
+def selftest_fixture() -> dict:
+    """A minimal crate whose only public surface is a documented re-export out of private code.
+
+    Mirrors the measured rustdoc JSON shape behind #470: the `use` item's OUTER `name` and
+    `docs` are null, everything public lives on the target (`inner.use.name`, `inner.use.id`).
+    Built by hand because the measured case - a local `pub use` out of a private module - is
+    exactly what the committed crates receive; a glob or cross-crate re-export is deliberately
+    out of the coverage this fixture claims.
+    """
+    target_id = "fixture-widget"
+    reexport_id = "fixture-reexport"
+    module_id = "fixture-root"
+    return {
+        "format_version": EXPECTED_FORMAT_VERSION,
+        "root": module_id,
+        "index": {
+            module_id: {
+                "id": module_id,
+                "name": "sutura_fixture",
+                "visibility": "public",
+                "docs": None,
+                "inner": {"module": {"items": [reexport_id]}},
+            },
+            reexport_id: {
+                "id": reexport_id,
+                "name": None,
+                "visibility": "public",
+                "docs": None,
+                "inner": {
+                    "use": {
+                        "source": "crate::inner::Widget",
+                        "is_glob": False,
+                        "id": target_id,
+                        "name": "Widget",
+                    }
+                },
+            },
+            target_id: {
+                "id": target_id,
+                "name": "Widget",
+                "visibility": "public",
+                "docs": "THE WIDGET DOCUMENTATION",
+                "inner": {
+                    "struct": {
+                        "generics": {},
+                        "fields": [],
+                        "impls": [],
+                        "has_stripped_fields": True,
+                        "is_non_exhaustive": False,
+                    }
+                },
+            },
+        },
+    }
+
+
+def selftest() -> None:
+    """The behavioral fixture: a public re-export renders its name and its target's docs.
+
+    Fails on the broken renderer - which prints `use None` for an item with null outer name and
+    docs and never reaches the target - and passes once the re-export is wired to `inner.use`.
+    Asserts with `assert` so a regression raises and exits non-zero under `check-api-docs`.
+    """
+    text = render_crate(selftest_fixture(), "sutura-fixture")
+    assert "`use Widget`" in text, text
+    assert "THE WIDGET DOCUMENTATION" in text, text
+    assert "use None" not in text, text
+
+
 def main(argv: list[str]) -> int:
+    if "--self-test" in argv:
+        selftest()
+        print("rustdoc_to_markdown: ok - a public re-export renders its name and target docs")
+        return 0
     if len(argv) < 2:
         print(__doc__)
         return 2

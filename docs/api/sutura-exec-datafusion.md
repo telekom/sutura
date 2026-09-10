@@ -200,7 +200,20 @@ ceiling ratio an operator actually wants cannot be computed.
 
 `Debug`, `Drop`, `Warehouse`
 
-## `use None`
+## `use WorkingSet`
+
+How many bytes the engine's operators may reserve at once.
+
+**A newtype for the unit rather than for a range**, and that is the whole of its job:
+`DataFusionWarehouse::with_worker_threads`
+already takes a `NonZeroUsize` for a thread count, so a second bare `NonZeroUsize` beside it would
+be two arguments of one type whose meanings are a width and a quantity of memory. Swapping them
+compiles and installs a three-byte pool. Wrapped, the swap does not build.
+
+It parses nothing beyond non-zero, which the inner type already carries - the range that matters is
+parsed once, in `sutura_config::WorkingSetCeiling`, against the memory the process can actually
+reach. This crate does not depend on that one and must not: an adapter does not call another
+adapter, so the composition root converts.
 
 ## Module `pool`
 
