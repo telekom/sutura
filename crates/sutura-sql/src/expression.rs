@@ -273,7 +273,8 @@ fn check(
     // Last of the three questions asked before the text is handed over, and the only one that has
     // to be: the parse it guards does not return. See `unclosed_parenthesis`.
     //
-    // TODO(#TRACKING): delete this guard once the pinned parser returns on its own.
+    // TODO(#589): delete this guard once the pinned parser returns on its own. The mechanism is
+    // written up upstream as `tobilg/polyglot#445`.
     //
     // It exists ONLY because `polyglot-sql 0.9.2`'s `Parser::parse_data_type` does not terminate -
     // `a.:S1(` is the whole repro, six characters - and NOT because a fragment with an unclosed
@@ -285,12 +286,18 @@ fn check(
     // `fuzz/seeds/sql_expression/unclosed-paren-*` seeds still green under `just fuzz-smoke` with
     // the guard gone.
     //
-    // It is not a line deletion, and the cost is worth knowing before someone starts.
+    // **NOTHING ENFORCES THE REMOVAL**, and that is a fact about this guard rather than a complaint.
+    // The refusal census enumerates `RefusalReason`, the domain type both transports carry, and this
+    // crate's error enums are not enrolled in it - `git grep ExpressionError -- xtask` is empty. So
+    // no gate holds this refusal and none would notice it going away: this comment and #589 are the
+    // whole of what points at it. A tripwire on the dependency's version was considered and declined.
+    //
+    // It is not a line deletion either, and the cost is worth knowing before someone starts.
     // `ExpressionError::UnclosedParenthesis` goes with it - a public variant of this crate's error,
     // though nothing outside this crate names it today - and so do the `unbounded` cells, which
     // assert over the SENTENCE that variant renders rather than over the variant, `docs/adr/0004`'s
     // section, and the committed rustdoc page that lists it, which `just api` regenerates and a gate
-    // byte-compares. It is not a `RefusalReason`, so no transport match and no refusal census moves.
+    // byte-compares.
     if let Some(column) = unclosed_parenthesis(fragment.as_str()) {
         return Err(ExpressionError::UnclosedParenthesis {
             tag: tag.clone(),
@@ -397,8 +404,11 @@ fn holds_comment_delimiter(text: &str) -> bool {
 /// in `Parser::parse_data_type` breaks only on `check(TokenType::RParen)`, that answers `false` at
 /// the end of the token stream, and `advance()` past the end returns the last token WITHOUT moving
 /// the cursor - so the loop runs forever while `*last = format!("{} {}", last, token.text)` grows a
-/// string a byte at a time. Timeout and out-of-memory are the same defect at two ages, and
-/// `MAX_DEPTH` cannot see it: the tree is never built. The condition refused here is the one every
+/// string a byte at a time. Timeout and out-of-memory are the same defect at two ages, and neither
+/// existing bound can see either. `MAX_DEPTH` is asked in [`parse`] of a tree the parse has already
+/// RETURNED, so on this input it is never reached at all - and it would be unremarkable if it were,
+/// because no deep tree is ever built. `MAX_FRAGMENT_LEN` is the wrong axis for a kindred reason:
+/// the recorded artifacts are 24 and 26 bytes. The condition refused here is the one every
 /// scan-to-a-closer loop in that parser needs, so it is a bound on the class rather than on the
 /// route the first artifact happened to take: `.:` reads the next word as a custom data type, and
 /// `CAST(mrr_eur AS S1(9` reaches the same argument loop with no `.:` in it at all.
