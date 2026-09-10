@@ -4,7 +4,7 @@
 
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+rustflags = ["-C", "link-arg=-fuse-ld=lld", "-Z", "next-solver=coherence"]
 
 
 # ARMv8.3-A FLOOR for the two aarch64 targets. `flake.nix` compiles the allocator's C with
@@ -16,7 +16,7 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 # aarch64 artifacts require ARMv8.3-A or later.
 [target.aarch64-unknown-linux-gnu]
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-feature=+lse,+rcpc"]
+rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-feature=+lse,+rcpc", "-Z", "next-solver=coherence"]
 
 # The apple targets go through clang TOO, and for a reason a bare `lld` did not survive: rustc
 # emits `-liconv` for a darwin host, libiconv is its own store path under nix rather than part of
@@ -27,14 +27,15 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-feature=+lse,+rcpc"]
 # is exactly the arrangement the two linux targets above already had.
 [target.aarch64-apple-darwin]
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+rustflags = ["-C", "link-arg=-fuse-ld=lld", "-Z", "next-solver=coherence"]
 
 [target.x86_64-apple-darwin]
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+rustflags = ["-C", "link-arg=-fuse-ld=lld", "-Z", "next-solver=coherence"]
 
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
+rustflags = ["-Z", "next-solver=coherence"]
 
 # musl: the two statically-linked release targets. Supported now - this block used to say
 # "deliberately unsupported", and `nix build .#sutura-x86_64-unknown-linux-musl` is what
@@ -59,7 +60,7 @@ linker = "rust-lld.exe"
 # cc in the dev shell - so a value here could only be a lie that fails at link time. Build
 # these two targets with `nix build .#sutura-<triple>`.
 [target.x86_64-unknown-linux-musl]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = ["-C", "target-feature=+crt-static", "-Z", "next-solver=coherence"]
 
 [target.aarch64-unknown-linux-musl]
-rustflags = ["-C", "target-feature=+crt-static,+lse,+rcpc"]
+rustflags = ["-C", "target-feature=+crt-static,+lse,+rcpc", "-Z", "next-solver=coherence"]
