@@ -175,7 +175,7 @@ pub(crate) const TASKS: &[Task] = &[
     },
     Task {
         // Beside `check-shipped-binaries` because it reads the same declaration, and STANDALONE
-        // rather than hygiene for `check-attribution-current`'s reason: it invokes cargo, so it
+        // rather than hygiene for `check-attribution`'s reason: it invokes cargo, so it
         // needs a resolvable registry and a target directory the nix sandbox has not got, so `just
         // gates` is its caller. The lane it covers is the one every other compiling gate is blind
         // to; CI reaches it as `nix run .#default-features` inside the one required job, and it
@@ -199,15 +199,21 @@ pub(crate) const TASKS: &[Task] = &[
         run: default_feature_tests::run,
     },
     Task {
-        // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a
-        // GENERATED artefact checked against the file it is generated from, read as text so the
-        // check needs no resolver. `docs/adr/0021`'s attribution amendment is the decision, and
-        // `just attribution` is the fix every failure message names.
-        name: "check-attribution",
-        description: "ATTRIBUTION.md names every third-party crate in Cargo.lock",
+        // AN ABSENCE GATE, which is a different shape from the two beside it, and the reason it has
+        // to exist is that an absence nothing witnesses silently returns. `ATTRIBUTION.md` is
+        // generated and deliberately NOT committed - `github.com/telekom/sutura#462`'s decision,
+        // because a committed copy fell behind `Cargo.lock` on every dependency bump and made each
+        // one red on arrival - and a commit re-adding it would restore all of that with the next
+        // tag signing the stale copy. `xtask/src/workflows/sast.rs` is the local precedent.
+        //
+        // `Reads::Code` covers workflow YAML, which is the second half: with nothing committed, the
+        // release is the ONLY place the notice is produced, so a release that stopped generating it
+        // would publish binaries with no attribution.
+        name: "check-attribution-owner",
+        description: "no committed ATTRIBUTION.md, and release.yml generates the attribution asset",
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier::declared_in_programme(),
-        run: attribution::run_check,
+        run: attribution::run_check_owner,
     },
     Task {
         // Beside the boundary gate because it is the same principle in the same shape: a rule from
@@ -573,24 +579,29 @@ pub(crate) const TASKS: &[Task] = &[
         run: api_docs::run,
     },
     Task {
-        // The BYTE-COMPARE half, and `check-api-docs` is the shape it copies including why it is
-        // not in the hygiene sweep: it needs an input the nix sandbox has not got - a compiler
-        // there, a resolvable registry here. It exists because a review found that the offline gate
-        // could only see that a licence cell was non-empty, so the main content of a generated
-        // artefact was trusted rather than compared.
-        name: "check-attribution-current",
-        description: "ATTRIBUTION.md is what the generator produces (needs a resolvable registry)",
+        // `check-api-docs` is the shape it copies including why it is not in the hygiene sweep: it
+        // needs an input the nix sandbox has not got - a compiler there, a resolvable registry
+        // here. **It cannot byte-compare, because nothing is committed to compare against**, so
+        // the oracle is the disagreement between two independent inputs: `Cargo.lock` decides the
+        // package set and `cargo metadata` supplies the licences. It refuses a crate that declares
+        // no licence, which the generator used to print and pass.
+        name: "check-attribution",
+        description: "a generation names every third-party crate in Cargo.lock with a declared licence (needs a resolvable registry)",
         kind: Kind::Standalone,
         falsifier: Falsifier::declared_in_programme(),
-        run: attribution::run_check_current,
+        run: attribution::run_check,
     },
     Task {
         // NOT `Kind::Hygiene`, and for `check-api-docs`' reason rather than its own: it invokes
         // `cargo metadata`, which needs a resolvable registry, and the hygiene sweep runs inside a
-        // nix sandbox with no network. `check-attribution` above is the half that runs everywhere,
-        // and it reads `Cargo.lock` precisely so it can.
+        // nix sandbox with no network. `check-attribution-owner` is the half that runs everywhere,
+        // and it reads a path's absence precisely so it can.
+        //
+        // Takes an optional destination, because there are two callers and neither wants a
+        // committed file: `just attribution` uses the default under `/target`, and `release.yml`
+        // names the release's own asset directory.
         name: "attribution",
-        description: "regenerate ATTRIBUTION.md from cargo metadata (needs a resolvable registry)",
+        description: "write the attribution document from cargo metadata (needs a resolvable registry)",
         kind: Kind::Standalone,
         falsifier: Falsifier::declared_in_programme(),
         run: attribution::run_generate,

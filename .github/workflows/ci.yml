@@ -257,6 +257,21 @@ jobs:
             extra-substituters = https://sutura.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
 
+      # HALF (a): the pull-request path also trusts the PR's OWN additive cache in addition to
+      # sutura. The two-store list is SELF-CONTAINED on purpose: a second install must not depend
+      # on the first config surviving, so whichever nix.conf wins, a PR run ends trusting both.
+      # It is gated to exactly `pull_request`, so a merged main run and a merge-queue entry read
+      # only sutura. Removing or fuzzing this `if:` reopens main = the gate reddens. A PR still
+      # restores sutura's shared closure AND reads its own branch cache: nix verifies a signature
+      # against the intersection of the signer and the trusted keys, so both keys must be named.
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
@@ -389,11 +404,12 @@ jobs:
       - name: Secrets
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
-      # NOT gated on classification: a licence value can move without `Cargo.lock` moving, and a
-      # hand edit to the document is not a dependency change at all. The hygiene half reads the lock
-      # and can only see that a licence cell is non-empty; this needs a resolvable registry.
-      - name: The attribution document is current
-        run: nix run .#xtask -- check-attribution-current
+      # NOT gated on classification: a licence value can move without `Cargo.lock` moving. The
+      # document is generated and not committed, so there is nothing to byte-compare - this
+      # generates one and refuses an incomplete result, which needs a resolvable registry. The
+      # hygiene half holds the ABSENCE of a committed copy and needs nothing.
+      - name: The attribution document generates completely
+        run: nix run .#xtask -- check-attribution
 
       # `nix/lint-workflows.sh` rather than inline, because the composite-action pass below it had
       # TWO callers and was written twice - here and in the justfile - and two copies of a gate are
@@ -758,6 +774,43 @@ jobs:
 
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
+
+  # HALF (a): publish this pull request's OWN store paths to `sutura-prs`, the PR's additive cache.
+  # Runs ONLY on a pull request and only after `ci` has warmed the closure (`needs`), mirroring
+  # `cachix-push.yml`'s own push job. The credential is a PR-only environment token - Write on
+  # sutura-prs, no Write on `sutura` - and the ENVIRONMENT is the boundary the gate cannot see;
+  # this text rule can only PIN the environment name and the pull_request gating and pair them,
+  # which is what it does below.
+  pr-cache:
+    needs: [ci]
+    if: github.event_name == 'pull_request'
+    runs-on: rust-mcp-32core
+    environment: cachix-push-pr
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura-prs
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Same self-restraint the main publish uses: push what THIS run realised, not the whole store.
+          pushFilter: "(-source$|nixpkgs)"
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
