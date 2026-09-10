@@ -197,22 +197,42 @@ unbounded work on an authored fragment is the process never coming back, which o
 is a denial of service rather than a slow load.
 
 `ExpressionError::UnclosedParenthesis` refuses the enabling condition every scan-to-a-closer loop in
-that parser needs, which is why the bound is on the class rather than on the route this artifact
-took - `::` and `CAST(x AS ..)` reach the same function. **The question is asked of the TOKENS the
-authoring dialect produces and not of the text**, and that is the load-bearing half: a count of `(`
-against `)` fails open exactly the way the comment-delimiter count did, one character class over,
-because in `SUM(mrr_eur.:S1(')'` the two characters balance while the `)` is a string literal the
-tokenizer hands over as a single token and never as an `RParen`. Asking the tokenizer costs nothing
-that was not going to be spent and has no second scanner to disagree with about dollar-quoting. A
-`)` with no opener is deliberately left to the parser, which errors and returns.
+that parser needs, which is why the bound is on the class rather than on the route the first
+artifact took. **The question is asked of the TOKENS the authoring dialect produces and not of the
+text**, and that is the load-bearing half: a count of `(` against `)` fails open exactly the way the
+comment-delimiter count did, one character class over, because in `mrr_eur.:S1(')'` the two
+characters balance - one `(`, one `)` - while the `)` is a string literal the tokenizer hands over
+as a single token and never as an `RParen`. Asking the tokenizer costs nothing that was not going to
+be spent and has no second scanner to disagree with about dollar-quoting. A `)` with no opener is
+deliberately left to the parser, which errors and returns.
 
-The failing input is quarantined as the committed seed
-`fuzz/seeds/sql_expression/unclosed-paren-timeout`, byte-identical to the artifact, so `just
-fuzz-smoke` replays it on every run. **The defect belongs upstream and this does not fix it:** the
-bound refuses the pathological fragment before it reaches that parser, and any other caller of
-`polyglot-sql` in any other project is unaffected by it. The accepted cost is the same class the
-comment refusal already accepts - a parenthesis inside a string literal, unbalanced in the text, is
-refused - and a measure has no reason to hold one.
+**The construct is the wrong axis, and that is measured rather than argued.** Two more artifacts -
+a second timeout and an out-of-memory, both under 27 bytes - reproduce the same non-return, and all
+three carry `.:`, which invited a bound on the construct instead. `.:` is neither necessary nor
+sufficient on the pinned 0.9.2: `mrr_eur.:S1(9)` parses and returns, so refusing the construct
+would refuse a harmless spelling, while `CAST(mrr_eur AS S1(9` loops with no `.:` in it at all, so
+it would still miss one. `mrr_eur::S1(`, `mrr_eur::DECIMAL(` and `mrr_eur::STRUCT(a` all error and
+return, so an earlier wording here that named `::` beside `CAST` was wrong about that half. Nor is
+the closer's *character* the axis: an unclosed `[`, an unclosed `<`, and both inside a `CAST`, all
+error and return, so what the parser cannot leave is an open parenthesis and nothing else.
+
+The failing inputs are quarantined as the committed seeds
+`fuzz/seeds/sql_expression/unclosed-paren-timeout`, `unclosed-paren-timeout-in-subscript` and
+`unclosed-paren-oom`, byte-identical to their artifacts, so `just fuzz-smoke` replays them on every
+run. **The defect belongs upstream and this does not fix it:** the bound refuses the pathological
+fragment before it reaches that parser, and any other caller of `polyglot-sql` in any other project
+is unaffected by it. The accepted cost is the same class the comment refusal already accepts - a
+parenthesis inside a string literal, unbalanced in the text, is refused - and a measure has no
+reason to hold one.
+
+**What the bound does not cover.** It does not reach the defect: a `polyglot-sql` caller that is not
+this module is exposed exactly as before, and a second caller inside this repository would be too.
+It bounds the parenthesis and nothing else, so a future upstream loop scanning for a different
+closer is outside it - none of the bracket and angle spellings above loops today, and that is a
+measurement of one pinned version rather than a property of the parser. And where the fragment does
+not TOKENIZE the guard says nothing at all and the parse it falls through to is what terminates;
+that holds because the parse tokenizes before it descends, which nothing mechanical enforces and no
+cell can prove, since a base tree with no guard returns on those inputs too.
 
 ### The fragment is bounded in depth as well as in length
 

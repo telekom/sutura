@@ -122,11 +122,11 @@ fn the_sql_fuzz_crash_replays_as_a_refusal_not_a_panic() {
     );
 }
 
-// The recorded fuzz artifact. Declared here and bodied in `unbounded`, because the `#[test]` and
+// The recorded fuzz artifacts. Declared here and bodied in `unbounded`, because the `#[test]` and
 // the `mod` line above have to sit in the same file for `just causality` to compile either.
 #[test]
-fn the_sql_fuzz_timeout_replays_as_a_refusal_not_an_unbounded_parse() {
-    unbounded::the_recorded_timeout_is_refused_at_the_parenthesis_it_opened();
+fn the_sql_fuzz_artifacts_replay_as_a_refusal_not_an_unbounded_parse() {
+    unbounded::the_recorded_artifacts_are_refused_at_the_parenthesis_they_opened();
 }
 
 #[test]

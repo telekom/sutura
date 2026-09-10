@@ -381,12 +381,19 @@ fn holds_comment_delimiter(text: &str) -> bool {
 /// string a byte at a time. Timeout and out-of-memory are the same defect at two ages, and
 /// `MAX_DEPTH` cannot see it: the tree is never built. The condition refused here is the one every
 /// scan-to-a-closer loop in that parser needs, so it is a bound on the class rather than on the
-/// route this artifact happened to take - `.:` reaches a custom data type, and `::` and
-/// `CAST(x AS ..)` reach the same function.
+/// route the first artifact happened to take: `.:` reads the next word as a custom data type, and
+/// `CAST(mrr_eur AS S1(9` reaches the same argument loop with no `.:` in it at all.
+///
+/// **Which is why the bound is not on the construct - `.:` is neither necessary nor sufficient,
+/// measured on the pinned 0.9.2 rather than reasoned about.** `mrr_eur.:S1(9)` parses and returns,
+/// so refusing the construct would refuse a harmless spelling; `CAST(mrr_eur AS S1(9` loops with
+/// no `.:` present, so it would still miss one. The earlier wording here named `::` beside `CAST`
+/// and was wrong about that half: `mrr_eur::S1(`, `mrr_eur::DECIMAL(` and `mrr_eur::STRUCT(a` all
+/// error and return.
 ///
 /// **Asked of the TOKENS the authoring dialect produces, and that is the whole of why this is not a
 /// count of `(` against `)`.** A count fails open exactly the way the count in
-/// [`holds_comment_delimiter`] did, one character class over: in `SUM(mrr_eur.:S1(')'` the two
+/// [`holds_comment_delimiter`] did, one character class over: in `mrr_eur.:S1(')'` the two
 /// characters balance, while the `)` is a string literal the tokenizer hands over as one token and
 /// never as an `RParen` - so the count agrees and the parser is left with a parenthesis that has no
 /// closer. Asking the tokenizer costs nothing that was not going to be spent, because it is the
@@ -397,7 +404,11 @@ fn holds_comment_delimiter(text: &str) -> bool {
 ///
 /// A tokenizer failure is deliberately **not** this guard's to report: [`parse`] runs the same
 /// tokenizer one step later and returns its error as [`ExpressionError::Unparsable`], which
-/// terminates.
+/// terminates. Measured rather than reasoned - `mrr_eur.:S1( '` does not tokenize, so this guard
+/// says nothing about it and the parse it falls through to errors instead of looping. **Nothing
+/// mechanical holds that**: it is true because the parse tokenizes before it descends, which is a
+/// property of the pinned version rather than of its API, and no cell here can be red against a
+/// base tree that has no guard at all.
 fn unclosed_parenthesis(text: &str) -> Option<usize> {
     let authoring = polyglot_sql::dialects::Dialect::get(AUTHORING);
     let tokens = authoring.tokenize(text).ok()?;

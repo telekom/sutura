@@ -10,25 +10,48 @@
 //! trade rather than a weaker test by accident. `ExpressionError::UnclosedParenthesis` is new on
 //! this change, so a `matches!` on it would not COMPILE against base - and `just causality` reads a
 //! base tree that does not build as inconclusive, which is not a red. Over the sentence, these
-//! cells build against base and fail there: two of them by running out of the deadline, because the
-//! parse loops, and the third by naming a different refusal. Nothing but this bound produces the
-//! words asserted below, and the compile is what holds it: `check` returns that variant or one of
-//! the others, and there is no third outcome.
+//! cells build against base and fail there: all but one of them by running out of the deadline,
+//! because the parse loops, and that one by naming a different refusal. Nothing but this bound
+//! produces the words asserted below, and the compile is what holds it: `check` returns that
+//! variant or one of the others, and there is no third outcome.
 
 use std::thread;
 use std::time::{Duration, Instant};
 
 use super::portable;
 
-/// The exact bytes the `sql_expression` fuzz target recorded as
-/// `timeout-472fb665086f6dab29dfbd1510afbfea172e94ee`, quarantined as
-/// `fuzz/seeds/sql_expression/unclosed-paren-timeout`.
+/// One recorded artifact: its bytes, and the 1-based character its unclosed parenthesis sits at. A
+/// named pair because `-D clippy::type-complexity` refuses the tuple written inline.
+type Artifact = (&'static [u8], usize);
+
+/// Every artifact the `sql_expression` target recorded for this defect, with the character its own
+/// unclosed parenthesis sits at. Each is quarantined as the committed seed named beside it, so
+/// `just fuzz-smoke` replays exactly these bytes.
 ///
-/// **Every byte is ASCII**, which is why the `NonAscii` bound cannot see it: that one closes a
-/// generator panic on multi-byte text, and this input never reaches the generator. Two characters
-/// carry it - the `.:` that reads the next word as a custom data type, and the `(` at character 20
-/// that is never closed.
-const RECORDED_TIMEOUT: &[u8] = b"$a^-a61.c.:S1a.:#S1(^cAUAU";
+/// **Three artifacts, ONE upstream defect, and the report shape is whatever the run happened to
+/// notice first** - two timeouts while `format!` copies a growing string, one out-of-memory once
+/// the copying has churned enough of it. Reproduced individually against the pinned parser: none of
+/// the three returns, and each returns as soon as its parentheses are balanced.
+///
+/// **Every byte is ASCII**, which is why the `NonAscii` bound cannot see any of them: that one
+/// closes a generator panic on multi-byte text, and this input never reaches the generator.
+///
+/// All three carry `.:`, which invited a bound on the construct instead - and the construct is the
+/// wrong axis, measured: `mrr_eur.:S1(9)` parses and returns, while `CAST(mrr_eur AS S1(9` loops
+/// with no `.:` in it. See `super::super::unclosed_parenthesis`.
+const RECORDED: &[Artifact] = &[
+    // `unclosed-paren-timeout`, `timeout-472fb665086f6dab29dfbd1510afbfea172e94ee`.
+    (b"$a^-a61.c.:S1a.:#S1(^cAUAU", 20),
+    // `unclosed-paren-timeout-in-subscript`, `timeout-10dad32e8a6573c813df7e7f1c2038f0174b18a9`.
+    // The one whose recorded stack reaches `parse_data_type` through `maybe_parse_subscript`, and
+    // the reason the seed is named for the route rather than for the hash.
+    (b"SSE%LE.:E.E.:SEIF(~~~$R_ta", 18),
+    // `unclosed-paren-oom`, `oom-00f6892aed5dac930e8926cca65df177d3fdaeb1`. Reported as an
+    // out-of-memory whose LIVE heap was ~30 MB, every top live context libFuzzer's own, against
+    // ~1M allocation churn plus the sanitizer's quarantine - which is what a `format!` per turn of
+    // a loop that does not terminate looks like from outside, and not one large allocation.
+    (b"IF~F((NU .:rv ((NU .:r~>", 5),
+];
 
 /// How long the compile is given to come back at all.
 ///
@@ -68,36 +91,54 @@ fn verdict_within_the_deadline(sql: &str) -> String {
 /// The sentence this bound produces, without the character it names.
 const UNCLOSED: &str = "and never closes it";
 
-/// The body of [`super::the_sql_fuzz_timeout_replays_as_a_refusal_not_an_unbounded_parse`].
+/// The body of [`super::the_sql_fuzz_artifacts_replay_as_a_refusal_not_an_unbounded_parse`].
 ///
-/// Here rather than there because the parent is three lines from the line cap, and the `#[test]`
+/// Here rather than there because the parent is ten lines from the line cap, and the `#[test]`
 /// is there rather than here because it and the `mod` line have to be in one file for
 /// `just causality` to compile this module against base at all.
 ///
-/// The artifact is delivered the way the harness delivers it. `from_utf8_lossy` is the identity
-/// here - every byte is ASCII - and it is written that way so this is the artifact rather than a
-/// transcription of it. Red before the bound by RUNNING OUT OF TIME, which is what
+/// Each artifact is delivered the way the harness delivers it. `from_utf8_lossy` is the identity
+/// here - every byte is ASCII - and it is written that way so these are the artifacts rather than
+/// transcriptions of them. Red before the bound by RUNNING OUT OF TIME, which is what
 /// [`verdict_within_the_deadline`] exists to turn into a failure instead of a hang.
-pub(super) fn the_recorded_timeout_is_refused_at_the_parenthesis_it_opened() {
-    let fragment = String::from_utf8_lossy(RECORDED_TIMEOUT).into_owned();
-    let verdict = verdict_within_the_deadline(&fragment);
-    assert!(
-        verdict.contains(&format!("opens a parenthesis at character 20 {UNCLOSED}")),
-        "the recorded fuzz timeout must be refused at its own unclosed parenthesis, got: {verdict}"
-    );
+pub(super) fn the_recorded_artifacts_are_refused_at_the_parenthesis_they_opened() {
+    for &(artifact, column) in RECORDED {
+        let fragment = String::from_utf8_lossy(artifact).into_owned();
+        let verdict = verdict_within_the_deadline(&fragment);
+        assert!(
+            verdict.contains(&format!("opens a parenthesis at character {column} {UNCLOSED}")),
+            "the recorded fuzz artifact {fragment:?} must be refused at character {column}, got: {verdict}"
+        );
+    }
 }
 
 #[test]
 fn the_bound_is_over_tokens_so_a_closer_inside_a_string_literal_closes_nothing() {
     // The first is the reduction of the recorded artifact and the whole trigger - `cargo fuzz tmin`
-    // took it to five bytes, `a.:a(`, on the base tree. The second is the case that decides the
-    // bound is asked of the TOKENS: its two characters balance, one `(` and one `)`, so a count
-    // reads it as closed, while the `)` is a string literal the tokenizer hands over as a single
-    // token and never as an `RParen`. That is `holds_comment_delimiter`'s fail-open one character
-    // class over, and the reason this guard asks the tokenizer instead of counting. The third has
-    // no `.:`, so the parser DOES return on it - it is `Unparsable` without the bound - and it is
-    // here because the bound must name the outermost open parenthesis rather than the innermost.
-    for (fragment, column) in [("mrr_eur.:S1(", 12), ("SUM(mrr_eur.:S1(')'", 4), ("SUM(mrr_eur", 4)] {
+    // took it to five bytes, `a.:a(`, on the base tree.
+    //
+    // The second is the case that decides the bound is asked of the TOKENS, and it is TEXT-BALANCED:
+    // one `(`, one `)`, so a count reads it as closed - while the `)` is a string literal the
+    // tokenizer hands over as a single token and never as an `RParen`, leaving the parser a
+    // parenthesis with no closer. That is `holds_comment_delimiter`'s fail-open one character class
+    // over, and the reason this guard asks the tokenizer instead of counting. **The first spelling
+    // of this cell used `SUM(mrr_eur.:S1(')'`, which a count WOULD have caught - two `(` against
+    // one `)` - so it was red against a naive bound for the wrong reason and proved nothing about
+    // the tokenizer.** Dropping the `SUM(` is the whole repair.
+    //
+    // The third has no `.:` at all and still does not return, which is what makes the axis the
+    // parenthesis and not the construct - see `super::super::unclosed_parenthesis`.
+    //
+    // The fourth has no `.:` either and the parser DOES return on it: it is `Unparsable` without
+    // the bound, and it is here because the bound must name the outermost open parenthesis rather
+    // than the innermost.
+    let bounded = [
+        ("mrr_eur.:S1(", 12),
+        ("mrr_eur.:S1(')'", 12),
+        ("CAST(mrr_eur AS S1(9", 5),
+        ("SUM(mrr_eur", 4),
+    ];
+    for (fragment, column) in bounded {
         let verdict = verdict_within_the_deadline(fragment);
         assert!(
             verdict.contains(&format!("opens a parenthesis at character {column} {UNCLOSED}")),
@@ -105,11 +146,15 @@ fn the_bound_is_over_tokens_so_a_closer_inside_a_string_literal_closes_nothing()
         );
     }
 
-    // The same fragment with the closer present is NOT this refusal - it reaches the parse and is
-    // judged for what it is. Asserted as an absence, so a guard that refused every `(` would be red
-    // here rather than reading as a stricter version of the same rule.
-    assert!(
-        !verdict_within_the_deadline("mrr_eur.:S1()").contains(UNCLOSED),
-        "a closed parenthesis is not an unclosed one"
-    );
+    // The same fragments with the closer present are NOT this refusal - each reaches the parse and
+    // is judged for what it is. Asserted as an absence, so a guard that refused every `(`, or one
+    // that refused the `.:` construct, would be red here rather than reading as a stricter version
+    // of the same rule. The second is the measurement that decided against the construct axis: it
+    // parses and returns on the base tree, so refusing `.:` would refuse a harmless fragment.
+    for closed in ["mrr_eur.:S1()", "mrr_eur.:S1(9)"] {
+        assert!(
+            !verdict_within_the_deadline(closed).contains(UNCLOSED),
+            "{closed:?} closes its parenthesis, so it is not an unclosed one"
+        );
+    }
 }
