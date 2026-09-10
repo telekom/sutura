@@ -1,9 +1,20 @@
 {
-  "_comment": "Same activation hook as Claude Code, from the same script and the same skill file. Two configs are unavoidable (different products), one implementation is not.",
+  "_comment": "Same activation hook as Claude Code, from the same script and the same skill file. Two configs are unavoidable (different products), one implementation is not. SubagentStart runs the same script so a subagent inherits the mode; upstream's third hook (UserPromptSubmit, a mode tracker) is deliberately absent - .ponytail-active IS the mode, and a second way to set it is a second thing to keep true.",
   "hooks": {
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \".claude/hooks/ponytail-session-start.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
         "hooks": [
           {
             "type": "command",

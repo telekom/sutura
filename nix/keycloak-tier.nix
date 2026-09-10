@@ -176,7 +176,7 @@ rec {
       # through every state this script can reach; a file put there by hand is not one of them.
       status() {
         running || return 1
-        port="$(published_port)"
+        port="$(published_port)" || return 3
         [ -n "$port" ] || return 3
         [ -f "$realmfile" ] || return 3
         sutura-tier-endpoint published "$root" keycloak 127.0.0.1 "$port" || return 3
@@ -484,8 +484,24 @@ rec {
         fi
       }
 
+      usage_state=0
+      sutura-keycloak-tier >/dev/null 2>&1 || usage_state=$?
+      if [ "$usage_state" != 2 ]; then
+        echo "usage answered $usage_state, expected 2" >&2
+        exit 1
+      fi
+
       sutura-keycloak-tier start
       expect_state 0 "a server that is running, published and provisioned"
+
+      chmod u-r "$kc_home/server.log"
+      unreadable_state="$(tier_state)"
+      chmod u+r "$kc_home/server.log"
+      if [ "$unreadable_state" != 3 ]; then
+        echo "status answered $unreadable_state, expected 3 - an unreadable live server log is unclaimed, not usage" >&2
+        exit 1
+      fi
+      expect_state 0 "the readable live server returns to the published state"
 
       # The discovery contract: a harness learns the port from this file and nowhere else,
       # so a tier that started and published nothing is a tier no test can reach.

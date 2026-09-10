@@ -378,7 +378,7 @@ unconditionally passes every census, which is what `tests/bound.rs`'s fault half
 the floor is a FLOOR: it is not the tier's cost, it says nothing about another adapter's cells,
 and no gate reads it - see `Spent` for why each of those is deliberate.
 
-## `use None`
+## `use sutura_domain`
 
 The domain, re-exported so `execute_packs` can name the port without the consuming crate
 having to depend on `sutura-domain` under that spelling.
@@ -387,17 +387,118 @@ A `macro_rules!` body resolves item paths at the EXPANSION site, so a bare `sutu
 the expansion would compile only for a consumer that happens to have that dependency under that
 name. `$crate::sutura_domain` always resolves.
 
-## `use None`
+## `use Fixture`
 
-## `use None`
+An adapter's fixture, or the reason this venue could not stand one up.
 
-## `use None`
+**The type every binding's `open` path returns, and it is the mechanism rather than a
+convention.** `crate::execute_packs` used to call `open` for a `W`, so an adapter whose data system
+may not be reachable here had exactly one option - panic in its fixture - and therefore could
+not be bound at all: `sutura-exec-postgres` was registered in the golden matrix and carried the
+one declared exemption in `cargo xtask check-conformance-bindings` for precisely that reason
+(`telekom/sutura#348`).
 
-## `use None`
+**What the return type buys, stated exactly, because the sentence that stood here read wider
+than the mechanism.** It forces a VALUE, not a question: `Fixture::standing(connect().unwrap())`
+asks nothing and PANICS, which is loud and fail-closed; `Fixture::Absent(Missing::tier(s, &".."))`
+asks nothing and is silent in the two venues named in this module's header. So what a binding
+cannot do is leave the two cases unconsidered - a fixture returning `W` does not compile - and
+what it can still do is answer either one dishonestly. That is one line, in a file whose whole
+content is a fixture and a declaration, and the diff is where it is read.
 
-## `use None`
+# Why this is not an `crate::Outcome`, which is the distinction the design turns on
 
-## `use None`
+`crate::Outcome::Declined` is a statement about the ADAPTER - *this adapter cannot do that*, carrying
+a typed `crate::Declination`. An absent tier is a statement about the ENVIRONMENT. Collapsing the two
+would make a green run over an absent Postgres indistinguishable from a green run against one,
+which is the failure mode the packs were built against. So the two are reported under different
+words (`crate::hold` prints `DECLINED`, `crate::not_here` prints `NOT RUN`) and decided at different
+levels: a declination comes out of a pack that RAN, and an absence stops the pack running.
+
+# What it does NOT establish
+
+See this module's header: nothing here can tell an absence that was DISCOVERED from one that was
+merely declared, and the reason the harness cannot is a dependency rule that has its own gate.
+
+## `use Missing`
+
+Why this venue could not stand a fixture up. **About the environment, never about the adapter.**
+
+Typed rather than a message, for the reason every refusal in this workspace is: a reader that
+matched on the text would be depending on the text. One variant today - a second arrives with
+the first adapter whose absence is not a tier, and cloud state a run cannot create is the shape
+that asks for it. It arrives WITH that adapter rather than ahead of it, because a variant
+nothing constructs is a claim nothing provokes, and this crate has paid for one of those already
+(`crate::Fault::EmptyCorpus`, which needed a seam before it was reachable at all).
+
+## `use REQUIRE_TIER`
+
+The variable a provisioner sets when it has brought a tier up, spelled here as well.
+
+**`sutura_dev::requirement::FORCE`'s name, duplicated, and the duplication is PINNED rather than
+hoped about.** This crate may not take `sutura-dev` through a normal dependency -
+`xtask/src/boundaries/harness.rs` holds it to `sutura-domain` alone - so the name and its
+truthiness are spelled twice, and two statements about one fact can disagree.
+`tests/bound.rs`'s `the_requirement_this_harness_reads_is_the_one_the_provisioner_writes` is the
+mechanism that keeps them equal: it takes `sutura-dev` as a DEV-dependency, which that gate
+permits by design (what may not happen is a pack BODY compiled against something, and a pack
+body is `src/`), and compares both halves against `FORCE` and `requirement::decide`.
+
+## `use a_tier_is_required`
+
+Whether an absent tier is a failure here, decided over the VALUE rather than the environment.
+
+Over the value for the reason `sutura_dev::requirement::decide` is: an environment read is not
+testable across a threaded runner, and this is the half a test has to be able to compare.
+
+**The falsy spellings are a COPY and the owner is `sutura_dev::requirement::NOT_REQUIRED`**,
+because that crate cannot be reached from here through a normal dependency. The copy is not
+held by the eye: `tests/bound.rs` iterates the owner's list, so a spelling added there fails
+this crate's own cell until this line agrees. Review found the version before that - a fixed
+array of eleven values chosen HERE - and named the scenario: add `"off"`, the obvious next
+spelling for a variable people set by hand, and `SUTURA_DEV_REQUIRE_TIER=off` means *optional*
+to `provisioned::here`, which skips, and *required* here, which then refuses the absence that
+skip produced.
+
+## `use absence_is_impossible`
+
+Whether a DECLARED absence is a defect here rather than a skip.
+
+**Pure, over the value, because the alternative is not available and would be wrong anyway.**
+`unsafe_code` is `forbid` across this workspace and `std::env::set_var` is `unsafe` on Rust
+2024, so a test cannot manipulate the environment here at all - and
+`sutura_dev::requirement`'s own tests refuse to do it for the second reason, which is that it
+races across a threaded runner. So the decision is a value every caller passes down from
+`declared_here`, which is what lets `tests/bound.rs` provoke the refusal end to end, message
+included, in both endings and in either direction.
+
+**An exhaustive `match` and not a `matches!`, and the difference is the whole of this claim.**
+`REQUIRE_TIER` is a statement about TIERS, so the variant that arrives for cloud state a run
+cannot create has to decide its own direction - and a `matches!` gave it one by omission:
+`false`, silently, with `cargo check --all-features` exit 0. That is this branch's own hole
+reopened one adapter later and inside the venue this crate says is closed - a fixture answering
+`Absent(Cloud)` without asking anything, in `checks.nextest`, which sets the variable. Measured
+with the refusal absent: `21 tests run: 21 passed`, the only tell printed lines nobody diffs.
+
+With the `match` a new variant does not compile until somebody writes its arm, so the fail-open
+direction cannot be chosen by not looking. **No test asserts that and none can** - a compile
+error is not an outcome libtest has - so the evidence is the mutation, re-taken on 2026-09-06:
+adding a `Missing::Cloud` variant made `just lint` fail with
+`E0004` - a pattern for the new variant not covered - at this arm, where the same mutation
+against the `matches!` version was exit 0.
+
+## `use declared_here`
+
+What this venue declared about tiers, read from the environment.
+
+**The only environment read in this crate, and everything below it takes the VALUE.** That is
+what makes the reporters testable at all, and it was measured rather than reasoned about: with
+the read inside `not_here` and `census`, `just validate` refused two of THIS crate's own cells -
+`checks.nextest` provisions the Postgres tier and sets the variable, and a fake absence in a
+fake venue is indistinguishable from a fabricated one. `unsafe_code` is `forbid` across this
+workspace and `std::env::set_var` is unsafe on Rust 2024, so no test can turn it off either. So
+the macro reads it once per cell and hands it down, which is also the shape
+`sutura_dev::requirement::decide` chose for the same reason.
 
 ## `type_alias Conformed`
 
