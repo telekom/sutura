@@ -162,15 +162,26 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  # Never cancel a run on the default branch. The next push's base is the previous push, so a
-  # cancelled run's commits get classified out of the following range and are never validated
-  # by any completed run - the same "green while actually red" shape as using the wrong base.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+# #561: the concurrency group MOVED from the workflow level to the `ci` JOB (below), so a run's
+# validation is not held up by an unrelated predecessor's downstream tail. The correctness of the
+# default-branch base no longer depends on `cancel-in-progress: false` either - the base is read
+# from a durable marker, so an evicted run's commits stay covered regardless of cancellation.
 jobs:
   ci:
+    # THE VALIDATION CONCURRENCY GROUP (#561), at the `ci` JOB level rather than the workflow
+    # level. A workflow-level `concurrency:` makes every job of run N+1 - pr-cache,
+    # bigquery-acceptance, ci-aggregate included - wait for every job of run N, so the next run's
+    # ci sits behind an unrelated predecessor's cross tail (median 79 s, max 1040 s of queue lag
+    # measured in #561). Scoping the group to the job that VALIDATES stops that: a later run's ci
+    # waits only for the prior run's ci, not its tail; the downstream legs are each own-serialized
+    # (bigquery-acceptance has its own group) or idempotent.
+    #
+    # Never cancel a run on the default branch, and the correctness that used to rest on that
+    # comment is now on the durable marker (#561): the default-branch base is the last fully
+    # validated commit, so even an EVICTED pending run's commits are covered by the next run.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-ci
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # SKIPPED ON THE RELEASE COMMIT, and the three jobs below `needs: [ci]` so they skip with it.
     # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
     # token, because the `main` ruleset requires a pull request and GITHUB_TOKEN cannot be given
@@ -313,14 +324,39 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           BEFORE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           if [ "$EVENT" = "pull_request" ]; then
             # The merge base, not the base tip: it is the whole PR even if the target moved.
             base="$(git merge-base "$PR_BASE" HEAD || true)"
           elif [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
-            # On the default branch, what is newly ON it is exactly the right scope.
+            # THE DEFAULT-BRANCH BASE IS A DURABLE MARKER, NOT `github.event.before` (#561).
+            # The per-ref concurrency group keeps only ONE pending run, so a third push EVICTS the
+            # second before it starts a job; an evicted run validates nothing, and if the next run
+            # classified from `before` (= the evicted run's head) the evicted run's commits would
+            # fall out of every completed run's range - nine `main` commits went unvalidated that
+            # way. So the base here is the durable marker of the last commit a GREEN ci job fully
+            # validated, published as artifact `last-validated` at the end of this job. A run that
+            # never starts never advances it, so the evicted run's commits sit between the marker
+            # and HEAD and ARE covered by this run - which is exactly the property #561 demands,
+            # proven as a unit test in xtask `validated_base`. Read it over the Actions API (the
+            # CRAP-baseline read's pattern) and prefer it when it is an ancestor of HEAD; `before`
+            # stays the fallback for the first push or when no marker is readable.
             base="$BEFORE"
+            marker="$(
+              gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=last-validated&per_page=100" 2>/dev/null |
+                jq -r --arg branch "$DEFAULT_BRANCH" '
+                  .artifacts[]
+                  | select(.expired == false)
+                  | select(.workflow_run.head_branch == $branch)
+                  | .workflow_run.head_sha
+                ' | head -n 1
+            )" || marker=""
+            if [ -n "$marker" ] && git merge-base --is-ancestor "$marker" HEAD 2>/dev/null; then
+              base="$marker"
+              echo "classifying against the last fully-validated commit $marker (evicted-run commits stay covered)"
+            fi
           else
             # A push to a topic branch: judge the branch, not the push.
             base="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD || true)"
@@ -368,29 +404,43 @@ jobs:
       # fails immediately afterwards with its own attributed output. `--keep-going` is what makes
       # that true - without it the first failure would abandon the other eight and this step would
       # slow the job it exists to speed up.
+      #
+      # `api-docs` is the long root (#562) and is GATED ON THE `api` CLASSIFICATION, so a run that
+      # did not select `api` does not waste the graph on it - the authoritative `API reference
+      # pages` step below was already `api`-gated, so this only removes a prefetch that warmed
+      # nothing. When `api` IS selected the root stays in the SAME graph (an array, appended
+      # conditionally), so it still overlaps the other roots instead of serialising after them -
+      # the choice that does not depend on any host-utilisation figure, all of which were the
+      # mislabelled number #564 withdrew. `check-workflows` still sees `api-docs` referenced by
+      # the literal `API reference pages` step.
       - name: Realise all checks in one graph and report host utilisation
         continue-on-error: true
         # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
         # across the merged graph and reports cpus/memory/model + the nix max-jobs/cores pair in
         # force + mean/peak CPU-busy, so a later analysis can see whether the host was saturated
-        # or idle while the checks ran. ~0 cost side effect. It lands in the job summary AND as a
-        # `measure-host(<label>):` line in this job's log - grep that prefix, since the summary is
-        # served to a browser and to nothing a script can read.
+        # or idle while the checks ran. `busy` is TRUE busy since #564 (idle+iowait as not-busy),
+        # sampled by the shared nix/cpu-busy.sh. ~0 cost side effect. It lands in the job summary
+        # AND as a `measure-host(<label>):` line in this job's log - grep that prefix, since the
+        # summary is served to a browser and to nothing a script can read.
         uses: ./.github/actions/measure-host
+        env:
+          API: ${{ steps.classify.outputs.api }}
         with:
-          label: merged check graph (9 roots)
+          label: merged check graph
           run: |-
             set -eu
-            nix build -L --keep-going \
-              .#checks.x86_64-linux.hygiene \
-              .#checks.x86_64-linux.reuse \
-              .#checks.x86_64-linux.fmt \
-              .#checks.x86_64-linux.clippy \
-              .#checks.x86_64-linux.nextest \
-              .#checks.x86_64-linux.keycloak-tier \
-              .#checks.x86_64-linux.postgres-tier \
-              .#checks.x86_64-linux.doctest \
-              .#checks.x86_64-linux.api-docs
+            checks=(
+              .#checks.x86_64-linux.hygiene
+              .#checks.x86_64-linux.reuse
+              .#checks.x86_64-linux.fmt
+              .#checks.x86_64-linux.clippy
+              .#checks.x86_64-linux.nextest
+              .#checks.x86_64-linux.keycloak-tier
+              .#checks.x86_64-linux.postgres-tier
+              .#checks.x86_64-linux.doctest
+            )
+            if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
+            nix build -L --keep-going "${checks[@]}"
 
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
@@ -781,18 +831,58 @@ jobs:
       # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
       # so the four `cross` jobs stay the authority on a musl LINK - and nothing here reaches a
       # feature no shipped binary enables, which is what the `--all-features` gates are for.
+      #
+      # BOTH WRAPPED IN `measure-host` (#562): the post-graph cargo tail (~300-450 s) had NO
+      # utilisation telemetry at all - `measure-host` covered only the graph step - so nobody could
+      # say whether it was CPU-bound or waiting. Sampling it (true busy since #564) is cheap and
+      # answers that next question. The `run:` is the same command, `nix run .#default-features`;
+      # only the wrapper is added.
       - name: The shipped feature set compiles and lints
         if: steps.classify.outputs.rust == 'true'
-        run: nix run .#default-features
+        uses: ./.github/actions/measure-host
+        with:
+          label: shipped feature set compiles and lints
+          run: |-
+            set -eu
+            nix run .#default-features
 
       # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
       # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
       - name: The shipped feature set runs its tests
         if: steps.classify.outputs.rust == 'true'
-        run: nix run .#default-feature-tests
+        uses: ./.github/actions/measure-host
+        with:
+          label: shipped feature set runs its tests
+          run: |-
+            set -eu
+            nix run .#default-feature-tests
 
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
+
+      # DURABLE VALIDATED-COMMIT MARKER (#561). Advance "the last commit a completed run fully
+      # validated" to THIS run's head, ONLY on a green push to the default branch. The base step
+      # reads it; this is the write half. An EVICTED run never reaches here (it never starts a
+      # job), so the marker only moves on runs that actually ran to a green conclusion - which is
+      # exactly what keeps an evicted run's commits inside the NEXT run's classification range.
+      # `success()` keeps a RED run from advancing it, so a commit that failed is re-classified by
+      # the next run rather than silently marked done. The value a later run reads is the
+      # artifact's OWN `workflow_run.head_sha` (= this push's head), so the file below is for a
+      # human reading the artifact, not for the reader above.
+      - name: Publish the last-validated-commit marker
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          printf '%s' "$SHA" > last-validated
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: last-validated
+          path: last-validated
+          if-no-files-found: error
+          retention-days: 30
 
   # HALF (a): publish this pull request's OWN store paths to `sutura-prs`, the PR's additive cache.
   # Runs ONLY on a pull request and only after `ci` has warmed the closure (`needs`), mirroring
@@ -830,6 +920,21 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           # Same self-restraint the main publish uses: push what THIS run realised, not the whole store.
           pushFilter: "(-source$|nixpkgs)"
+
+      # Realise and publish the PR's own realised paths. cachix-action's post-build hook publishes
+      # ONLY paths nix BUILDS while its daemon is alive - a job that merely restored scope `ci` and
+      # re-derived it would fire the hook nothing. Scope `ci` is keyed on the lockfiles, which are
+      # unchanged across a PR's commits, but the checks' own outputs are derived from the PR's
+      # source, so this realise RE-COMPILES the workspace crates into fresh store paths for this PR,
+      # the hook fires, and they land in `sutura-prs` for the next commit on this branch to
+      # substitute - the same three-check closure the shared `push` job publishes to `sutura`.
+      - name: Realise and publish this PR's shared closure
+        run: |
+          set -eu
+          nix build --print-build-logs \
+            .#checks.x86_64-linux.nextest \
+            .#checks.x86_64-linux.clippy \
+            .#checks.x86_64-linux.hygiene
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
