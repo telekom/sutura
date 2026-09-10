@@ -77,6 +77,38 @@ inputs:
 runs:
   using: composite
   steps:
+    # THE RESTORE EXTRACTS AS ROOT, WHICH IS WHY `target/` IS CREATED HERE AND NOT BY IT.
+    #
+    # An archive built from `paths: target/causality-target` holds NO `target/` member - measured
+    # with GNU tar 1.35, the runner's own version: the member list is `target/causality-target/`,
+    # its files and its subdirectories, and nothing else. So `tar -x` has to CREATE the intermediate
+    # `target/`, and a directory tar creates rather than unpacks takes the EXTRACTING PROCESS's
+    # ownership and umask instead of the archive's. The pinned action extracts privileged -
+    # `sudo /usr/bin/tar -xf ... -P -C <workspace>`, read in run `34499576269` - so the first hit
+    # after #586 left `target/` as `root:root drwxr-xr-x`, `nix/cargo-env.nix`'s
+    # `mkdir -p "$CARGO_HOME"` one level down died with `mkdir: Permission denied`, `install` then
+    # had no directory to put `config.toml` in, and cargo exited 101. Every `merge_group` run after
+    # the entry existed failed there. The `main` push that WROTE it passed only because it missed,
+    # and so created `target/` itself as the job's own user - which is what this step now does on
+    # every event.
+    #
+    # A directory that already exists is left alone: tar sets metadata only on members it unpacks,
+    # so a pre-existing non-member parent keeps its owner and its mode (measured - `mkdir -m 700
+    # target` survives the extraction as `drwx------`). Creating it here, before the restore, is
+    # therefore what makes the privileged extraction unable to own it, rather than a repair of a
+    # tree it already owns.
+    #
+    # ONLY `target/`, NEVER `target/causality-target`. That one IS a member, so pre-creating it
+    # would change no ownership - and it would break the save: the witness header below rests on
+    # the action writing NO entry for an absent path on a docs-only push, where an empty directory
+    # would instead store an empty entry and the next run would restore a primary-key hit over
+    # nothing, which is that witness's own refusal fired over correct work.
+    - name: The job's own user owns target/ before the restore can
+      shell: bash
+      run: |
+        set -eu
+        mkdir -p target
+
     - id: target
       uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
       with:
@@ -198,3 +230,51 @@ runs:
           printf 'A restore carrying no content bytes is a broken cache, not a cold one. Check that the paths input (plural) still names the dir this job builds in, that nix is still false, and read this step for an "Unexpected input(s)" warning from the runner.\n' >&2
           exit 1
         fi
+
+    # THE SECOND REFUSAL: A RESTORED TREE THIS JOB CANNOT WRITE INTO.
+    #
+    # The step above proves bytes ARRIVED. It cannot see the other way this cache breaks, which is
+    # the one that killed the merge queue: the entry restores perfectly, the witness reports
+    # 13745 MB, and the job dies 8 minutes later inside cargo with `mkdir: Permission denied` and
+    # no mention of a cache anywhere in the message. Ownership is not something a `du` can read,
+    # so it gets its own probe.
+    #
+    # IT DOES THE OPERATION THAT BROKE, rather than asking `[ -w ]` about it. `-w` answers from
+    # `access(2)` on the calling user's credentials and says nothing about a directory whose mode
+    # permits what a mount, an attribute or a full filesystem then refuses - the same class of
+    # mistake as reading `du -sm` for "did the save carry anything". A `mkdir` followed by an
+    # `rmdir` is the operation `nix/cargo-env.nix` performs, so a green here is that operation
+    # having succeeded and not a proxy for it.
+    #
+    # BOTH DIRECTORIES, FOR DIFFERENT REASONS. `target/` is the one the extraction CREATES, and the
+    # step at the top of this file is what stops it owning that - so this is the mechanism holding
+    # that step, including against someone moving it below the cache step, where `mkdir -p` on an
+    # existing root-owned directory succeeds and changes nothing. `target/causality-target` is an
+    # archive MEMBER, so its ownership is whatever the saving run recorded, which this action does
+    # not control and a future privileged save could change. It is probed only when it exists,
+    # because a MISS legitimately leaves it absent and reddening on a cold cache is inverted logic.
+    - name: The restored causality target is writable by this job
+      shell: bash
+      env:
+        SCOPE: ${{ inputs.scope }}
+      run: |
+        set -eu
+        unwritable=0
+        for dir in target target/causality-target; do
+          if [ ! -d "$dir" ]; then continue; fi
+          probe="$dir/.sutura-write-probe.$$"
+          if mkdir "$probe" 2>/dev/null; then
+            rmdir "$probe"
+            continue
+          fi
+          unwritable=1
+          # NO BACKTICKS AND NO `$` IN THESE MESSAGES: they are single-quoted, and ShellCheck's
+          # SC2016 refuses either there - the same trap the refusal above records.
+          printf 'causality-target-cache(%s): RED - %s exists and this job cannot create a directory inside it.\n' "$SCOPE" "$dir" >&2
+          ls -ld "$dir" >&2
+        done
+        if [ "$unwritable" -eq 1 ]; then
+          printf 'The cache restore extracts with sudo tar, so any directory it CREATES rather than unpacks is owned by root and nothing later in this job can write there. Check that the step which creates target/ still runs BEFORE the cache step in this action.\n' >&2
+          exit 1
+        fi
+        printf 'causality-target-cache(%s): the restored tree is writable by this job\n' "$SCOPE"
