@@ -107,6 +107,14 @@ pub mod corpus;
 pub mod execute;
 pub mod venue;
 
+// The compile packs live behind a default-off `compile` feature: they need `sutura-semantic` and
+// `sutura-sql`, and a data adapter binding the execute packs must link neither (`corpus` states the
+// portability contract `docs/adr/0012` and `xtask/src/boundaries/harness.rs` pins the shape).
+// `just test`/`just lint` pass `--all-features`, so this module is built and run on the feature-on
+// path; the feature-off path is what every execute binding compiles.
+#[cfg(feature = "compile")]
+pub mod compile;
+
 // Re-exported at the crate root, so the split is an implementation detail rather than a rename:
 // `execute_packs!` expands `$crate::Fixture` at every binding, and a path that moved would be a
 // breaking change bought for nothing. `clippy::pub_use` is allowed here for exactly this shape.

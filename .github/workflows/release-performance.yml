@@ -52,7 +52,9 @@ env:
 jobs:
   # A 20-minute build should not start because someone clicked the wrong button.
   validate:
-    runs-on: rust-mcp
+    # `ubuntu-latest`: two string comparisons. `build` below keeps the Rust runner, which is
+    # where the 20-minute build this confirmation guards actually happens.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require explicit confirmation
@@ -75,7 +77,7 @@ jobs:
 
   build:
     needs: [validate]
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 120
     permissions:
       contents: write   # attach assets to an existing release

@@ -39,5 +39,22 @@ thiserror = { workspace = true }
 sutura-conformance = { workspace = true }
 sutura-dev = { workspace = true }
 
+# THE FIXTURE-TIER CREDENTIAL, AND THE CONNECTION CONFIG OVER IT. Default-off, and the reason is the
+# ARTEFACT rather than build time: `nix/shipped.nix` builds cargo's DEFAULT feature set, so nothing a
+# release publishes contains `src/fixture.rs` or `PostgresWarehouse::local_config`. Both callers are
+# tests - `tests/conformance.rs` here and `crates/sutura-app/tests/adapters/mod.rs` - so nothing
+# shipped loses anything, and `github.com/telekom/sutura#455` is a `pub fn` whose only guard against
+# a consumer reaching it was its name.
+#
+# **Not `pub(crate)`, and not because that would be weaker.** It would be stronger, and it does not
+# compile: both callers are INTEGRATION tests, which are separate crates. A test-only module has the
+# same problem. So a feature is the narrowest visibility this pair of call sites admits.
+#
+# Every compiling gate here passes `--all-features`, and `deny.toml` sets `all-features = true`, so
+# this is still compiled, linted and tested on every run. `check-default-features` and
+# `check-default-feature-tests` scope themselves to the shipped set, which this crate is not in.
+[features]
+fixtures = []
+
 [lints]
 workspace = true

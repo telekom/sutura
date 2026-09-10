@@ -538,7 +538,7 @@ mod tests {
     fn collects_intent_targets() {
         let json = r#"{"intents":[{"intent":"x","group":"engineering","skill":"rust"}]}"#;
         assert_eq!(intent_targets(json), vec![String::from("engineering/rust")]);
-        assert!(intent_targets("{}").is_empty());
+        assert!(intent_targets("{}").is_empty(), "an intentless payload yields no targets");
     }
 
     // NOTE: there is deliberately no test here that reads the real router and the real

@@ -54,7 +54,7 @@
 //! deleting one disjunct from the return produced two contradictory sentences in one run at exit 0
 //! with every unit test still green - because every test was a pure-function test and nothing
 //! called [`run`]. The tests below drive [`run_in`] over crafted trees for that reason, and
-//! [`tests::the_real_tree_passes_this_gate`] drives it over this repo, the way `check-workflows`
+//! `tests::the_real_tree_passes_this_gate` drives it over this repo, the way `check-workflows`
 //! and `check-venues` each anchor on the real file their fixtures only imitate.
 //!
 //! # WHAT IT READS, AND WHAT IT REFUSES TO GUESS
@@ -67,7 +67,7 @@
 //!   rows. This is the rule the docker gate already states the other way round: no container
 //!   runtime is a legitimate developer machine, an unreadable input is not. So a missing file means
 //!   *nothing is tolerated* and the census line says so, and every other error is [`Verdict::Fail`].
-//!   Held by [`tests::an_absent_allowlist_is_configuration_and_an_unreadable_one_is_a_fault`], which
+//!   Held by `tests::an_absent_allowlist_is_configuration_and_an_unreadable_one_is_a_fault`, which
 //!   drives the non-UTF-8 case because it is the one that behaves the same for every user; a
 //!   permission bit does not, under a build sandbox that may own the file.
 //! * **It prints what it read, as a PAIR from two different places.** Every package in the lock and
@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(rows.permitted.len(), 1);
         assert!(rows.permitted["58"].contains("2026-08-28"), "the date is part of the reason");
         assert!(rows.permitted["58"].contains("duckdb"));
-        assert!(rows.malformed.is_empty());
+        assert!(rows.malformed.is_empty(), "no malformed rows from a well-formed allowlist");
     }
 
     #[test]
@@ -653,8 +653,8 @@ mod tests {
         // turn a correct tree red, or the gate is one somebody disables.
         let majors = family_majors("[[package]]\nname = \"arrow\"\nversion = \"59.2.0\"\n");
         let found = assess(&majors, &allowed("59 2026-08-28 the engine's major\n").permitted);
-        assert!(found.inert.is_empty());
-        assert!(found.unexplained.is_empty());
+        assert!(found.inert.is_empty(), "no allowlist row is inert when it names the engine");
+        assert!(found.unexplained.is_empty(), "the matched major needs no explanation");
     }
 
     #[test]
@@ -662,8 +662,8 @@ mod tests {
         // One major is the state this workspace wants, not an exception to anything.
         let majors = family_majors("[[package]]\nname = \"arrow\"\nversion = \"59.2.0\"\n");
         let found = assess(&majors, &allowed("").permitted);
-        assert!(found.unexplained.is_empty());
-        assert!(found.inert.is_empty());
+        assert!(found.unexplained.is_empty(), "one major needs no row to be explained");
+        assert!(found.inert.is_empty(), "an empty allowlist has no inert rows");
     }
 
     #[test]
@@ -679,8 +679,8 @@ mod tests {
     fn a_split_every_row_explains_is_clean_in_both_directions() {
         let rows = allowed("58 2026-08-28 the adapter\n59 2026-08-28 the engine\n");
         let found = assess(&family_majors(split_lock()), &rows.permitted);
-        assert!(found.unexplained.is_empty());
-        assert!(found.inert.is_empty());
+        assert!(found.unexplained.is_empty(), "every row explains the major it names");
+        assert!(found.inert.is_empty(), "no allowlist row is inert on the split");
     }
 
     #[test]

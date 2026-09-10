@@ -597,8 +597,8 @@ fn declared_shared() -> SharedIdentityDeclared {
 /// One leg on [`source`], under the posture [`shared_posture`] declares, which is what
 /// `sutura_app::answer` would have read off the adapter. Built here rather than inline so a wire test
 /// and the fixtures cannot disagree about which posture the fake was handed.
-pub(crate) fn ran_shared() -> sutura_domain::source::ExecutedAs {
-    sutura_domain::source::ExecutedAs::of(source(), shared_posture())
+pub(crate) fn ran_shared() -> sutura_domain::source::UniformlyExecuted {
+    sutura_domain::source::UniformlyExecuted::of(source(), shared_posture())
 }
 
 /// A registry holding one warehouse whose answer reproduces the anchor, so the bundle validates.

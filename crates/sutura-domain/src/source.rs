@@ -30,6 +30,20 @@
 //! unnoticed is the boot refusal in `sutura_config::Settings::refusals` and the cross-check above,
 //! both of which happen before a listener is bound.
 //!
+//! # One answer, one kind of identity - and this half IS a control
+//!
+//! [`ExecutedAs::uniform`] is the verdict, and [`UniformlyExecuted`] is what carrying it looks like:
+//! `crate::pinned::PinnedDefinitions::provenance` takes only that, so an answer whose legs decide
+//! identity two different ways is **unconstructible** rather than merely declined. It is a control
+//! and the recording beside it is not, for the reason the paragraph above gives - a refusal reaches a
+//! caller instead of the rows, and a record reaches them after.
+//!
+//! Two things it does not reach, both worth having in front of a reader here. It compares the posture
+//! **variant** and never the value, because an acknowledgement is written per source and two ordinary
+//! shared legs are therefore two unequal values and one posture. And *same posture* is not *same
+//! asker*: nothing in this module or in [`crate::identity`] names WHICH shared identity a source is
+//! read as.
+//!
 //! # Nothing here is `Deserialize`, and that is the same property [`crate::identity`] has
 //!
 //! [`AcknowledgementReason`] and [`VerificationIdentity`] are text an **operator** wrote, and the
@@ -43,7 +57,7 @@
 //! shared posture cannot be arrived at by leaving anything unset, and cannot be inherited from a
 //! neighbouring source.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::model::SourceName;
 use crate::text::first_invisible;
@@ -574,10 +588,17 @@ impl ExecutedAs {
     /// A second leg, for a federated answer.
     ///
     /// Consumes and returns, so a record is built in one expression and there is no half-built state
-    /// for something else to read. Nothing constructs a second leg today - there is no combiner - and
-    /// the method is here because the shape of the record is what decides whether it can be added
-    /// without moving the digest, and that is cheaper to settle now than after an answer format
-    /// ships.
+    /// for something else to read. The federated answer path constructs the second leg here and
+    /// groups the two in [`crate::plan::federated::FederatedPlan::combine`], so the shape of this
+    /// record is what decides whether a leg can be added without moving the digest - which is why it
+    /// was settled before an answer format shipped rather than after.
+    ///
+    /// **What stood here denied both**, was true the day it was written, and stayed on the method the
+    /// answer path calls until somebody read the caller - republished on a page in the nav the whole
+    /// time, because `just api` regenerates a doc comment faithfully and regeneration is not
+    /// verification. `check-guidance` registers that wording now, and
+    /// `xtask/src/guidance/absences.rs` is the reader for the direction a registered wording cannot
+    /// hold: an absence nobody has got wrong yet.
     pub fn and(mut self, source: SourceName, posture: SourcePosture) -> Result<Self, LegAlreadyRecorded> {
         if self.by_source.contains_key(&source) {
             return Err(LegAlreadyRecorded { at: source });
@@ -595,6 +616,102 @@ impl ExecutedAs {
     #[must_use]
     pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture> {
         self.by_source.get(source)
+    }
+
+    /// This record, if every leg in it decides identity the same way.
+    ///
+    /// **The predicate compares the VARIANT and never the value, and that distinction is the whole
+    /// of what makes this shippable.** [`SourcePosture`] derives `PartialEq` and a shared source
+    /// carries the operator's own acknowledgement, which is resolved per source - so two ordinary
+    /// `shared-service-user` legs whose operators wrote different sentences are two *unequal*
+    /// values and one posture. A `!=` here would refuse the only federating shape that ships.
+    /// [`SourcePosture::as_str`] is the variant, so the set below has one member for any number of
+    /// shared legs.
+    ///
+    /// What it decides is *same posture*, and what it cannot decide is *same asker*:
+    /// [`crate::identity::Presented::SharedServiceUser`] carries the acknowledgement witness and no
+    /// identity, and nothing here names WHICH shared identity a source is read as. So two
+    /// `shared-service-user` legs may be two different deployment-held identities and this passes
+    /// them. Stated with the claim, because the stronger reading is the one somebody will make.
+    pub fn uniform(self) -> Result<UniformlyExecuted, LegsDecideIdentityDifferently> {
+        let postures: BTreeSet<&'static str> = self.by_source.values().map(SourcePosture::as_str).collect();
+        if postures.len() > 1 {
+            return Err(LegsDecideIdentityDifferently { postures });
+        }
+        Ok(UniformlyExecuted(self))
+    }
+}
+
+/// An execution record whose legs all decide identity the same way.
+///
+/// **This exists so a mixed-posture answer is unconstructible rather than refused twice.**
+/// [`crate::pinned::PinnedDefinitions::provenance`] takes one of these, `Provenance::new` is
+/// private, and `ToolOutcome::Answer` carries a `Provenance` - so an answer combining two postures
+/// has no way to be built, whatever a call site above it forgets to ask. The refusal in the
+/// federated answer path is what stops the legs *running*; this is what stops rows *reaching a
+/// caller* if that call site is ever moved below execution.
+///
+/// The field is private and there is no `Deserialize`, for [`SharedIdentityDeclared`]'s reason: a
+/// value that reached this type without passing [`ExecutedAs::uniform`] would be the one state it
+/// exists to make unreachable. What it does **not** claim is that the constructors are unreachable
+/// from another crate - [`Self::of`] is `pub`, because one leg cannot disagree with itself and the
+/// mono answer path has no error arm to write.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct UniformlyExecuted(ExecutedAs);
+
+impl UniformlyExecuted {
+    /// One leg, which is uniform by construction.
+    ///
+    /// The mono answer path's door, and it returns no `Result` deliberately: a single-leg record has
+    /// one posture, so an `Err` arm there would be a refusal nothing can provoke sitting on the path
+    /// every question takes. Two doors, one property - the other is [`ExecutedAs::uniform`].
+    #[must_use]
+    pub fn of(source: SourceName, posture: SourcePosture) -> Self {
+        Self(ExecutedAs::of(source, posture))
+    }
+
+    /// Every leg, by source, in source order.
+    pub fn legs(&self) -> impl Iterator<Item = (&SourceName, &SourcePosture)> {
+        self.0.legs()
+    }
+
+    /// What one source's leg ran as, if this answer has one.
+    #[must_use]
+    pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture> {
+        self.0.posture(source)
+    }
+}
+
+/// The legs of one answer would not all decide identity the same way.
+///
+/// Carries the posture LABELS and never a [`SourcePosture`], and that is a disclosure decision
+/// rather than a convenience: the shared variant holds [`SharedIdentityDeclared`] ->
+/// [`AcknowledgementReason`], both `Serialize`, so a value here would publish the operator's own
+/// prose to whatever reads the refusal this becomes - a caller, a log, an agent's context. The
+/// labels come from [`SourcePosture::NAMES`]' closed set and say the whole of what a reader needs.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "the legs of one answer would decide identity differently ({postures:?}), and this deployment \
+     will not combine rows read under one identity with rows read under another into a single \
+     certified number"
+)]
+pub struct LegsDecideIdentityDifferently {
+    postures: BTreeSet<&'static str>,
+}
+
+impl LegsDecideIdentityDifferently {
+    /// The posture labels this answer would have combined, in name order.
+    #[inline]
+    #[must_use]
+    pub const fn postures(&self) -> &BTreeSet<&'static str> {
+        &self.postures
+    }
+
+    /// The labels, for a refusal that carries them onward.
+    #[inline]
+    #[must_use]
+    pub fn into_postures(self) -> BTreeSet<&'static str> {
+        self.postures
     }
 }
 

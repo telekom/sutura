@@ -1,0 +1,119 @@
+//! The gate registry's TYPES: what a task concluded, and what a task is.
+//!
+//! **Moved out of `main.rs` because that file hit the 1000-line cap `cargo xtask max-lines`
+//! holds**, on the merge of two branches that both grew it - which is the same pressure
+//! `crate::falsifier`'s own header records. What moved is the TYPES; `TASKS` itself stayed, and
+//! that is deliberate rather than arbitrary: the table is where every new gate registers, so
+//! moving it would put a rename in the path of every concurrent branch, and `main.rs` is held at
+//! HEAD by the tests that read it either way.
+//!
+//! `Verdict` and `Reads` are re-exported from the crate root, so every gate's `crate::Verdict`
+//! resolves unchanged and this split is invisible to the thirty-odd modules that use it.
+
+use std::process::ExitCode;
+
+/// What a task concluded.
+///
+/// Not `ExitCode`: that type is opaque - it cannot be compared or read back - so a task that
+/// runs other tasks could not tell whether they passed. `main` converts this to an `ExitCode`
+/// once, at the process boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Verdict {
+    /// Nothing to report.
+    Pass,
+    /// A violation. The task has already printed it.
+    Fail,
+    /// Invoked wrongly - bad or missing arguments. Distinct from a violation, because a
+    /// mistyped command is not a repo problem.
+    Usage,
+    /// The gate reached no verdict about the change: its precondition held, it ran, and what it
+    /// exists to measure was not measurable. Neither a violation nor a clean bill.
+    ///
+    /// WHY IT IS A THIRD EXIT CODE RATHER THAN A SENTENCE. A required CI step reads the exit code
+    /// and nothing else, so a gate that could not measure and exits 0 hands its reader a green
+    /// check over no evidence - measured twice on finished branches, and the record is
+    /// `github.com/telekom/sutura#307`. Failing instead was weighed and rejected: the changes that
+    /// land on `causality`'s inconclusive arms are legitimate ones (a harness move, a changed
+    /// public signature a held-at-HEAD test calls) and a gate that reddens correct work gets
+    /// disabled. So the decision moves to the venue, and the DEFAULT is closed: any consumer that
+    /// does not recognise this code fails on it, because 3 is not 0.
+    ///
+    /// **What it is not**: a venue may still choose to continue over it - `ci.yml`'s causality step
+    /// and `devenv.nix`'s `ship-check` both do, at one line each, and surface the verdict instead.
+    /// What changed is that continuing is now a stated decision in one readable place rather than
+    /// an exit code no reader can tell from a proof.
+    Inconclusive,
+}
+
+impl Verdict {
+    // Not const: `ExitCode::from` is not a const fn.
+    pub(crate) fn exit_code(self) -> ExitCode {
+        match self {
+            Self::Pass => ExitCode::SUCCESS,
+            Self::Fail => ExitCode::FAILURE,
+            Self::Usage => ExitCode::from(2),
+            Self::Inconclusive => ExitCode::from(3),
+        }
+    }
+}
+
+/// What a gate does: read the repo, print a verdict.
+pub(crate) type Gate = fn(&[String]) -> Verdict;
+
+/// Whether a task belongs to the `hygiene` sweep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kind {
+    /// Cheap, argument-free, judges the whole repo. Collected into `hygiene`, and it says what
+    /// it reads - see [`Reads`], and `gate_classification` for what that buys.
+    Hygiene(Reads),
+    /// Everything else: takes arguments, changes files, or runs other tasks. Never collected,
+    /// which is also what stops `hygiene` from recursing into itself.
+    Standalone,
+}
+
+/// Which side of the prose/code line a hygiene gate's INPUTS fall on.
+///
+/// A payload on [`Kind::Hygiene`] rather than a separate field, so a new gate cannot be added
+/// without answering the question: the compiler asks it, no test has to. It exists because a
+/// workflow skips the `hygiene` build for a diff of `docs/*.md` and `mkdocs.yml` alone, and the
+/// argument for that skip is a CLASSIFICATION of the sweep - not its size. A count would stay
+/// green while a gate joined the set unclassified, which is the drift that already happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reads {
+    /// Nothing a `docs/*.md`-or-`mkdocs.yml` diff can change: Rust, manifests, lock files, nix,
+    /// workflow YAML, the justfile, the hook configuration, the skills tree, `Cargo.lock`.
+    /// Prose OUTSIDE `docs/` is on this side too - the classification is about reachability from
+    /// that diff, not about whether a gate reads English. Skipping it on such a diff loses nothing.
+    Code,
+    /// At least one file such a diff CAN change - so skipping it DEFERS a real verdict, and
+    /// which verdict is what the plan's table has to say.
+    Prose,
+}
+
+impl Reads {
+    /// The word the plan's table is keyed by. One spelling, in the type.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Code => "code",
+            Self::Prose => "prose",
+        }
+    }
+}
+
+/// A task: the name, the `--help` line, whether it is a hygiene gate, and the code it runs.
+///
+/// The handler is IN the table, so `--help` and dispatch cannot disagree. They did once - six
+/// dispatched tasks were missing from the list, so `--help` lied and `check-guidance` reported
+/// every mention of them as a deleted gate. A table plus a separate `match` is two lists.
+///
+/// `kind` is here for the same reason. The hygiene list used to be hand-transcribed in the
+/// justfile, twice in devenv.nix, in flake.nix and as eight separate hooks - and the order
+/// differed in three of them. `check-guidance` verifies that a NAMED task exists, so it catches
+/// a rename but is blind to an omission: adding a gate and forgetting one of five call sites
+/// was invisible. Now there is one list and the callers ask for it by name.
+pub(crate) struct Task {
+    pub(crate) name: &'static str,
+    pub(crate) description: &'static str,
+    pub(crate) kind: Kind,
+    pub(crate) run: Gate,
+}

@@ -8,10 +8,17 @@
 //! than a note. Three of them are recorded in the tests below, each as the level a caller sees:
 //! an inseparable file reached the proof and was blamed for passing; a `#[cfg(test)]` HELPER was
 //! read as a test and refused with a remedy nobody could act on; and a changed page was dropped
-//! entirely, so a suite whose implementation is prose could not be proven at all.
+//! entirely, so a suite whose implementation is prose could not be proven at all. A fourth, the
+//! subject of `a_held_back_implementation_is_reverted_when_a_scoped_test_reaches_it`: an
+//! inseparable file that is the IMPLEMENTATION of a separable test in the same package stayed at
+//! HEAD while that test was measured, so the test stayed green on a "base" that had never
+//! reverted it and the gate blamed the author for a partition it chose.
+
+use std::collections::BTreeSet;
 
 use super::attributes::{Adds, adds};
 use super::diff::ChangedFile;
+use super::place;
 use super::provenance::Reach;
 use super::regions::{PostImage, has_non_test_additions, scope};
 
@@ -48,13 +55,13 @@ pub(crate) struct Separable {
     pub(crate) held_back: Vec<String>,
     /// Kept at HEAD, with nothing in them to measure: everything they added is `#[cfg(test)]`
     /// code that names no test. Reverting one takes a helper the held tests call out of the base
-    /// tree, and requiring it to name a test is the refusal [`attributes`] records.
+    /// tree, and requiring it to name a test is the refusal [`super::attributes`] records.
     pub(crate) test_only: Vec<String>,
     /// Changed, and NOT reverted: a manifest, a lockfile or a cargo configuration. Reverting one
     /// changes what cargo resolves rather than what the tests measure, and would take a dependency
     /// this branch added away from a test file kept at HEAD. Carried so the output can NAME them -
     /// a diff whose only implementation change is a manifest gets no verdict from this gate, and
-    /// [`provenance::Reach::BuildInput`] is where that argument lives.
+    /// [`Reach::BuildInput`] is where that argument lives.
     pub(crate) build_inputs: Vec<String>,
 }
 
@@ -77,7 +84,7 @@ impl Separable {
 /// **A FILE CARGO DOES NOT COMPILE IS STILL AN IMPLEMENTATION**, and reading `.rs` only is what
 /// made a documentation-driven suite unprovable: the pages a test asserts on stayed at HEAD, the
 /// test was green against "base", and the gate answered *tests changed but no implementation did* -
-/// a pass, over a diff whose implementation was prose. [`provenance::Reach`] sorts a changed path
+/// a pass, over a diff whose implementation was prose. [`Reach`] sorts a changed path
 /// into what the reconstruction may do with it, so a page, a recipe or a nix file is reverted like
 /// any other implementation and a build input is held back and NAMED.
 pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
@@ -141,13 +148,56 @@ pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
         };
     }
 
+    // A held-back file can be the implementation of a test this proof MEASURES. A file is held
+    // back because it gained an implementation change and a test in one file - so reverting it
+    // would remove its own tests along with the fix, and its own tests are excluded from the
+    // proof on that account. But a SEPARABLE test in the SAME package, added in its own file, may
+    // exercise that very implementation: the proof's base run reverts only `impl_only`, leaving
+    // the held-back file at HEAD, so such a test stays green on "base" and the gate blames the
+    // author for a partition it chose. That is [`reverted`]'s own sentence - a green base run is
+    // first a statement about WHICH files were put back - applied to the classes it already calls
+    // excusable.
+    //
+    // So a held-back file whose package is one the provable tests compile into joins the revert:
+    // its absence is then genuinely measured, and a test that stays green without it is a genuine
+    // tautology rather than an artefact of the partition. Reverting it is sound where the same-
+    // package relationship holds because `place::package` is the existing scope the run's own
+    // excusing logic keys on (`reverted::packages`). A held-back file in a package NO provable
+    // test lives in stays held - reaching it would require the cross-package dependency graph
+    // `github.com/telekom/sutura#358` left open.
+    let scoped_packages = provable_packages(&provable, read);
+    let mut held_back = Vec::new();
+    let mut revert = impl_only;
+    for path in inseparable {
+        if scoped_packages
+            .as_ref()
+            .is_some_and(|pkgs| place::package(&path, read).is_some_and(|p| pkgs.contains(p.as_str())))
+        {
+            revert.push(path);
+        } else {
+            held_back.push(path);
+        }
+    }
+
     Plan::Separable(Separable {
-        revert: impl_only,
+        revert,
         test_files: provable,
-        held_back: inseparable,
+        held_back,
         test_only,
         build_inputs,
     })
+}
+
+/// The packages the provable tests compile into, or `None` if any of them does not resolve.
+///
+/// The same refusal `reverted::packages` makes, for the same reason: the set is used to move a
+/// held-back IMPLEMENTATION into the revert, so a package the resolver cannot name must leave
+/// that held-back file held rather than guessed reverted.
+fn provable_packages(test_files: &[String], read: &PostImage<'_>) -> Option<BTreeSet<String>> {
+    test_files
+        .iter()
+        .map(|path| place::package(path, read).map(|name| String::from(name.as_str())))
+        .collect()
 }
 
 #[cfg(test)]
@@ -694,5 +744,107 @@ mod tests {
             ("crates/x/Cargo.toml", &manifest("x")),
         ]);
         assert!(matches!(Scan::of(&accounted, &one.test_files, &read), Scan::Unnamed));
+    }
+
+    #[test]
+    fn a_held_back_implementation_is_reverted_when_a_scoped_test_reaches_it() {
+        // THE DEFECT THIS CHANGE REMOVES, at the level `plan` decides. A file gains an
+        // implementation change AND its own `#[cfg(test)]` tests, so it is inseparable and held
+        // back - but a SEPARABLE integration test, added in its own `tests/` file in the SAME
+        // package, exercises that implementation. The proof's base run reverted only `shipped.rs`,
+        // left `default_features.rs` at HEAD, the integration test stayed green on "base", and the
+        // gate reported `FAILED - green against base behaviour` - blaming the author for a
+        // partition the gate itself chose. Reverting the held-back implementation too gives that
+        // test a real red-before-green proof, or a genuine tautology when it stays green without
+        // it - either way a verdict about the test rather than about the partition.
+        let files = vec![
+            changed(
+                "xtask/src/default_features.rs",
+                1,
+                &[
+                    "fn feature_preflight() -> bool { false }",
+                    "#[cfg(test)]",
+                    "mod tests {",
+                    "    #[test]",
+                ],
+            ),
+            changed("xtask/src/shipped.rs", 1, &["fn collect() {}"]),
+            changed(
+                "xtask/tests/default_features.rs",
+                1,
+                &["#[test]", "fn a_forbidden_feature_at_the_last_root_target() {}"],
+            ),
+        ];
+        let read = tree(&[
+            (
+                "xtask/src/default_features.rs",
+                "fn feature_preflight() -> bool { false }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+            ),
+            ("xtask/src/shipped.rs", "fn collect() {}\n"),
+            (
+                "xtask/tests/default_features.rs",
+                "#[test]\nfn a_forbidden_feature_at_the_last_root_target() {}\n",
+            ),
+            ("xtask/Cargo.toml", &manifest("xtask")),
+        ]);
+        match plan(&files, &read) {
+            Plan::Separable(ref one) => {
+                assert!(
+                    one.revert.iter().any(|f| f == "xtask/src/default_features.rs"),
+                    "the held-back implementation joins the revert: {:?}",
+                    one.revert
+                );
+                assert!(
+                    one.revert.iter().any(|f| f == "xtask/src/shipped.rs"),
+                    "the separable impl is still reverted: {:?}",
+                    one.revert
+                );
+                assert!(
+                    !one.held_back.iter().any(|f| f == "xtask/src/default_features.rs"),
+                    "moved out of held_back: {:?}",
+                    one.held_back
+                );
+                assert_eq!(one.test_files, vec![String::from("xtask/tests/default_features.rs")]);
+            }
+            other => panic!("a scoped test reaching its held-back implementation is Separable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_impl_with_tests_in_a_package_no_scoped_test_lives_in_stays_held() {
+        // The other direction, and the reason the rule is "a scoped test's package reaches it"
+        // rather than "revert every held-back file". A held-back implementation in a package where
+        // NO provable test lives cannot be the thing a scoped test measures - reaching it would
+        // need the cross-package dependency graph `github.com/telekom/sutura#358` left open - so
+        // it stays held for the tree that compiles, and the retry machinery can still name it.
+        let files = vec![
+            changed(
+                "crates/y/src/pinned.rs",
+                1,
+                &["fn of(a: u8) -> u8 { a }", "#[cfg(test)]", "mod tests {", "    #[test]"],
+            ),
+            changed("crates/x/src/definitions.rs", 1, &["fn changed() {}"]),
+            changed("crates/x/tests/t.rs", 1, &["#[test]", "fn t() {}"]),
+        ];
+        let read = tree(&[
+            (
+                "crates/y/src/pinned.rs",
+                "fn of(a: u8) -> u8 { a }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+            ),
+            ("crates/y/Cargo.toml", &manifest("y")),
+            ("crates/x/src/definitions.rs", "fn changed() {}\n"),
+            ("crates/x/tests/t.rs", "#[test]\nfn t() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+        ]);
+        match plan(&files, &read) {
+            Plan::Separable(ref one) => {
+                let pinned = String::from("crates/y/src/pinned.rs");
+                assert_eq!(one.held_back, vec![pinned.clone()], "unrelated held file stays held");
+                assert!(!one.revert.contains(&pinned), "not reverted: {:?}", one.revert);
+                assert_eq!(one.revert, vec![String::from("crates/x/src/definitions.rs")]);
+                assert_eq!(one.test_files, vec![String::from("crates/x/tests/t.rs")]);
+            }
+            other => panic!("expected Separable, got {other:?}"),
+        }
     }
 }

@@ -146,6 +146,7 @@
 // particular is the one path in this repository that spends real money, and a second copy of it that
 // drifted by a digit would be a leg that bills differently from the one a reviewer read.
 #[cfg(test)]
+#[path = "support/support.rs"]
 mod support;
 
 // The names, the environment fixture and the plan this leg asks - `tests/fixture/mod.rs`.
@@ -156,6 +157,7 @@ mod support;
 // `dead_code` is `deny` per target, so an item the corpus leg had no use for would fail THAT
 // target's build - the same reason `SUTURA_BQ_TABLE` is read on this side of the split.
 #[cfg(test)]
+#[path = "fixture/fixture.rs"]
 mod fixture;
 
 #[cfg(test)]
@@ -960,7 +962,7 @@ mod tests {
         // does not populate the field: a cross-check whose input is never sent has no teeth, and a
         // log line nobody reads is how that would go unnoticed for a release.
         assert!(
-            !matches!(held.total(), ListingTotal::Unreported | ListingTotal::Unreadable),
+            !matches!(held.total(), ListingTotal::Unreported | ListingTotal::Unreadable { .. }),
             "the service reported no total this crate could read, so the cross-check has no input: {:?}",
             held.total()
         );

@@ -512,6 +512,55 @@ unreachable_pub = "deny"
 # exactly the size of diff that decision deserves.
 unsafe_code = "forbid"
 
+# Doc links, and this table is read by RUSTDOC ONLY - never by `cargo build`, `cargo clippy` or
+# `just lint`.
+#
+# THE VENUE IS `cargo rustdoc` OVER LIBRARY PACKAGES - `just api` and `checks.api-docs` - AND
+# NOTHING ELSE. The doctest lane is NOT one, measured rather than assumed after this comment
+# claimed it was: `cargo test --doc` does hand rustdoc the flag, but rustdoc's `--test` mode never
+# runs the link-resolution pass, so one crate with one unresolvable link and one real doctest is
+# exit 0 with no diagnostic while `cargo doc` over that same crate is exit 101. And it reaches no
+# binary-only member at all - `cargo test --doc -p xtask` answers `no library targets found`.
+#
+# SO 30 ERRORS AT THIS LEVEL SIT IN THIS TREE WITH NO VENUE JUDGING THEM, and that is the limit
+# beside the claim rather than a footnote. `cargo rustdoc` over the three binary-only members, on
+# the nightly pin: `xtask` exit 101 (26 unresolved plus one ambiguity), `sutura-cli` exit 101 (1),
+# `sutura-serve` exit 101 (2). `cargo doc --workspace` went green-to-red on the commit that added
+# this table, and CI stays green only because nothing runs it. Teaching `check-api-docs` to
+# document the binary-only members is the fix; it needs those 30 repaired first, so it is its own
+# change - `github.com/telekom/sutura#418`.
+#
+# `cargo xtask check-api-docs` asserts this entry exists and that every workspace member inherits
+# it, because a lint nothing arms is a lint that reports nothing.
+[workspace.lints.rustdoc]
+# `forbid` and not `deny`, and the difference is measured rather than stylistic: a crate root
+# carrying `#![allow(rustdoc::broken_intra_doc_links)]` beats `deny` - exit 0, no diagnostic at all
+# - and is refused under `forbid` with `E0453`, "overruled by previous forbid". No such attribute
+# exists in this tree, so that is a hole rather than an instance, and closing it before it has one
+# is the cheap direction. Either level makes an unresolvable `[`Foo`]` an error where the pages are
+# produced rather than one of 87 warnings behind exit 0 - `github.com/telekom/sutura#360`, which
+# counted 15 of them.
+#
+# IT REACHES ONE CLASS MORE THAN ITS NAME SUGGESTS, measured rather than assumed: the two
+# `X is both a function and a module` warnings are this lint too, and denying it turned both into
+# errors. The fix is a disambiguator, and it has to be the `crate::`-qualified INLINE form -
+# `[`x`](fn@crate::x)` - because the generator drops a destination carrying `::` and keeps the code
+# span, while a bare `fn@x` has no `::`, survives into the page as a relative link and aborts
+# `mkdocs build --strict`. Both halves measured against the tool, not reasoned about.
+#
+# WHAT IT DOES NOT HOLD:
+#
+#   * whether a RESOLVED link reaches a reader. rustdoc was clean under both spellings of the
+#     destination that aborted the site build on `#352`; `cargo xtask check-api-links` and
+#     `mkdocs build --strict` own that class, and neither can see an unresolved one.
+#   * `private_intra_doc_links`, 67 of them here and several deliberate - a public item pointing at
+#     the private thing that implements it. Denying this one without answering that one is fine;
+#     conflating them is not.
+#   * `redundant_explicit_links`, 3 of them on the single pinned nightly - the count is
+#     CHANNEL-DEPENDENT, which is itself the reason it is not gated on. A separate lint and a
+#     separate judgement.
+broken_intra_doc_links = "forbid"
+
 [workspace.lints.clippy]
 all         = { level = "deny", priority = -3 }
 nursery     = { level = "deny", priority = -3 }
@@ -573,6 +622,14 @@ pub_without_shorthand       = "allow"
 # it is what stops an unused item from being kept alive by a `pub` that reaches nowhere.
 # This is the side that loses.
 redundant_pub_crate         = "allow"
+# `rest_pattern_accessible_field` is a NEW restriction lint (nightly-2026-09-08) that fires on
+# `..` in a struct pattern whenever the remaining fields are accessible, demanding each be written
+# as `field: _`. The always-on default lint `unneeded_field_pattern` (kept at its workspace deny)
+# demands the exact opposite - collapse an all-wildcard tail back to `..`. The two cannot both be
+# satisfied by any source form, so this is the same contradictory-pair carve-out as the rows above,
+# and `..` is the side this repo keeps (it is what `unneeded_field_pattern` wants and what every
+# match arm here already writes).
+rest_pattern_accessible_field = "allow"
 
 # --- restriction: fights idiomatic Rust ------------------------------------
 implicit_return          = "allow" # tail expressions are the language, not an omission
@@ -648,23 +705,22 @@ codegen-units = 256
 # under one backend and not the other is a real possibility. CI validating a cranelift build
 # would be validating something we do not ship.
 #
-# Nothing to set here. The backend is nightly-only, so it is enabled where the nightly
-# toolchain lives: devenv.nix exports CARGO_UNSTABLE_CODEGEN_BACKEND and
-# CARGO_PROFILE_DEV_CODEGEN_BACKEND, and devco/rust-toolchain-nightly.toml pins the compiler and
-# the `rustc-codegen-cranelift-preview` component.
+# OPT-IN, not the shell default. The shell's bare `cargo` is the nightly toolchain with the
+# LLVM backend - the same toolchain the gates and CI run, and what makes `cargo-llvm-cov`'s
+# `-C instrument-coverage` work for the CRAP gate. Cranelift is enabled where the nightly
+# toolchain lives and only on demand: a developer sets CARGO_UNSTABLE_CODEGEN_BACKEND and
+# CARGO_PROFILE_DEV_CODEGEN_BACKEND in the shell (or devenv.local.nix), and
+# devco/rust-toolchain-nightly.toml pins the compiler plus the
+# `rustc-codegen-cranelift-preview` component.
 #
 # This comment used to instruct developers to add `[unstable] codegen-backend = true` and set
-# `codegen-backend = "cranelift"` themselves. That could not work: the pinned toolchain is
-# stable, where `-Zcodegen-backend` does not exist. Environment rather than a committed
-# `.cargo/config.toml` for the same reason - an `[unstable]` table there is read by CI too,
-# and would fail every stable build.
+# `codegen-backend = "cranelift"` themselves; it also used to force cranelift as the shell
+# default and gate on a separate stable toolchain. Neither survives: an `[unstable]` table
+# committed here would be read by CI too and break it, and keeping LLVM the default keeps the
+# coverage instrumentation reachable.
 #
-# Consequences, both deliberate:
-#   - The dev shell's bare `cargo` is nightly. Gates are not: they source nix/stable-env.sh,
-#     which puts stable in front, because clippy's lint set differs between channels and this
-#     workspace gates on the whole `restriction` category.
-#   - Stable gets its own target directory. Alternating compilers in one directory
-#     invalidates every artifact in it, which would cost more than cranelift saves.
+# One consequence, deliberate: a single nightly toolchain and a single target directory - the
+# stable/nightly split, and the per-`/stable` target dir it needed, are gone.
 
 [profile.dev.package."*"]
 opt-level = 3

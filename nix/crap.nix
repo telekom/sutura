@@ -18,9 +18,10 @@
 #   cargo-crap       parses that LCOV, computes cyclomatic complexity from the AST, scores
 #
 # WHY cargo-llvm-cov AND NOT tarpaulin: coverage instrumentation has to agree with the compiler,
-# and `llvm-tools-preview` is already a component in rust-toolchain.toml - so the profiler
-# runtime, `llvm-profdata` and `llvm-cov` all come from the pinned stable toolchain rather than
-# from a second implementation of the same idea. tarpaulin uses ptrace and would be a second
+# and cargo-llvm-cov drives the SAME nightly toolchain every gate and every build use - so the
+# instrumentation it emits is the one the compiler this repo ships understands. The llvm tools it
+# shells out to arrive as part of its hash-pinned prebuilt release (see `llvmCov` below) rather
+# than from a second implementation of the same idea. tarpaulin uses ptrace and would be a second
 # answer to "what is covered".
 #
 # WHY PREBUILT and not `buildRustPackage` from the crates: CI minutes. cargo-crap is not in

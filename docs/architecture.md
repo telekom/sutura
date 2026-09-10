@@ -75,9 +75,9 @@ conformance test is that what it declared is exactly what it produced.
 [What DataHub can carry](adr/0016-what-datahub-can-carry.md) is the measurement this came from.
 
 **This sentence used to say lineage arrives through that port too, and it does not.** There is no
-lineage type anywhere in the workspace and none is planned: a plan resolves to one source, a measure
-reads columns a model declares, and where a column came from upstream changes neither. It is real
-metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md)
+lineage type anywhere in the workspace and none is planned: a plan reads at most two data systems, a
+measure reads columns a model declares, and where a column came from upstream changes neither. It is
+real metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md)
 reads three lineage aspects out of one of them - and this port has no shape to put it in.
 
 The catalogue may be outside this repository or in it, and
@@ -392,8 +392,11 @@ a refusal naming the argument that failed.
 
 **Plan.** The resolved question becomes a plan: which data system owns the metric, the projection, the
 grouping keys, the date predicate and its bounds, and which values become bind parameters. Two things
-are settled here and nowhere else. The plan names exactly one source, so a question that would need
-two identities is refused before anything runs. And every value from the question becomes a parameter,
+are settled here and nowhere else. The plan names one source per leg and at most two legs, so a
+question that would read from a third data system is refused before anything runs - and whether those
+two legs would decide identity the same way is not a plan-stage fact at all, because a posture belongs
+to an opened adapter rather than to a plan; that is refused where the legs are assembled, above the
+credential mint. And every value from the question becomes a parameter,
 so no caller-supplied value reaches the next stage as text. The plan also records where each predicate
 came from, definitional or requested, because a predicate that is part of what a metric means is not
 one a caller chose and must not be removable. The plan holds no SQL, its type is a domain type because
@@ -532,11 +535,17 @@ flowchart TB
     ST -.-> DI
 ```
 
-Four of those nodes are design targets rather than descriptions of this repository. Federation is
-not built; execution *as the calling principal* is not built, because nothing carries a principal;
-the spliced statement is not built, because a metric has no statement field; and the Arrow envelope
-is not built, because the port returns a row type. What runs today is the question, the semantic
-layer, the plan, the dialect, and execution against a local file as whoever started the process.
+Three of those nodes are design targets rather than descriptions of this repository. Federation is
+**built, and a published build answers a two-source question end to end** - the splitter, two
+executions and the combiner, with the engine declaring `Warehouse::EXECUTES_LEGS` and a differential
+over both. That constant still defaults to `false`, which is what refuses an adapter with no leg
+venue rather than half-answering. Execution
+*as the calling principal* is not built, and no longer because nothing carries a principal: a
+verified subject reaches the request path, and what is missing is an adapter with anywhere for a
+per-subject credential to arrive. The spliced statement is not built, because a metric has no
+statement field; and the Arrow envelope is not built, because the port returns a row type. What runs
+today is the question, the semantic layer, the plan, the dialect, and execution against a local file
+as whoever started the process.
 
 **The semantic layer decides what a question means.** [Wren](https://github.com/Canner/WrenAI) is
 the reference for that shape: a modelling language, an engine that plans against it, and MCP as the
@@ -727,9 +736,15 @@ versioned `v1` tree, a liveness probe, a generated interface description, rate l
 gate and optional in-process TLS. What it does **not** carry is a per-caller identity - the token
 authenticates the deployment - so none of the identity claims above are made true by its arrival.
 
-Still absent: the MCP transport, Arrow results with provenance in the schema metadata, federation, a
-per-caller budget beyond the row cap and the ten-year span, a second catalog adapter, and the audit
-sink. The spliced-statement path is designed, documented above, and unimplemented.
+Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
+the row cap and the ten-year span. The spliced-statement path is designed, documented above, and
+unimplemented. **This bullet used to list the MCP transport, federation, a second catalog adapter
+and the audit sink**, all four of which arrived - `sutura-mcp`, the splitter and combiner,
+`sutura-catalog-datahub` and `sutura_runtime::audit` - while the same page said so twenty lines
+above its own diagram. **A fifth, *execution of a federated leg by a shipped adapter*, was written
+into this bullet on this branch and spent before it merged**: the engine declares
+`Warehouse::EXECUTES_LEGS` now. The list is the shape this page goes stale in, which is why the
+history is kept beside it.
 
 And one thing that was absent here and is now half present, because the two ports are what the layout
 is *for*: **runtime selection of a data system.** `sutura-serve` reads a `sources:` tree, opens one

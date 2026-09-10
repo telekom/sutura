@@ -18,6 +18,7 @@
 //! **What is deliberately NOT here: a method that takes a string.** The request carries a statement
 //! this crate rendered from a plan, and there is no entry point a caller could hand SQL to.
 
+use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
 use sutura_domain::identity::Secret;
@@ -95,10 +96,11 @@ impl<'job> JobRequest<'job> {
     /// The asking subject's own credential, where the leg carried one.
     ///
     /// **This is the half that makes a `BigQuery` source execute as the asker.** A
-    /// [`Presented::SubjectToken`] carries the credential a broker minted for the asking subject - an
-    /// exchanged Google access token scoped to that subject - and the transport sends it as its bearer
-    /// for THIS job, so the endpoint evaluates the statement under whoever the token says. `None` for
-    /// the shared posture, whose leg runs under the identity the transport itself already holds.
+    /// [`Presented::SubjectToken`](sutura_domain::identity::Presented::SubjectToken) carries the
+    /// credential a broker minted for the asking subject - an exchanged Google access token scoped
+    /// to that subject - and the transport sends it as its bearer for THIS job, so the endpoint
+    /// evaluates the statement under whoever the token says. `None` for the shared posture, whose
+    /// leg runs under the identity the transport itself already holds.
     #[inline]
     #[must_use]
     pub const fn subject_bearer(&self) -> Option<&Secret> {
@@ -204,18 +206,17 @@ pub struct DatasetAddress {
 /// changed: both arrive as no ids at all, and the pre-flight reads no ids as *every table is
 /// absent*. [`ListingTotal`] is what the two can be told apart by.
 ///
-/// **And exactly that far, which is the limit next to the claim.** It reaches a shape change the
-/// same document still reports a readable count beside: a service that re-spelled `totalItems` as
-/// well leaves [`ListingTotal::Unreported`] or [`ListingTotal::Unreadable`], and those say *nothing
-/// to compare* rather than *empty dataset*. Nor does it reach a dataset every one of whose ids this
-/// crate drops - that is [`ListingTotal::Accounted`] beside no ids, deliberately, because it is an
-/// ordinary dataset no model in the bundle could have named anyway.
+/// A readable total can expose a shortfall. An unreadable total beside zero readable IDs exposes
+/// an inventory this adapter could not read, without supplying a count. [`ListingTotal::Unreported`]
+/// still cannot distinguish an empty dataset from a changed document. Readable IDs dropped by name
+/// filtering remain identified, so an ordinary dataset of unsupported names is not that finding.
 ///
-/// **Why it travels on the answer rather than being decided here, which is not the same as *it
-/// could not be*:** [`JobTransport::listing_was_refused`] is proof that this port can hold a
-/// decision on the layer above's behalf. So the layer is a CHOICE, and the reason it is this one is
-/// that the choice is not settled - `docs/adr/0018` states why refusing is not obviously the safe
-/// direction - and a transport that turned the value into a verdict would have taken it.
+/// **Why it travels on the answer rather than being decided here, now that it IS decided on:** the
+/// decision needs the tables the BUNDLE names, and this port has never seen them - it answers about
+/// a dataset. `BigQueryWarehouse::preflight` is where the two meet, and that is the layer that reads
+/// this field. [`JobTransport::listing_was_refused`] shows the port CAN hold a decision on the layer
+/// above's behalf, so the layer is a choice rather than a constraint; the reason it is this one is
+/// that a verdict minted here would be one taken without half its input.
 ///
 /// The set is still what the pre-flight asks with, and [`Self::holds`] is its only question;
 /// [`Self::named`] is for a diagnostic and for a test, not for a count anything concludes from.
@@ -229,8 +230,8 @@ pub struct HeldTables {
 /// id it could read.
 ///
 /// **Four variants rather than an `Option<u64>`, because each says something different about what a
-/// caller may conclude** - and the two that mean *nothing to compare* are the ones a boolean would
-/// have merged with the answer. A reader has to name the case, for the reason
+/// caller may conclude** - a missing total and an unreadable one cannot carry the same decision.
+/// A reader has to name the case, for the reason
 /// `sutura_domain::source::AnchorIdentity` names `NoneDeclared` rather than answering `None`.
 ///
 /// **The comparison is against the entries that carried a table id this crate could READ - neither
@@ -245,8 +246,8 @@ pub struct HeldTables {
 ///
 /// The same cross-check one document over is [`crate::BigQueryError::Incomplete`], which compares
 /// `delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
-/// here so a reader who greps one finds the other: that one refuses because a short result set is a
-/// wrong number, and this one cannot, because a short listing is a boot warning.
+/// here so a reader who greps one finds the other. This type carries the inventory evidence;
+/// preflight decides whether it leaves a requested table unaccounted for and refuses through a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListingTotal {
     /// The document carried no total at all, so an empty listing and an empty dataset are one value.
@@ -260,7 +261,14 @@ pub enum ListingTotal {
     /// said something this crate did not understand* are different findings, and the second is
     /// itself a shape change worth being able to see. Nothing of the value is kept - a foreign
     /// scalar is not something this crate carries around to print.
-    Unreadable,
+    ///
+    /// Beside zero readable IDs, preflight returns a count-free unreadable-inventory refusal.
+    /// A readable ID rejected by `usable_table_id` still counts, so a legitimately dropped name
+    /// cannot be mistaken for an inventory from which no ID was readable.
+    Unreadable {
+        /// Entries with a readable table ID across the whole listing, before name filtering.
+        identified: u64,
+    },
     /// It reported a total, and carried a readable table id for every table the total claims.
     ///
     /// *At least* every one: `reported` may be below the number of ids the document carried without
@@ -274,25 +282,97 @@ pub enum ListingTotal {
     /// **On a document that carried no readable id at all this is the shape change** - a dataset
     /// that answered with tables the listing did not name, or with entries this crate could read no
     /// id out of - which is exactly what an empty `tables` array cannot be told from an empty
-    /// dataset without. Where `identified` is non-zero it is weaker: a table created between the
-    /// total and the array, or a page contract this transport read differently than the service
-    /// meant it.
+    /// dataset without. Where [`Shortfall::identified`] is non-zero it is weaker: a table created
+    /// between the total and the array, or a page contract this transport read differently than the
+    /// service meant it.
     ///
-    /// **What it does not separate, so a decision does not read it as more:** an `identified` of
-    /// zero merges *the array was empty* with *no entry carried a readable id*, because the raw
+    /// **What it does not separate, so a decision does not read it as more:** an identified count
+    /// of zero merges *the array was empty* with *no entry carried a readable id*, because the raw
     /// entry count is not kept. Both are the same finding for the caller that has one - no ids
     /// beside a non-zero total - so nothing needs the third number today, and a decision that wants
     /// to tell those two apart has to add it rather than read this one harder.
     ///
-    /// **Nothing refuses on it yet**, and that is a decision rather than an omission -
-    /// `docs/adr/0018` carries it, including why `Err` is not obviously the safe direction here, and
-    /// `telekom/sutura#275` is where it gets taken.
-    Short {
+    /// What a pre-flight produces from this reading is
+    /// `TablesPresent::Unaccounted` rather than an absence: a table the bundle names that this
+    /// listing did not name may be sitting in the gap, so a boot refuses without saying the catalog
+    /// is wrong. A VALUE and not an `Err`, because `preflight_was_refused` puts everything that is
+    /// not a `401`/`403` in the warning half. `docs/adr/0018` carries the argument and
+    /// `telekom/sutura#275` is where it was taken. [`Self::Unreadable`] can also refuse, but has no
+    /// shortfall and does so only beside zero readable IDs. The other readings retain ordinary absence.
+    Short(Shortfall),
+}
+
+/// How far a listing fell short of its own reported total.
+///
+/// **A parsed type and not two `u64` fields on the variant, because the variant's fields were
+/// PUBLIC and the invariant lived in an `if` one module away.** Review reproduced
+/// `telekom/sutura#275` through that door on an unmutated tree: `ListingTotal::Short { reported: 1,
+/// identified: 5 }` is constructible, [`HeldTables::of`] is a `pub const fn`, and the pre-flight's
+/// subtraction then saturated to a shortfall of zero and fell back to reporting the bundle's tables
+/// ABSENT - the exact defect being fixed, reachable through the public API. A type that forecloses a
+/// zero shortfall is worth nothing while a constructor can route around it, so the door is closed
+/// rather than documented.
+///
+/// Stored as `identified` plus a [`NonZeroU64`] gap rather than the two totals, so
+/// [`Self::unaccounted`] is a field read: the *count that decides* cannot be derived wrongly, and
+/// [`Self::reported`] reconstructs exactly because the sum is the number [`Self::parse`] was given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shortfall {
+    identified: u64,
+    unaccounted: NonZeroU64,
+}
+
+/// Why a pair of counts is not a shortfall.
+///
+/// One variant, an enum for the reason every other error in this crate is one: a second reason has
+/// somewhere to go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum NotShort {
+    /// The total is not above the ids the same document accounted for, so nothing is missing.
+    #[error("a listing reporting {reported} table(s) beside {identified} readable id(s) is not short of its own total")]
+    Accounted {
         /// The total the document reported.
         reported: u64,
         /// How many entries of the same document carried a table id this crate could read.
         identified: u64,
     },
+}
+
+impl Shortfall {
+    /// Parses a reported total against the ids of the same document this crate could read.
+    ///
+    /// # Errors
+    ///
+    /// [`NotShort::Accounted`] where the total is not ABOVE the identified count - which is
+    /// [`ListingTotal::Accounted`]'s case and belongs in that variant, not this one.
+    pub fn parse(reported: u64, identified: u64) -> Result<Self, NotShort> {
+        reported
+            .checked_sub(identified)
+            .and_then(NonZeroU64::new)
+            .map(|unaccounted| Self { identified, unaccounted })
+            .ok_or(NotShort::Accounted { reported, identified })
+    }
+
+    /// The total the document reported.
+    #[inline]
+    #[must_use]
+    pub const fn reported(&self) -> u64 {
+        self.identified.saturating_add(self.unaccounted.get())
+    }
+
+    /// How many entries of the same document carried a table id this crate could read.
+    #[inline]
+    #[must_use]
+    pub const fn identified(&self) -> u64 {
+        self.identified
+    }
+
+    /// How many tables the total claims that no readable id accounted for. Never zero.
+    #[inline]
+    #[must_use]
+    pub const fn unaccounted(&self) -> NonZeroU64 {
+        self.unaccounted
+    }
 }
 
 impl HeldTables {

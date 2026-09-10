@@ -5,7 +5,7 @@
 //!
 //! Worth stating first, because it is the distinction the whole surface turns on and the obvious
 //! shorthand for it has stopped working. A *refusal* - the caller asked something they may not have -
-//! now carries an error status too, from [`crate::wire::refusal`]. A *failure* is everything else: a
+//! now carries an error status too, from `crate::wire::refusal`. A *failure* is everything else: a
 //! body that is not a question, a missing credential, a limit reached, a data system that did not
 //! answer. Only failures reach this module.
 //!
@@ -101,7 +101,7 @@ pub enum Failure {
     /// this service being full. `code` is what a client branches on, and the pair of them is why
     /// the code exists at all.
     ///
-    /// Carries how long to wait. See [`Failure::retry_after`].
+    /// Carries how long to wait, already known: the admission window just spent waiting it out.
     AtCapacity { retry_after_seconds: u64 },
 }
 

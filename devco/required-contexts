@@ -79,6 +79,15 @@
 # gated for the same reason, which is how a gate that only runs there is genuinely gating.
 ci
 
+# The category aggregator: a plain job, so its context resolves like any other - the reason the file
+# header prefers one over a matrix-expanded or called-workflow context. It holds that a category-
+# gated leg may be skipped green only when the diff did not select its category, so a filter that
+# silently skips an affected adapter fails here rather than publishing a green-but-red merge. This
+# entry and the `ci` entry beside it are the two contexts the ruleset's `required_status_checks`
+# holds - the second is the owner-held edit `ci-aggregate` needs in the same ruleset to actually
+# block a merge.
+ci-aggregate
+
 [advisory]
 
 # A red leg in this section does not block a merge, read on 2026-09-05, in the queue or out of it,
@@ -134,6 +143,12 @@ cross-link.yml:link
 # inside `ci` is what gates the policy.
 ci.yml:crap-comment
 
+# Publishes this pull request's own realised store paths to the additive PR cache. Advisory by
+# design: it warms the next push of the same PR, so a red or missing publish costs a rebuild and
+# never blocks a merge - a fork's pull request cannot see its environment either, which alone
+# would leave it permanently pending.
+ci.yml:pr-cache
+
 # The live BigQuery acceptance venue. Advisory deliberately rather than by omission: it needs an
 # environment a fork's pull request cannot see, so requiring it would leave every fork pull request
 # permanently pending - the failure mode this file's own header warns about.
@@ -153,3 +168,13 @@ docs.yml:publish
 # had classified it, and `ci.yml`'s own trigger comment already says that making this required
 # would need a `merge_group` trigger added here.
 security-audit.yml:audit
+
+# The runner probe is DISPATCH-ONLY and reports no pull-request context, so it is deliberately
+# absent here - a measurement tool, run by hand when a runner needs checking, never a reportable on
+# a gating event. `.github/workflows/runner-probe.yml` carries the design.
+
+# Generated input against the parsers that read untrusted input. BOTH jobs advisory, and the
+# `fuzz` matrix does not report on a pull request at all - `.github/workflows/fuzz.yml` argues why
+# a time-budgeted fuzz run must not gate a merge, and the entry is here so that argument is a
+# classification rather than an omission. What IS gated on every pull request is `check-fuzz`
+# inside the hygiene sweep, which reads the harness and costs milliseconds.

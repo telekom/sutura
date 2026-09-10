@@ -1581,7 +1581,7 @@ and an error is not a place for credential material.
 - `NoKeyId` - No `kid`.
 - `UnusableKeyId`
 - `NoKey`
-- `NotVerified` - The signature, the expiry, the issuer or the audience.
+- `NotVerified` - The signature, the expiry, the issuer, the audience - or the claims failing to deserialize.
 - `UnusableSubject` - A `sub` this workspace will not write into a record.
 - `UnusableActor`
 - `TooManyActors` - More nesting in `act` than `MAX_ACTORS` allows.
@@ -1590,6 +1590,25 @@ and an error is not a place for credential material.
 - `NoIssuedAt` - A transit proof with no `iat`.
 - `LifetimeTooLong` - A transit proof declaring a longer life than this deployment will call short-lived.
 - `IssuedInTheFuture` - An `iat` in the future by more than the leeway.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `enum NotVerified`
+
+```rust
+pub enum NotVerified
+```
+
+Why a presented token did not verify, when it did not.
+
+The split exists because one of the two halves carries a message a log must not see.
+
+##### Variants
+
+- `Crypto` - The signature, the expiry, the issuer or the audience.
+- `Json` - The claims in the presented token did not deserialize.
 
 ##### Implements
 
@@ -1732,12 +1751,12 @@ to. Nothing asked. That was survivable while the token gate sat *outside* the li
 an unauthenticated request was refused before it could create a bucket - so the only
 unauthenticated path into a limiter was liveness.
 
-`crate::router` now puts the limiter outside the gate, which is the point of the reordering:
-a wrong-token attempt has to cost a cell or it is an unlimited guessing loop. That makes every
-reachable path a path an unauthenticated caller can create a bucket on, and with the header
-keying above it is one bucket per real client rather than one per ingress. **So the reordering
-and `spawn_reaper` are one change and must not be separated:** either alone is worse than
-neither.
+`crate::router` now puts the limiter outside the gate, which is the point
+of the reordering: a wrong-token attempt has to cost a cell or it is an unlimited guessing loop.
+That makes every reachable path a path an unauthenticated caller can create a bucket on, and
+with the header keying above it is one bucket per real client rather than one per ingress. **So
+the reordering and `spawn_reaper` are one change and must not be separated:** either alone is
+worse than neither.
 
 ### `struct LimiterHandle`
 
@@ -2545,7 +2564,7 @@ pub struct Termination
 A validated TLS configuration, and the means to keep it current.
 
 **Two values because they have two owners**, the way `crate::router::Assembled` is two: the
-configuration goes to the listener, and the renewal goes to whatever will poll it. `prepare`
+configuration goes to the listener, and the renewal goes to whatever will poll it. `Self::prepare`
 hands both back rather than starting the poll itself, so a test can drive a rotation a step at a
 time instead of waiting on a wall clock.
 
@@ -2653,7 +2672,7 @@ that opens a connection and never sends a `ClientHello` stalls **every** subsequ
 long as it likes. One socket would be the outage.
 
 So the shape here is a task that owns the `TcpListener`, spawns each handshake, and sends the
-ones that complete down a bounded channel. `TlsListener::accept` pops from that channel and
+ones that complete down a bounded channel. `TlsListener`'s `accept` pops from that channel and
 does no work. Handshakes are therefore concurrent, capped by a semaphore so a flood cannot spawn
 without bound, and each one has its own deadline.
 

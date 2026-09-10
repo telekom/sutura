@@ -42,7 +42,9 @@ use sutura_domain::pinned::{
 };
 use sutura_domain::plan::Executable;
 use sutura_domain::query::{Query, ToolOutcome};
-use sutura_domain::source::{AcknowledgementReason, ExecutedAs, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::source::{
+    AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture, UniformlyExecuted,
+};
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
@@ -267,8 +269,8 @@ fn shared_posture() -> SourcePosture {
 }
 
 /// The execution record an answer from this fixture carries.
-pub(crate) fn ran_shared() -> ExecutedAs {
-    ExecutedAs::of(source(), shared_posture())
+pub(crate) fn ran_shared() -> UniformlyExecuted {
+    UniformlyExecuted::of(source(), shared_posture())
 }
 
 /// A registry holding one warehouse whose answer reproduces the anchor, so the bundle validates.

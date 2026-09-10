@@ -11,6 +11,16 @@
 //! - A `statement_timeout` is set at connect, so a slow server statement cannot hold a
 //!   blocking-pool thread past the caller's request deadline.
 
+/// The fixture tier's credential - a value that cannot exist unconfigured.
+///
+/// **Behind the default-off `fixtures` feature**, because both callers are tests
+/// (`crates/sutura-exec-postgres/tests/conformance.rs` and
+/// `crates/sutura-app/tests/adapters/mod.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
+/// no artefact a release publishes contains this module or the connection config over it, which
+/// deletes the *reachable from a consumer* half rather than hardening it. `--all-features` compiles,
+/// lints and tests it on every run.
+#[cfg(feature = "fixtures")]
+pub mod fixture;
 mod importer;
 
 use std::path::Path;
@@ -20,8 +30,9 @@ use futures_util::SinkExt as _;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
+use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
-use sutura_sql::generate::generate;
+use sutura_sql::generate::{generate, generate_key_probe};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 use tokio_postgres::Row;
 use tokio_postgres::types::{FromSql, IsNull, ToSql, Type};
@@ -80,6 +91,16 @@ pub enum PostgresError {
         #[source]
         cause: MalformedRowSet,
     },
+    /// A key probe's result was not the pair of counts its statement projects.
+    ///
+    /// A defect in the rendering or in this adapter's value mapping rather than anything about the
+    /// data - two aggregates over no group produce one row of two integers - and it travels as an
+    /// `Err` from the port, which the boot path reads as *this declaration went unchecked*.
+    #[error("the key probe did not come back as two counts")]
+    KeyCounts {
+        #[source]
+        cause: CountsNotRead,
+    },
     #[error("the plan could not be rendered for Postgres")]
     Render {
         #[source]
@@ -108,6 +129,18 @@ pub enum PostgresError {
     /// A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
     #[error("the schema name {schema} is not a single word character")]
     InvalidSchemaName { schema: String },
+    /// The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
+    ///
+    /// The value becomes a `SET statement_timeout = N` line verbatim, so it is parsed at the
+    /// boundary and refused if it is not a number or exceeds the `u32` ceiling - a value that
+    /// cannot be a timeout must not reach the statement as uninterpreted text. The cause
+    /// survives so the operator sees the number did not parse, not a plain refusal.
+    #[error("SUTURA_DEV_STATEMENT_TIMEOUT_MS must be a whole number of milliseconds up to {ceiling}")]
+    InvalidStatementTimeout {
+        ceiling: u32,
+        #[source]
+        cause: core::num::ParseIntError,
+    },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
@@ -175,8 +208,9 @@ impl PostgresWarehouse {
         // `block_on` here is polling is NOT cancelled by it - a slow statement would hold this
         // blocking-pool thread past the caller's deadline. `statement_timeout` is the cheap guard:
         // the server aborts the statement itself. The value is generous (a development tier, not a
-        // query budget) and overridable, matching how the connection details honour `SUTURA_DEV_*`.
-        let timeout_ms = env_or("SUTURA_DEV_STATEMENT_TIMEOUT_MS", "15000");
+        // query budget) and overridable - a BUDGET, which is the one thing left here that a default
+        // is the right answer for. The connection's credential is not: see `fixture`.
+        let timeout_ms = statement_timeout_ms()?;
         runtime
             .block_on(async { client.batch_execute(&format!("SET statement_timeout = {timeout_ms}")).await })
             .map_err(|cause| PostgresError::Execute { cause })?;
@@ -219,17 +253,28 @@ impl PostgresWarehouse {
         Ok(warehouse)
     }
 
-    /// A connection config for the fixture tier, honouring the `SUTURA_DEV_*` overrides the
-    /// compose file reads, so a host that objects to a weak default can change one value.
+    /// A connection config for the fixture tier, over a credential that has already been parsed.
+    ///
+    /// **It TAKES the credential and reads no environment of its own**, which is the whole change:
+    /// `host` and `port` are parameters, so this function cannot know it is talking to an ephemeral
+    /// local server, and the shape it replaced offered `sutura`/`sutura`/`sutura` to whatever host
+    /// it was handed whenever nothing was set. There is no unconfigured state to substitute for now
+    /// - [`fixture::FixtureCredential`] cannot hold one - so this stays infallible.
     #[must_use]
-    pub fn local_config(host: &str, port: u16) -> tokio_postgres::Config {
+    #[cfg(feature = "fixtures")]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the credential's destination is a connection handshake, which is the one place the \
+                  value itself is the payload"
+    )]
+    pub fn local_config(host: &str, port: u16, credential: &fixture::FixtureCredential) -> tokio_postgres::Config {
         let mut config = tokio_postgres::Config::new();
         config
             .host(host)
             .port(port)
-            .user(env_or("SUTURA_DEV_USER", "sutura"))
-            .password(env_or("SUTURA_DEV_PASSWORD", "sutura"))
-            .dbname(env_or("SUTURA_DEV_DB", "sutura"));
+            .user(credential.user())
+            .password(credential.password().expose_secret())
+            .dbname(credential.database());
         config
     }
 
@@ -730,8 +775,29 @@ fn decode_numeric(raw: &[u8]) -> Result<PgNumeric, WireError> {
     })
 }
 
+/// A tuning value, or this build's own. **Not for a credential** - it was, and the credential half
+/// is `fixture::FixtureCredential` now: a fallback is the right shape for a timeout a host may want
+/// to widen and the wrong shape for a secret nobody chose.
 fn env_or(key: &str, fallback: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| String::from(fallback))
+}
+
+/// The dev-only statement timeout, parsed to a `u32`.
+///
+/// `env_or` hands back text and this line becomes `SET statement_timeout = N`, so the value is a
+/// typed ceiling at the boundary: something that is not a number, or is larger than `u32`, cannot
+/// reach the statement as raw text. Parsing is `u32` (not `u64` rounded down), so an oversized
+/// value is refused rather than becoming a different number.
+fn statement_timeout_ms() -> Result<u32, PostgresError> {
+    parse_statement_timeout(&env_or("SUTURA_DEV_STATEMENT_TIMEOUT_MS", "15000"))
+}
+
+/// Parses a `statement_timeout` tuning value as a `u32` millisecond count.
+fn parse_statement_timeout(raw: &str) -> Result<u32, PostgresError> {
+    raw.parse::<u32>().map_err(|cause| PostgresError::InvalidStatementTimeout {
+        ceiling: u32::MAX,
+        cause,
+    })
 }
 
 impl Warehouse for PostgresWarehouse {
@@ -771,6 +837,18 @@ impl Warehouse for PostgresWarehouse {
     fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         let query = generate(plan.plan(), Dialect::Postgres).map_err(|cause| PostgresError::Render { cause })?;
         self.run(&query).map(AnchorRows::of)
+    }
+
+    /// Counts a declared join key's values and its distinct values, in one statement.
+    ///
+    /// Overridden rather than defaulted because this adapter can ask: one aggregate scan over the
+    /// dimension table, no group, no parameter. It takes no credential, for
+    /// [`Warehouse::verify_anchor`]'s reason - there is no caller at boot - so what it establishes is
+    /// what the identity this connection was opened with can see.
+    fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
+        let query = generate_key_probe(&key, Dialect::Postgres).map_err(|cause| PostgresError::Render { cause })?;
+        let rows = self.run(&query)?;
+        KeyUniqueness::read(&rows).map_err(|cause| PostgresError::KeyCounts { cause })
     }
 }
 
@@ -886,5 +964,31 @@ mod tests {
         // The domain epoch (1970-01-01) is the driver's -10957.
         assert_eq!(PgDate::from_domain(0).days, -10_957);
         assert_eq!(PgDate::from_domain(0).to_domain_days(), 0);
+    }
+
+    #[test]
+    fn a_statement_timeout_is_a_u32_ceiling_or_it_is_refused() {
+        // The tuning value becomes a `SET statement_timeout = N` line verbatim, so it is a typed
+        // ceiling at the boundary: a number that fits parses...
+        assert_eq!(parse_statement_timeout("15000").expect("a number parses"), 15_000);
+        assert_eq!(parse_statement_timeout("0").expect("zero is a valid timeout"), 0);
+        assert_eq!(
+            parse_statement_timeout(&u32::MAX.to_string()).expect("the ceiling parses"),
+            u32::MAX
+        );
+        // ...and anything that cannot be a `u32` is refused rather than reaching the statement.
+        // `u32::MAX + 1` is the ceiling's far side, and decimals are refused rather than truncated.
+        assert!(matches!(
+            parse_statement_timeout("not-a-number"),
+            Err(PostgresError::InvalidStatementTimeout { .. })
+        ));
+        assert!(matches!(
+            parse_statement_timeout("4294967296"),
+            Err(PostgresError::InvalidStatementTimeout { .. })
+        ));
+        assert!(matches!(
+            parse_statement_timeout("15000.5"),
+            Err(PostgresError::InvalidStatementTimeout { .. })
+        ));
     }
 }

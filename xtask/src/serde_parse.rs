@@ -7,17 +7,18 @@
 //!
 //! # Rule one: a derived `Deserialize` writes past `parse`
 //!
-//! The skill calls this *"the one that bites"*. A derived `Deserialize` writes straight into the
-//! private field, so **every check the constructor performs is bypassed by the one path that
-//! carries untrusted input** - and a catalog document is untrusted input by this repository's own
-//! threat model. `#[serde(try_from = "..")]` routes it through the constructor instead; a
-//! hand-written `impl Deserialize` does too, and both count here.
+//! A plain derived `Deserialize` constructs a value without calling its fallible constructor.
+//! For a validated struct, that can write past checks on
+//! untrusted catalog input. Rule one also visits enums: this is a routing policy, not evidence that
+//! every enum's direct derive admits an invalid value. `#[serde(try_from = "..")]` and a hand-written
+//! `impl Deserialize` are accepted routes here; **the scanner does not inspect their implementations
+//! or prove that they call the constructor**.
 //!
 //! What makes a type subject to the rule is that it HAS a fallible constructor - an associated
-//! function taking no `self` and returning `Result<Self, ..>`. A type with none establishes no
-//! invariant at construction, so a derive bypasses nothing: `Query`,
+//! function taking no `self` and returning `Result<Self, ..>`. Without a recognised fallible
+//! constructor, this rule has no bypass to check: `Query`,
 //! `sutura_http::wire::QuestionBody` and the `Raw*` settings shapes are all in that class, and all
-//! of them are correct as they stand. **A gate that failed them would be a gate somebody
+//! of them are outside this rule. **A gate that failed them would be a gate somebody
 //! disables**, which is the reasoning `deny.toml`'s duplicate-version comment already carries.
 //!
 //! **And the class is not a defence, which is where this gate's limit is worth stating.** `Anchor`
@@ -43,8 +44,8 @@
 //!   names. That is `TimeRange` over `TimeRangeInput`: the wire form is the two-field mapping both
 //!   halves already agree on, and there is no canonical text form to convert into.
 //!
-//! Anything else needs `#[serde(into = "..")]` or a hand-written `impl Serialize`, and `Date` and
-//! `QualifiedTable` are the two that take those routes today.
+//! Every other struct shape needs `#[serde(into = "..")]` or a hand-written `impl Serialize`.
+//! `Date` and `QualifiedTable` are the two that take those routes today.
 //!
 //! # Rule three: the input struct that accepts a key nobody declared
 //!
@@ -67,6 +68,10 @@
 //! are about a contract another crate depends on, so a binary is out of scope. These three are
 //! about the path untrusted input takes into a value, which is the same path in a binary.
 //!
+//! * **Enums are subjects of rule one only.** Rules two and three retain their struct-source
+//!   scope; no enum variant or serde tagging layout is inferred from struct field names.
+//! * Declaration names are ASCII name fragments following `struct ` or `enum ` on the same line,
+//!   after optional visibility. This is a lexical walk, not Rust identifier or macro resolution.
 //! * **A fallible constructor is recognised by `-> Result<Self`**, which is the idiom here (139
 //!   occurrences on 2026-09-02) rather than the language. One written `-> Result<MyType, ..>` is not
 //!   seen, and the direction is the safe one: the gate under-claims rather than failing correct code.
@@ -89,11 +94,11 @@ pub(crate) mod scan;
 
 use crate::Verdict;
 use crate::repo;
-use crate::serde_parse::scan::{Declared, Shape};
+use crate::serde_parse::scan::{Declared, Kind, Shape};
 
 /// What one file's scan found. Held together because all three rules need the same walks.
 struct FileFacts {
-    /// Every struct in the file.
+    /// Every recognised struct or enum in the file.
     declared: Vec<Declared>,
     /// Type name to the name of a fallible constructor it declares.
     parses: std::collections::BTreeMap<String, String>,
@@ -104,36 +109,67 @@ struct FileFacts {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        eprintln!("xtask check-serde-parse: could not determine the repo root");
-        return Verdict::Fail;
+    // `Census::inspect` RATHER THAN `into_listing`, and that is `github.com/telekom/sutura#412`
+    // and `#414` meeting in one loop. What stood here was:
+    //
+    //     let Ok(text) = std::fs::read_to_string(root.join(rel)) else { continue; };
+    //     scanned = scanned.saturating_add(1);
+    //
+    // so a Rust file this gate is meant to read and could not was neither judged nor reported -
+    // `problems` stayed empty and the verdict printed `ok - N file(s)` with N one lower than the
+    // tree. The only tell was a number nothing compared, and it could not be that tell because
+    // `scanned` was incremented by the very loop the drop happened in: the witness moved with the
+    // walk. Both halves are the census's now. It performs the read, so an unreadable in-scope file
+    // is `Refusal::Unreachable` ahead of any rule of this gate's, and it counts the subjects
+    // OFFERED by a different predicate than the one that judges them.
+    let census = match repo::all_files() {
+        Ok(census) => census,
+        Err(why) => {
+            eprintln!("xtask check-serde-parse: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
     };
 
     let mut problems: Vec<String> = Vec::new();
     let mut scanned = 0_usize;
-    let mut structs = 0_usize;
-    for rel in &files {
-        if !in_scope(rel) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
+    let mut declarations = 0_usize;
+    // `must_judge` is empty: this gate's subject is a KIND of file, so there is no one path whose
+    // absence is a broken scan, and the empty-scope arm below is what refuses that instead.
+    let scope: repo::Scope = in_scope;
+    let counted = census.inspect(&[], scope, |rel, bytes| {
+        // Lossy rather than a UTF-8 read. A file the census opened is a file this gate judges, and
+        // turning a decode failure back into an unread file would rebuild the drop this migration
+        // removed - `sutura/gates` records `check-shipped-binaries` shipping `ok` at exit 0 over a
+        // non-UTF-8 page for exactly that reason.
+        let text = String::from_utf8_lossy(bytes);
         scanned = scanned.saturating_add(1);
         let facts = facts_of(&text);
-        structs = structs.saturating_add(facts.declared.len());
+        declarations = declarations.saturating_add(facts.declared.len());
         problems.extend(bypassed_constructors(rel, &facts));
         problems.extend(asymmetric_serde(rel, &facts));
         problems.extend(open_input_structs(rel, &facts));
-    }
+    });
+    let counted = match counted {
+        Ok(counted) => counted,
+        Err(why) => {
+            eprintln!("xtask check-serde-parse: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
 
     if scanned == 0 {
-        // A gate that silently checked nothing is the failure mode a gate exists to prevent.
+        // A gate that silently checked nothing is the failure mode a gate exists to prevent. Kept
+        // beside the census's own `NothingJudged` rather than deleted as its duplicate: that arm
+        // counts files the SCOPE admitted, and this one counts files this closure actually judged,
+        // which are two numbers from two places.
         eprintln!("xtask check-serde-parse: no Rust source in scope - this gate would check nothing");
         return Verdict::Fail;
     }
     if problems.is_empty() {
-        println!("xtask check-serde-parse: ok - {structs} struct(s) in {scanned} file(s), serde routed through parse");
+        println!(
+            "xtask check-serde-parse: ok - {declarations} struct or enum declaration(s) in {scanned} file(s), serde route rules satisfied; {}",
+            counted.verdict()
+        );
         return Verdict::Pass;
     }
 
@@ -216,6 +252,9 @@ fn bypassed_constructors(rel: &str, facts: &FileFacts) -> Vec<String> {
 fn asymmetric_serde(rel: &str, facts: &FileFacts) -> Vec<String> {
     let mut problems = Vec::new();
     for declaration in &facts.declared {
+        let Kind::Struct(ref shape) = declaration.kind else {
+            continue;
+        };
         let Some(target) = scan::serde_arg(&declaration.attrs, "try_from") else {
             continue;
         };
@@ -225,7 +264,7 @@ fn asymmetric_serde(rel: &str, facts: &FileFacts) -> Vec<String> {
         if scan::serde_arg(&declaration.attrs, "into").is_some() || facts.writes_by_hand.contains(&declaration.name) {
             continue;
         }
-        if round_trips(&declaration.shape, &target, &facts.declared) {
+        if round_trips(shape, &target, &facts.declared) {
             continue;
         }
         problems.push(format!(
@@ -245,13 +284,16 @@ fn asymmetric_serde(rel: &str, facts: &FileFacts) -> Vec<String> {
 fn open_input_structs(rel: &str, facts: &FileFacts) -> Vec<String> {
     let mut problems = Vec::new();
     for declaration in &facts.declared {
+        if !matches!(declaration.kind, Kind::Struct(_)) {
+            continue;
+        }
         let Some(target) = scan::serde_arg(&declaration.attrs, "try_from") else {
             continue;
         };
         let Some(input) = facts.declared.iter().find(|other| other.name == target) else {
             continue;
         };
-        if !matches!(input.shape, Shape::Named(_)) || scan::serde_flag(&input.attrs, "deny_unknown_fields") {
+        if !matches!(input.kind, Kind::Struct(Shape::Named(_))) || scan::serde_flag(&input.attrs, "deny_unknown_fields") {
             continue;
         }
         problems.push(format!(
@@ -274,7 +316,7 @@ fn round_trips(shape: &Shape, target: &str, declared: &[Declared]) -> bool {
         Shape::Named(ref fields) => declared
             .iter()
             .find(|other| other.name == target)
-            .is_some_and(|other| matches!(other.shape, Shape::Named(ref theirs) if theirs == fields)),
+            .is_some_and(|other| matches!(other.kind, Kind::Struct(Shape::Named(ref theirs)) if theirs == fields)),
         Shape::Other => false,
     }
 }
@@ -320,7 +362,10 @@ mod tests {
     #[test]
     fn try_from_is_what_makes_the_same_derive_correct() {
         let attrs = "#[derive(Debug, serde::Deserialize)]\n#[serde(try_from = \"String\")]";
-        assert!(findings(&newtype(attrs)).is_empty());
+        assert!(
+            findings(&newtype(attrs)).is_empty(),
+            "a try_from-correct newtype has no findings"
+        );
     }
 
     #[test]
@@ -329,7 +374,7 @@ mod tests {
             "{}impl<'de> serde::Deserialize<'de> for Digest {{}}\n",
             newtype("#[derive(Debug)]")
         );
-        assert!(findings(&text).is_empty());
+        assert!(findings(&text).is_empty(), "a hand-written Deserialize is a clean route");
     }
 
     #[test]
@@ -337,13 +382,16 @@ mod tests {
         // `Query`, `Anchor` and the `Raw*` settings shapes are this class: nothing is checked at
         // construction, so the derive walks past nothing.
         let text = "#[derive(serde::Deserialize)]\npub struct Query {\n    metric: MetricName,\n}\n";
-        assert!(findings(text).is_empty());
+        assert!(
+            findings(text).is_empty(),
+            "a type with no fallible constructor has no findings"
+        );
     }
 
     #[test]
     fn an_infallible_constructor_is_not_a_parse() {
         let text = "#[derive(serde::Deserialize)]\npub struct Anchor {\n    value: String,\n}\n\nimpl Anchor {\n    pub const fn new(value: String) -> Self {\n        Self { value }\n    }\n}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "an infallible constructor is not a parse");
     }
 
     #[test]
@@ -361,13 +409,13 @@ mod tests {
     #[test]
     fn an_into_beside_the_try_from_is_the_fix() {
         let text = "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\", into = \"String\")]\npub struct Date {\n    year: i32,\n}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "an into beside the try_from leaves no findings");
     }
 
     #[test]
     fn a_hand_written_serialize_is_the_other_fix() {
         let text = "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Qualified {\n    part: String,\n}\n\nimpl serde::Serialize for Qualified {}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "a hand-written Serialize leaves no findings");
     }
 
     #[test]
@@ -376,7 +424,10 @@ mod tests {
         // as its inner value, so both directions are `String`.
         let text =
             "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Digest(String);\n";
-        assert!(findings(text).is_empty());
+        assert!(
+            findings(text).is_empty(),
+            "a newtype over the try_from target round-trips cleanly"
+        );
     }
 
     #[test]
@@ -423,7 +474,10 @@ mod tests {
         // and a rule that reported them would be reporting the absence of a file it never read.
         let text =
             "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"String\")]\npub struct Digest(String);\n";
-        assert!(findings(text).is_empty());
+        assert!(
+            findings(text).is_empty(),
+            "a try_from naming no declaration is not this rule's"
+        );
     }
 
     #[test]
@@ -449,14 +503,122 @@ mod tests {
         // The confound that makes comment blanking necessary rather than tidy: this repo's
         // doctests declare types, and one of them deriving Deserialize is not a violation.
         let text = "/// ```\n/// #[derive(serde::Deserialize)]\n/// pub struct Digest(String);\n/// impl Digest { pub fn parse(r: &str) -> Result<Self, E> { todo!() } }\n/// ```\npub fn f() {}\n";
-        assert!(findings(text).is_empty());
+        assert!(
+            findings(text).is_empty(),
+            "a rustdoc-example declaration is not a declaration"
+        );
     }
 
     #[test]
     fn a_declaration_inside_a_multi_line_string_is_not_a_declaration() {
         // Which is what makes this module's own fixtures invisible to the gate that reads them.
         let text = "fn fixture() -> &'static str {\n    r#\"\n#[derive(serde::Deserialize)]\npub struct Digest(String);\nimpl Digest { pub fn parse(r: &str) -> Result<Self, E> { todo!() } }\n\"#\n}\n";
-        assert!(findings(text).is_empty());
+        assert!(findings(text).is_empty(), "a string-literal declaration is not a declaration");
+    }
+
+    fn choice(attrs: &str, visibility: &str) -> String {
+        format!(
+            "{attrs}\n{visibility}enum Choice {{\n    Empty,\n    Text(String),\n    Named {{ value: String }},\n}}\n\nimpl Choice {{\n    pub fn parse(raw: &str) -> Result<Self, Bad> {{\n        todo!()\n    }}\n}}\n"
+        )
+    }
+
+    #[test]
+    fn fallible_enum_constructors_are_in_rule_one_for_every_declaration_visibility() {
+        let attrs = "#[derive(\n    Debug,\n    serde::Deserialize,\n)]\n/// A choice.";
+        let outcomes: Vec<_> = ["", "pub ", "pub(crate) ", "pub(super) ", "pub(in crate::outer) "]
+            .into_iter()
+            .map(|visibility| (visibility, findings(&choice(attrs, visibility))))
+            .collect();
+        let expected = "x.rs:6: `Choice` derives Deserialize but is constructed by `parse` - the derive writes past it";
+        assert!(
+            outcomes.iter().all(|(_, found)| found == &[expected]),
+            "every enum visibility must retain its attribute run and rule-one location: {outcomes:?}"
+        );
+    }
+
+    #[test]
+    fn enum_routes_do_not_extend_the_struct_layout_rules() {
+        let routed = choice(
+            "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"ChoiceInput\")]",
+            "pub ",
+        );
+        let cases = [
+            (
+                "unrouted enum",
+                choice("#[derive(serde::Deserialize)]", "pub "),
+                Some("`Choice` derives Deserialize but is constructed by `parse`"),
+            ),
+            (
+                "routed enum with a named input lacking deny_unknown_fields",
+                format!("{routed}\n#[derive(serde::Deserialize)]\nstruct ChoiceInput {{\n    value: String,\n}}\n"),
+                None,
+            ),
+            (
+                "handwritten enum deserializer",
+                format!(
+                    "{}\nimpl<'de> serde::Deserialize<'de> for Choice {{}}\n",
+                    choice("#[derive(Debug)]", "pub ")
+                ),
+                None,
+            ),
+            (
+                "enum without a fallible constructor",
+                String::from("#[derive(serde::Deserialize)]\npub enum Choice {\n    Empty,\n    Text(String),\n}\n"),
+                None,
+            ),
+            (
+                "a struct does not match a named field inside an enum variant",
+                String::from(
+                    "#[derive(serde::Serialize, serde::Deserialize)]\n#[serde(try_from = \"ChoiceInput\")]\npub struct Choice {\n    value: String,\n}\n\n#[derive(serde::Deserialize)]\nenum ChoiceInput {\n    Named {\n        value: String,\n    },\n}\n",
+                ),
+                Some("the two shapes differ"),
+            ),
+        ];
+        let outcomes: Vec<_> = cases
+            .iter()
+            .map(|(label, text, expected)| (*label, findings(text), *expected))
+            .collect();
+        assert!(
+            outcomes.iter().all(|(_, found, expected)| {
+                expected.as_ref().map_or(found.is_empty(), |message| {
+                    found.len() == 1 && found.first().is_some_and(|p| p.contains(*message))
+                })
+            }),
+            "only rule one gains enum sources; recognizing a route does not inspect its implementation: {outcomes:?}"
+        );
+    }
+
+    #[test]
+    fn the_gate_entry_point_refuses_an_unrouted_enum_and_accepts_its_try_from_route() {
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this fixture changes cwd: run under just test for one process per test"
+        );
+        let tree = crate::falsifier::falsifier_tree();
+        let file = tree.join("choice.rs");
+        let original = std::env::current_dir().expect("a current directory");
+        let cases = [
+            ("#[derive(serde::Deserialize)]", crate::Verdict::Fail),
+            (
+                "#[derive(serde::Deserialize)]\n#[serde(try_from = \"String\")]",
+                crate::Verdict::Pass,
+            ),
+        ];
+        let outcomes: Vec<_> = cases
+            .iter()
+            .map(|(attrs, expected)| {
+                std::fs::write(&file, choice(attrs, "pub ")).expect("the enum fixture");
+                std::env::set_current_dir(&tree).expect("enter the fixture");
+                let verdict = super::run(&[]);
+                std::env::set_current_dir(&original).expect("restore before asserting the verdict");
+                (verdict, *expected)
+            })
+            .collect();
+        std::fs::remove_dir_all(tree).expect("remove the owned fixture");
+        assert!(
+            outcomes.iter().all(|(actual, expected)| actual == expected),
+            "the entry point must propagate the enum refusal and recover when it is routed: {outcomes:?}"
+        );
     }
 
     #[test]

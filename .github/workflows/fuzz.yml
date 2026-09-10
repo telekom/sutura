@@ -1,0 +1,176 @@
+# Generated input against the parsers that read input this deployment does not write.
+#
+# WHY THIS FILE EXISTS AT ALL. Every other check in this repository is static: clippy at
+# `-D warnings`, zizmor, `cargo deny` and the structural gates read the tree and reason about it.
+# None of them generates an input, so none of them can find a parser that panics on one - and the
+# shipped profiles compile with `panic = "abort"`, so such a panic is the process dying rather than
+# an error a caller sees. `fuzz/` is the only thing here that produces adversarial input.
+#
+# WHY THE SCHEDULE IS THE POINT, and the pull-request leg is not. Fuzzing is unbounded by nature: a
+# fixed budget on every push buys a few thousand executions of an already-explored corpus, and a
+# run that fails a merge on a fresh random path is a check that gets disabled - after which nothing
+# generates input at all. So the two triggers have different jobs to do, the way
+# `security-audit.yml` splits the same way:
+#
+#   - schedule            -> spend a real budget per target and let the corpus grow.
+#   - push to the default -> did what just landed keep every committed seed passing its assertions?
+#
+# THERE IS NO PULL-REQUEST LEG. It was path-scoped over the harness's own files and has been
+# removed by decision, so the seed-assertion answer now arrives AFTER a merge rather than before
+# it. The header used to describe a `harness change` trigger; that trigger is gone.
+#
+# NOT IN `devco/required-contexts` AT ALL, and that is correct rather than an omission. That record
+# accounts for jobs reporting a status-check CONTEXT, and its gating events are `pull_request` and
+# `merge_group`. This workflow triggers on neither any more, so it reports no context and can gate
+# no merge - the two `[advisory]` entries it used to carry were removed with the pull-request leg.
+# What IS gated on every pull request is
+# `cargo xtask check-fuzz`, inside the hygiene sweep, which costs milliseconds and fails when a
+# target stops being declared, seeded, or run by this file.
+#
+# THIRD-PARTY ACTIONS: pinned by digest, as everywhere else here.
+name: fuzz
+
+on:
+  # DEFAULT BRANCH ONLY, by decision. There is no pull-request leg at all - not even a path-scoped
+  # one over the harness's own files - so a pull request pays nothing for fuzzing.
+  #
+  # THE COST, stated rather than hidden: a change that breaks a fuzz target is no longer caught
+  # before it merges. The signal arrives on the next push to the default branch, or from the
+  # schedule. That is accepted because a time-budgeted search over random input is a poor merge
+  # gate - these jobs were `[advisory]` and could never block a merge anyway - while what DOES gate
+  # every pull request is `cargo xtask check-fuzz` inside the hygiene sweep, which costs
+  # milliseconds and still fails when a target stops being declared, seeded or named here.
+  push:
+    branches:
+      - main
+  schedule:
+    # Wednesday 03:23 UTC. Off the hour for `security-audit.yml`'s reason - scheduled jobs on the
+    # hour queue behind everyone else's - and midweek so a finding lands on a working day.
+    - cron: "23 3 * * 3"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Budget per target, in seconds
+        required: false
+        default: "900"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The deterministic half. Every committed seed executed once, no mutation, so the verdict is a
+  # function of the files in the tree - which is what makes it safe to run on a pull request.
+  smoke:
+    runs-on: rust-mcp-32core
+    # A cold nightly build with a sanitizer over this dependency graph is the cost here, not the
+    # replay: the replay itself is a few hundred executions.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # BEFORE nix installs, for the reason `ci.yml` states at its own call: the runner ships
+      # ~20 GB of SDKs this repository does not use, and a sanitizer build is not small.
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately absent,
+          # for the reason `security-audit.yml` gives: with it, a pull request could add a
+          # substituter and a trusted key and have CI fetch attacker-built store paths.
+          extra_nix_config: |
+            fallback = true
+
+      # A scope of its OWN, and it has to be its own: nothing here is shareable with `ci`. This
+      # workspace compiles under the pinned NIGHTLY with sanitizer codegen, from its own
+      # `Cargo.lock` and its own `[profile.*]` - so its store paths are different derivations by
+      # construction, not the same ones under another name. Without this the whole fuzz workspace
+      # was rebuilt on every push to the default branch.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: fuzz
+
+      # The compiled fuzz harness is a RUNTIME cargo build into `target/fuzz` (`nix/run-fuzz.sh`
+      # sets `CARGO_TARGET_DIR`), not a nix store path, so the store cache above cannot carry it.
+      # `cargo fuzz` compiles the nightly + ASan dependency graph cold in minutes, on every run.
+      # Cache the target dir across pushes to `main` so a push that keeps the same dependency graph
+      # (the lockfile key) restores it and cargo rebuilds incrementally instead of from cold.
+      # Gated to a push to `main` for the same reason every cache write here is: a pull request
+      # writes an entry only itself can read, then `cache-prune.yml` deletes it on close. The
+      # Actions-cache gate (`cargo xtask check-workflows`) accepts this only `if:`-gated, never via
+      # a `save:` key on `actions/cache` - so a pull request still cold-builds. That is the stated
+      # limit: this is a `main`-to-`main` cache, the recurring cost on every push, not a PR one.
+      - uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: target/fuzz
+          key: fuzz-${{ hashFiles('fuzz/Cargo.lock') }}-${{ hashFiles('devco/rust-toolchain-nightly.toml') }}
+
+      - name: Replay the committed corpus
+        run: bash nix/run-fuzz.sh smoke
+
+  # The half that finds things. One leg per target so two budgets run in parallel rather than in
+  # series, and so a crash names its target in the job list.
+  fuzz:
+    # No `if:` any more. It read `github.event_name != 'pull_request'`, which kept the expensive
+    # half off the pull-request leg - and with that leg removed the condition could never be false,
+    # so it was a guard over a case that cannot arise. A condition that cannot fail is worse than no
+    # condition, because a reader takes it for a live restriction.
+    runs-on: rust-mcp-32core
+    timeout-minutes: 120
+    strategy:
+      # No fail-fast: a crash in one target must not cancel the budget of the other.
+      fail-fast: false
+      matrix:
+        # THE LIST `cargo xtask check-fuzz` HOLDS against `fuzz/fuzz_targets/`. A target added
+        # there and not here would be a target nothing ever runs, with every check green - which
+        # is the failure this workflow's own gate exists for.
+        target:
+          - sql_expression
+          - question_body
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+
+      # Same `target/fuzz` cache as the `smoke` job, same key, so the two legs and the replay share
+      # one compiled harness across `main` pushes. Pull requests cold-build - see `smoke`'s step.
+      - uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: target/fuzz
+          key: fuzz-${{ hashFiles('fuzz/Cargo.lock') }}-${{ hashFiles('devco/rust-toolchain-nightly.toml') }}
+
+      - name: Fuzz ${{ matrix.target }}
+        run: bash nix/run-fuzz.sh run "${SECONDS_BUDGET}" "${{ matrix.target }}"
+        env:
+          SECONDS_BUDGET: ${{ github.event.inputs.seconds || '900' }}
+
+      # The crash artifact and the input that produced it, or the run is a red line in a log and
+      # nothing a person can act on. `if: failure()` rather than `always()`: on a green run there
+      # is nothing here worth an upload, and the grown corpus is deliberately NOT published - a
+      # corpus entry enters the tree through a pull request somebody read.
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: warn
+          retention-days: 14

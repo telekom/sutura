@@ -105,10 +105,15 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let mut files = Vec::new();
     // Every text file, decided by content: an extension list is a list to forget, and a
     // 5000-line generated file with an unlisted extension is exactly what this should catch.
-    repo::collect_text_files(&root, &root, &mut files);
+    let (_root, mut files) = match repo::collect_text_files(&root, &root).into_listing(repo::Unmigrated::MaxLines) {
+        Ok(listing) => listing,
+        Err(why) => {
+            eprintln!("xtask max-lines: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
     files.sort();
 
     let mut violations: Vec<(String, usize)> = Vec::new();
@@ -280,7 +285,10 @@ mod tests {
         // cap would fail a clean tree.
         let ignores = Ignores::parse("[silent]\ndevenv.lock\ndocs/generated/*\nvendor/**\n");
         let files = vec![String::from("devenv.lock")];
-        assert!(inert_entries(&ignores, &files, &[]).is_empty());
+        assert!(
+            inert_entries(&ignores, &files, &[]).is_empty(),
+            "no entry is inert against an empty file list"
+        );
         assert!(is_literal("devenv.lock"));
         assert!(!is_literal("docs/generated/*"));
         assert!(!is_literal("vendor/**"));
@@ -293,8 +301,9 @@ mod tests {
         // the configuration. This is the assertion that reddens the day an entry's promise is kept.
         let root = crate::repo::root().expect("the repo root");
         let ignores = Ignores::parse(&std::fs::read_to_string(root.join(super::IGNORE_FILE)).expect("the ignore file"));
-        let mut files = Vec::new();
-        crate::repo::collect_text_files(&root, &root, &mut files);
+        let (_root, files) = crate::repo::collect_text_files(&root, &root)
+            .into_listing(crate::repo::Unmigrated::MaxLines)
+            .expect("the tests run inside the repo");
         let over_cap: Vec<String> = files
             .iter()
             .filter(|rel| super::count_lines(&root.join(rel)) > DEFAULT_MAX_LINES)
@@ -331,7 +340,7 @@ mod tests {
     fn patterns_before_any_header_are_silent() {
         let ignores = Ignores::parse("Cargo.lock\n");
         assert_eq!(ignores.silent, vec!["Cargo.lock"]);
-        assert!(ignores.warn.is_empty());
+        assert!(ignores.warn.is_empty(), "the parsed ignore file has no warning-only entries");
     }
 
     #[test]

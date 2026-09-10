@@ -19,7 +19,7 @@
 //! `#[cfg(not(feature = "bigquery"))]` doc comment, which is why this runs clippy as well as check:
 //! the two commands see different code, and neither is `just lint`'s.
 //!
-//! **NOT a hygiene gate, for `check-attribution-current`'s reason.** It invokes cargo, so it needs a
+//! **NOT a hygiene gate, for `check-attribution`'s reason.** It invokes cargo, so it needs a
 //! resolvable registry and a target directory; the nix sandbox `hygiene` runs in has neither. So it
 //! lives in `just gates`, which is where every gate that shells out to cargo lives.
 //!
@@ -27,7 +27,7 @@
 //! existed, what CI had for this lane was the four `cross` link builds for the COMPILE half - and
 //! they are `needs: [ci]`, so a `ci` failure skips them, which is exactly how the branch above
 //! reached review - and nothing at all for the LINT half. An app rather than a check for the reason
-//! the paragraph above gives. [`tests::both_lanes_still_invoke_this_gate`] is what holds the
+//! the paragraph above gives. `tests::both_lanes_still_invoke_this_gate` is what holds the
 //! wiring, in both venues, by reading the step rather than the file.
 //!
 //! **The profile is DERIVED from the target directory and not passed as a flag** -
@@ -65,8 +65,13 @@
 //! than silently dropping out. FAIL CLOSED on parsing none, for that gate's own stated reason: a
 //! parser that silently sees half a file is worse than no parser.
 //!
+//! Before compilation, a resolve-only preflight rejects `sutura-domain/agreement` in each shipped
+//! root's normal target dependencies, for every target declared by the cross list and host mapping.
+//! Build dependencies, proc-macro hosts and dev dependencies are outside that projection. This is
+//! resolved feature selection, not inspection of emitted code or proof of runtime data disclosure.
+//!
 //! **What it does NOT do**, stated because a green run invites the wider reading: it compiles the
-//! default set only. A feature declared and never compiled by anything is still uncovered here - the
+//! host's default set only. A feature declared and never compiled by anything is still uncovered here - the
 //! `--all-features` gates are what reach those - and this says nothing about a package that does not
 //! ship. Nor does it link: `cargo check` and `cargo clippy` both stop at metadata, which is what
 //! keeps it affordable and is also why the `cross` builds stay the authority on a musl link.
@@ -237,6 +242,268 @@ pub(crate) fn shipped_or_fail(gate: &str) -> Result<Shipped, Verdict> {
     Ok(Shipped { root, packages })
 }
 
+/// A cursor over just the literal list/map declarations this gate consumes, not a Nix evaluator.
+struct TargetLiteral<'a> {
+    rest: &'a str,
+}
+
+impl<'a> TargetLiteral<'a> {
+    fn whitespace(&mut self) -> Option<()> {
+        loop {
+            self.rest = self.rest.trim_start();
+            if self.rest.starts_with('#') {
+                self.rest = self.rest.split_once('\n').map_or("", |(_, tail)| tail);
+            } else if let Some(comment) = self.rest.strip_prefix("/*") {
+                self.rest = comment.split_once("*/")?.1;
+            } else {
+                return Some(());
+            }
+        }
+    }
+
+    fn take(&mut self, token: &str) -> Option<()> {
+        self.whitespace()?;
+        self.rest = self.rest.strip_prefix(token)?;
+        Some(())
+    }
+
+    fn quoted(&mut self) -> Option<&'a str> {
+        self.take("\"")?;
+        let (value, tail) = self.rest.split_once('"')?;
+        if !package_name(value) {
+            return None;
+        }
+        self.rest = tail;
+        Some(value)
+    }
+}
+
+/// Locate one live assignment; duplicate names and nonliteral bodies are refusals, not subsets.
+fn target_literal<'a>(text: &'a str, name: &str) -> Option<TargetLiteral<'a>> {
+    let mut found = None;
+    let mut offset = 0;
+    for (raw, line) in text.split_inclusive('\n').zip(crate::workflows::code_lines(text)) {
+        if line.code.split_once('=').is_some_and(|(key, _)| key.trim() == name) {
+            if found.is_some() {
+                return None;
+            }
+            let (raw_key, _) = raw.split_once('=')?;
+            if raw_key.trim() != name {
+                return None;
+            }
+            found = Some(TargetLiteral {
+                rest: text.get(offset + raw_key.len() + 1..)?,
+            });
+        }
+        offset += raw.len();
+    }
+    found
+}
+
+/// Literal targets from both declarations, including host mappings other than the current host.
+/// Expressions, interpolation, malformed records and unclosed/empty declarations fail closed.
+fn artifact_targets(text: &str) -> Option<Vec<String>> {
+    let mut targets = Vec::new();
+    let mut cross = target_literal(text, "crossTargets")?;
+    cross.take("[")?;
+    loop {
+        cross.whitespace()?;
+        if cross.rest.starts_with(']') {
+            break;
+        }
+        let target = cross.quoted()?;
+        if target.split('-').count() < 3 {
+            return None;
+        }
+        if !targets.iter().any(|known| known == target) {
+            targets.push(String::from(target));
+        }
+    }
+    cross.take("]")?;
+    cross.take(";")?;
+    if targets.is_empty() {
+        return None;
+    }
+    let mut host = target_literal(text, "hostRustTarget")?;
+    let mut keys = Vec::new();
+    host.take("{")?;
+    loop {
+        host.whitespace()?;
+        if host.rest.starts_with('}') {
+            break;
+        }
+        let key = host.quoted()?;
+        if keys.contains(&key) {
+            return None;
+        }
+        keys.push(key);
+        host.take("=")?;
+        let target = host.quoted()?;
+        host.take(";")?;
+        if target.split('-').count() < 3 {
+            return None;
+        }
+        if !targets.iter().any(|known| known == target) {
+            targets.push(String::from(target));
+        }
+    }
+    host.take("}")?;
+    host.take(".${system}")?;
+    host.take("or null;")?;
+    (!keys.is_empty()).then_some(targets)
+}
+
+fn package_name(name: &str) -> bool {
+    name.chars().next().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+fn cargo_version(version: &str) -> bool {
+    let Some(version) = version.strip_prefix('v') else {
+        return false;
+    };
+    let (release, build) = version
+        .split_once('+')
+        .map_or((version, None), |(release, build)| (release, Some(build)));
+    let (core, prerelease) = release
+        .split_once('-')
+        .map_or((release, None), |(core, pre)| (core, Some(pre)));
+    core.split('.').count() == 3
+        && core
+            .split('.')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()) && (part == "0" || !part.starts_with('0')))
+        && prerelease.is_none_or(|pre| version_identifiers(pre, true))
+        && build.is_none_or(|build| version_identifiers(build, false))
+}
+
+fn version_identifiers(text: &str, prerelease: bool) -> bool {
+    text.split('.').all(|part| {
+        !part.is_empty()
+            && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && (!prerelease || !part.chars().all(|c| c.is_ascii_digit()) || part == "0" || !part.starts_with('0'))
+    })
+}
+
+/// Cargo's marker for a package whose subtree was already printed.
+const REPEAT: &str = " (*)";
+
+struct FeatureRow<'a> {
+    package: &'a str,
+    features: &'a str,
+}
+
+/// Cargo's controlled package/feature columns, with an optional source locator.
+/// No arbitrary suffix or malformed row may disappear while another row supplies the subject.
+///
+/// Deduplicated output marks a repeat with a trailing ` (*)` and elides its subtree. Only that exact
+/// suffix is accepted, so every other unexpected trailing text is still a malformed row: the marker is
+/// stripped rather than parsed. Eliding a repeat costs the walk nothing, because Cargo prints a
+/// package's first occurrence in full - so every package's feature set is still read at least once,
+/// which is all `inspect_features` asks of it.
+fn feature_row(line: &str) -> Option<FeatureRow<'_>> {
+    let line = line.strip_suffix(REPEAT).unwrap_or(line);
+    let (identity, features) = line.split_once('|')?;
+    let (package, rest) = identity.split_once(' ')?;
+    let (version, source) = rest
+        .split_once(' ')
+        .map_or((rest, None), |(version, source)| (version, Some(source)));
+    if !package_name(package) || !cargo_version(version) {
+        return None;
+    }
+    if let Some(source) = source {
+        let locator = source.strip_prefix('(')?.strip_suffix(')')?;
+        let url = locator.split_once("://").is_some_and(|(scheme, address)| {
+            !scheme.is_empty()
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+                && !address.is_empty()
+                && !address.chars().any(char::is_whitespace)
+        });
+        if locator.chars().any(char::is_control) || (!Path::new(locator).is_absolute() && !url) {
+            return None;
+        }
+    }
+    if !features.is_empty()
+        && !features.split(',').all(|feature| {
+            !feature.is_empty()
+                && feature
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '+' | '.'))
+        })
+    {
+        return None;
+    }
+    Some(FeatureRow { package, features })
+}
+
+/// Missing root/subject rows are an incomplete answer, even when every present feature is allowed.
+fn inspect_features(text: &str, root: &str) -> Result<(), &'static str> {
+    let mut found_root = false;
+    let mut found_domain = false;
+    for line in text.lines() {
+        let row = feature_row(line).ok_or("malformed Cargo package/feature row")?;
+        found_root |= row.package == root;
+        if row.package == "sutura-domain" {
+            found_domain = true;
+            if row.features.split(',').any(|feature| feature == "agreement") {
+                return Err("sutura-domain/agreement is enabled in normal target dependencies");
+            }
+        }
+    }
+    if !found_root || !found_domain {
+        return Err("Cargo output omitted the selected root or enrolled sutura-domain subject");
+    }
+    Ok(())
+}
+
+fn feature_preflight(root: &Path, packages: &[String]) -> Result<(), String> {
+    let text = std::fs::read_to_string(root.join(SOURCE)).map_err(|error| format!("cannot read {SOURCE}: {error}"))?;
+    let targets = artifact_targets(&text).ok_or("cannot read complete literal crossTargets and hostRustTarget declarations")?;
+    let mut inspected = 0;
+    for package in packages {
+        for target in &targets {
+            let output = std::process::Command::new("cargo")
+                .current_dir(root)
+                .args([
+                    "tree",
+                    "--offline",
+                    "--locked",
+                    "--package",
+                    package,
+                    "--target",
+                    target,
+                    "--edges",
+                    "normal,no-proc-macro",
+                    "--prefix",
+                    "none",
+                    "--format",
+                    "{p}|{f}",
+                    "--color",
+                    "never",
+                ])
+                .output()
+                .map_err(|error| format!("{package} / {target}: cannot run Cargo: {error}"))?;
+            if !output.status.success() {
+                return Err(format!(
+                    "{package} / {target}: Cargo tree failed ({}): {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            let answer = String::from_utf8(output.stdout)
+                .map_err(|error| format!("{package} / {target}: non-UTF-8 Cargo answer: {error}"))?;
+            inspect_features(&answer, package).map_err(|error| format!("{package} / {target}: {error}"))?;
+            inspected += 1;
+        }
+    }
+    println!(
+        "  resolved-feature admission: {inspected} root/target pair(s), targets: {}",
+        targets.join(", ")
+    );
+    Ok(())
+}
+
 /// `cargo xtask check-default-features` - the shipped feature set compiles and lints.
 pub(crate) fn run(args: &[String]) -> Verdict {
     if !args.is_empty() {
@@ -248,6 +515,10 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Ok(read) => read,
         Err(verdict) => return verdict,
     };
+    if let Err(error) = feature_preflight(&root, &packages) {
+        eprintln!("xtask check-default-features: FAILED - {error}");
+        return Verdict::Fail;
+    }
     let target_dir = std::env::var_os("CARGO_TARGET_DIR");
     let profile = profile_for(target_dir.as_deref().map(Path::new));
     println!(
@@ -296,7 +567,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{PASSES, invocation, shipped_packages};
+    use super::{PASSES, artifact_targets, feature_row, inspect_features, invocation, shipped_packages};
 
     /// The flake output CI reaches this gate through.
     const APP: &str = "default-features";
@@ -315,6 +586,117 @@ mod tests {
 
     /// The condition every rust step in that job is gated on.
     const CLASSIFIED: &str = "steps.classify.outputs.rust == 'true'";
+
+    #[test]
+    fn target_declarations_are_complete_literal_inputs_not_a_host_subset() {
+        let nix = concat!(
+            "crossTargets = [\n \"aarch64-unknown-linux-gnu\" # ignored\n];\n",
+            "hostRustTarget = {\n",
+            " \"aarch64-linux\" = \"aarch64-unknown-linux-gnu\";\n",
+            " \"x86_64-linux\" = \"x86_64-unknown-linux-gnu\";\n",
+            " /* ignored */ \"aarch64-darwin\" = \"aarch64-apple-darwin\";\n",
+            "}.${system} or null;\n",
+        );
+        assert_eq!(
+            artifact_targets(nix),
+            Some(vec![
+                String::from("aarch64-unknown-linux-gnu"),
+                String::from("x86_64-unknown-linux-gnu"),
+                String::from("aarch64-apple-darwin"),
+            ])
+        );
+        for broken in [
+            nix.replace(
+                "crossTargets = [\n \"aarch64-unknown-linux-gnu\" # ignored\n];",
+                "/* = [\"x86_64-unknown-linux-gnu\"]; */ crossTargets = [\"x86_64-unknown-linux-musl\"];",
+            ),
+            nix.replace("crossTargets =", "renamed ="),
+            nix.replace("hostRustTarget =", "renamed ="),
+            nix.replace("];", "] ++ other;"),
+            nix.replace("}.${system} or null;", ""),
+            nix.replace("\"x86_64-unknown-linux-gnu\"", "computedTarget"),
+            nix.replace("\"aarch64-darwin\"", "\"x86_64-linux\""),
+            format!("{nix}\ncrossTargets = [];\n"),
+            String::from("crossTargets = [];\nhostRustTarget = {}.${system} or null;\n"),
+        ] {
+            assert!(
+                artifact_targets(&broken).is_none(),
+                "an incomplete target declaration was admitted: {broken}"
+            );
+        }
+    }
+
+    #[test]
+    fn cargo_rows_keep_empty_features_but_refuse_incomplete_identities() {
+        for row in [
+            "sutura-domain v0.1.0|",
+            "other v1.2.3-alpha.1+build (https://example.com/source#commit)|default",
+        ] {
+            assert!(feature_row(row).is_some(), "valid controlled row: {row}");
+        }
+        for row in [
+            "sutura-domain|agreement",
+            "sutura-domain v1.0|",
+            "sutura-domain v1.0.0+|",
+            "sutura-domain v1.0.0-01|",
+            "sutura-domain v01.0.0|",
+            "sutura-domain v1.0.0 ()|",
+            "sutura-domain v1.0.0 (proc-macro)|",
+            "sutura-domain v1.0.0 extra|",
+            "sutura-domain v1.0.0|default,,agreement",
+            "sutura-domain v1.0.0|default|agreement",
+        ] {
+            assert!(feature_row(row).is_none(), "malformed controlled row: {row}");
+        }
+    }
+
+    /// Deduplicated output is what the walk reads now that `--no-dedupe` is gone, so the repeat
+    /// marker has to be accepted - and *only* that marker, or the refusal of a malformed row would
+    /// have been widened into accepting arbitrary trailing text.
+    #[test]
+    fn only_cargos_exact_repeat_marker_survives_the_row_parser() {
+        for row in [
+            "sutura-domain v0.1.0| (*)",
+            "sutura-domain v0.1.0|default,agreement (*)",
+            "other v1.2.3 (https://example.com/s#c)|default (*)",
+        ] {
+            let parsed = feature_row(row).unwrap_or_else(|| panic!("a repeat row is a row: {row}"));
+            assert!(!parsed.features.contains('*'), "the marker is stripped, not parsed: {row}");
+        }
+        for row in [
+            "sutura-domain v0.1.0|(*)",
+            "sutura-domain v0.1.0| (**)",
+            "sutura-domain v0.1.0| (*) trailing",
+            "sutura-domain v0.1.0 (*)|",
+            "sutura-domain v1.0|default (*)",
+        ] {
+            assert!(feature_row(row).is_none(), "not Cargo's marker, so still malformed: {row}");
+        }
+    }
+
+    /// The elision a repeat marker stands for must not hide the enrolled subject: Cargo prints a
+    /// package's FIRST occurrence in full, so one complete row is enough for the agreement refusal.
+    #[test]
+    fn a_deduplicated_walk_still_refuses_agreement_on_the_first_occurrence() {
+        let deduped = "root v0.1.0|\nsutura-domain v0.1.0|default,agreement\nsutura-domain v0.1.0|default,agreement (*)\n";
+        assert_eq!(
+            inspect_features(deduped, "root"),
+            Err("sutura-domain/agreement is enabled in normal target dependencies")
+        );
+        let repeat_only = "root v0.1.0|\nsutura-domain v0.1.0| (*)\n";
+        assert_eq!(inspect_features(repeat_only, "root"), Ok(()));
+    }
+
+    #[test]
+    fn every_domain_row_is_inspected_and_feature_names_are_exact_tokens() {
+        let clean = "root v0.1.0|\nsutura-domain v0.1.0|\nsutura-domain-extra v0.1.0|agreement\nsutura-domain v0.1.0|agreement-extra,default\n";
+        inspect_features(clean, "root").expect("complete clean feature rows");
+        assert!(inspect_features(&format!("{clean}sutura-domain v0.1.0|default,agreement\n"), "root").is_err());
+        assert!(inspect_features(&format!("{clean}unparseable\n"), "root").is_err());
+        for missing in ["", "root v0.1.0|\n", "sutura-domain v0.1.0|\n"] {
+            assert!(inspect_features(missing, "root").is_err());
+        }
+    }
 
     #[test]
     fn every_package_in_the_binaries_list_is_read_in_declaration_order() {
@@ -467,6 +849,9 @@ mod tests {
     fn a_list_this_parser_cannot_find_reads_as_empty_so_the_gate_can_fail_closed() {
         // `run` turns this into a FAILURE rather than a pass, which is the whole of why the parser
         // is allowed to answer nothing.
-        assert!(shipped_packages("nothing that looks like a binaries list").is_empty());
+        assert!(
+            shipped_packages("nothing that looks like a binaries list").is_empty(),
+            "an unparseable list yields no shipped packages"
+        );
     }
 }

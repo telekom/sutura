@@ -8,7 +8,7 @@
 //! long as it likes. One socket would be the outage.
 //!
 //! So the shape here is a task that owns the `TcpListener`, spawns each handshake, and sends the
-//! ones that complete down a bounded channel. [`TlsListener::accept`] pops from that channel and
+//! ones that complete down a bounded channel. `TlsListener`'s `accept` pops from that channel and
 //! does no work. Handshakes are therefore concurrent, capped by a semaphore so a flood cannot spawn
 //! without bound, and each one has its own deadline.
 //!

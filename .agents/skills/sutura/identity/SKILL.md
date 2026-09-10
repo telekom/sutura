@@ -51,7 +51,19 @@ proof of impersonation.
   credential while provenance reported the answer as impersonated.
 - **Recording is not a control**, and the field's own documentation says so: it reaches a caller
   after the rows did. sutura retains nothing, so a record is worth what the deployment's sink is
-  worth.
+  worth. **And *disclose instead of refuse* is not the third option it reads as**: `ToolOutcome` has
+  two variants, both transports serialize `executed_as` and `rows` in one body per call, and there
+  is no streaming and no second message - so the only outcome that reaches a caller without rows is a
+  `Refusal`. That is why a federated answer whose legs decide identity differently is refused rather
+  than labelled (`ExecutedAs::uniform`, and the `UniformlyExecuted` that
+  `PinnedDefinitions::provenance` takes), and why the per-leg record still ships beside it: the
+  record documents a disclosure that happened, which is a different job.
+- **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
+  `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
+  every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
+  Same reason: **compare the posture VARIANT and never the value** - the acknowledgement resolves per
+  source, so two ordinary shared legs are two unequal values and one posture, and a `!=` would refuse
+  the only federating shape that ships.
 - **`Expiry` used to be read by nothing; the FLOOR now lands it in the broker.** The domain reads no
   clock - `Expiry::passed_by` takes the instant as an argument and `Minted::agreeing_with` makes the
   already-dead check there. The FLOOR (`docs/adr/0008` part 6) - *is there enough life left for what
@@ -154,8 +166,22 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   caller whose exchange the provider refuses gets `503` from `SurfaceFailure::Broker`. None of that
   is an answer *under* an asker.
 
-**What it would take to call leg 2 served:** a workload-identity pool to exchange against, and a
-two-grant acceptance leg showing two subjects reading two different row sets. The scaffold for that
-leg is in `sutura-exec-bigquery`'s `tests/acceptance.rs`
-(`two_subjects_with_different_grants_read_two_different_row_sets`), `#[ignore]`d and failing rather
-than skipping when its environment is unset.
+**What it would take to call leg 2 served, and it is THREE things rather than two.** The list used
+to read *a workload-identity pool to exchange against, and a two-grant acceptance leg*. The pool is
+provisioned, the leg is written - `sutura-exec-bigquery`'s
+`two_subjects_with_different_grants_read_two_different_row_sets` and
+`each_principal_is_who_this_source_says_it_is_executing_as`, both `#[ignore]`d and both failing
+rather than skipping when their environment is unset - and neither has run. The third was found by
+writing the second:
+
+**The shipped exchange cannot become a service account at all.** `wire::StsOverHttp` posts one
+RFC 8693 request and returns what comes back, which for a workload-identity pool is a FEDERATED
+credential: the provider resolves it to a pool subject, not to an account. Turning that into a
+service account is a second call (`iamcredentials`) this adapter does not make, and the test stack
+binds no pool principal to either service account. So a real run of the exchange leg reads back a
+pool subject and goes red, which is the finding rather than a defect in the leg.
+
+**And one consequence for what a subject token can buy.** A plain exchange yields exactly ONE
+identity per subject token - whoever the token's `sub` is - so *two* principals need *two* subject
+tokens. One workload identity cannot become two accounts without the hop above, whatever the pool
+is configured with.

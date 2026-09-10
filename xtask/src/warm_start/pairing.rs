@@ -15,16 +15,16 @@
 //!
 //! WHAT IT COUNTS, and this is the half worth reading. The claim is *no consumer takes the
 //! artifacts without the sweep*, so the unit is a **taking** - one binding of crane's
-//! [`TAKING`] argument name - not a line, not a file, and not an occurrence of the word `purge`.
+//! `TAKING` argument name - not a line, not a file, and not an occurrence of the word `purge`.
 //! Every taking in every `.nix` file in the tree is discovered, each is attributed to whatever
-//! RECEIVES it, and [`Swept`] cannot be minted with fewer adjudications than the scan discovered:
+//! RECEIVES it, and [`crate::warm_start::pairing::Swept`] cannot be minted with fewer adjudications than the scan discovered:
 //! the count in the verdict comes off the witness rather than out of a `format!`.
 //!
 //! WHAT PAIRS A TAKING is one of exactly two things, both resolved out of the tree:
 //!
 //! 1. It is the constructor's own binding, and the constructor's attrset still inlines the sweep.
-//!    Since that is the only [`PHASE`] binding permitted in the artifact flow - see
-//!    [`in_the_flow`] for why the rule is scoped and derived - no consumer can displace it.
+//!    Since that is the only `PHASE` binding permitted in the artifact flow - see
+//!    `in_the_flow` for why the rule is scoped and derived - no consumer can displace it.
 //! 2. It is an argument to an `import`ed module, and that module inlines the sweep itself. For a
 //!    module that also exports the target directory - a shell warmer - two more facts are read:
 //!    the sweep comes AFTER that export, and the variable the sweep resolves is the variable the
@@ -37,7 +37,7 @@
 //! WHAT IT DOES NOT REACH. It reads text, for [`crate::pins`]' reason - the sandbox it runs in has
 //! no nix - so a taking assembled by evaluation (a taking behind a `let` alias, an attrset built
 //! by a function this gate does not follow) is invisible, and so is anything that unpacks a store
-//! path without naming [`TAKING`] at all. `preBuild` is the only phase read, so a consumer that
+//! path without naming `TAKING` at all. `preBuild` is the only phase read, so a consumer that
 //! re-places artifacts in a later phase is outside it. And it is blind to the profile by design:
 //! the sweep derives its profile directory from cargo's own `root-output` record, so it names none
 //! and cannot clean the wrong one - which is the trap `cargo clean` fell into in
@@ -47,20 +47,20 @@
 //! apart. Measured: comment out the script's own trailing `suturaPurgeBakedOutDirs` invocation and
 //! the script still exits 0, `just lint-workflows` shellchecks 14 scripts clean, and the whole of
 //! `just hygiene` reports `ok - 32 gate(s)` - over a tree that purges nothing. That half belongs to
-//! [`super::sweep`], which runs the real script over a real directory and asserts `try_exists` on
+//! `xtask/src/warm_start/sweep.rs`, which runs the real script over a real directory and asserts `try_exists` on
 //! the unit and its fingerprint, and it reddens on exactly that mutation (`left: (true, true)`).
 //! *An `Ok` from a subprocess is not evidence the side effect happened*, and neither is a text
 //! scan; the pairing is text and the effect is a filesystem, so the two are held in two venues.
 //! Both sit inside `just validate`, and there is no diff for which one runs without the other:
-//! `.github/workflows/ci.yml` classifies `nix/purge-baked-out-dirs.sh` and [`super::WARMER`] under
+//! `.github/workflows/ci.yml` classifies `nix/purge-baked-out-dirs.sh` and [`crate::warm_start::WARMER`] under
 //! no area, which fails open to `run_all`, and `flake.nix`'s area lists a `rust` consumer - so the
 //! sufficiency is CI's classifier, not a coincidence. The limit is second-order: putting `nix/**`
 //! into `DOCS_ONLY`, or into an area with no `rust` consumer, would let this route go green.
 //!
 //! **Reachability of the inline SITE is held by neither**: the sweep placed after an `exit`, or
-//! inside a shell conditional, in [`super::WARMER`]'s exported string satisfies this gate's line
-//! rules and [`super::sweep`]'s standalone run alike. What IS held is that the inline sits in the
-//! string a `${..}` expands rather than anywhere in the file - [`module_sweeps`] carries the
+//! inside a shell conditional, in [`crate::warm_start::WARMER`]'s exported string satisfies this gate's line
+//! rules and `xtask/src/warm_start/sweep.rs`'s standalone run alike. What IS held is that the inline sits in the
+//! string a `${..}` expands rather than anywhere in the file - `module_sweeps` carries the
 //! measurement, because file-wide was a printed pass over a tree where nothing swept.
 
 use std::path::{Path, PathBuf};
@@ -176,12 +176,40 @@ impl Swept {
     }
 }
 
+/// One nix file as a SIBLING claim needs it: where it lives, and what the evaluator sees.
+///
+/// A named pair rather than a tuple, for the reason `Scan`'s neighbours give: `(String, String)`
+/// says nothing about which string is the path. Not [`NixFile`] either - that type carries `raw`
+/// as well, and a claim that only reads code should not be handed the view where a comment still
+/// counts as text.
+pub(super) struct NixCode {
+    pub(super) rel: String,
+    pub(super) code: String,
+}
+
+/// The CODE view of every `.nix` file in the tree, for a sibling claim over the same scan.
+///
+/// Here and not in [`super::deps_targets`] because [`nix_files`] is the only enumeration this
+/// gate owns and `repo::all_files` has an exact-count door on its callers: one scan, two claims,
+/// no second caller.
+pub(super) fn code_of_every_nix_file(root: &Path) -> Result<Vec<NixCode>, String> {
+    Ok(nix_files(root)?
+        .into_iter()
+        .map(|file| NixCode {
+            rel: file.rel,
+            code: file.code,
+        })
+        .collect())
+}
+
 /// Every `.nix` file in the tree, or a failure naming what it could not enumerate.
 fn nix_files(root: &Path) -> Result<Vec<NixFile>, String> {
-    let listing = repo::all_files().ok_or_else(|| String::from("could not enumerate the repo's files"))?;
+    let (_root, listing) = repo::all_files()
+        .and_then(|census| census.into_listing(repo::Unmigrated::WarmStart))
+        .map_err(|why| why.describe())?;
     let mut files = Vec::new();
     let nix = std::ffi::OsStr::new("nix");
-    for rel in listing.files.iter().filter(|rel| Path::new(rel).extension() == Some(nix)) {
+    for rel in listing.iter().filter(|rel| Path::new(rel).extension() == Some(nix)) {
         files.push(NixFile::read(root, rel)?);
     }
     // FAIL CLOSED, and not on emptiness alone: this gate's whole subject is declared in
@@ -577,6 +605,29 @@ pub(super) fn holds(root: &Path) -> Result<Swept, String> {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+
+    /// The sibling accessor reaches the same tree this gate's own scan does.
+    ///
+    /// Here rather than in [`super::super::deps_targets`], and the reason is the harness rather
+    /// than tidiness: `test-causality` keeps a file that adds a `#[test]` and reverts one that
+    /// does not, so the accessor and the claim built on it have to be red-able from the same
+    /// side of that line - otherwise reverting THIS file leaves a kept test calling a function
+    /// that no longer exists, and a build failure is not the same evidence as a red test.
+    #[test]
+    fn the_shared_scan_reaches_the_flake() {
+        let root = crate::repo::root().expect("the repo root");
+        let files = super::code_of_every_nix_file(&root).expect("every nix file's code");
+        assert!(
+            files.iter().any(|file| file.rel == "flake.nix"),
+            "the scan reached {} file(s) and flake.nix was not among them",
+            files.len()
+        );
+        // And the code view carries CODE, not an empty string: the sibling's whole judgement is
+        // made out of this field, so a scan that reached the file and handed over nothing would
+        // pass it silently.
+        let flake = files.iter().find(|file| file.rel == "flake.nix").expect("flake.nix");
+        assert!(flake.code.contains("buildDepsOnly"), "flake.nix's code view is empty");
+    }
 
     /// The one line of the sweep script this gate reads, for whichever variable it resolves.
     ///

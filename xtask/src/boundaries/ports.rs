@@ -94,9 +94,9 @@ pub(super) struct Report {
 
 /// Every caller of the driving port, scanned.
 pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
-    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
-        return Err(String::from("could not determine the repo root"));
-    };
+    let (root, files) = repo::all_files()
+        .and_then(|census| census.into_listing(repo::Unmigrated::Boundaries))
+        .map_err(|why| why.describe())?;
     let callers = callers_of_the_application(meta, &root)?;
     let mut problems = Vec::new();
     let mut declared: BTreeSet<(String, String)> = BTreeSet::new();
@@ -342,7 +342,10 @@ mod tests {
     fn a_doc_comment_naming_one_is_not_a_declaration() {
         // The obvious confound: this repo's prose quotes the shape it forbids.
         let text = "/// `pub trait Surface` was declared here once, and a review moved it.\npub fn f() {}\n";
-        assert!(public_traits(text).is_empty());
+        assert!(
+            public_traits(text).is_empty(),
+            "a doc comment naming a pub trait is no declaration"
+        );
     }
 
     #[test]
@@ -350,7 +353,10 @@ mod tests {
         // Not reachable from outside, so nothing can be a port declared for another crate to
         // implement. `unreachable_pub` is what keeps the visibility honest.
         let text = "trait Local {}\npub(crate) trait Internal {}\n";
-        assert!(public_traits(text).is_empty());
+        assert!(
+            public_traits(text).is_empty(),
+            "private and crate-visible traits declare no external port"
+        );
     }
 
     #[test]

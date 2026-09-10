@@ -58,19 +58,27 @@ use super::RefusalBody;
 
 /// The status, the code and the sentence for one refusal.
 ///
-/// **The match is exhaustive with no wildcard arm, deliberately**, and it decides all three at once
-/// rather than in three matches that could drift apart. A refusal variant added to the domain fails
-/// to compile here until it is given a status, a code and a sentence.
-// Kept as one match so a new refusal cannot be given a status without a code or a sentence: splitting
-// these three by concern is the exact drift this function exists to forbid.
+/// **The `code` is the domain's, decided once by [`RefusalReason::code`] and read by every
+/// transport**, so the two surfaces cannot drift apart - see that method for the argument. What is
+/// still this transport's own is the status and the sentence.
+///
+/// **The match is exhaustive with no wildcard arm, deliberately**, and it decides the status and
+/// the sentence together rather than in two matches that could drift apart. A refusal variant added
+/// to the domain fails to compile here until it is given a status and a sentence - and it fails to
+/// compile in [`RefusalReason::code`] until it is given a code.
+// Kept as one match so a new refusal cannot be given a status without a sentence: splitting the two
+// by concern is the exact drift this function exists to forbid.
 pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
-    let (status, code, detail) = match *reason {
+    // The code is the domain's, read once - this transport spells no `code` of its own, so it
+    // cannot drift from the agent surface. The match below decides the status and the sentence
+    // only.
+    let code = reason.code();
+    let (status, detail) = match *reason {
         // 404. The name does not resolve in this snapshot, which is the plainest thing a status can
         // say. `definition_version` on an answer is what makes "in this snapshot" the honest
         // qualifier: the same name against a later bundle is a different question.
         RefusalReason::MetricUnknown { ref metric } => (
             StatusCode::NOT_FOUND,
-            "metric_unknown",
             format!("this catalog defines no metric called `{metric}`"),
         ),
         // 422. The metric exists, the request is well formed, and the grain asked for is one nobody
@@ -79,7 +87,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // for the wrong mistake.
         RefusalReason::GrainNotSupported { ref metric, grain } => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "grain_not_supported",
             format!("`{metric}` is not defined at `{grain}` grain"),
         ),
         // 403 for all three dimension refusals. Each is the catalog's answer to "may this be asked
@@ -102,7 +109,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             ref dimension,
         } => (
             StatusCode::FORBIDDEN,
-            "dimension_not_permitted",
             format!("`{metric}` does not declare a dimension called `{dimension}`"),
         ),
         RefusalReason::DimensionNotFilterable {
@@ -110,7 +116,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             ref dimension,
         } => (
             StatusCode::FORBIDDEN,
-            "dimension_not_filterable",
             format!("`{dimension}` can be grouped by on `{metric}` but not filtered on"),
         ),
         RefusalReason::DimensionValueNotAllowed {
@@ -118,7 +123,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             ref dimension,
         } => (
             StatusCode::FORBIDDEN,
-            "dimension_value_not_allowed",
             // The value is deliberately absent. See [`RefusalBody`].
             format!("that value is not one `{metric}` declares for `{dimension}`"),
         ),
@@ -126,21 +130,18 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // occurrence that we do not, which is why the domain refuses rather than deduplicating.
         RefusalReason::DuplicateDimension { ref dimension } => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "duplicate_dimension",
             format!("`{dimension}` appears more than once"),
         ),
         // 422, and the caller can act on it without a second request to discover the number: the
         // sentence carries what they asked for and the bound.
         RefusalReason::TooManyDimensions { requested, limit } => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "too_many_dimensions",
             format!("{requested} group-by keys were asked for and the maximum is {limit}"),
         ),
         // 422. The range parsed and both endpoints are real dates, so this is not a `400`; it is the
         // availability boundary, and the answer to a well formed question is no.
         RefusalReason::TimeRangeTooLong { days, limit } => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "time_range_too_long",
             format!("the period spans {days} days and the maximum is {limit}"),
         ),
         // 413, and this is the one status here that is arguably wrong by the letter of the spec: 413
@@ -167,7 +168,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // the data system's reply bound used to arrive as `ServiceError::Warehouse` and leave as
         // `503`, which is what a dead data system looks like - so a caller was told to retry against
         // a bound that returns the same reply.
-        RefusalReason::ResultTooLarge { bound } => (StatusCode::PAYLOAD_TOO_LARGE, "result_too_large", too_much_data(bound)),
+        RefusalReason::ResultTooLarge { bound } => (StatusCode::PAYLOAD_TOO_LARGE, too_much_data(bound)),
         // 422, and choosing it is the whole point of this variant existing. Exhaustion used to reach
         // a caller as `503 unavailable` out of `ServiceError::Warehouse` - the same status a data
         // system that is down produces - so a caller was told to retry against a configured bound
@@ -185,7 +186,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // and names nothing about what the question demanded - see the domain variant for why.
         RefusalReason::ResourcesExhausted { ceiling_bytes } => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "resources_exhausted",
             format!(
                 "answering this needed more working memory than this deployment's ceiling of \
                  {ceiling_bytes} bytes, and it was refused rather than allowed to exhaust the \
@@ -199,7 +199,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // Two are served - that is what the status does NOT say.
         RefusalReason::PlanSpansTooManySources { sources, limit } => (
             StatusCode::CONFLICT,
-            "plan_spans_too_many_sources",
             format!("answering this would read from {sources} data systems, and a plan runs against {limit} at most"),
         ),
         // A question that would need federation execution this deployment cannot do yet, and a link
@@ -207,19 +206,16 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // and a caller must not retry either as an outage.
         RefusalReason::FederationNotExecutable => (
             StatusCode::CONFLICT,
-            "federation_not_executable",
             String::from("this deployment has no adapter that can execute one half of a question spanning two data systems"),
         ),
         RefusalReason::FederationLinkAmbiguous { ref source } => (
             StatusCode::CONFLICT,
-            "federation_link_ambiguous",
             format!("the dimensions on `{source}` join through more than one relationship"),
         ),
         // The same 409 - a question this deployment will not answer - for a measure that would have
         // to be recombined into a number it cannot make.
         RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => (
             StatusCode::CONFLICT,
-            "measure_does_not_federate",
             format!(
                 "`{metric}` cannot be combined across two data systems: its {aggregate} aggregate is \
                  not additive"
@@ -237,7 +233,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // usually IS another question: a dimension that needs no join is still answered.
         RefusalReason::PlanTablesShareAnIdentifier { ref table } => (
             StatusCode::CONFLICT,
-            "plan_tables_share_an_identifier",
             format!(
                 "answering this would read two different tables that are both called `{table}`, and one \
                  statement cannot tell them apart; ask for a dimension that does not need that join, or \
@@ -257,7 +252,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // that invented one would make the two disagree.
         RefusalReason::SourceUnavailable { ref source } => (
             StatusCode::SERVICE_UNAVAILABLE,
-            "source_unavailable",
             format!("`{source}` could not be reached as the calling subject"),
         ),
         // 403, and this is the refusal that AMENDED `docs/adr/0005`'s note - "the 403s are not a
@@ -273,12 +267,28 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // system they were just refused access to.
         RefusalReason::CredentialUnavailable { ref source } => (
             StatusCode::FORBIDDEN,
-            "credential_unavailable",
             format!(
                 "you have no credential at the data system `{source}`, so this deployment will not \
                  read it on your behalf - and it will not read it as itself instead. This is not \
                  about the token you presented to this service: the missing grant is at that data \
                  system. Asking the same question again returns this same refusal"
+            ),
+        ),
+        // 409, and the same family as the three federation refusals above: the question is well
+        // formed, the metric permits it, and this deployment will not answer THIS one. Not 403 -
+        // nothing about the caller's own authorization decided it, and a caller told `forbidden`
+        // goes looking for a better token. Not 503, because retrying returns the same refusal
+        // until a deployment's own source declarations change.
+        //
+        // The sentence names the two POSTURE LABELS and nothing else. `SourcePosture` carries the
+        // operator's acknowledgement prose, so the domain variant carries labels out of a closed
+        // set of two - see [`RefusalBody`] for the general rule, which this follows for an
+        // operator's text rather than a caller's.
+        RefusalReason::LegsDecideIdentityDifferently { ref postures } => (
+            StatusCode::CONFLICT,
+            format!(
+                "answering this would combine data systems that decide who is asking differently                  ({}), and a total made of rows read under two identities is a number neither of                  them is entitled to. It is refused rather than labelled: ask the same metric                  without the dimension on the second data system, or report it to a person",
+                postures.iter().copied().collect::<Vec<&str>>().join(" and ")
             ),
         ),
     };
@@ -459,6 +469,13 @@ mod tests {
                 },
                 StatusCode::FORBIDDEN,
                 "credential_unavailable",
+            ),
+            (
+                RefusalReason::LegsDecideIdentityDifferently {
+                    postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
+                },
+                StatusCode::CONFLICT,
+                "legs_decide_identity_differently",
             ),
         ]
     }

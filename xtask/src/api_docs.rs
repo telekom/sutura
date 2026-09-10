@@ -1,8 +1,9 @@
 //! Are the committed API reference pages still what the generator produces?
 //!
 //! `docs/api/*.md` are GENERATED files that are also COMMITTED. Committed because rustdoc JSON
-//! is nightly-only while the docs site is built by a job that has stable and nothing else, so
-//! the pages have to exist as files rather than be produced on the way to publishing.
+//! is nightly-only, so the pages have to exist as files rather than be produced on the way to
+//! publishing - and the whole tree already builds on the single pinned nightly, so generating
+//! them needs nothing beyond that same toolchain.
 //!
 //! A committed generated file rots silently. A doc comment changes, the page does not, and the
 //! stale page reads as current - nothing in the pipeline could tell the difference. This gate
@@ -18,32 +19,42 @@
 //!     surface, and therefore cannot get that model wrong. Resist adding one: a heuristic that
 //!     decides a change "cannot affect the docs" is a heuristic that will one day be wrong
 //!     silently, which is the exact failure this gate exists to remove.
+//!   * IT NOW ALSO JUDGES THE DOC LINKS, and not by looking at them. `broken_intra_doc_links` is
+//!     forbidden in the workspace lint table, so the `cargo rustdoc` line below fails on a link
+//!     rustdoc cannot resolve - 15 of those were warnings behind exit 0 until
+//!     `github.com/telekom/sutura#360`. **This is the only venue that enforces it**: the doctest
+//!     lane does not, measured. This check also documents each binary-only target, without
+//!     rendering API pages for it; `lints` states that scope. A lint also cannot say
+//!     whether it was ARMED, so that submodule asserts the table exists and that every workspace
+//!     member inherits it, before a single crate is documented. That is a precondition rather
+//!     than a finding: an unarmed run compares pages nobody judged. The test that holds the
+//!     precondition is over THIS function rather than over that module - see
+//!     `check_refuses_before_documenting_anything_when_the_lint_is_not_armed`, which exists
+//!     because deleting the call and handing `check` a literal left every test in `lints` green.
 //!   * IT IS THE SAME CODE PATH. The `cargo rustdoc` line and the generator script are the ones
 //!     the `api` recipe in the justfile runs. A gate that reimplemented the rendering could
 //!     disagree with `just api`, and then the fix its own message asks for would not make it
 //!     pass. Never inline the rendering here.
 //!
-//! WHAT EXACTLY NEEDS NIGHTLY, because the answer is narrower than it looks and the difference is
-//! worth minutes of CI. `--output-format json` is an unstable rustdoc option, so stable rejects
-//! `-Z` outright and there is no stable route to the JSON - verified on the 1.98.0 pin, whose
-//! `rustdoc --help` offers `--output-format [html]` and nothing else. But this crate has no
-//! `#![feature]` in it, so THIS BINARY compiles on stable, and [`rustdoc_json`] reaches the JSON
-//! by spawning a child. The requirement is the child's. `flake.nix` acts on that: the check that
-//! runs this shares the stable dependency closure with every other gate and hands the child a
-//! nightly `$CARGO`, a `CARGO_TARGET_DIR` of its own so two channels never share artifacts, and
-//! `SUTURA_API_DOCS_PROFILE` so its compile is at opt-level 0.
+//! RUSTDOC JSON NEEDS NIGHTLY. `--output-format json` is an unstable rustdoc option, and the
+//! whole toolchain is nightly now - the shell's bare cargo and every gate run the pinned nightly
+//! (devco/rust-toolchain-nightly.toml) - so it is not a special case next to gates that ran on a
+//! different channel. `flake.nix` hands the check a nightly `$CARGO` and a `CARGO_TARGET_DIR` of
+//! its own so the docs never share artifacts with another run's, and `SUTURA_API_DOCS_PROFILE` so
+//! its compile is at opt-level 0.
 //!
-//! Every other gate is run with `nix/stable-env.sh` sourced first, because clippy's lint set
-//! differs between channels and this workspace gates on the whole `restriction` category. The
-//! `cargo rustdoc` line here must NOT be wrapped that way - wrapping it is the one thing that
-//! breaks it. It is `Kind::Standalone` for the same reason: `cargo xtask hygiene` is a cheap sweep
-//! that runs on hosts with no Rust nightly at all.
+//! Every gate runs on the nightly toolchain now, so the `cargo rustdoc` line here needs no
+//! wrapping or un-wrapping rationale. It is `Kind::Standalone` because `cargo xtask hygiene` is a
+//! cheap sweep that should run on hosts with no Rust nightly at all.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::Verdict;
 use crate::repo;
+
+/// Whether the rustdoc run below is armed to judge doc links at all.
+mod lints;
 
 /// Where the committed pages live, relative to the repo root.
 ///
@@ -113,15 +124,39 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             eprintln!("xtask check-api-docs: {error}");
             Verdict::Fail
         }
-        Ok(problems) if problems.is_empty() => {
+        Ok(outcome) if outcome.problems.is_empty() => {
             println!("xtask check-api-docs: ok - the committed pages match a fresh generation");
+            println!(
+                "  doc links: `broken_intra_doc_links` = {}, {} member(s) declared in Cargo.toml, \
+                 {} resolved by cargo metadata, {} inheriting",
+                outcome.arming.level, outcome.arming.declared, outcome.arming.resolved, outcome.arming.inheriting
+            );
+            println!(
+                "  {} binary-only target(s) documented for links; API pages remain library-only",
+                outcome.binaries
+            );
             Verdict::Pass
         }
-        Ok(problems) => {
-            report(&problems);
+        Ok(outcome) => {
+            report(&outcome.problems);
             Verdict::Fail
         }
     }
+}
+
+/// What one run of this gate found, and what it was armed with while finding it.
+///
+/// The arming travels back with the problems rather than being printed where it is read: a
+/// verdict that says the pages match without saying the rustdoc run behind them judged its links
+/// is the shape this pair exists to make impossible.
+#[derive(Debug)]
+struct Outcome {
+    /// Pages that disagree with a fresh generation, or that nothing accounts for.
+    problems: Vec<String>,
+    /// The doc-link lint's level, and the three counts that say it reached every member.
+    arming: lints::Arming,
+    /// Binary-only targets whose rustdoc invocation succeeded, not generated pages.
+    binaries: usize,
 }
 
 /// Regenerate every library crate's page and collect what disagrees.
@@ -130,9 +165,14 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 /// that refused to run. That is deliberately NOT reported as a clean repo: a gate that cannot
 /// run has found nothing, and reporting nothing as `ok` is how a pipeline goes green over an
 /// unchecked tree.
-fn check(root: &Path) -> Result<Vec<String>, String> {
+fn check(root: &Path) -> Result<Outcome, String> {
     let metadata = crate::cargo_metadata(&["--no-deps"])?;
+    // FIRST, and it is an `Err` rather than a problem: an unarmed rustdoc run cannot tell a
+    // resolvable doc link from an unresolvable one, so regenerating pages from it and reporting
+    // that they match would be a green verdict over a question nobody asked. See `lints`.
+    let arming = lints::check(root, &metadata)?;
     let packages = library_packages(&metadata)?;
+    let binaries = binary_targets(&metadata)?;
     let target_dir = target_directory(root, &metadata);
 
     let generator = root.join(GENERATOR);
@@ -143,7 +183,7 @@ fn check(root: &Path) -> Result<Vec<String>, String> {
     let cargo = cargo_bin();
     let mut inputs = Vec::new();
     for package in &packages {
-        rustdoc_json(&cargo, root, package)?;
+        rustdoc_json(&cargo, root, package, None)?;
         let json = target_dir.join("doc").join(json_file_name(package));
         if !json.is_file() {
             return Err(format!(
@@ -154,6 +194,12 @@ fn check(root: &Path) -> Result<Vec<String>, String> {
             ));
         }
         inputs.push(json);
+    }
+    // Binary and library Rust identifiers can coincide. Their JSON must not share a directory.
+    let binary_target_dir = target_dir.join("binary-api-docs");
+    for (package, binary) in &binaries {
+        rustdoc_json(&cargo, root, package, Some((binary, &binary_target_dir)))
+            .map_err(|error| format!("binary target `{package}/{binary}`: {error}"))?;
     }
 
     let scratch = scratch_dir()?;
@@ -170,7 +216,71 @@ fn check(root: &Path) -> Result<Vec<String>, String> {
 
     // Best-effort: a scratch directory left behind is untidy, not a verdict.
     drop(std::fs::remove_dir_all(&scratch));
-    Ok(problems)
+    Ok(Outcome {
+        problems,
+        arming,
+        binaries: binaries.len(),
+    })
+}
+
+/// Binary-only package and target names selected from metadata.
+type BinaryTargets = BTreeSet<(String, String)>;
+
+/// Explicit binary targets in packages without a library or proc-macro target.
+///
+/// Cargo's target name can differ from its package, and one package can have several binaries.
+/// Missing target metadata must not silently turn either case into an unjudged package.
+fn binary_targets(metadata: &serde_json::Value) -> Result<BinaryTargets, String> {
+    let packages = metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| String::from("cargo metadata had no `packages` array"))?;
+    let mut binaries = BTreeSet::new();
+    for package in packages {
+        let name = package
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| String::from("cargo metadata had an unnamed package"))?;
+        let targets = package
+            .get("targets")
+            .and_then(serde_json::Value::as_array)
+            .filter(|targets| !targets.is_empty())
+            .ok_or_else(|| format!("cargo metadata had no targets for `{name}`"))?;
+        let mut has_library = false;
+        for target in targets {
+            let kinds = target
+                .get("kind")
+                .and_then(serde_json::Value::as_array)
+                .filter(|kinds| !kinds.is_empty())
+                .ok_or_else(|| format!("cargo metadata had no target kind for `{name}`"))?;
+            if kinds.iter().any(|kind| kind.as_str().is_none()) {
+                return Err(format!("cargo metadata had a non-text target kind for `{name}`"));
+            }
+            has_library |= kinds
+                .iter()
+                .any(|kind| matches!(kind.as_str(), Some("lib" | "rlib" | "proc-macro")));
+        }
+        if has_library {
+            continue;
+        }
+        for target in targets {
+            if !target
+                .get("kind")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|kinds| kinds.iter().any(|kind| kind.as_str() == Some("bin")))
+            {
+                continue;
+            }
+            let binary = target
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| format!("cargo metadata had an unnamed binary target for `{name}`"))?;
+            binaries.insert((String::from(name), String::from(binary)));
+        }
+    }
+    Ok(binaries)
 }
 
 /// Every workspace package with a library target.
@@ -257,10 +367,10 @@ fn cargo_bin() -> String {
 /// same-code-path reason in this module's header.
 ///
 /// THE ONE STEP THAT NEEDS NIGHTLY, and it is a CHILD PROCESS. `cargo` here is whichever cargo
-/// the caller named - `$CARGO`, which the Nix check sets to the nightly and nothing else in that
-/// build sees. This binary itself is compiled by the stable pin every other gate uses, which is
-/// why the check can share their dependency closure.
-fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
+/// the caller named - `$CARGO`, which the Nix check sets to the nightly. This binary itself is
+/// compiled on the same nightly toolchain every gate uses, which is why the check can share their
+/// dependency closure.
+fn rustdoc_json(cargo: &str, root: &Path, package: &str, binary: Option<(&str, &Path)>) -> Result<(), String> {
     let profile = std::env::var(PROFILE_ENV).ok();
     let status = std::process::Command::new(cargo)
         .current_dir(root)
@@ -273,6 +383,8 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
         .env_remove("CARGO_PROFILE_DEV_CODEGEN_BACKEND")
         .env_remove("CARGO_UNSTABLE_CODEGEN_BACKEND")
         .args(["rustdoc", "-q", "-p", package, "--all-features"])
+        .args(binary.into_iter().flat_map(|(name, _)| ["--bin", name]))
+        .envs(binary.map(|(_, target)| ("CARGO_TARGET_DIR", target)))
         .args(profile_args(profile.as_deref()))
         .args(["--", "-Z", "unstable-options", "--output-format", "json"])
         .status()
@@ -281,11 +393,14 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "`cargo rustdoc -p {package} ... --output-format json` failed.\n  \
-         That option is unstable, so this gate needs the NIGHTLY toolchain \
-         (devco/rust-toolchain-nightly.toml).\n  \
-         Every other gate sources nix/stable-env.sh; this one must not, because stable \
-         rejects `-Z` outright."
+        "`cargo rustdoc -p {package} ... --output-format json` failed, and rustdoc's own output \
+         above says which of two things happened.\n  \
+         A DOC LINK it could not resolve: `broken_intra_doc_links` is forbidden in the workspace \
+         lint table, so that is an error here rather than a warning behind exit 0. Fix the link - the \
+         `crate::`-qualified inline form `[`x`](crate::path::x)` resolves without an import and \
+         the page keeps the code span.\n  \
+         Or the TOOLCHAIN: `--output-format json` is unstable, so this gate needs the nightly pin \
+         (devco/rust-toolchain-nightly.toml), which is what the shell's bare `cargo` IS."
     ))
 }
 
@@ -522,6 +637,37 @@ mod tests {
     use super::{excerpt, first_difference, is_lib_target, json_file_name, library_packages, profile_args, python_command};
 
     #[test]
+    fn check_refuses_before_documenting_anything_when_the_lint_is_not_armed() {
+        // THE COMPOSITION, and it is tested here rather than in `lints` for a measured reason:
+        // every test in that module calls `arm` or `workspace_level` directly, so replacing the
+        // call in `check` with a literal `Arming` left all of them green - measured on this
+        // branch as `just test` exit 0, 2432 passed, with this gate printing its witness line
+        // character for character while reading no manifest at all. This drives `check` itself
+        // against a root that arms nothing, so the only error it can honestly return is the one
+        // `lints::check` produces, and the second assertion is what says it came FIRST.
+        let root = std::env::temp_dir().join(format!("sutura-api-docs-unarmed-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(&root).expect("fixture root");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("fixture manifest");
+
+        let outcome = super::check(&root);
+        drop(std::fs::remove_dir_all(&root));
+
+        let error = match outcome {
+            Ok(found) => panic!("an unarmed tree must not be documented, got {found:?}"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("broken_intra_doc_links"),
+            "the refusal has to be the LINT's - anything else means the precondition was skipped: {error}"
+        );
+        assert!(
+            !error.contains(super::GENERATOR),
+            "and it has to come BEFORE the generator is even looked for, or it is not first: {error}"
+        );
+    }
+
+    #[test]
     fn identical_files_have_no_first_difference() {
         let text = b"# a\n\nbody\n";
         assert!(first_difference(text, text).is_none());
@@ -612,7 +758,10 @@ mod tests {
         // Unset is the dev-shell answer: cargo's default `dev` keeps the developer's `target/`
         // warm. The Nix check names `ci`, and it must arrive as a FLAG - `CARGO_PROFILE` is
         // crane's convention and a spawned child sees nothing that turns it into one.
-        assert!(profile_args(None).is_empty());
+        assert!(
+            profile_args(None).is_empty(),
+            "the dev-shell default passes no --profile flags"
+        );
         assert!(
             profile_args(Some("")).is_empty(),
             "an empty value gives cargo a bare --profile"

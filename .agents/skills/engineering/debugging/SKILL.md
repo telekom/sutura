@@ -58,27 +58,39 @@ before concluding a hang is not a wait:
 
 One more thing a green run does NOT mean: a timed-out `up` deliberately does NOT tear down - it
 names `just dev-down` instead, for the reasons `xtask/src/compose.rs`'s `abandoned` records, so a
-failed provision can leave containers running. What is fail-closed is the discovery file: it is
-removed BEFORE the tier is touched, so a failed `dev-up` or `dev-down` leaves no endpoint a harness
-can connect to. **A tier that is up with no discovery file is that**, and `just dev-up` again is the
-fix.
+failed provision can leave containers running. What is fail-closed is **this task's own entries**:
+they are withdrawn from the discovery file before the tier is touched, so a failed `dev-up` or
+`dev-down` leaves no *docker* endpoint a harness can connect to. **The limit, which is narrower than
+that sentence used to be:** since `github.com/telekom/sutura#317` the granularity is one
+provisioner's entries rather than the file, so a nix-native tier's entry deliberately survives and
+keeps the file alive with it. The file existing therefore says nothing about the docker tier - ask
+`just dev-endpoint clickhouse` about a service, not `ls` about the file - and **a docker tier that is
+up with its entry withdrawn is the state above**, whose fix is `just dev-up` again.
 
-**The nix Postgres tier in that state HEALS ITSELF now, and only that one.** `just dev-up` still
-serialises the whole document from the docker services it read, so a nix tier's entry goes with it
-and the postmaster survives unnamed - which used to be a `just test` whose postgres cells failed
-closed, because the wrapper asked `sutura-postgres-tier status` (the process) while the cells asked
-the file (`github.com/telekom/sutura#298`). That answer is derived from the file now: the state
-reads as *unclaimed*, `just test` republishes the entry and leaves the server running, and
-`checks.postgres-tier` holds all three arms. A `just dev-endpoint postgres` between the `dev-up` and
-the next `just test` still answers nothing.
+**Both nix tiers in that state HEAL THEMSELVES now.** A server with no entry is still reachable - a
+`start` that dies between the bind and its publish, a hand-removed file, a `stop` that failed - and
+it used to be reachable the easy way as well, because a `dev-up` rewrote the whole document from the
+docker services it read and took a nix tier's entry with it. That was a `just test` whose postgres
+cells failed closed, since the wrapper asked `sutura-postgres-tier status` (the process) while the
+cells asked the file (`github.com/telekom/sutura#298`). **Both halves are gone.** `publish` merges
+per entry (`github.com/telekom/sutura#317`, held by `dev/src/discovery.rs`'s
+`a_second_provisioners_entry_survives_a_publish`), so a `dev-up` leaves a nix entry where it was and
+a `just dev-endpoint postgres` between a `dev-up` and the next `just test` answers that postmaster's
+socket. And each tier's `status` is derived from the records while `start` keeps a process-only
+guard (`github.com/telekom/sutura#324` is that split for keycloak), so a genuinely unclaimed server
+reads as *unclaimed* and the next `start` republishes the entry over the server already running -
+`just test` for postgres, `just keycloak-tier start` for keycloak. `checks.postgres-tier` drives the
+wrapper's three `status` arms (already-up, unclaimed-republish, stopped) and, inside the unclaimed
+arm, an entry that is absent and one that points at a different socket - a mismatched address cannot
+masquerade as already-up. `checks.keycloak-tier` drives the same three, and asserts the heal keeps
+THE SAME PID and THE SAME CLIENT SECRET rather than cold-starting a second JVM.
 
-**No other nix tier is healed, and for keycloak `start` is NOT the remedy** - it returns 0 having
-published nothing. Its guard is `status`, which is the process there and deliberately so (see that
-file), so over the surviving JVM it prints *already up* and returns before the `publish` on the
-other path. `just keycloak-tier stop` then `start` is what works, and it is not free: `start`
-`rm -rf`s the home, so the realm, the client secret and the OS-chosen port are all new and anything
-holding the old realm file has to re-read it. The split that would let it heal like postgres is
-`github.com/telekom/sutura#324`.
+**Keycloak has ONE arm it cannot heal, and it says so instead of returning 0.** Every secret that
+tier has is generated at `start` and written to `.sutura-dev/keycloak-realm.json` alone, so with
+that file gone there is no way back to a usable tier over the running JVM. There,
+`just keycloak-tier start` refuses and names `just keycloak-tier stop` rather than killing a live
+server by itself - a token something else obtained from that realm is valid until the JVM goes.
+The restart is not free: the realm, the client secret and the OS-chosen port are all new.
 
 **And a GREEN `just test` no longer means the tier it started came down.** A `stop` that fails keeps
 its endpoint entry and says so on standard error; the trap in `nix/with-tier.sh` runs it under
@@ -132,6 +144,24 @@ Measured on this repo: a bypass-reproduction script reverted two uncommitted doc
 files it mutated, and nothing was red afterwards - it was found by re-grepping for a sentence that
 should have been there. **Commit before running one**, and prefer a script that restores from a copy
 it made itself; the same class as any `git checkout` in a shared or automated context.
+
+**AND A RESULT FILE WITH A FIXED NAME CANNOT SAY WHICH RUN WROTE IT.** Detaching a long gate and
+reading its exit code from a file is the right shape - a pipeline's last stage is the status of
+`tail`, not of the gate - but a waiter that fires on `<name>.exit` gets whatever run wrote it last.
+**Measured twice in one session, and neither was noticed by care:** a mutation harness that verified
+the clean tree only at the END, so a restore that did not take left a mutation behind and the next
+mutation adopted it as pristine, reporting `anchor missing` while an unrelated test was red; and a
+`ship-check` waiter that reported the PREVIOUS commit's exit 0 as this commit's, because the new run
+had not yet replaced the file. Each was caught by a SECOND number disagreeing - the harness's own
+`clean tree: red` line, and a metadata file naming a commit that was not `HEAD`.
+
+**So put what is being measured into the artifact's NAME and check it before believing the number**
+(`logs/ship-<sha>.exit`), and have a harness snapshot its inputs ONCE rather than re-reading them
+per step. The same habit catches the other half: more than one copy of a gate running in one
+worktree. `cargo xtask test-causality` creates and removes `target/causality-worktree` and both runs
+share one target directory, so two of them clobber each other's reconstruction and NEITHER verdict
+is about the tree - three were found running here at once. `pgrep` for the gate before starting one.
+
 ## Failure modes already understood here
 
 Read these before spending an hour on a class of bug this repo has met.
@@ -141,13 +171,15 @@ Read these before spending an hour on a class of bug this repo has met.
 | Error names a lint or flag that looks correct | CRLF in a `.nix` file; `\r` became part of the argument |
 | A gate passes locally, fails in the Nix sandbox | it used `git ls-files`; there is no `.git` there |
 | A gate passes in the sandbox but checks nothing | it listed files via an absent tool and got an empty list - fail open, loudly |
-| Clippy clean locally, fails in CI | you ran the shell's bare `cargo`, which is a nightly for the cranelift backend and lints differently; `source nix/stable-env.sh` first |
+| Clippy clean locally, fails in CI | you ran a hand-written `cargo clippy` line without `-D warnings`, so a `restriction` lint passed locally that the gate rejects; run `just lint` |
 | `cargo-deny` cannot fetch advisories | a Nix build sandbox has no network; it runs as `nix run .#deny` |
 | A dependency compiled several times in one CI run | a check not sharing `cargoArtifacts` |
 | `401` on a `.narinfo` while `nix-cache-info` succeeds | the cache reads anonymously; artifacts need netrc credentials |
 | A detector reports its own source | the pattern matches the file that defines it |
 | A lock "released on drop" is still held, and the refusal names THIS process | `flock` lives on the open file DESCRIPTION, so a `close` releases it only when the last descriptor on that description goes. Every `Command::spawn` duplicates the whole table at `fork` and `FD_CLOEXEC` only fires at `exec`, so any spawn in flight holds a copy of every lock. Unlock explicitly rather than relying on the close |
 | A harness reads a child's output and the LAST line is missing, under load | it drained the channel once `try_wait` said the process exited. Exited is not READ: the threads reading its pipes may still be in flight, and the last thing a process writes is usually the sentence the assertion is about - so the failure reads as *it never said that* rather than as a lost line. Keep the reader `JoinHandle`s, join, then drain |
+| A gate's exit code is the previous run's | the artifact has a fixed name; nothing ties it to the commit it measured |
+| Two runs of one gate disagree in one worktree | both create and remove `target/causality-worktree`; neither verdict is about the tree |
 
 **`nextest`'s process-per-test does NOT contain the lock one, and believing it did cost a wrong
 diagnosis on `github.com/telekom/sutura#328`.** The reasoning that fails is *the duplicate must come

@@ -339,7 +339,7 @@ pub(super) struct Spellings {
 /// where the finder comparison catches it. `github.com/telekom/sutura#414`.
 ///
 /// What the file-name pair alone still cannot reach is a walk that keeps the name and hands the
-/// parse an empty body. [`Spellings::unaccounted`] is the arm that does, from a predicate the
+/// parse an empty body. [`Walk::unaccounted`] is the field that does, from a predicate the
 /// parse cannot narrow.
 pub(super) fn declarations(files: &BTreeMap<String, String>) -> Walk<'_> {
     let read: Vec<Pass<'_>> = files

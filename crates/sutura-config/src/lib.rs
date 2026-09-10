@@ -13,7 +13,7 @@
 //! // process with `sutura_config::environment_from_process`.
 //! let settings = Settings::load(&Sources::defaults(Environment::Development))?;
 //! assert!(settings.server().bind().is_loopback());
-//! # Ok::<(), sutura_config::SettingsError>(())
+//! # Ok::<(), sutura_config::SettingsLoadError>(())
 //! ```
 //!
 //! # Precedence
@@ -91,7 +91,7 @@
 //!
 //! **A value out of range is a different refusal, through a different type, and one of them reads the
 //! machine.** [`NotFitToServe`] is about a *combination* of settings that are each individually legal;
-//! a single value the type will not accept is a [`SettingsError`] out of [`Settings::load`], so it
+//! a single value the type will not accept is a [`SettingsError`] inside [`SettingsLoadError`], so it
 //! refuses to start too and is not in that list. The one worth naming here is
 //! `runtime.working_set_max_bytes`: it is checked against the memory this process can actually reach -
 //! a cgroup limit, or the machine - and refuses above it, because shipped profiles compile
@@ -140,8 +140,8 @@ pub use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings, TlsMaterial,
 };
 pub use crate::settings::{
-    CONFIG_DIR_VARIABLE, ConfigLayers, ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, Sources, VARIABLE_PREFIX,
-    VARIABLE_SEPARATOR, config_dir_from_process, environment_from_process,
+    CONFIG_DIR_VARIABLE, ConfigLayers, ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, SettingsLoadError, Sources,
+    VARIABLE_PREFIX, VARIABLE_SEPARATOR, config_dir_from_process, environment_from_process,
 };
 pub use crate::sources::placement::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
 pub use crate::sources::{

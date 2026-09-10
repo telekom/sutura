@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   bump:
-    runs-on: rust-mcp
+    runs-on: rust-mcp-32core
     timeout-minutes: 60
     environment: release
     permissions:

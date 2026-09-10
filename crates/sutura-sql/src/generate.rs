@@ -55,8 +55,9 @@ use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
 use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw};
 use sutura_domain::measure::ZeroDenominator;
-use sutura_domain::model::{Aggregate, Grain, JoinType, Qualification, QualifiedTable};
+use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
 use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
+use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use crate::GeneratedQuery;
 use crate::dialect::{DateTruncShape, Dialect, PlaceholderStyle};
@@ -156,7 +157,17 @@ fn placeholder(dialect: Dialect, position: usize) -> Expr {
 
 /// `"table"."column"`, as an expression the builder understands.
 fn column(plan_column: &PlanColumn) -> Expr {
-    builder::col(&format!("{}.{}", plan_column.table().as_str(), plan_column.column().as_str()))
+    qualified(plan_column.table(), plan_column.column())
+}
+
+/// A column reference, qualified by its table's own name.
+///
+/// **Split out of [`column`] rather than duplicated**, because the key probe holds a
+/// [`QualifiedTable`] and a [`ColumnName`] rather than a [`PlanColumn`] and would otherwise have
+/// built the same reference a second way - which is exactly the drift `render`, `aliased` and
+/// `table_path` are shared to prevent one layer down.
+fn qualified(table: &TableName, column: &ColumnName) -> Expr {
+    builder::col(&format!("{}.{}", table.as_str(), column.as_str()))
 }
 
 /// `expr AS "label"`, with the alias quoted.
@@ -573,9 +584,13 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
 /// path and not the other.
 ///
-/// **Nothing calls this from a binary.** There is no splitter, so no [`LegPlan`] is constructed
-/// outside a test; what pins it is the golden family under `crates/sutura-app/tests/golden`, one
-/// statement per shape per dialect, parse-checked in the dialect it was generated for.
+/// **Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
+/// to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
+/// `sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
+/// that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+/// which builds a logical plan instead. So what pins this is the golden family under
+/// `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
+/// dialect it was generated for - and none of those four is what a release executes.
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
     // the same order for whatever reads the rows back.
@@ -633,6 +648,40 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
     ))
 }
 
+/// Renders one declared join key's uniqueness probe as one statement.
+///
+/// **Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
+/// `COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
+/// and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
+/// `HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
+/// answer a narrower question than the one the join path spends.
+///
+/// **No parameter, and nothing from a question.** A [`DeclaredKey`] is built out of a pinned
+/// bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
+/// returned [`GeneratedQuery`] carries an empty parameter list rather than one this could fill.
+///
+/// **No key value is projected**, which is the same decision the answer type makes and for the same
+/// reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
+/// source data copied into a sink nobody scoped for it.
+///
+/// Shared with [`generate`] and [`generate_leg`]: [`qualified`], [`aliased`], [`table_path`] and
+/// [`render`], so identifier quoting, column qualification and path depth cannot be one thing here
+/// and another there. The two aliases are `sutura-domain`'s constants rather than this crate's
+/// literals, so the label an adapter reads the count back under is the label the statement asked
+/// for.
+pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
+    // The path goes in the `FROM` and the qualifier is the table's own NAME, so a two-part or
+    // three-part table still renders a two-part column reference - `qualified` is the one place that
+    // is decided.
+    let over = qualified(key.table().name(), key.column());
+    let projection = vec![
+        aliased(builder::count(over.clone()), ROWS_LABEL)?,
+        aliased(builder::count_distinct(over), DISTINCT_LABEL)?,
+    ];
+    let ast = builder::select(projection).from(&table_path(key.table(), dialect)?).build();
+    Ok(GeneratedQuery::new(key.source().clone(), render(&ast, dialect)?, Vec::new()))
+}
+
 /// What this module claims about the dialect layer, measured against the layer itself.
 ///
 /// **Every test here exists because a declaration in [`crate::dialect`] would otherwise be a claim
@@ -641,17 +690,18 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
 /// the layer fails at this file rather than in a golden diff somebody accepts.
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::{ColumnName, Grain, TableName};
-    use sutura_domain::plan::{PlanBucket, PlanColumn};
+    use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
+    use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
+    use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
 
     use polyglot_sql::builder;
 
-    use super::{bucket_expression, ordered_nulls_last, render};
+    use super::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL, bucket_expression, generate_key_probe, ordered_nulls_last, render};
     use crate::dialect::{ALL, Dialect};
 
     fn bucket(grain: Grain) -> PlanBucket {
         PlanBucket::new(
-            String::from("period"),
+            ResultLabel::bucket(),
             grain,
             PlanColumn::new(
                 TableName::parse("orders").expect("a test table is a table"),
@@ -846,5 +896,79 @@ mod tests {
             "a double-quoted identifier parsed as bigquery, so the corpus is not catching the \
              quoting half either:\n{double_quoted}"
         );
+    }
+
+    /// The key probe, rendered and parse-checked for every dialect this crate compiles for.
+    ///
+    /// **Here rather than in the golden suite, and the reason is what a golden could add.** A golden
+    /// pins one statement's TEXT per dialect, which is worth having where a plan has shapes to
+    /// enumerate; this statement has one shape and no parameters, so what is worth holding is that
+    /// every dialect renders it, that the target's own parser accepts it, and that the two aliases
+    /// are the domain's constants rather than this file's literals - an adapter reads the counts back
+    /// by those names, so a drift between them and the statement is a probe that answers nothing.
+    ///
+    /// **The limit this shares with every parse check here:** it parses and stops.
+    /// `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` above is the measurement of how far
+    /// that reaches, and the `DuckDB` and Postgres cells of `just test` are what execute one.
+    #[test]
+    fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
+        let relationship = Relationship::new(
+            RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
+            ModelName::parse("orders").expect("a test model is a model"),
+            ColumnName::parse("customer_key").expect("a test column is a column"),
+            ModelName::parse("customers").expect("a test model is a model"),
+            ColumnName::parse("customer_key").expect("a test column is a column"),
+            JoinType::ManyToOne,
+        );
+        let definitions = Definitions::assemble(
+            vec![
+                Model::new(
+                    ModelName::parse("orders").expect("a test model is a model"),
+                    SourceName::parse("local").expect("a test source is a source"),
+                    TableName::parse("orders").expect("a test table is a table"),
+                    std::iter::once("customer_key")
+                        .map(|c| ColumnName::parse(c).expect("a test column is a column"))
+                        .collect(),
+                    Description::default(),
+                ),
+                Model::new(
+                    ModelName::parse("customers").expect("a test model is a model"),
+                    SourceName::parse("local").expect("a test source is a source"),
+                    TableName::parse("dim_customer").expect("a test table is a table"),
+                    std::iter::once("customer_key")
+                        .map(|c| ColumnName::parse(c).expect("a test column is a column"))
+                        .collect(),
+                    Description::default(),
+                ),
+            ],
+            vec![relationship.clone()],
+            Vec::new(),
+        )
+        .expect("two models and one join are consistent");
+        let key = DeclaredKey::promised_by(&relationship, &definitions).expect("a many-to-one promises a unique target");
+
+        for &dialect in ALL {
+            let query =
+                generate_key_probe(&key, dialect).unwrap_or_else(|e| panic!("a key probe would not render for {dialect}: {e}"));
+            let sql = query.sql();
+            assert!(query.params().is_empty(), "{dialect} bound a parameter into a probe: {sql}");
+            assert!(sql.contains(ROWS_LABEL), "{dialect} did not alias the row count: {sql}");
+            assert!(
+                sql.contains(DISTINCT_LABEL),
+                "{dialect} did not alias the distinct count: {sql}"
+            );
+            assert!(sql.contains("DISTINCT"), "{dialect} counted every value twice: {sql}");
+            // The declaration is unconditional, so a probe that narrowed itself would answer a
+            // different question than the one the join path spends.
+            for absent in ["WHERE", "GROUP BY", "HAVING", "LIMIT"] {
+                assert!(!sql.contains(absent), "{dialect} narrowed the probe with {absent}: {sql}");
+            }
+            let parsed = polyglot_sql::parse(sql, super::dialect_type(dialect));
+            assert!(
+                parsed.is_ok(),
+                "{dialect} did not parse its own probe: {:?}\n{sql}",
+                parsed.err()
+            );
+        }
     }
 }

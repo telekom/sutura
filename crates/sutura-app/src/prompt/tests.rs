@@ -526,10 +526,30 @@ fn the_bounds_are_read_from_the_domain_rather_than_typed() {
     // The bug this prevents: a cap raised in `sutura-domain` and a prompt that keeps quoting the
     // old number, which is worse than quoting none - an agent would split a period it did not need
     // to, or fail to split one it did.
+    //
+    // THE BULLET, not the bare number. This prompt carries a 64-character hex definitions digest,
+    // so `contains("4")` - `MAX_DIMENSIONS` is literally 4 - was satisfied by the digest whatever
+    // the bullets said: measured by rendering the bound as a word instead of a number, where the
+    // bare-number form stayed green and this one goes red. Same shape as the JWK-set assertion in
+    // `sutura-http`, one direction over: a needle that can land in generated material makes a
+    // NEGATIVE assertion flake red and a POSITIVE one pass for the wrong reason, which is worse
+    // because nothing ever reports it.
+    //
+    // SEARCHED OVER THE WORDS, not the lines. The prompt is wrapped, so a phrase can be split by a
+    // newline and its indent: with enough filler ahead of it the bullet still reads `... of at\n
+    // most 3653 days` and names the bound, while a phrase assertion over the raw text goes red. That
+    // would be a formatter reddening this cell, not a bound - the failure this whole branch is about,
+    // arrived at from the other side. Collapsing runs of whitespace makes the assertion about what
+    // the sentence SAYS; `{text}` is still what a failure prints, because the wrapped form is what a
+    // reader has to look at.
     let text = rendered(Tool::ALL, CatalogProse::Quoted, None);
-    assert!(text.contains(&MAX_DIMENSIONS.to_string()));
-    assert!(text.contains(&MAX_RANGE_DAYS.to_string()));
-    assert!(text.contains(&sutura_domain::plan::MAX_ROWS.to_string()));
+    let flowed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flowed.contains(&format!("At most {MAX_DIMENSIONS} dimensions")), "{text}");
+    assert!(flowed.contains(&format!("at most {MAX_RANGE_DAYS} days")), "{text}");
+    assert!(
+        flowed.contains(&format!("At most {} rows", sutura_domain::plan::MAX_ROWS)),
+        "{text}"
+    );
 }
 
 #[test]
