@@ -217,6 +217,17 @@ jobs:
       # A job output rather than a second lookup there: that job holds a write scope and
       # must stay as small as possible, so it is told what to do rather than deciding.
       crap_delta: ${{ steps.crap_delta.outputs.available }}
+      # The category axis, published once so the category-gated legs and `ci-aggregate` read the
+      # same classification rather than recomputing it. Each value is `core || selected` from the
+      # `classify` step, so a `core` diff (a shared or unmapped path) flips every one true.
+      core: ${{ steps.classify.outputs.core }}
+      identity: ${{ steps.classify.outputs.identity }}
+      data_source_datafusion: ${{ steps.classify.outputs.data_source_datafusion }}
+      data_source_duckdb: ${{ steps.classify.outputs.data_source_duckdb }}
+      data_source_postgres: ${{ steps.classify.outputs.data_source_postgres }}
+      data_source_bigquery: ${{ steps.classify.outputs.data_source_bigquery }}
+      catalog_local: ${{ steps.classify.outputs.catalog_local }}
+      catalog_datahub: ${{ steps.classify.outputs.catalog_datahub }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -419,7 +430,7 @@ jobs:
       # declines for the same server. `nix/**` fails open to `run_all`, and `flake.nix`/`flake.lock`
       # are the `nix` area, so between them the two conditions cover every file the tier reads.
       - name: Identity tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
+        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.identity == 'true'
         run: nix build .#checks.x86_64-linux.keycloak-tier -L
 
       # The Postgres tier's state machine, which the `Tests` step above cannot report on: it starts
@@ -431,7 +442,7 @@ jobs:
       # Gated like the identity tier and for its reason: nothing compiled here changes what the
       # tier script does, and the two conditions between them cover every file it reads.
       - name: Postgres tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
+        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true'
         run: nix build .#checks.x86_64-linux.postgres-tier -L
 
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
@@ -893,7 +904,12 @@ jobs:
   # cannot serialise; per-run table names keep it safe anyway.
   bigquery-acceptance:
     needs: [ci]
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Runs only when the diff selected the BigQuery category (or fell open to `core`), AND the
+    # event can reach the `bq-test` environment secret (an in-repo pull request, or a push). A
+    # branch that touches no BigQuery adapter or dialect - or a fork, or the merge queue - pays
+    # nothing for the dataset-serialising acceptance leg. `ci-aggregate` holds that this job may be
+    # skipped ONLY when its category is not selected, or the event cannot run it, never silently.
+    if: github.event_name == 'push' && needs.ci.outputs.data_source_bigquery == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.ci.outputs.data_source_bigquery == 'true'
     runs-on: rust-mcp-32core
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
@@ -1017,6 +1033,65 @@ jobs:
         run: |
           set -eu
           rm -f "$RUNNER_TEMP/bq-key.json"
+
+  # THE CATEGORY AGGREGATOR, and the second required context beside `ci` (owner-held ruleset edit).
+  # It performs no build and no test; it reads every category-gated leg's result and fails when a
+  # leg that should have run was skipped. A required check that never RUNS stays Pending forever
+  # and wedges the merge queue - the same failure `ci`'s own event handling documents - so a leg
+  # may be green BY SKIP only when the diff did not select its category. A buggy filter that
+  # silently skips an affected adapter leaves the category selected while its leg reports skipped,
+  # and this job is what turns that green shape red.
+  #
+  # Legs and their categories: `ci` is always required; `bigquery-acceptance` is
+  # `data_source_bigquery`. `core` (a shared or unmapped path) subsumes every category because the
+  # category outputs are emitted as `core || selected`, so a `core` diff requires every leg to run
+  # and forbids every allowed skip.
+  #
+  # Two event exceptions are deliberate and match the jobs' own `if:`. A fork pull request cannot
+  # reach the `bq-test` environment secret, and the merge queue never runs `bigquery-acceptance`
+  # (its trigger excludes `merge_group`); in both the leg is skipped not by a filter bug but by the
+  # event, so the aggregator does not require it there. On every in-repo pull request and push it
+  # is held to the run-or-fail rule above.
+  ci-aggregate:
+    runs-on: rust-mcp-32core
+    needs: [ci, bigquery-acceptance]
+    # Never category-skipped and never suppressed by an upstream failure: it reads the results.
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Aggregate the category-gated legs
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          BQ_RESULT: ${{ needs.bigquery-acceptance.result }}
+          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          fail() { echo "ci-aggregate: RED - $*"; exit 1; }
+          # `ci` is the always-required base context; it can never be skipped.
+          if [ "$CI_RESULT" != "success" ]; then
+            fail "ci reported '$CI_RESULT'"
+          fi
+          # Whether this event can physically run bigquery-acceptance: an in-repo PR or a push
+          # (which carries the secret); a fork PR and the merge queue cannot, so a skip there is
+          # the event, not a filter bug.
+          if [ "$EVENT" = "push" ] || { [ "$EVENT" = "pull_request" ] && [ "$PR_HEAD" = "$REPO" ]; }; then
+            can_run_bq=true
+          else
+            can_run_bq=false
+          fi
+          if [ "$BQ_SELECTED" = "true" ] && [ "$can_run_bq" = "true" ]; then
+            if [ "$BQ_RESULT" != "success" ]; then
+              fail "bigquery-acceptance must run (BigQuery category selected) but reported '$BQ_RESULT'"
+            fi
+          else
+            case "$BQ_RESULT" in
+              skipped|success) ;;
+              *) fail "bigquery-acceptance reported '$BQ_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          echo "ci-aggregate: ok - every category-gated leg green"
 
   # `needs: [ci]` keeps the file's stated order - classify, lints, tests, then build - so a
   # tree that fails clippy does not spend four runners proving it also links.
