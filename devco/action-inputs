@@ -72,16 +72,6 @@ actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
   show-summary
   github-token
 
-actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
-  path
-  key
-  restore-keys
-  upload-chunk-size
-  enableCrossOsArchive
-  fail-on-cache-miss
-  lookup-only
-  save-always
-
 actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
   repository
   ref
