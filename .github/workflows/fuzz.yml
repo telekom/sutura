@@ -107,11 +107,18 @@ jobs:
       # Actions-cache gate (`cargo xtask check-workflows`) accepts this only `if:`-gated, never via
       # a `save:` key on `actions/cache` - so a pull request still cold-builds. That is the stated
       # limit: this is a `main`-to-`main` cache, the recurring cost on every push, not a PR one.
+      #
+      # THE KEY INCLUDES `nix/run-fuzz.sh`, which is not a dependency input - it is where the build
+      # FLAGS live, and cargo fingerprints RUSTFLAGS. Without it, changing a flag leaves the key
+      # untouched, so an exact hit restores artifacts built under the old flags, cargo rebuilds the
+      # whole graph anyway, and `actions/cache` skips the save on an exact hit - so the stale entry
+      # is restored on every push until the lockfile or the toolchain moves. A cache that is
+      # restored, ignored and never replaced costs more than no cache.
       - uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           path: target/fuzz
-          key: fuzz-${{ hashFiles('fuzz/Cargo.lock') }}-${{ hashFiles('devco/rust-toolchain-nightly.toml') }}
+          key: fuzz-${{ hashFiles('fuzz/Cargo.lock') }}-${{ hashFiles('devco/rust-toolchain-nightly.toml') }}-${{ hashFiles('nix/run-fuzz.sh') }}
 
       - name: Replay the committed corpus
         run: bash nix/run-fuzz.sh smoke
@@ -155,7 +162,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           path: target/fuzz
-          key: fuzz-${{ hashFiles('fuzz/Cargo.lock') }}-${{ hashFiles('devco/rust-toolchain-nightly.toml') }}
+          key: fuzz-${{ hashFiles('fuzz/Cargo.lock') }}-${{ hashFiles('devco/rust-toolchain-nightly.toml') }}-${{ hashFiles('nix/run-fuzz.sh') }}
 
       - name: Fuzz ${{ matrix.target }}
         run: bash nix/run-fuzz.sh run "${SECONDS_BUDGET}" "${{ matrix.target }}"
