@@ -5,9 +5,7 @@ description: How the semantic compiler gets tested across catalogs and data syst
 
 # Conformance packs for inputs and adapters
 
-Status: **accepted; execute packs and the default-off compile-pack API are implemented.** Catalog
-registration, the shared file corpus and its CI tier remain separate work; this is not completion of
-the whole matrix below.
+Status: **accepted as the shape. None of it is built.**
 
 The requirement is that every metadata input and every data adapter conforms to the **same tests and
 functions**, so a new connector proves itself by registering and declaring rather than by anyone
@@ -125,26 +123,6 @@ fast and one that is not:
 So a metadata adapter - markdown today, Datahub or OpenMetadata later - is conformance-tested entirely
 by compile packs, against every question in the corpus, with no container anywhere. A data adapter runs
 the execute packs on top.
-
-The implemented compile API is `sutura_conformance::compile`, enabled only by `compile`. Its optional
-normal dependencies are `sutura-semantic`, `sutura-sql` and the workspace's `serde_json`; the last
-compares the domain plan's serialized JSON value, not a second string format. The existing
-`check-boundaries` harness checks the all-feature first-party closure and these optional/default-off
-declarations. It does not measure a consumer's resolved feature set or build cost.
-
-`compile_packs!` checks the binding tag against `SemanticCatalog::KIND` in a `const` assertion and
-types the opened fixture as that catalog. Both kinds get declaration fidelity and repeat-load digest
-checks. Only GOLDEN gets an independent definitions/knowledge oracle and compile cases; DECLARING is
-not required to reproduce another catalog's model. Direct golden-only calls require a private-field
-`Golden` witness that refuses a declaring catalog.
-
-The pack compares the plan value or exact typed refusal **before** rendering the same compiled value,
-then compares SQL, source and parameters for every member of `sutura_sql::dialect::ALL`. Empty cases
-and missing/duplicate dialects refuse. Expectations come from the fixture, not the compiler under
-test. The first fake-port fixtures cover mono plans and refusals; they do not exercise federation or
-register a real adapter, prove a server accepts SQL, measure identity, or hold a compile-pack census.
-Repeat-load determinism is not determinism under rewritten source inputs. Registry migration and a
-shared file corpus must not be inferred from this API.
 
 What must be identical and what may differ, restated because it is the whole meaning of conformance:
 **rows identical, refusals identical, rendered SQL different and snapshotted per dialect.** No
@@ -391,9 +369,8 @@ declaration. Neither touches a pack body, and that is the property the requireme
   be checked by a reader.
 
   **And "the second consumer of the same fixtures" is now false as well.** The packs do not read the
-  example corpus: reaching it needs a catalog adapter, which the harness may not depend on. The
-  compiler and renderer are permitted only through default-off `compile`; `check-boundaries` holds
-  that declaration and the all-feature closure. So the execute packs still carry a corpus of their
+  example corpus: reaching it needs a catalog adapter and the compiler, and the harness may depend on
+  neither - `check-boundaries`' harness half is what holds that. So the packs carry a corpus of their
   own and the workspace has a THIRD, which is a cost this record should not have hidden inside a
   sentence about avoiding duplication. It is paid deliberately: the alternative is a harness that
   cannot be a dependency an adapter's own crate takes, which is the whole reason the crate exists.
@@ -456,3 +433,15 @@ declaration. Neither touches a pack body, and that is the property the requireme
   YAML, which is the quiet way a new adapter ends up conformance-tested locally and untested in CI.
 - Compile packs make the semantic compiler testable against N catalogs with no data system, which is
   the tier most of the value lives in and the one that can run on every push.
+- **The compile packs live behind a default-off `compile` feature of the harness crate.** They need
+  `sutura-semantic` and `sutura-sql` - two crates the harness is otherwise forbidden from reaching,
+  because crossing to them would let a pack body be written against something concrete. Growing them
+  unconditionally would break the portability contract `crates/sutura-conformance/src/corpus.rs`
+  states - a pack can be bound to an adapter without acquiring a catalog adapter, the compiler or the
+  renderer - and would add the compiler+renderer+dialect closure to data adapters' test builds, most
+  materially `sutura-exec-datafusion`, whose test build links neither today. So the manifest names an
+  empty `default`, a `compile` feature carrying exactly the three dependencies
+  (`sutura-semantic`, `sutura-sql`, `serde_json`), and `xtask/src/boundaries/harness.rs`'s harness
+  gate holds the shape: the default-feature walk keeps the closure to the interior, a `compile_feature`
+  check refuses `default = ["compile"]`, and the `--all-features` lanes of `just test`/`just lint`
+  build and run the compile cells, so neither direction is a switch nobody flips.

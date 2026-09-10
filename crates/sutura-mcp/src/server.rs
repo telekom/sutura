@@ -11,6 +11,7 @@
 //! | The service could not answer | a tool result with `isError: true`, and no detail | something went wrong, and the detail is a path or a table |
 //! | Every execution slot was taken for the whole admission window | a tool result with `isError: true`, and a sentence saying to ask again | the question was never judged, so it is not a refusal - and unlike the row above, waiting is the fix |
 //! | The reply outran `server.request_timeout_seconds` | a tool result with `isError: true`, and a sentence saying the question may still be running | the peer's WAIT is bounded and the question is not: see the section on the reply deadline |
+//! | The peer cancelled a running call | no response | rmcp suppresses it; the handler stops waiting, while the question and its slot continue |
 //!
 //! **A refusal is not an error and must not look like one.** `sutura_app::surface::Surface::answer`
 //! is where a transport inherits that, and its own doc comment says why: a caller must not be able to
@@ -104,24 +105,23 @@
 //! the peer gets does not say *try again*: repeating the question would take a second slot while
 //! the first is still running. Making running work stoppable is #160's subject, on the port.
 //!
-//! **And what it still leaves unbounded, on this transport only:** a peer that sends
-//! `notifications/cancelled` stops nothing and observes nothing until the deadline fires. rmcp
-//! delivers that cancellation as `RequestContext::ct` and `call_tool` here does not read it, so a
-//! cancelled call goes on waiting out its deadline. Reading the token would make cancellation
-//! observable to the peer and would be the first place this crate depends on an rmcp behaviour its
-//! own documentation describes loosely - `telekom/sutura#362`, filed rather than folded in. It
-//! would free an async worker and never a slot, which is why it is a separate decision.
+//! **Peer cancellation ends this transport's wait and nothing below it.** rmcp 3.1.4 delivers
+//! `notifications/cancelled` through `RequestContext::ct`, and [`ServerHandler::call_tool`] selects
+//! on that token while a question is pending. The handler returns before its configured deadline;
+//! the pinned rmcp then suppresses its response on the wire. The blocking `Surface::answer`
+//! call cannot be aborted, so it keeps running and owns its execution slot until it returns. This
+//! is `telekom/sutura#362`; making the data work itself stoppable remains #160, on the port rather
+//! than on this transport.
 //!
 //! **What this transport still does not bound is the size of what it reads**, which is `#266`'s
 //! `H4`: `rmcp`'s stdio transport reads a line off the process's own input with no cap, and this
 //! change is about a different thing - how many questions execute at once.
 //!
-//! **The limit on how far the shedding is exercised, stated with it.** `rmcp` 3.1.4 answers a
-//! `notifications/cancelled` by cancelling a token this handler does not read, and it spawns each
-//! request as a detached task - so on that SDK a peer that cancels or disconnects does not drop the
-//! future that is waiting for the answer. The property that the permit belongs to the work rather
-//! than to that future is therefore asserted by dropping the future in a test, not by cancelling a
-//! call over the wire.
+//! **The limit on how far cancellation is exercised, stated with it.** The MCP test sends
+//! `notifications/cancelled` over an in-memory protocol connection and observes the pinned SDK's
+//! suppression plus this handler's captured diagnostic. It does not claim that closing a transport
+//! produces the same notification. The slot-retention assertion reads the held port before release:
+//! cancellation drops the future waiting on the blocking task, never the task or the permit it owns.
 //!
 //! # What this slice does NOT do, on purpose
 //!
@@ -302,10 +302,14 @@ where
         std::future::ready(Ok(ListToolsResult::with_all_items(tool::every(&self.permitted))))
     }
 
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
+    )]
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         // Two questions in order, and they are two on purpose: does this surface have such a tool,
         // and may this peer invoke it. Folding them together would make an unpermitted call
@@ -328,7 +332,13 @@ where
             }
             Capability::AskMetric => {
                 let query = question(request)?;
-                answer(&self.service, &self.admission, self.reply, query).await
+                tokio::select! {
+                    result = answer(&self.service, &self.admission, self.reply, query) => result,
+                    () = context.ct.cancelled() => {
+                        tracing::warn!("stopped waiting for a tool call because its peer cancelled");
+                        return Err(ErrorData::internal_error("the peer cancelled this tool call", None));
+                    }
+                }
             }
         };
         Ok(CallToolResponse::Complete(result))

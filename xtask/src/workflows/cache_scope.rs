@@ -490,6 +490,58 @@ pub(super) mod tests {
         assert!(clean.is_empty(), "{clean:#?}");
     }
 
+    /// #551's claim is 'a cachix-push-pr job WITHOUT the PR gate is REFUSED'. That gate is the
+    /// JOB's own `if:` (a sibling of its `environment:`/`steps:` keys), not a step-level `if:`
+    /// buried under a step marker - so deleting just the job gate while a step `if:` remains must
+    /// re-open the refusal on a merged-main push.
+    #[test]
+    fn the_pr_write_jobs_gate_is_the_job_level_if_not_a_buried_step_one() {
+        // Shape of `.github/workflows/ci.yml`'s `pr-cache` job: the job name sits at two spaces, its
+        // `if:` at the job-scope column (four), a cachix-action step's `if:` deeper (eight).
+        let pr = "  pr-cache:\n    needs: [ci]\n    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        if: github.event_name == 'pull_request'\n        with:\n          name: sutura-prs\n";
+        let marker = |text: &str| {
+            text.lines()
+                .position(|l| l.contains("cachix/cachix-action@"))
+                .map_or(0, |i| i + 1)
+        };
+        assert!(
+            super::retired::in_pr_publish_job(pr, marker(pr)),
+            "the gated PR job is the write half"
+        );
+        assert!(
+            super::retired::retired(&[("ci.yml".into(), pr.to_owned())]).is_empty(),
+            "the clean PR write job is the permitted shape"
+        );
+
+        // Deleting ONLY the job-level `if:` (leaving the step `if:`) drops the gate.
+        let no_job_gate = pr.replace(
+            "    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n",
+            "    environment: cachix-push-pr\n",
+        );
+        assert!(
+            !super::retired::in_pr_publish_job(&no_job_gate, marker(&no_job_gate)),
+            "a buried step `if:` is not the job gate"
+        );
+        assert!(
+            !super::retired::retired(&[("ci.yml".into(), no_job_gate.clone())]).is_empty(),
+            "job gate deleted, step `if:` left = the step is refused"
+        );
+
+        // Deleting both job and step `if:` stays refused.
+        let no_gate = no_job_gate.replace(
+            "        if: github.event_name == 'pull_request'\n        with:\n",
+            "        with:\n",
+        );
+        assert!(
+            !super::retired::in_pr_publish_job(&no_gate, marker(&no_gate)),
+            "no gate at all is refused"
+        );
+        assert!(
+            !super::retired::retired(&[("ci.yml".into(), no_gate)]).is_empty(),
+            "both job and step gates deleted = the step is refused"
+        );
+    }
+
     #[test]
     fn the_committed_tree_writes_the_actions_cache_only_from_a_push_to_main() {
         // THE LIVE ASSERTION. The unit fixtures above are shapes; this is the repository, and it is

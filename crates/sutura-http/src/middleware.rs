@@ -58,7 +58,7 @@ use crate::state::ServiceState;
 
 /// The header a token arrives in, and its scheme.
 const AUTHORIZATION: &str = "authorization";
-const BEARER: &str = "Bearer ";
+const BEARER: &str = "Bearer";
 
 /// A limiter layer, keyed by whatever [`ClientAddress`] attributes a request to, reporting its
 /// state in response headers.
@@ -232,7 +232,11 @@ pub async fn require_token(State(state): State<ServiceState>, request: Request, 
         .headers()
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix(BEARER));
+        // RFC 9110 §11.1 makes an authentication scheme name case-insensitive, so `bearer abc`
+        // is a bearer token and a byte-for-byte `strip_prefix` refused it as if nothing were
+        // presented - the same shape the inbound leg already fixed in `gate.rs`.
+        .and_then(|value| value.split_once(' '))
+        .and_then(|(scheme, credential)| scheme.eq_ignore_ascii_case(BEARER).then_some(credential));
     // `unwrap_or_default` and then compare, rather than returning early on an absent header: the
     // comparison is constant-time, and skipping it when the header is missing would make "no
     // header" measurably faster than "wrong token". The empty string cannot match a token, because
@@ -365,9 +369,12 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
     use sutura_config::{ClientAddressSource, Quota, TrustedProxies};
 
     use super::{ClientAddress, api_rate_limit_layer, replenishment_nanoseconds, spawn_reaper};
+    use crate::testing::{broker, bundle, call, fake_warehouse, settings_with};
 
     fn quota(per_second: u32) -> Quota {
         Quota::parse("test", per_second, per_second.max(1)).expect("a test quota is a quota")
@@ -474,5 +481,26 @@ mod tests {
         let enormous = Quota::parse("test", u32::MAX, u32::MAX).expect("a large quota is a quota");
         assert!(replenishment_nanoseconds(enormous) >= 1);
         assert!(NonZeroU32::new(enormous.per_second().get()).is_some());
+    }
+
+    #[tokio::test]
+    async fn the_bearer_scheme_is_matched_case_insensitively() {
+        // RFC 9110 §11.1 makes an authentication scheme name case-insensitive, and the inbound leg
+        // already honours that. This gate compared `strip_prefix("Bearer ")` byte-for-byte, so a
+        // client that wrote the scheme in any other case was refused as if it had presented nothing.
+        let settings = settings_with("security:\n  access_token: \"0123456789abcdef0123456789abcdef\"\n");
+        let router = crate::testing::serving(bundle(), fake_warehouse(), broker(), settings, None);
+        for scheme in ["Bearer", "bearer", "BEARER"] {
+            let mut request = Request::builder()
+                .method("GET")
+                .uri("/v1/catalog")
+                .header("authorization", format!("{scheme} 0123456789abcdef0123456789abcdef"))
+                .body(Body::empty())
+                .expect("a test request is well formed");
+            let peer: std::net::SocketAddr = "203.0.113.7:44444".parse().expect("a test peer address is an address");
+            request.extensions_mut().insert(axum::extract::ConnectInfo(peer));
+            let (status, _body) = call(&router, request).await;
+            assert_eq!(status, StatusCode::OK, "a `{scheme}` token was refused");
+        }
     }
 }

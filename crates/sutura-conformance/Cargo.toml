@@ -10,13 +10,21 @@ repository.workspace = true
 publish = false
 description = "Conformance packs: one set of test bodies over the ports, bound to an adapter by a macro."
 
+# The compile packs are NOT part of the crate a data adapter binds. They need the compiler and the
+# renderer, and growing `sutura-semantic` + `sutura-sql` unconditionally would break the portability
+# contract `src/corpus.rs` states and a data adapter binding the execute packs - most materially
+# `sutura-exec-datafusion`, whose test build today links neither. So they sit behind a default-off
+# `compile` feature (`xtask/src/boundaries/harness.rs` refuses `default = ["compile"]`), and the
+# `--all-features` lanes of `just test`/`just lint` are what exercise them. A default `manual`
+# consumer links none of it.
 [features]
 default = []
 compile = ["dep:sutura-semantic", "dep:sutura-sql", "dep:serde_json"]
 
 [dependencies]
-# The default pack family reaches only the ports. Compile packs opt into the compiler and renderer,
-# never a catalog or data-system adapter; `check-boundaries` holds both that set and the feature.
+# The ports and the types the packs are written against, and the ONLY first-party dependency this
+# crate may have. A pack that reached an adapter would be a test written against one implementor,
+# which is the whole thing `docs/adr/0012` exists to stop.
 #
 # `agreement` is asked for here rather than by each consumer, and asking for it IS the point: what
 # makes two answers the same answer is `sutura_domain::warehouse::agreement`'s to decide, and a pack
@@ -24,15 +32,18 @@ compile = ["dep:sutura-semantic", "dep:sutura-sql", "dep:serde_json"]
 # feature is default-off in the domain and this crate is a dev-dependency everywhere, so nothing
 # published gains it - the limit that module states about itself is unchanged.
 sutura-domain = { workspace = true, features = ["agreement"] }
-sutura-semantic = { workspace = true, optional = true }
-sutura-sql = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true }
+# The compile packs' closure, all three OPTIONAL and only on behind the `compile` feature - the
+# manifest's whole point over `docs/adr/0012` and the portability contract: they never reach a data
+# adapter binding the execute packs.
+sutura-semantic = { workspace = true, optional = true }
+sutura-sql       = { workspace = true, optional = true }
+serde_json       = { workspace = true, optional = true }
 
 # The developer-workflow crate, for ONE test and one reason: `src/lib.rs` spells
 # `SUTURA_DEV_REQUIRE_TIER` and its truthiness a second time, because `not_here` has to judge an
 # absence and this crate may not reach the crate that publishes that decision - the harness rule in
-# `xtask/src/boundaries/harness.rs` excludes the workflow crate from its NORMAL closure.
+# `xtask/src/boundaries/harness.rs` holds it to `sutura-domain` through a NORMAL dependency.
 #
 # **A dev-dependency is what that rule permits, by design and in its own header:** what may not
 # happen is a pack BODY compiled against something, and a pack body is `src/`. So the duplication is

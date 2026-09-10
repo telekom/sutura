@@ -81,7 +81,7 @@ pub(crate) enum Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Reads {
     /// Nothing a `docs/*.md`-or-`mkdocs.yml` diff can change: Rust, manifests, lock files, nix,
-    /// workflow YAML, the justfile, the hook configuration, the skills tree, `ATTRIBUTION.md`.
+    /// workflow YAML, the justfile, the hook configuration, the skills tree, `Cargo.lock`.
     /// Prose OUTSIDE `docs/` is on this side too - the classification is about reachability from
     /// that diff, not about whether a gate reads English. Skipping it on such a diff loses nothing.
     Code,

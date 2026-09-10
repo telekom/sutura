@@ -129,6 +129,18 @@ pub enum PostgresError {
     /// A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
     #[error("the schema name {schema} is not a single word character")]
     InvalidSchemaName { schema: String },
+    /// The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
+    ///
+    /// The value becomes a `SET statement_timeout = N` line verbatim, so it is parsed at the
+    /// boundary and refused if it is not a number or exceeds the `u32` ceiling - a value that
+    /// cannot be a timeout must not reach the statement as uninterpreted text. The cause
+    /// survives so the operator sees the number did not parse, not a plain refusal.
+    #[error("SUTURA_DEV_STATEMENT_TIMEOUT_MS must be a whole number of milliseconds up to {ceiling}")]
+    InvalidStatementTimeout {
+        ceiling: u32,
+        #[source]
+        cause: core::num::ParseIntError,
+    },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
@@ -198,7 +210,7 @@ impl PostgresWarehouse {
         // the server aborts the statement itself. The value is generous (a development tier, not a
         // query budget) and overridable - a BUDGET, which is the one thing left here that a default
         // is the right answer for. The connection's credential is not: see `fixture`.
-        let timeout_ms = env_or("SUTURA_DEV_STATEMENT_TIMEOUT_MS", "15000");
+        let timeout_ms = statement_timeout_ms()?;
         runtime
             .block_on(async { client.batch_execute(&format!("SET statement_timeout = {timeout_ms}")).await })
             .map_err(|cause| PostgresError::Execute { cause })?;
@@ -770,6 +782,24 @@ fn env_or(key: &str, fallback: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| String::from(fallback))
 }
 
+/// The dev-only statement timeout, parsed to a `u32`.
+///
+/// `env_or` hands back text and this line becomes `SET statement_timeout = N`, so the value is a
+/// typed ceiling at the boundary: something that is not a number, or is larger than `u32`, cannot
+/// reach the statement as raw text. Parsing is `u32` (not `u64` rounded down), so an oversized
+/// value is refused rather than becoming a different number.
+fn statement_timeout_ms() -> Result<u32, PostgresError> {
+    parse_statement_timeout(&env_or("SUTURA_DEV_STATEMENT_TIMEOUT_MS", "15000"))
+}
+
+/// Parses a `statement_timeout` tuning value as a `u32` millisecond count.
+fn parse_statement_timeout(raw: &str) -> Result<u32, PostgresError> {
+    raw.parse::<u32>().map_err(|cause| PostgresError::InvalidStatementTimeout {
+        ceiling: u32::MAX,
+        cause,
+    })
+}
+
 impl Warehouse for PostgresWarehouse {
     type Error = PostgresError;
 
@@ -934,5 +964,31 @@ mod tests {
         // The domain epoch (1970-01-01) is the driver's -10957.
         assert_eq!(PgDate::from_domain(0).days, -10_957);
         assert_eq!(PgDate::from_domain(0).to_domain_days(), 0);
+    }
+
+    #[test]
+    fn a_statement_timeout_is_a_u32_ceiling_or_it_is_refused() {
+        // The tuning value becomes a `SET statement_timeout = N` line verbatim, so it is a typed
+        // ceiling at the boundary: a number that fits parses...
+        assert_eq!(parse_statement_timeout("15000").expect("a number parses"), 15_000);
+        assert_eq!(parse_statement_timeout("0").expect("zero is a valid timeout"), 0);
+        assert_eq!(
+            parse_statement_timeout(&u32::MAX.to_string()).expect("the ceiling parses"),
+            u32::MAX
+        );
+        // ...and anything that cannot be a `u32` is refused rather than reaching the statement.
+        // `u32::MAX + 1` is the ceiling's far side, and decimals are refused rather than truncated.
+        assert!(matches!(
+            parse_statement_timeout("not-a-number"),
+            Err(PostgresError::InvalidStatementTimeout { .. })
+        ));
+        assert!(matches!(
+            parse_statement_timeout("4294967296"),
+            Err(PostgresError::InvalidStatementTimeout { .. })
+        ));
+        assert!(matches!(
+            parse_statement_timeout("15000.5"),
+            Err(PostgresError::InvalidStatementTimeout { .. })
+        ));
     }
 }

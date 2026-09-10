@@ -585,10 +585,14 @@ fn dependency_direction() -> Verdict {
 /// `harness` carries the argument, the disproof that produced this half, and what the walk does
 /// NOT reach.
 fn harness_reaches_no_adapter() -> Verdict {
-    // `--all-features`, for [`dependency_direction`]'s reason and one of its own: a pack family
-    // behind a feature is still a pack family, and an edge moved behind one would be trivial to
-    // hide from a default-feature walk.
-    let meta = match crate::cargo_metadata(&["--all-features"]) {
+    // The DEFAULT-feature walk. The harness's compile packs live behind a default-off `compile`
+    // feature (`crates/sutura-conformance/Cargo.toml`), and `cargo metadata --all-features` would
+    // activate it and hand this walk the compiler and the renderer as if they were the closure a
+    // DATA adapter links. Whether that feature stays default-off and holds exactly its one set is
+    // `harness::compile_feature`'s check - so PERMITTED continues to hold the closure a binding
+    // actually links, which is the default one. The `[features]` declaration is present in cargo
+    // metadata whether or not the feature is activated, so the shape check reads the same `meta`.
+    let meta = match crate::cargo_metadata(&[]) {
         Ok(value) => value,
         Err(message) => {
             eprintln!("xtask check-boundaries: {message}");

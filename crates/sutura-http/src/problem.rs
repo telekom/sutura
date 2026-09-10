@@ -101,7 +101,7 @@ pub enum Failure {
     /// this service being full. `code` is what a client branches on, and the pair of them is why
     /// the code exists at all.
     ///
-    /// Carries how long to wait. See [`Failure::retry_after`].
+    /// Carries how long to wait, already known: the admission window just spent waiting it out.
     AtCapacity { retry_after_seconds: u64 },
 }
 
