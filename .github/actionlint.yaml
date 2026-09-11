@@ -25,9 +25,10 @@
 # runs `actionlint` against this file - inside `ci`, the one required context. The refusal is
 # `label "rust-mcp" is unknown. available labels are ...`.
 #
-# `rust-mcp-16core` is absent for the same reason rather than by omission: this list is what is IN
-# USE, so adding a label here is the same decision as putting a job on it. It is added by whatever
+# `rust-mcp-16core` IS in use: the mostly-cached jobs moved to it, measured at the same median
+# wall as the 32-core label. The build-and-publish jobs stayed on 32.
 # change first measures it.
 self-hosted-runner:
   labels:
     - rust-mcp-32core
+    - rust-mcp-16core
