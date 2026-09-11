@@ -2699,7 +2699,7 @@ defined here, generic in the adapter's error, rather than six times per binding.
    were actually emitted rather than a constant beside it;</li>
 <li><strong>a venue where the fixture did not stand up prints NO coverage line at all.</strong> It takes the
    <code>open</code> path rather than a <code>Spent</code> for exactly this: a census that printed <em>6 behaviour(s)
-   over 2 case(s)</em> beside six cells that each reported <code>NOT RUN</code> is the skip that reads as
+   over the corpus's cases</em> beside six cells that each reported <code>NOT RUN</code> is the skip that reads as
    coverage, which is the failure mode the packs were built against. What it prints instead
    names the count as one that asserted nothing, and carries the provisioner's diagnostic. The
    two assertions above it still run, because what a binding emitted and whether the corpus has
@@ -2894,7 +2894,7 @@ COMPUTED from where the invocation sits, because those two properties are what t
 rest on. What it still cannot see is an emitted test: the evidence is a written invocation and
 its position.</p>
 <h2 id="module-corpus">Module <code>corpus</code><a class="headerlink" href="#module-corpus" title="Permanent link">&para;</a></h2>
-<p>The corpus the execute packs run: one table, two questions, and the answer written ONCE.</p>
+<p>The corpus the execute packs run: one table, four questions, and the answer written ONCE.</p>
 <p><strong>Written once is the whole property.</strong> Every registered adapter is asked the same plan and
 compared against the same <code>Case::expected</code> rows, so <em>these two data systems answer this
 question the same way</em> is a claim about the answer rather than about two hand-written
@@ -2911,19 +2911,47 @@ them as a dev-dependency without acquiring a catalog adapter, <code>sutura-seman
 <li><strong>The three cases <code>docs/adr/0012</code> names</strong> - a filter on a remote dimension over an orphan key,
   a ratio whose denominator is zero for one subgroup, and a <code>CountDistinct</code> spanning two join
   keys. Each needs a second table and a federated plan; none is here.</li>
-<li><strong>A null in a group key.</strong> Null placement in <code>ORDER BY</code> differs per data system and is not
-  stated by the plan, so a null key would make <code>crate::Behaviour::Order</code> a claim about the
-  source's collation. <code>docs/adr/0012</code> designed a re-sort for that and the re-sort was superseded
-  by the two-function comparison - so the packs DO assert order, and that record now says so and
-  carries the decision this corpus is deferring: a case whose order a source could legitimately
-  answer differently must be able to opt out of the order behaviour, and there is no field for
-  that yet. Avoiding the question is weaker than deciding it, which is why it is written here.</li>
-<li><strong>A wide integer or a decimal.</strong> The type-mapping disagreements
-  <code>sutura_domain::warehouse::agreement</code>'s header lists are all reachable only past an <code>i64</code>,
-  and nothing here goes near one.</li>
+<li><strong>An integral total strictly PAST <code>i64</code>, which is not a gap but an undecidable row.</strong> Read off
+  the three bound adapters: <code>sutura-exec-postgres</code> REFUSES one
+  (<code>numeric_cell</code> parses an integral <code>NUMERIC</code> into an <code>i64</code> and errors rather than rounding),
+  <code>sutura-exec-duckdb</code> answers <code>Value::Text</code> from its <code>HugeInt</code> arm, and
+  <code>sutura-exec-datafusion</code>'s <code>sum</code> over an <code>Int64</code> column has nowhere wider to go at all. Three
+  adapters, three different endings, so a corpus whose answer is written ONCE cannot hold that
+  row - <code>total_wide_by_day</code> goes to the boundary and stops there. What the boundary still
+  buys is in that case's own doc.</li>
+<li><strong>A fixed-point measure, and so the <code>Value::Text</code> arm all three adapters keep for one.</strong>
+  Unreachable from a CSV-backed corpus rather than omitted: no type inference on the load path
+  produces a fixed-point column from a fractional literal - <code>read_csv_auto</code> and <code>DataFusion</code>'s
+  inference both answer a 64-bit float, and <code>sutura-exec-postgres</code>'s own importer has no
+  <code>NUMERIC</code> arm to reach. The fractional CLASS is exercised, as <code>Value::Real</code>
+  (<code>total_rate_by_day</code>), and the day an inference answers a fixed-point type instead that
+  cell reddens - which is the class comparison working rather than a case somebody has to write.</li>
 <li><strong>Files.</strong> <code>docs/adr/0012</code>'s <em>the corpus is files, not code</em> is unbuilt: a case is a value in
   this module, so adding one is still a code change.</li>
 </ul>
+<h1 id="null-placement-in-a-group-key-decided-and-what-the-null-row-does-and-does-not-detect">Null placement in a group key: decided, and what the null row does and does NOT detect<a class="headerlink" href="#null-placement-in-a-group-key-decided-and-what-the-null-row-does-and-does-not-detect" title="Permanent link">&para;</a></h1>
+<p><strong><code>ASC NULLS LAST</code>, everywhere, and it is not this corpus's choice to make.</strong> <code>sutura_sql</code>'s
+<code>ordered_nulls_last</code> states the placement in the AST for every dialect and
+<code>sutura-exec-datafusion</code>, which renders no SQL at all, lands on the same placement because
+<code>LogicalPlanBuilder::sort_by</code> is <code>Expr::sort(true, false)</code>.
+<code>sutura_domain::plan::federated</code> calls it <em>the whole of the ordered-result contract</em>. So the
+per-case opt-out this module used to say it owed is <strong>not</strong> owed: there is no case here whose
+null order a conforming source may legitimately answer differently.</p>
+<p><strong>What the null row does NOT detect, measured rather than assumed.</strong> It is NOT a check on our
+statement of the placement. The layer collapses <code>NULLS LAST</code> away for every target whose
+default is already nulls-last, which is all three adapters bound to these packs - so deleting
+<code>ordered_nulls_last</code>'s <code>nulls_first: Some(false)</code> leaves <code>DuckDB</code>'s and Postgres's rendered SQL
+<strong>byte-identical</strong>, and the only dialect whose text changes is <code>BigQuery</code>, which has no binding
+here. Their engines then order nulls last on their own. <code>crates/sutura-sql</code>'s
+<code>every_order_by_states_nulls_last</code> is what holds our statement of it, and it holds the AST
+rather than an answer.</p>
+<p><strong>What it DOES buy, which is two things and neither is that one.</strong> Through
+<code>crate::Behaviour::Order</code> it pins the three engines' own default null ordering - most
+usefully <code>datafusion</code>'s, whose <code>sort_by</code> supplies <code>nulls_first: false</code> from a default that a
+version bump could change with no diff of ours - so it is a <strong>dependency regression detector</strong>.
+Through <code>crate::Behaviour::Content</code> it is a claim about OUR code: a null key must be a GROUP
+and not a row a join or a filter dropped, which is the failure class
+<code>crates/sutura-app/tests/golden/data_systems.rs</code> names for a fact key.</p>
 <h3 id="struct-case"><code>struct Case</code><a class="headerlink" href="#struct-case" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Case</span>
 </span></code></pre></div>
