@@ -198,7 +198,7 @@ jobs:
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
     # promotion PR whose tip happens to be a release commit is still gated.
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     # 75, AND THE CEILING IS THE MERGE QUEUE RATHER THAN THE SLOWEST RUN. `ci` is the only
     # REQUIRED check, so the queue's check-response timeout - 90 minutes - is the point past which
     # a verdict cannot be consumed by anything. The 120 this replaces sat 30 minutes beyond it: a
@@ -967,7 +967,7 @@ jobs:
     # with `github.event_name == 'pull_request'` as a pinned PREFIX and refuses the reversed
     # spelling and a `${{ }}` wrapping alike.
     if: github.event_name == 'pull_request' && !cancelled()
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     environment: cachix-push-pr
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1177,7 +1177,7 @@ jobs:
     # nothing for the dataset-serialising acceptance leg. `ci-aggregate` holds that this job may be
     # skipped ONLY when its category is not selected, or the event cannot run it, never silently.
     if: github.event_name == 'push' && needs.ci.outputs.data_source_bigquery == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.ci.outputs.data_source_bigquery == 'true'
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
     timeout-minutes: 60
