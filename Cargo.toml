@@ -515,20 +515,21 @@ unsafe_code = "forbid"
 # Doc links, and this table is read by RUSTDOC ONLY - never by `cargo build`, `cargo clippy` or
 # `just lint`.
 #
-# THE VENUE IS `cargo rustdoc` OVER LIBRARY PACKAGES - `just api` and `checks.api-docs` - AND
-# NOTHING ELSE. The doctest lane is NOT one, measured rather than assumed after this comment
-# claimed it was: `cargo test --doc` does hand rustdoc the flag, but rustdoc's `--test` mode never
-# runs the link-resolution pass, so one crate with one unresolvable link and one real doctest is
-# exit 0 with no diagnostic while `cargo doc` over that same crate is exit 101. And it reaches no
-# binary-only member at all - `cargo test --doc -p xtask` answers `no library targets found`.
+# THE VENUE IS `cargo rustdoc`, run by `just api` and by `checks.api-docs` - AND NOTHING ELSE. The
+# doctest lane is NOT one, measured rather than assumed after this comment claimed it was:
+# `cargo test --doc` does hand rustdoc the flag, but rustdoc's `--test` mode never runs the
+# link-resolution pass, so one crate with one unresolvable link and one real doctest is exit 0 with
+# no diagnostic while `cargo doc` over that same crate is exit 101. And it reaches no binary-only
+# member at all - `cargo test --doc -p xtask` answers `no library targets found`.
 #
-# SO 30 ERRORS AT THIS LEVEL SIT IN THIS TREE WITH NO VENUE JUDGING THEM, and that is the limit
-# beside the claim rather than a footnote. `cargo rustdoc` over the three binary-only members, on
-# the nightly pin: `xtask` exit 101 (26 unresolved plus one ambiguity), `sutura-cli` exit 101 (1),
-# `sutura-serve` exit 101 (2). `cargo doc --workspace` went green-to-red on the commit that added
-# this table, and CI stays green only because nothing runs it. Teaching `check-api-docs` to
-# document the binary-only members is the fix; it needs those 30 repaired first, so it is its own
-# change - `github.com/telekom/sutura#418`.
+# IT REACHES EVERY WORKSPACE MEMBER AND EVERY PRIVATE ITEM IN ONE, and both halves are recent. The
+# binary-only members are documented for their links, without a page - `#418`. Private items are
+# reached because both venues pass `--document-private-items`, and without it rustdoc runs no
+# link-resolution pass over one at all: one unresolvable link inside a private module is exit 0
+# without the flag and exit 101 with it, same tree, same level. That hole held 33 errors across ten
+# of nineteen packages behind a green gate - `github.com/telekom/sutura#327`, which also carries
+# why the flag cannot be a check-only argument: the writer `just api` runs is the fix the gate
+# names, so `xtask/src/api_docs/writer.rs` holds the two invocations to one flag list.
 #
 # `cargo xtask check-api-docs` asserts this entry exists and that every workspace member inherits
 # it, because a lint nothing arms is a lint that reports nothing.
@@ -553,10 +554,12 @@ unsafe_code = "forbid"
 #   * whether a RESOLVED link reaches a reader. rustdoc was clean under both spellings of the
 #     destination that aborted the site build on `#352`; `cargo xtask check-api-links` and
 #     `mkdocs build --strict` own that class, and neither can see an unresolved one.
-#   * `private_intra_doc_links`, 67 of them here and several deliberate - a public item pointing at
+#   * `private_intra_doc_links`, 74 of them here and several deliberate - a public item pointing at
 #     the private thing that implements it. Denying this one without answering that one is fine;
-#     conflating them is not.
-#   * `redundant_explicit_links`, 3 of them on the single pinned nightly - the count is
+#     conflating them is not. They are WARNINGS the two venues print, because a private target is
+#     documented there; the generator renders such a link as a code span, so no published page
+#     carries the destination rustdoc would leave dangling.
+#   * `redundant_explicit_links`, 24 of them on the single pinned nightly - the count is
 #     CHANNEL-DEPENDENT, which is itself the reason it is not gated on. A separate lint and a
 #     separate judgement.
 broken_intra_doc_links = "forbid"

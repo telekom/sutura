@@ -11,8 +11,8 @@
 //! **What it holds, and what it deliberately cannot.** [`Secret`] is opaque but still HOLDS the
 //! plaintext - its `Debug` prints `REDACTED`, which is a check that the value is absent from a log,
 //! not proof that it is. This type stores the 32 SHA-256 digest bytes and never the token,
-//! [`Self::of`] is the only way in and it hashes then discards, so there is no plaintext for any
-//! formatter to reach. `Debug`/`Display` render a bounded hex prefix and the derived
+//! [`AssertionDigest::of`] is the only way in and it hashes then discards, so there is no plaintext
+//! for any formatter to reach. `Debug`/`Display` render a bounded hex prefix and the derived
 //! `PartialEq`/`Eq` compare the digest, not secret bytes.
 //!
 //! Digest equality is the standard safe comparison and deliberately NOT the timing-oracle `==`

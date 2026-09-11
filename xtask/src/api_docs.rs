@@ -31,6 +31,12 @@
 //!     precondition is over THIS function rather than over that module - see
 //!     `check_refuses_before_documenting_anything_when_the_lint_is_not_armed`, which exists
 //!     because deleting the call and handing `check` a literal left every test in `lints` green.
+//!     **And a lint cannot say what it was pointed AT**: rustdoc runs no link-resolution pass over
+//!     an item it is not documenting, so the same armed `forbid` was exit 0 over 33 unresolvable
+//!     links inside private modules - `github.com/telekom/sutura#327`.
+//!     `--document-private-items` is what points it at them, `writer` is what keeps `just api`
+//!     passing the identical flag, and the visibility filter in the generator is why no private
+//!     item reaches a page.
 //!   * IT IS THE SAME CODE PATH. The `cargo rustdoc` line and the generator script are the ones
 //!     the `api` recipe in the justfile runs. A gate that reimplemented the rendering could
 //!     disagree with `just api`, and then the fix its own message asks for would not make it
@@ -55,6 +61,9 @@ use crate::repo;
 
 /// Whether the rustdoc run below is armed to judge doc links at all.
 mod lints;
+
+/// Whether `just api` hands rustdoc the same flags this gate does.
+mod writer;
 
 /// Where the committed pages live, relative to the repo root.
 ///
@@ -135,6 +144,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                 "  {} binary-only target(s) documented for links; API pages remain library-only",
                 outcome.binaries
             );
+            println!("  rustdoc flags, agreed with `just api`'s writer: {:?}", outcome.flags);
             Verdict::Pass
         }
         Ok(outcome) => {
@@ -157,6 +167,8 @@ struct Outcome {
     arming: lints::Arming,
     /// Binary-only targets whose rustdoc invocation succeeded, not generated pages.
     binaries: usize,
+    /// The rustdoc flags `just api` and this gate agree on - see [`writer`].
+    flags: Vec<String>,
 }
 
 /// Regenerate every library crate's page and collect what disagrees.
@@ -171,6 +183,10 @@ fn check(root: &Path) -> Result<Outcome, String> {
     // resolvable doc link from an unresolvable one, so regenerating pages from it and reporting
     // that they match would be a green verdict over a question nobody asked. See `lints`.
     let arming = lints::check(root, &metadata)?;
+    // SECOND precondition, and an `Err` for the same reason: the fix this gate names is
+    // `just api`, and a writer passing other flags produces pages from a rustdoc run whose
+    // question was not the one asked here. See `writer`.
+    let flags = writer::check(root)?;
     let packages = library_packages(&metadata)?;
     let binaries = binary_targets(&metadata)?;
     let target_dir = target_directory(root, &metadata);
@@ -235,6 +251,7 @@ fn check(root: &Path) -> Result<Outcome, String> {
         problems,
         arming,
         binaries: binaries.len(),
+        flags,
     })
 }
 
@@ -415,7 +432,8 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str, binary: Option<&str>) -
         .args(["rustdoc", "-q", "-p", package, "--all-features"])
         .args(binary.into_iter().flat_map(|name| ["--bin", name]))
         .args(profile_args(profile.as_deref()))
-        .args(["--", "-Z", "unstable-options", "--output-format", "json"])
+        .arg("--")
+        .args(writer::RUSTDOC_ARGS)
         .status()
         .map_err(|error| format!("could not run `{cargo} rustdoc`: {error}"))?;
     if status.success() {

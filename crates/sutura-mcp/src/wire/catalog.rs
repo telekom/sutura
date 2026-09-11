@@ -166,9 +166,10 @@ impl CatalogContent {
 
     /// The same listing as text, for the content block beside the structured one.
     ///
-    /// Both are sent for the reason [`OutcomeContent::as_text`] gives: a client that renders only
-    /// content blocks - which is most of what a person actually looks at - would otherwise be shown
-    /// nothing.
+    /// Both are sent for the reason
+    /// [`OutcomeContent::as_text`](crate::wire::OutcomeContent::as_text) gives: a client that
+    /// renders only content blocks - which is most of what a person actually looks at - would
+    /// otherwise be shown nothing.
     ///
     /// One metric per line, then its grains and its dimensions, because a model reads that back
     /// without being told how. Nothing here is truncated: the bundle is bounded at load by

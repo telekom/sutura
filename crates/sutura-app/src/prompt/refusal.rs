@@ -208,7 +208,7 @@ const SOURCE_REFUSED: Guide = Guide {
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
 /// reader who stops early should have read the actionable ones.
 ///
-/// The exhaustiveness mechanism is in [`super::tests`]: a function there maps every
+/// The exhaustiveness mechanism is in `prompt::tests`: a function there maps every
 /// `RefusalReason` variant to its entry with a total match,
 /// so a variant added to the domain does not compile until somebody opens this file. *What that does
 /// not force is the corpus in that test gaining a member, so the set equality it asserts is a second
@@ -251,7 +251,7 @@ pub(super) const GUIDES: &[&Guide] = &[
 /// [`RefusalReason`] is a compile error here until somebody writes the guidance for it - which is
 /// what makes the refusal section unable to fall silently behind the domain.
 ///
-/// It used to live in [`super::tests`] under `#[cfg(test)]`, on the reasoning that nothing in the rendered
+/// It used to live in `prompt::tests` under `#[cfg(test)]`, on the reasoning that nothing in the rendered
 /// output needs an instance of a refusal. That stopped being true when a composition root needed the
 /// same two sentences to print a refused question with: a second match in the binary would have been
 /// a second table to keep in step, and a third copy of prose that already exists here and on the HTTP
