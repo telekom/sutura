@@ -38,5 +38,13 @@ channel = "nightly-2026-09-08"
 # needs to take a coverage measurement: it was present in the old stable toolchain this pin
 # replaced and was dropped in the nightly unification, which broke `cargo xtask crap` with
 # "failed to find llvm-tools-preview".
-components = ["rustfmt", "clippy", "rust-std", "llvm-tools-preview", "rustc-codegen-cranelift-preview", "rust-analyzer", "rust-src"]
+components = [
+  "rustfmt",
+  "clippy",
+  "rust-std",
+  "llvm-tools-preview",
+  "rustc-codegen-cranelift-preview",
+  "rust-analyzer",
+  "rust-src",
+]
 profile = "minimal"

@@ -16,18 +16,19 @@
 (Italian) sutura is a surgical stitching technique to bring wound edges together.
 
 sutura:
+
 - is an MCP server
 - to answer questions about data **as the person or agent asking** using metadata; strong metadata like blessed metrics are preferred.
 - can connect systems across boundaries.
 - has a strong focus on security and E2E impersonation
 - clear refusal results based on the metadata
 
-
 ## Status
 
 Very much WIP; basic skeleton and CI pipelines there.
 
 There are 2 flavours of sutura:
+
 - single player (shared service user)
 - multiplayer (full E2E impersonation)
 
@@ -47,7 +48,6 @@ We are standing on the shoulders of giants/ecosystems/role models but sometimes 
 - https://github.com/spiceai/spiceai
 
 Building around arrow & arrow flight.
-
 
 ## Documentation
 

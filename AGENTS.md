@@ -6,7 +6,6 @@ semantic query plan, light federation, e2e impersonation. Security is the produc
 Root of trust. `CLAUDE.md` is `@AGENTS.md`. A skill refines *how* to work inside these rules and
 never overrides them. Early stage - the plan is settled, the code is not.
 
-
 ## Public repository - `github.com/telekom/sutura`
 
 Docs, comments, fixtures, commit messages and branch names are world-readable. **Never commit:**
@@ -19,7 +18,6 @@ A description specific enough to identify one of those **is** disclosure - write
 its constraint generically instead, and the point usually improves. The pattern backstop is
 deliberately outside this repo (a list of what we avoid naming would itself be the disclosure) and
 cannot catch a paraphrase. **The control is not writing it down here.**
-
 
 ## Principles
 
@@ -34,7 +32,6 @@ Use the compiler for communication - [newtypes that parse](https://www.howtocode
 [typed errors](https://www.howtocodeit.com/guides/the-definitive-guide-to-rust-error-handling#structured-error-handling-in-rust),
 [dependencies pointing inward](https://www.howtocodeit.com/guides/master-hexagonal-architecture-in-rust).
 Those three plus secure-by-design are the definition of *correct* in review here.
-
 
 ## Non-negotiables
 
@@ -60,7 +57,6 @@ Those three plus secure-by-design are the definition of *correct* in review here
   `DUCKDB_*_DIR` are unscoped, and a C++-linking crate built under them aborts. Unset them before
   building any other repo; a red run there is unexplained until you have.
 
-
 ## Working here
 
 Read the source, run the tests, check the pinned versions - prompt text, task notes and memory are
@@ -79,7 +75,6 @@ first implementor. `-semantic` query→plan · `-sql` plan→statement per diale
 driving port · `-catalog-*` metadata · `-exec-*` data systems · `-http`/`-mcp` transports ·
 `-config` settings and startup refusals · `-runtime` process globals · `-cli`/`-serve` composition
 roots · `xtask` gates. `just` with no argument lists every task.
-
 
 ## Incremental discovery
 
@@ -108,17 +103,17 @@ task-specific, route to it.
 
 This codebase's own reference is the `sutura/` group:
 
-| Before you… | Open |
-| --- | --- |
-| change a mechanism, or claim anything is enforced | `sutura/invariants` |
-| touch the tool surface, a plan, a dialect or a refusal | `sutura/query-surface` |
-| touch tokens, credentials, postures, brokers or provenance | `sutura/identity` |
-| add or change a crate, a feature, or what ships | `sutura/crate-map` |
-| bump, patch, vendor or resolve a version conflict | `sutura/dependencies` |
-| shape a newtype, an error, a clone or an `Arc` | `sutura/secure-by-design`, then `engineering/rust` |
-| judge what a green run covered, or why a check passed | `sutura/gates` |
-| split work into reviewable PRs | `git-ops/stacked-branches` |
-| work out why a gate or test is red | `engineering/debugging` |
+| Before you…                                                | Open                                               |
+| ---------------------------------------------------------- | -------------------------------------------------- |
+| change a mechanism, or claim anything is enforced          | `sutura/invariants`                                |
+| touch the tool surface, a plan, a dialect or a refusal     | `sutura/query-surface`                             |
+| touch tokens, credentials, postures, brokers or provenance | `sutura/identity`                                  |
+| add or change a crate, a feature, or what ships            | `sutura/crate-map`                                 |
+| bump, patch, vendor or resolve a version conflict          | `sutura/dependencies`                              |
+| shape a newtype, an error, a clone or an `Arc`             | `sutura/secure-by-design`, then `engineering/rust` |
+| judge what a green run covered, or why a check passed      | `sutura/gates`                                     |
+| split work into reviewable PRs                             | `git-ops/stacked-branches`                         |
+| work out why a gate or test is red                         | `engineering/debugging`                            |
 
 `CONTRIBUTING.md` hook tiers and the PR checklist · `SECURITY.md` what counts as a vulnerability
 and what is design rather than guarantee · `docs/architecture.md` the narrative · `docs/adr/`
