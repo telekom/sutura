@@ -82,8 +82,17 @@ rec {
       else
         # A worktree can be far deeper than a socket allows, so the server lives in a short
         # per-worktree directory under TMPDIR, keyed by a hash of the worktree's physical path.
-        key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
-        pg="''${TMPDIR:-/tmp}/sutura-pg-$key"
+        #
+        # **ONE SPELLING OF THAT KEY, AND IT IS `sutura_dev::scope::Scope`'S.** This line derived a
+        # `cksum` CRC-32 while `Scope::scratch` derives the first four bytes of SHA-256 over the
+        # same canonical root: two keys for one worktree, so no Rust writer could name this
+        # directory and nothing compared the two - `github.com/telekom/sutura#405`'s property 1, and
+        # the line its instance-5 dismissal rested on. The path below is `Scope::scratch("pg")`
+        # exactly, and `the_tier_and_the_rust_scope_derive_one_worktree_key` in
+        # `xtask/src/worktree_state.rs` RUNS these two lines and compares what they build with it,
+        # so a change on either side the other does not match reddens `just test`.
+        key="$(printf '%s' "$root" | sha256sum | cut -c1-8)"
+        pg="''${TMPDIR:-/tmp}/sutura-$key-pg"
       fi
       # THE CREDENTIAL, and where it lives is the whole of why the client can stop defaulting one.
       #
