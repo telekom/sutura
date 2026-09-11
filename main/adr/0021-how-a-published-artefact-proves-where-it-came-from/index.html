@@ -3094,9 +3094,12 @@ reads.</p>
 <p><strong>The second amendment closes the roadmap bullet's licence half</strong> and is at the bottom under
 <em>Second amendment: the attribution document, and the licence report as a signed asset</em>. <strong>The first
 amendment closes the crate-graph gap</strong> and is at the bottom under <em>Amendment: the crate graph moved
-inside the binary</em>. The paragraphs between them are kept as written rather than corrected in place -
-they are the arguments the amendments act on, and rewriting them would leave a reader unable to tell
-which half was decided when.</p>
+inside the binary</em>. The paragraphs between them are kept as written rather than rewritten - they are
+the arguments the amendments act on, and rewriting them would leave a reader unable to tell which half
+was decided when. <strong>Where one asserted an absence an amendment has since closed, it keeps its original
+claim and carries an inline <em>Corrected:</em> note naming that amendment</strong>, because this sentence used to
+say the paragraphs are never corrected in place while one of them stood false to any reader who did
+not reach the amendment - both halves legible beats one half quietly wrong.</p>
 <p><strong>Nothing here signs source, gates a merge, or says an artefact is good.</strong> The scope is one
 question - <em>are these bytes the ones this pipeline emitted</em> - and the rest of this record is mostly
 about what that does not cover.</p>
@@ -3301,8 +3304,12 @@ signature is over bytes and does not care which job produced them.</p>
 <li><strong>Not that the dependency set is free of advisories.</strong> That is <code>cargo-deny</code> in CI, and its verdict
   is a run rather than an artefact.</li>
 <li><strong>Not that licence obligations are discharged.</strong> <code>deny.toml</code> is an allowlist of SPDX identifiers,
-  which is a policy check. There is no attribution document, and <code>NOTICE</code> still says nothing about
-  third-party crates.</li>
+  which is a policy check. <strong>Corrected: both absences in this bullet are spent, and the <em>Second
+  amendment</em> below already said so while this bullet was left standing</strong> - the same half-applied
+  correction this record set exists to be checked against. An attribution document is generated and
+  published with every release, and <code>NOTICE</code> carries a third-party crates section. What survives is
+  narrower and is the part worth keeping: it carries no per-dependency notice text, so an
+  Apache-2.0 crate's own <code>NOTICE</code> is not reproduced.</li>
 <li><strong>Not that the SBOM is a dependency inventory.</strong> See above; it is a filesystem inventory, and the
   distinction is the most load-bearing sentence on this page.</li>
 <li><strong>Not that a transparency log is honest.</strong> <code>cosign</code> checks an inclusion proof against Rekor. Rekor's

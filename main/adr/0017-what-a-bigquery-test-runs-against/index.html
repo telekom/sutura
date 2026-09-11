@@ -3282,6 +3282,18 @@ class <em>This Repository Is Public</em> says not to disclose. The job therefore
 three before the leg runs: the project id read out of the key, and the dataset and table from the
 environment's variables. <code>::add-mask::</code> is the right mechanism because it does not care where a value
 appears - it redacts every later log line in the job, a panicking test's own message included.</p>
+<p><strong>Corrected: two of the three are masked from their SECOND occurrence, not their first, and that is a
+property of the runner rather than of this job.</strong> The runner prints a step's resolved <code>env:</code> block into
+that step's own <code>Run</code> group before it executes the body, so the dataset and the table - which reach the
+masking step through its <code>env:</code> - are in the log once, in cleartext, before the <code>::add-mask::</code> lines
+run. The project id is not, and the difference is the lesson: it never becomes an expression, because
+only the key's <em>path</em> goes through <code>env:</code> and <code>python3</code> reads the value out of the file. This cannot be
+repaired by masking earlier: the printed dictionary is assembled from the <code>env</code> context, which carries
+job-level and workflow-level entries too, so hoisting the values prints them in every step's group; and
+an expression read inside a <code>run:</code> body is echoed with the expression already resolved. <strong>The one thing
+that closes it is making those two environment secrets rather than variables</strong> - the runner adds every
+secret to its masker before the first step runs. That is a forge change, no file in this repository can
+make it, and no gate in this repository can see whether it has been made.</p>
 <p><strong>The cost is stated rather than hidden:</strong> in CI the diagnostic that made carrying the message worth
 while is redacted away. A maintainer who needs the unredacted text runs the leg locally, where the log
 is theirs. That is the correct direction for a public repository and it is a real loss.</p>
@@ -3342,9 +3354,12 @@ hand-built <code>SUM</code> over a two-column table a developer supplies. It con
 <code>COUNT(DISTINCT</code>, no <code>CASE WHEN</code>, no <code>NULLIF</code> ratio, no <code>CAST(... AS FLOAT64)</code> and no <code>ISOWEEK</code> - and
 <code>ISOWEEK</code> and <code>DATE_TRUNC</code>'s argument order are exactly the two things this page MEASURED the parse
 check to be blind about, so they are what a live run is worth most for. <strong>The leg this page specifies
-is #78's importer shape pointed at a dataset - load the fixtures, run the 21 questions, compare rows
-with the engine - and it is not built.</strong> <code>docs/adr/0018</code> records that gap, and the smoke leg's own
-header opens with it.</p>
+is #78's importer shape pointed at a dataset - load the fixtures, run the corpus's questions, compare
+rows with the engine - and it is now built</strong>, as <code>crates/sutura-exec-bigquery/tests/corpus.rs</code>.
+<strong>Corrected: this sentence said <em>it is not built</em>, and the third amendment below already quotes it as
+the sentence that stopped being true</strong> - so this record contradicted itself while <code>docs/adr/0018</code> and
+<code>docs/architecture.md</code> both cite it as their authority for the opposite. The quotation in that
+amendment keeps the original wording, count included, because a quote that is edited is not a quote.</p>
 <p><strong>This record said the change adding the wire would be the change that could first run it against a
 project. It was not</strong> - the machine it was written on had no <code>gcloud</code>, no application-default
 credential and no project, so the diff that wrote the wire executed nothing. <strong>A LATER diff did, and

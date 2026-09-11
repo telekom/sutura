@@ -2826,7 +2826,13 @@
 2026-08-30 it has been <strong>run against a real project</strong>, which is the first time anything in this
 repository has had a statement accepted by <code>BigQuery</code>. <em>What is claimed, and what is not</em> is the
 section at the end, and it is the one to read before taking a green run for more than it is:
-<strong>one hand-built <code>SUM</code> was accepted, not the corpus.</strong></p>
+<strong>one hand-built <code>SUM</code> was accepted first, and since 2026-08-31 the example corpus has run green
+against a real dataset too.</strong></p>
+<p><strong>Corrected:</strong> this status block read <em>one hand-built <code>SUM</code> was accepted, not the corpus</em> while the
+correction in <em>What is claimed, and what is not</em> records the corpus leg as built and run. A record
+with two answers to one question is worse than one answer, and a status line is the half a reader
+meets first. The limits that survive are the three <code>#[ignore]</code>d dataset legs and the single identity
+the credential carries, both stated where that correction is rather than restated here.</p>
 <p><a href="../0017-what-a-bigquery-test-runs-against/">0017</a> decided what a <code>BigQuery</code> test runs against and
 left one seam deliberately empty: <code>sutura_exec_bigquery::transport::JobTransport</code>, with the sentence
 that <em>the change that implements it is the change that can first run it against a project - which is
@@ -3230,9 +3236,14 @@ where the CI job that repeats it is decided.</p>
 <p><strong>It is ONE statement, not the corpus.</strong> No join, no <code>COUNT(DISTINCT</code>, no <code>CASE WHEN</code>, no <code>NULLIF</code>
 ratio, no <code>CAST(... AS FLOAT64)</code> and no <code>ISOWEEK</code> - and <code>ISOWEEK</code> plus <code>DATE_TRUNC</code>'s argument order
 are precisely the two constructs <code>0017</code> MEASURED a parse check to be blind about, which makes them what
-a live run is worth most for. The corpus-wide leg <code>0017</code> specifies - load the fixtures, run the 21
-questions, compare rows with the engine - is #78's importer shape and is not built. Every sentence in
-this repository that promised the corpus has been narrowed to what the leg does.</p>
+a live run is worth most for. The corpus-wide leg <code>0017</code> specifies - load the fixtures, run the
+corpus's questions, compare rows with the engine - <strong>is now built</strong>, as
+<code>crates/sutura-exec-bigquery/tests/corpus.rs</code>. <strong>Corrected: this said the corpus-wide leg <em>is not
+built</em>, which made this the THIRD answer in this file to one question</strong> - the status block said it,
+this bullet said it, and the correction further down this section contradicted both. What is still
+true of the run this bullet is about is its own first sentence: that run was one statement. The count
+that used to sit here is gone rather than corrected - it said <em>21 questions</em> against a corpus that
+has grown twice since, and nothing here derives it.</p>
 <p><strong>It says nothing about identity.</strong> A service-account key is <code>SharedServiceUser</code>: one identity for
 everybody who asks. So what is established is <em>accepted, and correct for that identity</em>.
 <code>BigQueryWarehouse::IMPERSONATION</code> still reads <code>NoPlaceForASubject</code>, and nothing here is a step towards
@@ -3293,11 +3304,15 @@ at a dataset</strong> - load the example fixtures, run the corpus's questions, c
 0017's amendment, <code>AGENTS.md</code>, <code>docs/architecture.md</code>, both plan pages, the justfile recipe and the
 leg's own header. <strong>It is built</strong>, as <code>crates/sutura-exec-bigquery/tests/corpus.rs</code>, and it has run
 green against a real dataset; <a href="../0017-what-a-bigquery-test-runs-against/">0017</a>'s third amendment is
-the record of that run and says which of the four bullets it answered. <strong>The limit next to that: every
-test in that file is <code>#[ignore]</code>d and none of them is inside <code>just validate</code></strong>, because a nix check has
-no network - they run by binary selection in the acceptance tier, so a green local run proves nothing
-about this leg. The correction landed there and was not carried here, which is the sibling-drift
-class this record set exists to be checked against.
+the record of that run and says which of the four bullets it answered. <strong>The limit next to that: the
+three legs that reach a real dataset are <code>#[ignore]</code>d and outside <code>just validate</code></strong>, because a nix
+check has no network - they run by binary selection in the acceptance tier, so a green local run
+proves nothing about those three. <strong>The file's other eight tests DO run in <code>checks.nextest</code></strong> - the
+run-isolation, per-run naming and comparison-semantics rules, none of which needs a project - and
+<code>corpus.rs</code> says <em>NOT <code>#[ignore]</code>d, unlike the three legs below</em> of one of them in as many words. An
+earlier revision of this sentence said <em>every</em> test in the file is ignored and none is inside
+<code>just validate</code>; it is 11 <code>#[test]</code> of which 3 are <code>#[ignore]</code>d. The correction landed there and was
+not carried here, which is the sibling-drift class this record set exists to be checked against.
 The narrowness that survives is the identity one, and it is stated in that file's own header rather
 than restated here: the credential is one identity for everybody who asks, so a green there reads
 <em>accepted, and correct for that identity</em>. The count that used to sit in this sentence is gone rather
