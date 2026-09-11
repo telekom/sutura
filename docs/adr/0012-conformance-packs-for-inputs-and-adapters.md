@@ -222,16 +222,25 @@ now false about the second of them, so the per-case opt-out this record asked th
 build alongside the null case **is not built and is not owed**.
 
 **NULL placement IS stated, and uniformly: `ASC NULLS LAST`.** `sutura_sql`'s `ordered_nulls_last`
-puts it in the AST for every dialect and `every_order_by_states_nulls_last` holds it there - the
-keyword is rendered for the one target whose default is the other way and collapsed where it is
-already the default, so what converges is behaviour rather than text. `sutura-exec-datafusion`
-renders no SQL at all and reaches the same placement, because `LogicalPlanBuilder::sort_by` is
-`Expr::sort(true, false)`. So there is no case whose null order a conforming source may legitimately
-answer differently, and the null-in-a-group-key case lands on its own with the null group expected
-LAST. **What it buys is where the decision is held:** before it, the placement was held at RENDER
-time for the three adapters that render and by nothing at all for the one that does not - that
-adapter's own `leg.rs` records that reversing a leg's sort keys reddens no test in the workspace.
-`Behaviour::Order` now holds it at EXECUTION time, per adapter, under a name a failure reports.
+puts it in the AST for every dialect and `every_order_by_states_nulls_last` holds it there;
+`sutura-exec-datafusion` renders no SQL at all and reaches the same placement, because
+`LogicalPlanBuilder::sort_by` is `Expr::sort(true, false)`. So there is no case whose null order a
+conforming source may legitimately answer differently, and the null-in-a-group-key case lands on
+its own with the null group expected LAST.
+
+**What that case detects is NOT our statement of the placement, and the record should not be read
+as claiming it is.** Measured: the layer collapses `NULLS LAST` away for every target whose default
+is already nulls-last, so deleting `nulls_first: Some(false)` leaves `DuckDB`'s and Postgres's
+rendered SQL **byte-identical** and changes only `BigQuery`'s text - and `BigQuery` has no
+`execute_packs!` binding, so no corpus cell executes it. Our statement of the placement is held by
+`every_order_by_states_nulls_last`, over the AST, which is the right venue for a rendering
+decision.
+
+**Two things the case does buy.** `Behaviour::Order` over a null key pins the three bound engines'
+own default null ordering - most usefully `datafusion`'s, which a version bump could change with no
+diff of ours, so this is a dependency regression detector rather than a check on first-party code.
+`Behaviour::Content` over the same row is first-party: a null key must be a GROUP and not a row a
+join or a filter dropped.
 
 **COLLATION is still open, and the corpus still avoids it** - all-lowercase ASCII keys with distinct
 first letters. A case whose TEXT order a source could legitimately answer differently would still

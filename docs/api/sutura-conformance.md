@@ -649,25 +649,32 @@ them as a dev-dependency without acquiring a catalog adapter, `sutura-semantic` 
 - **Files.** `docs/adr/0012`'s *the corpus is files, not code* is unbuilt: a case is a value in
   this module, so adding one is still a code change.
 
-# Null placement in a group key: decided, and the order behaviour is what holds it
+# Null placement in a group key: decided, and what the null row does and does NOT detect
 
 **`ASC NULLS LAST`, everywhere, and it is not this corpus's choice to make.** `sutura_sql`'s
-`ordered_nulls_last` states the placement in the AST for every dialect - the keyword is
-RENDERED for the one target whose default is the other way and collapsed where it is already
-the default, which is behaviour converging rather than text - and
+`ordered_nulls_last` states the placement in the AST for every dialect and
 `sutura-exec-datafusion`, which renders no SQL at all, lands on the same placement because
 `LogicalPlanBuilder::sort_by` is `Expr::sort(true, false)`.
-`sutura_domain::plan::federated` calls it *the whole of the ordered-result contract*.
+`sutura_domain::plan::federated` calls it *the whole of the ordered-result contract*. So the
+per-case opt-out this module used to say it owed is **not** owed: there is no case here whose
+null order a conforming source may legitimately answer differently.
 
-So the per-case opt-out this module used to say it owed is **not** owed, and that is the
-correction rather than a deferral: there is no case here whose order a conforming source may
-legitimately answer differently, because the placement is stated rather than left to a
-collation. What was missing was the ROW. With no null in a key, no adapter was held to the
-decision at EXECUTION time, and the `DataFusion` half was held by nothing whatever - that
-adapter's own `leg.rs` records that reversing a leg's sort keys reddens no test in the
-workspace. `total_by_region_and_day` carries a null group now and expects it LAST, so
-`crate::Behaviour::Order` fails under its own per-adapter name for a source that ranks it
-first.
+**What the null row does NOT detect, measured rather than assumed.** It is NOT a check on our
+statement of the placement. The layer collapses `NULLS LAST` away for every target whose
+default is already nulls-last, which is all three adapters bound to these packs - so deleting
+`ordered_nulls_last`'s `nulls_first: Some(false)` leaves `DuckDB`'s and Postgres's rendered SQL
+**byte-identical**, and the only dialect whose text changes is `BigQuery`, which has no binding
+here. Their engines then order nulls last on their own. `crates/sutura-sql`'s
+`every_order_by_states_nulls_last` is what holds our statement of it, and it holds the AST
+rather than an answer.
+
+**What it DOES buy, which is two things and neither is that one.** Through
+`crate::Behaviour::Order` it pins the three engines' own default null ordering - most
+usefully `datafusion`'s, whose `sort_by` supplies `nulls_first: false` from a default that a
+version bump could change with no diff of ours - so it is a **dependency regression detector**.
+Through `crate::Behaviour::Content` it is a claim about OUR code: a null key must be a GROUP
+and not a row a join or a filter dropped, which is the failure class
+`crates/sutura-app/tests/golden/data_systems.rs` names for a fact key.
 
 ### `struct Case`
 
