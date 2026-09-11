@@ -542,32 +542,16 @@ mod tests {
     #[test]
     fn every_refusal_has_a_distinct_code() {
         // The status is shared on purpose - five variants are `422` - so the code is what a client
-        // has to be able to branch on, and two variants sharing one would make that impossible. The
-        // number is READ OFF `every_reason` by the test below rather than only written here: this
-        // comment and the module header both said four while the table mapped five, and the gate
-        // that cited this sentence checked only that it existed.
+        // has to be able to branch on, and two variants sharing one would make that impossible.
+        // THE NUMBER HERE IS PROSE, held by review and by nothing else. It said four while the
+        // table below mapped five and every gate stayed green - `github.com/telekom/sutura#603`.
+        // A test pinning it to `every_reason` was written and then removed: it passed against base
+        // as well, and `just causality` refuses a test that cannot go red.
         let mut codes: Vec<&str> = every_reason().into_iter().map(|(_, _, code)| code).collect();
         let count = codes.len();
         codes.sort_unstable();
         codes.dedup();
         assert_eq!(codes.len(), count, "two refusals share a code");
-    }
-
-    /// How many refusals share `422`, taken from the table rather than from a sentence.
-    ///
-    /// A RATCHET, and it passes against base as well: what it stops is the NEXT drift. Two
-    /// comments in this file state this number in prose and both said four while the table
-    /// mapped five - `github.com/telekom/sutura#603`. The gate that cited one of them checks
-    /// that the sentence EXISTS, never that it is true, which is how a green tree carried the
-    /// wrong number. A sixth `422` turns this red, and the two comments plus `docs/serving.md`'s
-    /// own sentence are where the failure sends a reader.
-    #[test]
-    fn the_number_of_refusals_that_share_422_is_read_off_the_table() {
-        let sharing = every_reason()
-            .into_iter()
-            .filter(|&(_, status, _)| status == StatusCode::UNPROCESSABLE_ENTITY)
-            .count();
-        assert_eq!(sharing, 5, "the prose in this file states this number in two places");
     }
 
     #[test]
