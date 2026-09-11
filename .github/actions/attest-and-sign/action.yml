@@ -129,12 +129,13 @@ runs:
         printf '%s' "$REGISTRY_TOKEN" \
           | cosign login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
 
-        # Filtered into files and looped with a redirect, not a pipe and not a heredoc. A pipe
-        # runs the loop in a subshell, so the counter would be back to 0 by the time it is
-        # checked - and the assertion would then be the thing that is wrong rather than the thing
-        # that catches it.
-        grep -E '^leaf ' "$IMAGE_DIGESTS" > leaves.txt
-        grep -E '^list ' "$IMAGE_DIGESTS" > lists.txt
+        # Delegated to the parser of record, then looped with a redirect rather than a pipe. A pipe
+        # runs the loop in a subshell, so the counter would be back to 0 by the time it is checked -
+        # and the assertion would then be the thing that is wrong rather than the thing that
+        # catches it. The grammar - the comment header, the three fields, the untagged reference -
+        # belongs to `cargo xtask image-digests`, not to this step.
+        nix run .#xtask -- image-digests "$IMAGE_DIGESTS" leaf > leaf.txt
+        nix run .#xtask -- image-digests "$IMAGE_DIGESTS" list > list.txt
         # The lists are counted from the NAMES this action was told to expect, so the count and
         # the provenance steps below cannot disagree about how many there are.
         want_lists=0
@@ -142,8 +143,9 @@ runs:
         want=$((WANT_LEAVES + want_lists))
 
         signed=0
-        for refs in leaves.txt lists.txt; do
-          while read -r kind name ref; do
+        for refs in leaf.txt list.txt; do
+          kind="${refs%.txt}"
+          while read -r name ref; do
             printf '\n=== signing %s %s ===\n' "$kind" "$name"
             cosign sign --yes "$ref"
             signed=$((signed + 1))
@@ -158,7 +160,7 @@ runs:
         # inventory is per architecture: the amd64 and arm64 images hold different bytes, and one
         # document covering a manifest list would have to be true of both or true of neither.
         attested=0
-        while read -r _ key ref; do
+        while read -r key ref; do
           # The leaf's name IS the SBOM's stem, which is what lets this loop stay ignorant of how
           # many binaries ship: `release.yml` writes `sutura-oci-<key>.cdx.json` under the same
           # key it records the leaf under.
@@ -170,7 +172,7 @@ runs:
           printf '\n=== attesting %s with %s ===\n' "$key" "$sbom"
           cosign attest --yes --type cyclonedx --predicate "$sbom" "$ref"
           attested=$((attested + 1))
-        done < leaves.txt
+        done < leaf.txt
         if [ "$attested" -ne "$WANT_LEAVES" ]; then
           echo "::error::attested ${attested} leaf image(s), expected ${WANT_LEAVES}"
           exit 1
@@ -324,23 +326,12 @@ runs:
       run: |
         set -eu
         for variant in $LIST_NAMES; do
-          ref="$(awk -v want="$variant" '$1 == "list" && $2 == want { print $3 }' "$IMAGE_DIGESTS")"
-          digest="${ref#*@}"
-          case "$digest" in
-            sha256:*) ;;
-            *) echo "::error::no list digest recorded for ${variant}: got '${ref}'"; exit 1 ;;
-          esac
-          # The REPOSITORY the digest belongs to, read out of the same line rather than taken
-          # from an input: with one repository today every list reports the same string, and
-          # reading it here is what makes a second one a change to the push step alone.
-          #
-          # WITHOUT THE TAG. `subject-name` is what `gh attestation verify oci://...` looks the
-          # attestation up by, and a name carrying `:0.2.0-serve` would attest a tag rather than
-          # a repository - so the reference is stripped at the `@` and then at the tag's `:`.
-          # `%:*` is the shortest suffix from the LAST colon, which leaves a `host:port` prefix
-          # intact.
-          repo="${ref%@*}"
-          repo="${repo%:*}"
+          # The repository and the digest come from the parser of record, which splits them there
+          # rather than by `${ref%@*}`/`${repo%:*}` here. `subject-name` is what `gh attestation
+          # verify oci://...` looks the attestation up by, so it must be the repository WITHOUT a
+          # tag - and the parser refuses a tagged reference rather than silently stripping one.
+          subject="$(nix run .#xtask -- image-digests "$IMAGE_DIGESTS" subject "$variant")"
+          read -r repo digest <<< "$subject"
           key="$(printf '%s' "$variant" | tr '-' '_')"
           printf '%s=%s\n' "$key" "$digest" >> "$GITHUB_OUTPUT"
           printf '%s_name=%s\n' "$key" "$repo" >> "$GITHUB_OUTPUT"

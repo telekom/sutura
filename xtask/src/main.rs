@@ -642,6 +642,13 @@ pub(crate) const TASKS: &[Task] = &[
         run: release_provenance::run,
     },
     Task {
+        name: "image-digests",
+        description: "the one reader of image-digests.txt; prints records or fails a consumer that re-splits it",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
+        run: release_provenance::image_digests::run,
+    },
+    Task {
         // The other half of `check-devenv-shell`, and standalone for `action-shell`'s reason plus
         // one of its own: it takes an ARGUMENT - the store path of a body the wrapper produced,
         // interpolated by nix at the call site - and it reads a derivation, which needs a store
