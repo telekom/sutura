@@ -28,6 +28,12 @@ sutura-catalog-local = { workspace = true }
 # suite expands the three universal catalog cells over it, measured against its own declaration
 # rather than the oracle. `docs/adr/0016`.
 sutura-catalog-datahub = { workspace = true }
+# A second DECLARING catalog, and the narrowest metadata source: a dictionary read from an RDBMS.
+# It provides structure, prose and the join columns a foreign key records, and declares no measure,
+# no grain, no definitional filter, no value allowlist and no anchor - `docs/adr/0011` specifies it
+# and `github.com/telekom/sutura#151` is the issue. Measured against its own declaration like
+# `sutura-catalog-datahub`. `docs/adr/0016`.
+sutura-catalog-rdbms = { workspace = true }
 # A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
 # to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
 # adapter today. The binary links the engine and nothing else.
