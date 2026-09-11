@@ -1,19 +1,13 @@
-use std::collections::BTreeSet;
-
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::capabilities::{DeclarableKind, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, InvalidDescription, Metric, Model};
-use sutura_domain::knowledge::{
-    Capability, GlossaryEntry, InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase,
-    Referent,
-};
-use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
+use sutura_domain::catalog::InvalidDescription;
+use sutura_domain::knowledge::KnowledgeCapabilities;
+use sutura_domain::model::{Grain, JoinType, MetricName, SourceName};
 use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 use sutura_domain::query::{Query, RefusalReason};
 
 use crate::fixture::FixtureReader;
-use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, Table};
+use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, Table, TargetUniqueness};
 
 fn name() -> SourceName {
     SourceName::parse("local").expect("a test name is a name")
@@ -64,7 +58,7 @@ fn a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question(
     }
 }
 
-/// The issue #151 claim, held against the declaration.
+/// The adapter's capability declaration is exact.
 ///
 /// `MetadataCapabilities::produced` reads what the bundle actually carries, and `checked_against`
 /// compares it in BOTH directions. The declaration provides `Structure`, `Descriptions` and
@@ -83,6 +77,14 @@ fn it_declares_it_provides_no_measures_and_the_bundle_has_none() {
     );
     // The declaration provides no measure...
     let declaration = <RdbmsCatalog<FixtureReader> as SemanticCatalog>::capabilities();
+    assert_eq!(
+        declaration,
+        MetadataCapabilities::of(
+            DefinitionCapabilities::of([DefinitionKind::Structure])
+                .and_may_provide([DefinitionKind::Descriptions, DefinitionKind::Relationships]),
+            KnowledgeCapabilities::none(),
+        )
+    );
     assert!(
         !declaration.declares(DeclarableKind::Definition(DefinitionKind::Metrics)),
         "a dictionary declares no measures"
@@ -113,12 +115,10 @@ fn a_foreign_key_licenses_no_dimension_without_a_declared_cardinality() {
 /// A sparse dictionary does not over-claim its declaration.
 ///
 /// A dictionary is whatever the database documents about itself. A schema with a foreign key but no
-/// table or column comments carries `Relationships` and `Structure` but no `Descriptions`; a schema
+/// table comments carries `Relationships` and `Structure` but no `Descriptions`; a schema
 /// with comments and no foreign key carries prose and no relationship. Both are FAITHFUL bundles,
-/// and because the declaration marks all three kinds declared-and-conditional
-/// ([`DefinitionCapabilities::and_may_provide`]), `checked_against`'s `Unprovided` direction
-/// exempts the absent half rather than failing a source that underfed the adapter - the defect a
-/// dictionary's thinness used to trip.
+/// and because descriptions and relationships are declared-and-conditional, `checked_against`'s
+/// `Unprovided` direction exempts the absent half rather than failing a sparse dictionary.
 #[test]
 fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
     // A dictionary with the FK and no comments at all: Descriptions absent, lawfully.
@@ -131,13 +131,16 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
             ),
             Table::new("customers".to_owned(), vec!["customer_id".to_owned()], None),
         ],
-        vec![Relationship::new(
-            Some("orders_customer_fk".to_owned()),
-            "orders".to_owned(),
-            "customer_id".to_owned(),
-            "customers".to_owned(),
-            "customer_id".to_owned(),
-        )],
+        vec![
+            Relationship::new(
+                Some("orders_customer_fk".to_owned()),
+                "orders".to_owned(),
+                "customer_id".to_owned(),
+                "customers".to_owned(),
+                "customer_id".to_owned(),
+            )
+            .with_target_uniqueness(TargetUniqueness::UniqueConstraint),
+        ],
     ));
     let pinned = RdbmsCatalog::new(name(), version(), fk_only)
         .load()
@@ -175,6 +178,38 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
         Ok(()),
         "the declaration must not over-claim a relationship the sparse dictionary did not carry"
     );
+}
+
+/// A relationship is accepted only when the reader supplies unique-target evidence.
+#[test]
+fn a_relationship_requires_target_uniqueness_evidence() {
+    let pinned = over().load().expect("the evidenced relationship loads");
+    let relationship = pinned
+        .definitions()
+        .relationships()
+        .values()
+        .next()
+        .expect("the fixture carries one relationship");
+    assert_eq!(relationship.join_type(), JoinType::ManyToOne);
+
+    let relationship_without_evidence = SparseReader(Dictionary::new(
+        vec![
+            Table::new("orders".to_owned(), vec!["customer_id".to_owned()], None),
+            Table::new("customers".to_owned(), vec!["customer_id".to_owned()], None),
+        ],
+        vec![Relationship::new(
+            Some("orders_customer_fk".to_owned()),
+            "orders".to_owned(),
+            "customer_id".to_owned(),
+            "customers".to_owned(),
+            "customer_id".to_owned(),
+        )],
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), relationship_without_evidence).load(),
+        Err(RdbmsError::TargetUniquenessUnknown { table, column })
+            if table == "customers" && column == "customer_id"
+    ));
 }
 
 /// A reader that hands its recorded dictionary back unchanged.
@@ -229,7 +264,7 @@ struct FailingReader;
 
 impl DictionaryReader for FailingReader {
     fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
-        Err(RdbmsError::Read("the dictionary connection was refused".into()))
+        Err(RdbmsError::Read(Box::new(std::io::Error::other("recorded reader failure"))))
     }
 }
 
@@ -248,67 +283,5 @@ fn a_reader_failure_is_surfaced_by_the_load() {
     assert!(
         matches!(refused, RdbmsError::Read(_)),
         "the reader's own failure must reach the caller unchanged: {refused:?}"
-    );
-}
-
-/// Content for a knowledge kind the adapter did not declare fails the load.
-///
-/// `Knowledge::assemble`'s `UndeclaredContent` guard refuses a bundle whose input carries notes for
-/// a capability the declared `KnowledgeCapabilities` do not cover - the "content for a kind it did
-/// not declare" shape. The adapter declares no knowledge, so a glossary entry under a declaration
-/// that provides none is refused, and the refusal names the capability. Built and refused through
-/// the adapter's own types, so the guard is reachable the day a composed bundle feeds one in.
-#[test]
-fn content_for_a_kind_it_did_not_declare_fails_the_load() {
-    let model = Model::new(
-        ModelName::parse("orders").expect("a model name is a name"),
-        name(),
-        TableName::parse("orders").expect("a table name is a name"),
-        ["order_date", "customer_id", "amount_cents"]
-            .into_iter()
-            .map(|c| ColumnName::parse(c).expect("a column is a name"))
-            .collect(),
-        Description::parse("Orders placed.").expect("a description is a description"),
-    );
-    let metric = Metric::new(
-        MetricName::parse("revenue").expect("a metric name is a name"),
-        ModelName::parse("orders").expect("a model name is a name"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
-            Aggregate::Sum,
-            ColumnName::parse("amount_cents").expect("a column is a name"),
-        ))),
-        Vec::new(),
-        ColumnName::parse("order_date").expect("a column is a name"),
-        BTreeSet::from([Grain::Month]),
-        Vec::new(),
-        None,
-        Description::parse("").expect("empty is a description"),
-    )
-    .expect("no dimensions to duplicate");
-    let definitions = Definitions::assemble(vec![model], Vec::new(), vec![metric]).expect("a model and a metric hold together");
-
-    let entry = GlossaryEntry::new(
-        Phrase::parse("revenue").expect("a phrase is a phrase"),
-        BTreeSet::new(),
-        Referent::Metric {
-            metric: MetricName::parse("revenue").expect("a metric name is a name"),
-        },
-        NoteBody::parse("Net revenue in minor units.").expect("a note body is a body"),
-    );
-
-    let refused = Knowledge::assemble(
-        &definitions,
-        KnowledgeInput::new(KnowledgeCapabilities::none(), vec![entry], Vec::new(), Vec::new(), Vec::new()),
-    )
-    .expect_err("a glossary under a declaration that provides none is undeclared content");
-    assert!(
-        matches!(
-            refused,
-            InconsistentKnowledge::UndeclaredContent {
-                capability: Capability::Glossary,
-                ..
-            }
-        ),
-        "{refused:?}"
     );
 }

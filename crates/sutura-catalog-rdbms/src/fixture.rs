@@ -6,14 +6,14 @@
 //!
 //! The corpus mirrors exactly what the spike's `spike/read-a-dictionary` measured against this
 //! worktree's provisioned Postgres: two tables (one fact, one lookup), a column set per table,
-//! table and column comments, and one foreign key from the fact table to the lookup. There are **no
+//! table comments, and one foreign key from the fact table to the lookup. There are **no
 //! metrics** - that is the whole point of the narrowest metadata source, and what makes
 //! `a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question` pass.
 
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
-use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, Table};
+use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, Table, TargetUniqueness};
 
 /// The fake [`DictionaryReader`] that serves the recorded corpus.
 #[derive(Debug, Clone)]
@@ -46,13 +46,16 @@ pub fn corpus() -> Dictionary {
                 Some("Customer reference data.".to_owned()),
             ),
         ],
-        vec![Relationship::new(
-            Some("orders_customer_fk".to_owned()),
-            "orders".to_owned(),
-            "customer_id".to_owned(),
-            "customers".to_owned(),
-            "customer_id".to_owned(),
-        )],
+        vec![
+            Relationship::new(
+                Some("orders_customer_fk".to_owned()),
+                "orders".to_owned(),
+                "customer_id".to_owned(),
+                "customers".to_owned(),
+                "customer_id".to_owned(),
+            )
+            .with_target_uniqueness(TargetUniqueness::PrimaryKey),
+        ],
     )
 }
 

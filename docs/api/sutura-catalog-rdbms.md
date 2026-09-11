@@ -10,68 +10,53 @@ The public API of `sutura-catalog-rdbms`, rendered from rustdoc JSON.
 A `SemanticCatalog` over an RDBMS dictionary - the narrowest declaration, and the one that
 needs no service.
 
-`docs/adr/0011-pluggable-by-declaration.md` specifies this connector in full, and this crate is
-what that specification schedules. A database dictionary is mainly DDL and comments: the tables,
-the columns, their constraints, and whatever prose somebody wrote against them. It is not a
+`docs/adr/0011-pluggable-by-declaration.md` defines the role this conversion implements. A
+database dictionary is mainly DDL and comments: the tables, the columns, their constraints, and
+table prose. It is not a
 semantic layer and does not pretend to be one - which is the whole point of a **declaring**
 adapter. It says which kinds it provides and which it does not, and it is measured against that
 declaration rather than against the golden adapters' oracle.
 
-`github.com/telekom/sutura#151` is the issue, and its *What becomes provable* list is this
-crate's acceptance suite.
+This crate implements the dictionary conversion from `github.com/telekom/sutura#151`. A live
+reader and runtime prompt delivery remain outside it.
 
 # What a real dictionary yields (the spike, `spike/read-a-dictionary`)
 
 ADR 0016's method, applied here: read a real dictionary before writing the adapter. A throwaway
 reader pointed at this worktree's provisioned `postgresql_18` reported the following against a
-representative schema (two tables, a primary key each, one foreign key, comments on tables and
-columns):
+representative schema (two tables, a primary key each, one foreign key, and table comments):
 
 | What | Count |
 | --- | --- |
 | tables | 2 |
 | columns | 6 |
 | tables carrying a comment | 2 |
-| columns carrying a comment | 3 |
 | foreign keys | 1 |
 | primary/unique constraints | 2 |
 
 Three findings, and two of them are the declaration's content:
 
 1. **A dictionary yields structure and prose, and nothing else.** Tables and columns are the
-   `Structure` half; table and column
-   comments are the `Descriptions`
+   `Structure` half; table comments are
+   the `Descriptions`
    half. A dictionary carries **no measure, no grain, no definitional filter, no value allowlist
    and no anchor** - those are declared by a human in a semantic layer, which is what ADR 0011's
    table says ("certified metrics, measures, grains, allowed values: **no** - a human declares
    those elsewhere").
-2. **A foreign key carries no cardinality.** The Postgres catalog's
-   [`pg_constraint`](https://www.postgresql.org/docs/current/catalog-pg-constraint.html) row for a
-   foreign-key constraint has no cardinality field: it names the source and target columns and
-   nothing about how many rows match - so this adapter maps a foreign key to a
-   `JoinType::ManyToOne` (the referenced column is provably unique, see finding 3) and declares
-   the `Cardinality` *capability* absent, because a dictionary carries no metric to reach a
-   dimension `via` a relationship.
+2. **A foreign key carries no metric cardinality.** It names the source and target columns, so
+   this adapter declares the `Cardinality` *capability* absent: a dictionary carries no metric to
+   reach a dimension `via` a relationship.
 3. **A primary or unique key is evidence, and only the safe direction.** ADR 0011's "part worth
-   having this connector for" is the one-direction uniqueness argument: a unique or primary-key
-   constraint on the referenced column *proves* that side is unique, so a foreign key that
-   references it maps to a relationship that does **not** duplicate rows (the `ManyToOne`
-   direction). A foreign key therefore licences no dimension in the *unsafe* direction: there is
-   no `OneToMany` reachable, and the domain's
-   `JoinWouldDuplicateRows`
-   refusal is unreachable - which is exactly the honest claim ADR 0011 makes ("confirm the safe
-   direction and refuse a declaration that is provably over-cautious").
+   having this connector for" is the one-direction uniqueness argument: a reader must supply a
+   `TargetUniqueness` before the foreign key maps to `JoinType::ManyToOne`. Without that key
+   evidence, loading refuses rather than asserting the relationship.
 
 # The declaration, and what it means for the bundle
 
-`SemanticCatalog::capabilities` provides `Structure`, `Descriptions` and `Relationships` as
-**declared-and-conditional** kinds - the 0011 state
-`DefinitionCapabilities::and_may_provide` adds, whose whole job is exactly this: a dictionary
-is whatever the database documents about itself, so whether a bundle carries table comments or
-a foreign key is a fact about the schema rather than a claim the adapter may over-state. A
-sparse dictionary - an FK with no comments, a schema with no FK - is therefore a FAITHFUL
-bundle, and `checked_against`'s `Unprovided` direction exempts the absent half. What is declared
-is nothing more: no `Cardinality` (a foreign key vouches for no fan-out), no `Metrics`, no
+`SemanticCatalog::capabilities` provides `Structure` and may provide `Descriptions` and
+`Relationships`. A sparse dictionary - structure with no comments or foreign keys - is therefore
+faithful without making structure optional. What is declared is nothing more: no `Cardinality`
+(a foreign key vouches for no metric fan-out), no `Metrics`, no
 `Grains`, no `RequiredFilters`, no `AllowedValues`, no `Anchors`, and an empty knowledge half.
 A bundle from this source therefore **loads, pins and validates with zero metrics**, and answers
 no certified question - which is issue #115's shape and the whole reason the declaration exists:
@@ -79,14 +64,12 @@ a deployment whose whole model is a physical schema must not be told it has metr
 
 # What is built here, and what is NOT
 
-This crate contains everything `RdbmsCatalog` DECIDES about the records a dictionary yields,
-and it is tested against a fake reader that serves a recorded dictionary - the port gets a fake,
+This crate contains the conversion `RdbmsCatalog` applies to dictionary records, and it is
+tested against a fake reader that serves a recorded dictionary - the port gets a fake,
 not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). What it does not contain is a
 database client in the library closure: `DictionaryReader` is the seam a real reader over a
 Postgres socket will implement, and the only implementor today is the recorded fixture source in
-`fixture`. The spike's throwaway reader proved the read path is cheap and gate-reachable; the
-production reader is what ADR 0011's *the raw SQL tool* (`docs/adr/0013-a-raw-sql-tool-off-by-default.md`)
-companion would drive, and is deliberately out of this crate's scope.
+`fixture`. A production reader is outside this crate's current scope.
 
 **And nothing serves it:** no composition root links this crate (its only dependant is
 `sutura-app`, as a dev-dependency), so this is a registered, declaring catalog rather than a
@@ -127,8 +110,8 @@ a reader back to all of them.
 - `ColumnName` - A column's name did not parse.
 - `RelationshipName` - A foreign key's name did not parse.
 - `Description` - A table description did not pass the authored-prose rule.
+- `TargetUniquenessUnknown` - The referenced column had no primary or unique-key evidence.
 - `Inconsistent` - The assembled definitions did not hold together.
-- `Knowledge` - The knowledge did not assemble (a dictionary produces none, so unreachable unless a reader produces undeclared content).
 - `Digest` - Pinning failed.
 
 ### Implements
@@ -229,20 +212,33 @@ The tables the dictionary names.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+## `enum TargetUniqueness`
+
+```rust
+pub enum TargetUniqueness
+```
+
+Why the target side of a foreign key is known to be unique.
+
+### Variants
+
+- `PrimaryKey` - The target column belongs to a primary key.
+- `UniqueConstraint` - The target column belongs to a unique constraint.
+
+### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ## `struct Relationship`
 
 ```rust
 pub struct Relationship
 ```
 
-A join a foreign key records: the two endpoints and their columns.
+A join a foreign key records: the two endpoints, their columns, and target-key evidence.
 
-Deliberately carries **no** cardinality: `Relationships`
-is declared but the wavelet of a foreign key is only the endpoints, and a relationship a
-dictionary vouches for is one whose fan-out is not vouched for. The relationship is read into the
-bundle so its endpoints are authoritative; the dimension refusal stays with the domain's
-`JoinWouldDuplicateRows` guard, which is what a reader reaches if a metric were ever to point
-`via` it.
+`TargetUniqueness` is evidence for the safe `ManyToOne` direction, not a metric cardinality.
+Without it, loading refuses before a domain relationship is emitted.
 
 ### Methods
 
@@ -256,7 +252,9 @@ The foreign key's name, if the dictionary named it.
 pub const fn new(name: Option<String>, origin_table: String, origin_column: String, target_table: String, target_column: String) -> Self
 ```
 
-A relationship a foreign key records.
+A relationship's endpoints, without uniqueness evidence.
+
+Loading refuses this value until `Self::with_target_uniqueness` records the target key.
 
 ```rust
 pub fn origin_column(&self) -> &str
@@ -282,6 +280,12 @@ pub fn target_table(&self) -> &str
 
 The table the foreign key points to.
 
+```rust
+pub const fn with_target_uniqueness(self, evidence: TargetUniqueness) -> Self
+```
+
+Records why the target column is unique.
+
 ### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
@@ -296,7 +300,7 @@ Until a real reader exists this is what a `crate::RdbmsCatalog` reads.
 
 The corpus mirrors exactly what the spike's `spike/read-a-dictionary` measured against this
 worktree's provisioned Postgres: two tables (one fact, one lookup), a column set per table,
-table and column comments, and one foreign key from the fact table to the lookup. There are **no
+table comments, and one foreign key from the fact table to the lookup. There are **no
 metrics** - that is the whole point of the narrowest metadata source, and what makes
 `a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question` pass.
 
