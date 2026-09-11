@@ -90,9 +90,19 @@ const PUBLISH: (&str, &str) = ("cachix/cachix-action", ".github/workflows/cachix
 ///
 /// Half (a) adds a second, additive cache on the pull-request path, so cachix-action must also run
 /// in `ci.yml` - but ONLY in a job whose `environment:` is `cachix-push-pr` AND whose gate is
-/// pull_request-only ([`in_pr_publish_job`]). The credential behind that environment is a PR-token
-/// (Write on the PR cache, no Write on `sutura`); the environment is the security boundary the gate
-/// cannot verify, and this pairing is the text side that keeps it as narrow as the forge allows.
+/// pull_request-only ([`in_pr_publish_job`]).
+///
+/// **The environment DECLARATION is the mechanism, and it is the only part of this that is held.**
+/// It decides which environment's secret the job can read, and the pairing pins it. This doc used to
+/// add that the credential behind it carries *Write on the PR cache, no Write on `sutura`*, and it
+/// does not: the credential for the main store is the narrow one - one store, default branch only -
+/// while the pull-request and mixed credentials are restricted on neither store nor branch. So the
+/// separation between write paths is convention and configuration rather than capability. An
+/// accepted posture, written down because an overstated refusal is worse than no refusal.
+///
+/// **A gate cannot read a credential's scope, and cannot read a branch policy.** The read side is
+/// the half that is in text: the default branch never lists the pull-request store's key, which is
+/// what keeps a pull-request author's paths out of a merged-main resolve.
 const PUBLISH_PRS: &str = "cachix-push-pr";
 
 /// Whether a cachix-action step's JOB in `ci.yml` is the PR publish write-half: it declares

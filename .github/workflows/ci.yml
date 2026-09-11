@@ -889,10 +889,29 @@ jobs:
 
   # HALF (a): publish this pull request's OWN store paths to `sutura-prs`, the PR's additive cache.
   # Runs ONLY on a pull request and only after `ci` has warmed the closure (`needs`), mirroring
-  # `cachix-push.yml`'s own push job. The credential is a PR-only environment token - Write on
-  # sutura-prs, no Write on `sutura` - and the ENVIRONMENT is the boundary the gate cannot see;
-  # this text rule can only PIN the environment name and the pull_request gating and pair them,
-  # which is what it does below.
+  # `cachix-push.yml`'s own push job.
+  #
+  # **WHAT SELECTS THE PULL-REQUEST CREDENTIAL IS THE `environment:` DECLARATION, and that is the
+  # whole of the mechanism.** This job declares `environment: cachix-push-pr`, which is how it reads
+  # that environment's secret rather than the main one, and `cache_scope`'s PR-writer pairing PINS
+  # that declaration - deleting it turns the gate red, verified by mutation rather than assumed.
+  #
+  # **AND THIS COMMENT USED TO OVERSTATE IT.** It said the credential carries "Write on sutura-prs,
+  # no Write on `sutura`". It does not. The credential for the main store is the narrow one - one
+  # store, default branch only - while the pull-request and mixed credentials are restricted on
+  # neither store nor branch. So the separation between the two write paths is convention and
+  # configuration, NOT capability. That posture is an accepted decision and is recorded here rather
+  # than implied, because an overstated control is itself the defect: a reader who saw "no Write on
+  # `sutura`" stopped looking for the thing that would have made it true.
+  #
+  # **THE LIMIT, STATED NEXT TO THE CLAIM: a gate cannot read a credential's scope and cannot read a
+  # branch policy.** Nothing in this repository can verify any of the paragraph above -
+  # `check-workflows` runs inside a derivation with no network. What it CAN do is what it does: pin
+  # the environment name and the pull_request gating, and pair them.
+  #
+  # The READ side is the half that IS held in text, and it is unchanged: the default branch never
+  # lists the pull-request store's public key, so no merged-main resolve substitutes from it. That
+  # is what stops an in-repository pull-request author reaching main, and `docs/adr/0027` records it.
   pr-cache:
     needs: [ci]
     # `!cancelled()` RATHER THAN NOTHING, AND IT IS THE WHOLE REASON THIS CACHE READ AS UNUSED.
