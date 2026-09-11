@@ -286,11 +286,28 @@ fn check(
     // `fuzz/seeds/sql_expression/unclosed-paren-*` seeds still green under `just fuzz-smoke` with
     // the guard gone.
     //
-    // **NOTHING ENFORCES THE REMOVAL**, and that is a fact about this guard rather than a complaint.
+    // **IT STOPS NON-TERMINATION AND NOT SUPERLINEAR WORK**, which is the ceiling worth knowing
+    // before this refusal is read as a bound on parse cost. The same target's next run found three
+    // fragments of 287 to 388 bytes that tokenize with their parentheses BALANCED - so this guard
+    // passes every one - and whose parse then comes back, with an error, after 0.79 s, 13.1 s and
+    // 14.6 s in a release build with no sanitizer, +-10% run to run. All three reduce to a chain of
+    // `IF~` pairs with a tail that cannot parse, and the cost doubles per `IF`:
+    // `("IF~" * 24) + "I?{"` is 75 bytes and 14 s, so `MAX_FRAGMENT_LEN` is nowhere near a bound on
+    // it. Nothing here bounds it either - the time is re-parsing inside `polyglot_sql::parser`, the
+    // dependency's own complexity options all sit far above these inputs, and `MAX_DEPTH` is asked
+    // once the parse has already paid.
+    // `docs/adr/0004` records the measurements, the candidate refusal that was left on the table,
+    // and why: it would bound the one route measured while reading as a bound on the class.
+    //
+    // **NOTHING FORCES THE REMOVAL**, and that is a fact about this guard rather than a complaint.
     // The refusal census enumerates `RefusalReason`, the domain type both transports carry, and this
     // crate's error enums are not enrolled in it - `git grep ExpressionError -- xtask` is empty. So
-    // no gate holds this refusal and none would notice it going away: this comment and #589 are the
-    // whole of what points at it. A tripwire on the dependency's version was considered and declined.
+    // nothing points at the removal CONDITION and nothing pins the dependency's version: this
+    // comment and #589 are the whole of it, and a version tripwire was considered and declined.
+    //
+    // **Removal is not silent, though.** Neutralising the refusal reddens the two `unbounded` cells,
+    // and deleting the variant reddens `check-api-docs` - inside `just validate` - until the
+    // committed page below is regenerated. What is missing is a push, not a verdict.
     //
     // It is not a line deletion either, and the cost is worth knowing before someone starts.
     // `ExpressionError::UnclosedParenthesis` goes with it - a public variant of this crate's error,
@@ -427,9 +444,16 @@ fn holds_comment_delimiter(text: &str) -> bool {
 /// never as an `RParen` - so the count agrees and the parser is left with a parenthesis that has no
 /// closer. Asking the tokenizer costs nothing that was not going to be spent, because it is the
 /// tokenizer [`parse`] is about to run: there is no second scanner here to disagree with it about
-/// dollar-quoting, which is the disagreement `holds_comment_delimiter` exists not to have. The
-/// dialect layer's own `guard::token_guard_tests` holds this token stream and the parser's own to
-/// the same parenthesis depth.
+/// dollar-quoting, which is the disagreement `holds_comment_delimiter` exists not to have.
+///
+/// **One tokenizer TYPE and two entry points, though, so "the scanner the parse runs" is true of
+/// the type and not of the call.** This guard calls `Dialect::tokenize`, which is
+/// `Tokenizer::tokenize` over `Token`; the parse goes `Dialect::parse` to a private
+/// `parse_with_guard` to `Tokenizer::tokenize_for_parser`, which is the same state machine and the
+/// same config instantiated over `ParserToken`, behind an input-size check this call does not make.
+/// What holds their parenthesis depths equal is the dialect layer's own
+/// `guard::token_guard_tests`, over one balanced input, comparing the two streams' guard VERDICTS
+/// rather than the streams - so the agreement is the dependency's test and nothing here.
 ///
 /// A tokenizer failure is deliberately **not** this guard's to report: [`parse`] runs the same
 /// tokenizer one step later and returns its error as [`ExpressionError::Unparsable`], which

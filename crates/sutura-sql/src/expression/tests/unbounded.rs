@@ -14,6 +14,13 @@
 //! because the parse loops, and that one by naming a different refusal. Nothing but this bound
 //! produces the words asserted below, and the compile is what holds it: `check` returns that
 //! variant or one of the others, and there is no third outcome.
+//!
+//! **One assertion here is NOT red against base, and is written down rather than counted as
+//! coverage:** the over-refusal case at the end of
+//! `the_bound_is_over_tokens_so_a_closer_inside_a_string_literal_closes_nothing` passes on a tree
+//! with no guard at all, because such a tree accepts that fragment too. What it is red against is a
+//! guard that counts `(` against `)` in the text - measured. It rides inside a `#[test]` that IS
+//! red on base, so the gate's verdict on this module does not come from it.
 
 use std::thread;
 use std::time::{Duration, Instant};
@@ -157,4 +164,28 @@ fn the_bound_is_over_tokens_so_a_closer_inside_a_string_literal_closes_nothing()
             "{closed:?} closes its parenthesis, so it is not an unclosed one"
         );
     }
+
+    // The OTHER direction: the naive count also OVER-refuses, and this is the fragment that says
+    // the cost of that is not paid. Text-unbalanced - two `(` against one `)`, because one `(` sits
+    // inside a string literal - and token-balanced, so a count refuses an **ordinary conditional
+    // sum** while the tokenizer accepts it. Asserted as ACCEPTED rather than as an absence, because
+    // "not this refusal" would also hold for `Refused` or `Unparsable`, and the claim is that the
+    // fragment compiles.
+    //
+    // The over-refusal direction is not entirely uncovered and the difference is the point.
+    // `super::a_fragment_that_escapes_its_own_parentheses_is_refused_naming_a_position` catches a
+    // count too - measured, on `SUM(mrr_eur))`, an extra CLOSER - but what it notices is one
+    // refusal arriving instead of another, which a stricter-but-correct guard could also produce.
+    // Nothing held a fragment a count refuses while it is a fragment a catalog would really write.
+    //
+    // It is the cheap half of the pair as well: a naive count fails this in microseconds, where the
+    // under-refusal case above only fails by running out of the deadline. And it is the cell
+    // `docs/adr/0004` now argues from - the guard has no accepted cost of the comment refusal's
+    // kind, and `SUM(CASE WHEN status = '--' THEN mrr_eur END)` being refused as a comment (in the
+    // parent module's own cells) is the contrast that makes the point.
+    let accepted = verdict_within_the_deadline("SUM(CASE WHEN status = '(' THEN mrr_eur END)");
+    assert!(
+        accepted.starts_with("ACCEPTED"),
+        "a parenthesis inside a string literal is balanced in the TOKENS and must compile, got: {accepted}"
+    );
 }
