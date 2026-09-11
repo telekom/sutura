@@ -5,8 +5,14 @@ description: Every adapter is configured by a typed declaration rather than disc
 
 # Pluggable by declaration, and the mode a data adapter is in
 
-Status: **accepted. The metadata half has a working precedent; the data half is new; the composition
-half needs a change to what the definition digest is taken over.**
+Status: **accepted. The metadata half has a working precedent; the data half has LANDED; the
+composition half needs a change to what the definition digest is taken over.**
+
+**Corrected:** this said *the data half is new*. It is built - `crates/sutura-domain/src/source.rs`
+holds `SourcePosture`, `deliverable_by`, `ImpersonationCapability` and `anchors_run_as`, and the boot
+check is wired in `crates/sutura-serve/src/main.rs`, where a declared source's posture is held against
+the linked adapter's capability. What is still new is the composition half, which this line already
+says.
 
 Pluggable metadata and pluggable data are requirements. So is a tight security focus, and the two pull
 in opposite directions unless pluggability is built one specific way: **a closed set of typed
@@ -259,9 +265,10 @@ impersonation it has no way to perform.
 - The mode makes one thing impossible to state accidentally: that a deployment impersonates when it
   does not. Everything else in this record follows from wanting that one property to be unrepresentable
   rather than reviewed.
-- **What of this record is scheduled, and what is not.** Only the data half is:
-  `docs/implementation-plan.md` carries `feat/source-registry` for the per-source
-  mode and its boot check, and `feat/conformance-packs` for the declaration that selects packs. The
+- **What of this record is scheduled, and what is not** - and the data half is now past scheduling:
+  `feat/source-registry` landed, so the per-source mode and its boot check exist rather than being
+  queued. `docs/implementation-plan.md` carries
+  `feat/conformance-packs` for the declaration that selects packs, and that row is still open. The
   metadata half - a second metadata connector, the assembler over several of them, and the contribution
   manifest the digest section decides - is in **no branch in that stack**, and the plan's own thesis
   table says so: the connectors are decided and not built. That matters for two claims in this record

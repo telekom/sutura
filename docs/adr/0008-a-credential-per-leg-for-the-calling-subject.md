@@ -86,7 +86,11 @@ the other: architecture there, identity here.
 
 Read this first. The rest is written in the future tense on purpose, and the reason is that every
 identity claim this repository makes about itself is currently a design target. Each row was checked
-against the tree at the commit this record was written on, not remembered.
+against the tree at the commit this record was written on, not remembered - **and that commit is
+2026-08-28, the day this record was added.** The date used to be missing, which is the one thing an
+inventory may not omit: a table of present-tense claims with no date is unauditable, and this
+repository's own dependency-currency rule says so about every other measured claim. **Read the
+correction block below before citing any row.**
 
 | Claim | Where | What is actually there |
 | --- | --- | --- |
@@ -101,10 +105,34 @@ against the tree at the commit this record was written on, not remembered.
 | The domain reads no clock | `sutura-domain`, `sutura-app` | `SystemTime`, `Instant` and `std::time` appear in neither crate. `TimeRange::new` takes two explicit `Date`s; nothing in the interior asks what time it is |
 | The refusal enum already says so | `crates/sutura-domain/src/query.rs` | `RefusalReason::SourceUnavailable`'s own documentation states that what raises it is a name comparison and not an identity check, and that the identity half "is a design target and not a control" |
 
-So `AGENTS.md`'s opening line - "we support e2e impersonation" - describes an intention, and its
-*Changing The Query Path Or The Tool Surface* table is the honest version: a test that two subjects
-get different rows "does not exist and cannot, until a credential exists per leg". This record is
-about making that sentence obsolete.
+**Corrected, as of 2026-09-11. Most of the rows above have moved, and the table is kept as written
+because it is the argument the rest of this record acts on** - striking each cell would leave a reader
+unable to tell which half was decided when. **No count of how many moved is given**, because this
+record has already carried a wrong one on its own status line and nothing derives this one either:
+read the rows. Every row is answered below, and a row answered *still true* is answered rather than
+omitted.
+
+| Row | What has moved since 2026-08-28 |
+| --- | --- |
+| `describes_identity()` | Still a `const fn`, and it no longer answers `false`: `crates/sutura-config/src/security.rs` computes it from the loaded settings, and that file's own comment records that it *used to be a constant answering `false`*. A deployment that declares an inbound issuer answers `true`, and a settings test asserts it |
+| the bearer gate | `require_token` is unchanged and still authenticates the DEPLOYMENT. What is no longer true is *builds no principal*: `crates/sutura-http/src/inbound/` verifies an inbound token and a `CredentialBroker` implementation reaches the principal chain. The gate and the principal are two mechanisms now, not one |
+| no signature-verifying crate | False. `jsonwebtoken` is in `Cargo.lock` and is a direct dependency of `sutura-http`; `crates/sutura-http/src/inbound/keys.rs` and `inbound/token.rs` are the verifying path. What the row recorded - nothing on the request path able to verify a signature - is spent |
+| no subject reaches execution | False. `crates/sutura-domain/src/warehouse.rs` declares `fn execute(&self, executable: Executable<'_>, presented: &Presented)`. **The subject reaches the port. What it does not do is make the source execute AS them** - that is leg 2, and it is not built on anything published |
+| no subject reaches the application | False. `crates/sutura-app/src/surface.rs` declares `fn answer(&self, context: &RequestContext, query: &Query)`. A subject reaches the application; the limit is what a source does with it |
+| the boot path calls the port with no identity | Still true in substance, and the quoted call form is stale: `execute` no longer takes `&plan`. `verify_and_validate` still runs during composition, so the boot path is still a caller of the execution port |
+| one process, one connection | Still true of the DuckDB adapter, and no longer true of the deployment: `crates/sutura-serve/src/main.rs` opens one BigQuery adapter per declared source under a declared credential |
+| a data system is not even configurable | False, and the row's own claim header is the false half. `crates/sutura-config/src/sources.rs` holds a `SourceRegistry` and a `SourceKind`, and the composition root dispatches on the configured kind. `defaults.yaml` still ships no ACTIVE `sources:` key - deliberately, and it says so - which is the narrow sense in which the cell is true |
+| the domain reads no clock | True of `sutura-domain`. False of `sutura-app`, which calls `std::time::SystemTime::now()` on the record path - so the claim is about the interior alone, not about both crates |
+| the refusal enum already says so | Stale. Identity IS a control now, not only a design target: `SourcePosture::deliverable_by` refuses at boot and `RefusalReason::CredentialUnavailable` refuses a subject with no credential at the source it reads |
+
+**And the citation this section closes on is dead.** `AGENTS.md`'s opening line still reads *e2e
+impersonation*, and it still describes an intention rather than a shipped control. Its *Changing The
+Query Path Or The Tool Surface* table no longer exists - the invariant register moved out of that file
+to `.agents/skills/sutura/query-surface`, and a second sentence further down this record cites the
+same dead table. **The claim it was standing in for is unchanged and is the one to state next to every
+row above: leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS them - is not, on
+anything published.** `docs/where-identity-is-proven.md` is the authority on which venue may be cited
+for which claim. This record is about making that second sentence obsolete, and it has not yet.
 
 ## What impersonation requires, per data system
 
@@ -1512,8 +1540,14 @@ comparison lives with the value instead of being left to whoever has a clock.
 ### 7. `Secret` composes; it does not grow an expiry
 
 `Secret` is unchanged: one property - opacity - an infallible constructor because every string is a
-valid secret, a hand-written redacting `Debug` and `Display`, and no `PartialEq`, so `==` on
-credential material does not compile.
+valid secret, a hand-written redacting `Debug` and **no `Display` at all**, and no `PartialEq`, so
+`==` on credential material does not compile.
+
+**Corrected:** this said *a hand-written redacting `Debug` and `Display`*. There is no
+`impl Display for Secret` anywhere under `crates/` - removing it is the whole of
+[0020](0020-a-credential-the-compiler-refuses-to-print.md), and it is what makes a secret unable to
+reach a format string by accident. A redacting `Display` would have been a printer; no `Display` is a
+compile error.
 
 An expiring token is not a secret with a date on it. Adding `not_after` to `Secret` would put an
 invariant on a type whose constructor correctly has none, and would make the field either optional - a
@@ -1845,7 +1879,14 @@ what to do with a claim whose mechanism does not exist yet: write it where a rea
 for the table.
 
 **Two things in `AGENTS.md` this record now contradicts, and they are changes to that file rather than
-to this one.** Recorded here so the contradiction is visible from the record that caused it. First, the
+to this one.** Recorded here so the contradiction is visible from the record that caused it.
+**Corrected: neither citation resolves any more, and the addressee changed rather than the point.**
+`AGENTS.md` no longer carries a *Changing The Query Path Or The Tool Surface* table, a *Built And Not
+Wired* section or an *Invariants* table - the invariant register moved out of that file into the agent
+skill tree, and `.agents/skills/sutura/query-surface` is where the query-path rows live and
+`.agents/skills/sutura/invariants` is where a claim about what is enforced is judged. So both
+paragraphs below are claims against a register that has moved; what they say is worth keeping and
+where they say to change it is not. First, the
 *Changing The Query Path Or The Tool Surface* row for a second execution leg reads "every leg runs as
 the same subject, or the plan is refused rather than downgraded"; part 4 shows that is not what the
 shape delivers in a deployment with a shared source, and the accurate version is the pair of claims in
