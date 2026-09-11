@@ -247,6 +247,8 @@ mod tests {
             Opened::Files(opened) => Some(opened),
             #[cfg(feature = "bigquery")]
             Opened::BigQuery(_) => None,
+            #[cfg(feature = "postgres")]
+            Opened::Postgres(_) => None,
         }
         .expect("this fixture declares a files source")
     }

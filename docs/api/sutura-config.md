@@ -3681,6 +3681,7 @@ legitimate one.
 
 - `Files` - A directory of CSV or Parquet files, read by the in-process engine.
 - `BigQuery` - A `BigQuery` dataset, queried by rendering the plan into `GoogleSQL` and pushing it down.
+- `Postgres` - A `PostgreSQL` database, queried by rendering the plan into that dialect and pushing it down.
 
 #### Methods
 
@@ -3823,6 +3824,8 @@ convenience, and nothing needs to clone a startup refusal.
 - `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 - `WorkloadIdentity` - The declared workload-identity value is not usable.
+- `Transport` - The declared transport of a source was not usable.
+- `RemoteWithoutTls` - A source a network can reach was declared with no transport security.
 
 #### Implements
 
@@ -4047,6 +4050,7 @@ be skipped" look like the same sentence and are not.
 
 - `Files` - A directory of CSV or Parquet files, read by the in-process engine.
 - `BigQuery` - A `BigQuery` dataset, plus the project its jobs are billed to.
+- `Postgres` - A `PostgreSQL` database, reached over a connection the deployment declares.
 
 ##### Methods
 
@@ -4063,6 +4067,197 @@ then on the variant is the answer.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+### Module `transport`
+
+How the channel to a source is secured, per source and never globally.
+How sutura secures the channel to one source, per source and never globally.
+
+**This module is `docs/adr/0010`'s configuration half, and it exists because a source
+connection is the first thing in this repository that must VERIFY a peer's chain.** The serving
+side presents a chain and verifies none, so `sutura-http` deliberately pulls in neither
+`webpki-roots` nor `rustls-native-certs`; a source verifies, so which anchors are trusted
+becomes a decision with a name. Everything here is about making that decision a TYPE rather than
+a habit, because this is the one decision whose wrong answer is a password and a whole result set
+sent to an impostor.
+
+# The shape is closed, and why
+
+```text
+Plaintext                                      - no TLS. A named choice an operator wrote.
+Verified { anchors }                           - TLS, verified. No unverified variant exists.
+Mutual    { anchors, identity }                - TLS, verified, and sutura presents a certificate.
+```
+
+There is deliberately no `Verified`-without-anchors shape: a source asking for TLS and naming no
+trust store is a refusal at load, naming the source (ADR 0010 rule 2). `TrustAnchors` has no
+default, so there is no value the loader could have filled in on the operator's behalf.
+
+And there is deliberately no way to ask for TLS without verification. Every library in this
+space offers the escape hatch - `danger_accept_invalid_certs`, `sslmode=require` - and each one
+is an encrypted channel with an unknown peer. A `bool` named `verify` would make that reachable
+from a configuration file, and a `bool` defaulted to `true` would make it reachable from a typo.
+
+# What "no transport" means
+
+`Plaintext` is a named choice, not the absence of a setting. A source that names no TLS
+`transport_mode` is refused at load; an operator who wants no TLS writes
+`transport_mode: plaintext`, and the startup log prints it. That ordering is what lets
+`sutura-serve` keep #124's fail-closed refusal for a **non-loopback host with no TLS** while the
+unix-socket tier keeps working: a socket or loopback host may declare `plaintext`, and any host a
+network can reach it from must not.
+
+**The keys an operator writes are FLAT, not a nested `transport:` block.** The schema holds
+`transport_mode`, `transport_anchors`, `client_certificate` and `client_key` as top-level source
+keys (see `crate::raw`), and every refusal below names one of those flat keys - never a
+`transport.*` spelling that the tree would refuse as an unknown field. The word `transport` here
+is the CONCEPT (what the channel is made of), and the flat spelling is what an operator edits.
+
+#### `enum TrustAnchors`
+
+```rust
+pub enum TrustAnchors
+```
+
+The trust anchors a source chain may be verified against.
+
+**No `Default`, and the field is named here rather than filled in.** Rule 2 of `docs/adr/0010`
+is that the trust store is stated, not inherited - defaulting to whatever the host happens to
+trust is how a source is silently accepted from the wrong issuer. So there is no value this type
+could hold on the operator's behalf, and a `Default` impl would be a value that never passed a
+constructor.
+
+The system store remains reachable, but only by an operator WRITING it - a source that wants the
+host's own anchors says so - and the startup line then prints that it was chosen.
+
+##### Variants
+
+- `File` - A PEM bundle at this absolute path. The file is read by the adapter, at boot, once.
+- `System` - The host's own trust store. An explicit choice rather than a default.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct ClientIdentity`
+
+```rust
+pub struct ClientIdentity
+```
+
+The client certificate and key this deployment presents to a source.
+
+A pair - a certificate with no key, or a key with no certificate, is refused at load naming the
+missing half. The paths are read by the adapter at boot; only the paths live in configuration.
+
+##### Methods
+
+```rust
+pub const fn certificate(&self) -> &PathBuf
+```
+
+```rust
+pub const fn key(&self) -> &PathBuf
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum SourceTransport`
+
+```rust
+pub enum SourceTransport
+```
+
+How a source connection is secured.
+
+Three states, and the middle one is the one that gets forgotten - which is why it has a test of
+its own. There is no unverified TLS variant, and no `Default`: what a source's channel is made
+of is a decision the deployment makes.
+
+##### Variants
+
+- `Plaintext` - No transport security. For a local file or a process-local unix socket. A named choice.
+- `Verified` - TLS, verified against the declared `anchors`.
+- `Mutual` - TLS, verified, and sutura presents a `ClientIdentity`.
+
+##### Methods
+
+```rust
+pub const fn anchors(&self) -> Option<&TrustAnchors>
+```
+
+The declared anchors, if this channel verifies anything.
+
+`None` for `Plaintext` - nothing to verify against - and `Some` for both TLS variants,
+because a TLS channel always names its store. This is what lets a caller say "no transport
+security" without matching the variant, and it is what the load-time refusal of a remote
+`plaintext` source reads: a source with no anchors and a host a network can reach is refused
+rather than connected to in the clear.
+
+```rust
+pub const fn describe(&self) -> &'static str
+```
+
+A phrase for the startup log, per source.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidTransport`
+
+```rust
+pub enum InvalidTransport
+```
+
+Why a declared transport was not usable.
+
+Every variant names the source (`alias`) whose entry is refused, because a refusal that does not
+say which entry to change is a support request. No `Clone`: the cause is a `PathBuf` and the
+value that would be cloned is a path, which is fine to own here.
+
+##### Variants
+
+- `UnknownTransport`
+- `PlaintextWithMaterial` - A `plaintext` channel also named anchors or a client identity, which nothing would read.
+- `TlsWithoutAnchors` - A source declared TLS and named no trust anchors.
+- `MissingHalf` - A client certificate was written without its key, or the reverse.
+- `MutualWithoutIdentity` - A `mutual` channel declared no client identity at all.
+- `RelativePath` - A path a transport declares is relative.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `fn parse`
+
+```rust
+pub fn parse(alias: &sutura_domain::model::SourceName, mode: &str, anchors: Option<&str>, client_certificate: Option<&str>, client_key: Option<&str>) -> Result<SourceTransport, InvalidTransport>
+```
+
+Reads one source's transport from its written fields, refusing the combinations ADR 0010 says
+a closed type must refuse.
+
+`mode` is the `transport_mode` word. `anchors` is the written `transport_anchors` value (a path or
+the word `system`). `client_certificate`/`client_key` are the optional identity pair. `plaintext`
+is the one way to declare no TLS; a `plaintext` declaration that also names material is refused.
+
+#### `fn host_is_loopback`
+
+```rust
+pub fn host_is_loopback(host: &str) -> bool
+```
+
+Whether a declared source host can only be reached from this machine.
+
+**A name is not an address**, which is the rule `crate::server::BindAddress` already applies to
+the serving bind read the other way round: `localhost` resolves to whatever the resolver says
+today, so it cannot carry a claim about what a network can reach. Only an `IpAddr` literal
+answers `true`, and only a loopback one - so a `plaintext` declaration is refused for a hostname
+however it happens to resolve. That is the fail-closed direction issue 124 asks for: an operator
+who means a loopback TCP dial writes `127.0.0.1` or `::1`.
 
 ### Module `workload_identity`
 

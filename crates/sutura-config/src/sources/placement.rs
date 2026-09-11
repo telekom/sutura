@@ -14,6 +14,7 @@
 use std::path::PathBuf;
 
 use super::SourceKind;
+use super::transport::SourceTransport;
 
 /// The project a `BigQuery` query job is billed to.
 ///
@@ -256,6 +257,32 @@ pub enum SourcePlacement {
         /// is the half a settings tree can see.
         max_bytes_billed: u64,
     },
+    /// A `PostgreSQL` database, reached over a connection the deployment declares.
+    ///
+    /// **The static-credential half of Postgres: one connection under the declared identity.** The
+    /// password never appears in the settings tree - it is declared as a FILE, because a literal
+    /// would fight `sutura_domain::identity::Secret`, which makes the inlining accident a compile
+    /// error rather than a redaction. Reading the file is the adapter's job, at boot, once.
+    ///
+    /// `host` and `port` are the network dial; when the source sits on a unix socket, `unix_socket`
+    /// is written instead. The two cannot both be set, and which one an operator chooses is what
+    /// decides whether a non-loopback host must have TLS declared.
+    Postgres {
+        /// The host dialled, or a unix socket path. Exactly one of these is set.
+        host: Option<String>,
+        /// The unix socket directory, when the source is socket-only. See `host`.
+        unix_socket: Option<PathBuf>,
+        /// The TCP port, when `host` is set.
+        port: u16,
+        /// The database to connect to.
+        database: String,
+        /// The role to connect as.
+        user: String,
+        /// The file the password is read from at boot.
+        password_file: PathBuf,
+        /// How the channel to this source is secured.
+        transport: SourceTransport,
+    },
 }
 
 impl SourcePlacement {
@@ -270,6 +297,7 @@ impl SourcePlacement {
         match *self {
             Self::Files { .. } => SourceKind::Files,
             Self::BigQuery { .. } => SourceKind::BigQuery,
+            Self::Postgres { .. } => SourceKind::Postgres,
         }
     }
 }

@@ -960,10 +960,12 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
             .map(|(alias, source)| (
                 alias.as_str(),
                 source.posture().map(sutura_domain::source::SourcePosture::as_str),
-                match *source.placement() {
-                    crate::sources::placement::SourcePlacement::Files { ref data_dir } => data_dir.to_string_lossy().into_owned(),
-                    crate::sources::placement::SourcePlacement::BigQuery { .. } =>
-                        panic!("the fixture tree declares files sources"),
+                match source.placement() {
+                    crate::sources::placement::SourcePlacement::Files { data_dir } => data_dir.to_string_lossy().into_owned(),
+                    crate::sources::placement::SourcePlacement::BigQuery { .. }
+                    | crate::sources::placement::SourcePlacement::Postgres { .. } => {
+                        panic!("the fixture tree declares files sources");
+                    }
                 }
             ))
             .collect::<Vec<(&str, Option<&str>, String)>>(),

@@ -2,11 +2,12 @@
 # same script by the `checks.nextest` sandbox and by `just test` in the dev shell.
 #
 # The nix build sandbox has no network and no docker socket, so a docker tier cannot be a check.
-# Postgres needs neither: it runs over a unix socket, which has no port, so no allocator, no
-# collision, no race - the port machinery `docs/adr/0009` spends itself on is for docker services
-# only. One package and one start script in both places means the two cannot drift (the SQL_ASCII
-# slip in this PR's first go at a second provisioner is what one script prevents), and `just update`
-# moves both.
+# Postgres needs neither: the ordinary fixture runs over a unix socket, and the TLS cells use one
+# loopback listener whose candidate port the operating system allocates for each new cluster. The
+# candidate is not a claim: the postmaster must bind it before the endpoint is published, and a
+# bind race is retried. One package and one start script in both places means the two cannot drift
+# (the SQL_ASCII slip in this PR's first go at a second provisioner is what one script prevents),
+# and `just update` moves both.
 #
 # `postgresql_18` pins the same minor the docker image once used, and like `nix/duckdb.nix` it is
 # the single path from nixpkgs to the server used by flake.nix AND devenv.nix.
@@ -25,7 +26,7 @@ rec {
   # The provisioner, usable from any shell that has it and `postgresql`'s binaries on PATH; the
   # dev shell gets this on PATH through `devenv.nix`, the sandbox gets it as a native input.
   #
-  # `start` brings up (or is a no-op restart of) a socket-only server and writes
+  # `start` brings up (or is a no-op restart of) a socket plus loopback-TLS server and writes
   # `<cwd>/.sutura-dev/endpoints.json` naming its socket directory, so `sutura_dev::provisioned::here`
   # can read it unchanged. `stop` tears it back down AND WITHDRAWS THAT ENTRY, and `status` answers
   # whether a server is up without changing anything.
@@ -71,11 +72,13 @@ rec {
   # worktree, which is where the harness looks.
   tier = pkgs.writeShellApplication {
     name = "sutura-postgres-tier";
-    runtimeInputs = [ pkgs.postgresql_18 endpoints.script pkgs.coreutils ];
+    runtimeInputs = [ pkgs.postgresql_18 endpoints.script pkgs.coreutils pkgs.openssl pkgs.python3 ];
     text = ''
       set -o errexit -o nounset
 
       root="$(pwd -P)"
+      # The worktree key names local state. It does NOT choose a port: hashing an unbounded set of
+      # paths into a finite port range collides by construction.
       if [ -n "''${NIX_BUILD_TOP:-}" ]; then
         # In the sandbox the build-tree source path is deep, but `$NIX_BUILD_TOP` itself is short.
         pg="$NIX_BUILD_TOP/.sutura-dev/pg"
@@ -110,13 +113,19 @@ rec {
       # target - and `stop` removes both, so a fresh cluster can never pair with a stale password.
       # Nothing tracked by git ever holds it: this repository is public.
       user=sutura
+      mtls_user=sutura_mtls
       db=sutura
       cred="$pg.cred"
-      port=5432
-      # Two single quotes at RUNTIME, so the nix indented string never holds two adjacent apostrophes
-      # (nix would strip them); `listen_addresses` empty means no TCP at all.
-      empty=
-
+      # The loopback TLS material, written at `start` beside the cluster and removed at `stop` like
+      # the credential: a private key must not survive in a directory the tier reuses, and nothing
+      # tracked by git ever holds it. `ca.crt` is the public anchor a TLS served test verifies the
+      # server chain against.
+      tls_ca_key="$pg.ssl/ca.key"
+      tls_key="$pg.ssl/server.key"
+      tls_cert="$pg.ssl/server.crt"
+      tls_ca="$pg.ssl/ca.crt"
+      tls_client_key="$pg.ssl/client.key"
+      tls_client_cert="$pg.ssl/client.crt"
       # A unix socket path caps around 100 bytes on macOS. Refuse early with a message that names the
       # cause, rather than let pg_ctl fail with a bare "could not create any Unix-domain sockets" in
       # the log. `$TMPDIR` on a dev machine is well short of this; a custom long one is the case
@@ -125,6 +134,99 @@ rec {
         echo "socket path too long (\$pg): a unix socket cannot be created here" >&2
         exit 1
       fi
+
+      # One ephemeral CA signs both sides of the tier. The server leaf carries both loopback names;
+      # the client leaf's CN is the dedicated database role that `pg_hba.conf` requires a
+      # certificate for. This is test PKI, removed with the cluster, never tracked.
+      generate_tls() {
+        mkdir -p "$pg.ssl"
+        ( umask 077
+          rm -f "$pg.ssl"/*
+          openssl genrsa -out "$tls_ca_key" 2048
+          openssl req -x509 -new -key "$tls_ca_key" -out "$tls_ca" -days 30 -sha256 \
+            -subj "/CN=sutura-postgres-tier-ca" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign"
+
+          openssl genrsa -out "$tls_key" 2048
+          openssl req -new -key "$tls_key" -out "$pg.ssl/server.csr" -subj "/CN=postgres-tier"
+          cat > "$pg.ssl/server.ext" <<'EO_SERVER_EXT'
+      basicConstraints=critical,CA:FALSE
+      keyUsage=critical,digitalSignature,keyEncipherment
+      extendedKeyUsage=serverAuth
+      subjectAltName=DNS:localhost,IP:127.0.0.1
+      EO_SERVER_EXT
+          openssl x509 -req -in "$pg.ssl/server.csr" -CA "$tls_ca" -CAkey "$tls_ca_key" \
+            -CAcreateserial -out "$tls_cert" -days 30 -sha256 -extfile "$pg.ssl/server.ext"
+
+          openssl genrsa -out "$tls_client_key" 2048
+          openssl req -new -key "$tls_client_key" -out "$pg.ssl/client.csr" -subj "/CN=$mtls_user"
+          cat > "$pg.ssl/client.ext" <<'EO_CLIENT_EXT'
+      basicConstraints=critical,CA:FALSE
+      keyUsage=critical,digitalSignature,keyEncipherment
+      extendedKeyUsage=clientAuth
+      EO_CLIENT_EXT
+          openssl x509 -req -in "$pg.ssl/client.csr" -CA "$tls_ca" -CAkey "$tls_ca_key" \
+            -CAcreateserial -out "$tls_client_cert" -days 30 -sha256 -extfile "$pg.ssl/client.ext"
+        )
+        chmod 644 "$tls_ca" "$tls_cert" "$tls_client_cert"
+      }
+
+      # Ask the kernel for a currently free loopback port. The socket closes when Python exits, so
+      # this is a CANDIDATE rather than a reservation; `start_postmaster` treats a lost bind race as
+      # a retry and publishes only after Postgres owns the listener.
+      allocate_port() {
+        python3 - <<'PY'
+      import socket
+      with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+          listener.bind(("127.0.0.1", 0))
+          print(listener.getsockname()[1])
+      PY
+      }
+
+      # `postmaster.pid` line four is the port the running server itself records. It is the only
+      # answer an idempotent `start` or `status` accepts; neither recomputes a candidate.
+      running_port() {
+        [ -s "$pg/postmaster.pid" ] || return 1
+        candidate="$(sed -n '4p' "$pg/postmaster.pid")"
+        case "$candidate" in
+          ""|*[!0-9]*) return 1 ;;
+          *) printf '%s' "$candidate" ;;
+        esac
+      }
+
+      write_server_config() {
+        cat > "$pg/postgresql.conf" <<EOC
+      listen_addresses = '127.0.0.1'
+      unix_socket_directories = '$pg'
+      port = $port
+      ssl = on
+      ssl_cert_file = '$tls_cert'
+      ssl_key_file = '$tls_key'
+      ssl_ca_file = '$tls_ca'
+      fsync = off
+      synchronous_commit = off
+      EOC
+        cat > "$pg/pg_hba.conf" <<EOC
+      local all all trust
+      hostssl $db $mtls_user 127.0.0.1/32 cert
+      hostssl all all 127.0.0.1/32 scram-sha-256
+      host all all 127.0.0.1/32 reject
+      EOC
+      }
+
+      start_postmaster() {
+        for _attempt in $(seq 1 10); do
+          port="$(allocate_port)"
+          write_server_config
+          if pg_ctl -D "$pg" -o "-p $port" -l "$pg/server.log" start; then
+            return 0
+          fi
+          echo "postgres tier: the allocated port was lost before Postgres bound it; retrying" >&2
+        done
+        echo "postgres tier: Postgres could not bind an allocated loopback port after 10 attempts" >&2
+        return 1
+      }
 
       start() {
         mkdir -p "$root/.sutura-dev"
@@ -160,20 +262,30 @@ rec {
         if [ ! -f "$pg/PG_VERSION" ]; then
         initdb -D "$pg" -U postgres -E UTF8 --locale=C
         fi
-        # Socket-only, under the short directory. No TCP, so no port allocation or collision.
-        cat > "$pg/postgresql.conf" <<EOC
-      listen_addresses = '$empty'
-      unix_socket_directories = '$pg'
-      port = $port
-      fsync = off
-      synchronous_commit = off
-      EOC
-        # Idempotent: if the server is already up - a repeated `just test`, or an interrupted run
-        # whose trap did not fire - pg_ctl would abort on the existing postmaster.pid. Start only if
-        # it is not already running, and create the role and database only if they are missing. The
-        # sandbox never saw this because `$NIX_BUILD_TOP` is fresh every build.
-        if ! pg_ctl -D "$pg" status >/dev/null 2>&1; then
-          pg_ctl -D "$pg" -o "-p $port" -l "$pg/server.log" start
+        # One listener, two dials: the unix socket under the short directory AND loopback TCP for
+        # the TLS served cells. Postgres cannot do TLS over a socket (`hostssl`/`sslmode` are
+        # ignored for `local`), so the TLS cells dial `127.0.0.1` where `hostssl` applies. The
+        # socket keeps `trust`; one loopback role uses password auth over verified TLS and the
+        # second is accepted only with the client certificate this tier issued.
+        #
+        # Idempotent over a running postmaster: read the port it bound and leave its config and PKI
+        # alone. A running server missing that material came from another contract and cannot be
+        # silently advertised as this one.
+        if pg_ctl -D "$pg" status >/dev/null 2>&1; then
+          port="$(running_port)" || {
+            echo "postgres tier: the running postmaster did not record a usable port" >&2
+            exit 1
+          }
+          for material in "$tls_ca" "$tls_key" "$tls_cert" "$tls_client_key" "$tls_client_cert"; do
+            if [ ! -s "$material" ]; then
+              echo "postgres tier: a running server is missing TLS material at $material." >&2
+              echo "               Stop it and start this tier again; it cannot satisfy the current contract." >&2
+              exit 1
+            fi
+          done
+        else
+          generate_tls
+          start_postmaster
         fi
         # A password for THIS worktree, once. 24 bytes of `/dev/urandom` as hex, so the value is
         # `[0-9a-f]` only - which is why interpolating it into the SQL below cannot inject: there
@@ -195,6 +307,11 @@ rec {
             -v ON_ERROR_STOP=1 -c "ALTER ROLE \"$user\" WITH PASSWORD '$password'"
         fi
         if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
+          "SELECT 1 FROM pg_roles WHERE rolname='$mtls_user'" | grep -q 1; then
+          psql -h "$pg" -p "$port" -U postgres -d postgres \
+            -v ON_ERROR_STOP=1 -c "CREATE ROLE \"$mtls_user\" LOGIN"
+        fi
+        if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
           "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1; then
           psql -h "$pg" -p "$port" -U postgres -d postgres \
             -v ON_ERROR_STOP=1 \
@@ -202,6 +319,9 @@ rec {
         fi
         # The harness reads `<root>/.sutura-dev/endpoints.json` and treats the host as the socket
         # dir. MERGED rather than written whole: a second nix tier's entry lives in the same file.
+        # ONE entry, and its `port` is the number for BOTH dials: a TLS cell reads it here and dials
+        # `127.0.0.1`, because the loopback listener shares the unix socket's port and a second entry
+        # would be a second claim about one server.
         sutura-tier-endpoint publish "$root" postgres "$pg" "$port"
       }
 
@@ -224,9 +344,9 @@ rec {
         fi
         # The endpoint entry is a claim that a server is there. Withdraw it, or discovery keeps
         # believing it and the cells fail on a dead socket instead of skipping. Withdrawing the
-        # LAST service removes the file, which is what a postgres-only worktree saw when this was a
-        # bare `rm -f`; a tier that was never started has nothing to withdraw and that is not a
-        # failure.
+        # LAST service removes the file, which is what a postgres-only worktree saw when this
+        # was a bare `rm -f`; a tier that was never started has nothing to withdraw and that is not
+        # a failure.
         sutura-tier-endpoint withdraw "$root" postgres
         # AND THE DATA DIRECTORY GOES WITH IT. This tier is provisioned by nix on demand; nothing it
         # writes is meant to outlive a teardown, and the sandbox arm already behaves that way for
@@ -245,6 +365,11 @@ rec {
         # keeps both its entry and its data, because removing a live postmaster's directory is a
         # worse failure than the one being fixed.
         rm -rf "''${pg:?the tier data directory is unset}"
+        # AND THE TLS PRIVATE KEY GOES WITH THE CLUSTER it signed. `ca.crt` is public, but the key
+        # next to it is exactly the secret the tier's per-cluster generation exists to keep out of
+        # anything tracked by git - leaving it behind would hand a fresh cluster a private key that
+        # matches an anchor an earlier run published.
+        rm -rf "''${pg:?the tier data directory is unset}.ssl"
         # And the credential goes with the cluster it belongs to. Leaving it behind is how a fresh
         # cluster comes up carrying a password an earlier run published, which is the same class of
         # stale claim `endpoints.json` above is about.
@@ -277,6 +402,12 @@ rec {
         printf 'export SUTURA_POSTGRES_TIER_USER=%s\n' "$user"
         printf 'export SUTURA_POSTGRES_TIER_PASSWORD=%s\n' "$(cat "$cred")"
         printf 'export SUTURA_POSTGRES_TIER_DB=%s\n' "$db"
+        # The loopback TLS anchor - the CA a TLS served cell verifies the server's chain against.
+        # `eval`d like the rest, so unless a caller needs the "no TLS material" refusal (the config
+        # cells that assert it), the served TLS cells read it from here rather than deriving a path.
+        printf 'export SUTURA_POSTGRES_TIER_CA=%s\n' "$tls_ca"
+        printf 'export SUTURA_POSTGRES_TIER_CLIENT_CERT=%s\n' "$tls_client_cert"
+        printf 'export SUTURA_POSTGRES_TIER_CLIENT_KEY=%s\n' "$tls_client_key"
       }
 
       # Is a server up, and up in the way THE SUITE will see it? Nothing is changed, and the answer
@@ -298,6 +429,7 @@ rec {
       # a server whose entry has gone.
       status() {
         pg_ctl -D "$pg" status >/dev/null 2>&1 || return 1
+        port="$(running_port)" || return 3
         sutura-tier-endpoint published "$root" postgres "$pg" "$port" || return 3
       }
 
@@ -342,11 +474,12 @@ rec {
       cd "$tree"
 
       endpoints=.sutura-dev/endpoints.json
-      # The tier derives these itself; the check needs them to reach the postmaster's own pid file
-      # and to assert that a teardown takes the credential with the cluster.
+      # The tier derives its state path itself; the check needs it to reach the postmaster's own pid
+      # file and to assert that a teardown takes the credential with the cluster.
       pg="$NIX_BUILD_TOP/.sutura-dev/pg"
       cred="$pg.cred"
-      port=5432
+      # One allocated number serves the unix socket and the loopback TLS listener. The check reads
+      # it out of the same document the harness does; it is assigned after `start` publishes it.
 
       tier_state() {
         state=0
@@ -381,6 +514,7 @@ rec {
       sutura-postgres-tier start
       expect_state 0 "a server that is running and published"
       expect_entry true "start publishes the service it brought up"
+      port="$(jq -r '.services.postgres.port' "$endpoints")"
       if [ "$(jq -r '.services.postgres.host' "$endpoints")" != "$pg" ]; then
         echo "the published host is not the socket directory the server is listening on" >&2
         exit 1
@@ -391,7 +525,13 @@ rec {
       # when any of these three is unset - so the tier publishing them is what keeps the suite able
       # to reach this server at all, and nothing else in the tree drives that subcommand.
       published="$(sutura-postgres-tier credentials)"
-      for variable in SUTURA_POSTGRES_TIER_USER SUTURA_POSTGRES_TIER_PASSWORD SUTURA_POSTGRES_TIER_DB; do
+      for variable in \
+        SUTURA_POSTGRES_TIER_USER \
+        SUTURA_POSTGRES_TIER_PASSWORD \
+        SUTURA_POSTGRES_TIER_DB \
+        SUTURA_POSTGRES_TIER_CA \
+        SUTURA_POSTGRES_TIER_CLIENT_CERT \
+        SUTURA_POSTGRES_TIER_CLIENT_KEY; do
         if ! printf '%s\n' "$published" | grep -q "^export $variable=."; then
           echo "credentials published no non-empty $variable:" >&2
           printf '%s\n' "$published" >&2
@@ -523,6 +663,13 @@ rec {
         echo "stop left the credential behind: $cred" >&2
         exit 1
       fi
+      # AND THE TLS PRIVATE KEY WENT WITH THE CLUSTER IT SIGNS. `ca.crt` beside it is public, but the
+      # key is exactly what per-cluster generation keeps out of anything reused, and a fresh cluster
+      # handed an old key would present a certificate matching an anchor an earlier run published.
+      if [ -e "$pg.ssl" ]; then
+        echo "stop left the TLS material behind: $pg.ssl" >&2
+        exit 1
+      fi
       refused=0
       sutura-postgres-tier credentials >/dev/null 2>&1 || refused=$?
       if [ "$refused" = 0 ]; then
@@ -569,6 +716,7 @@ rec {
       # asserting it would assert nothing. What survives - and what keeps `start` idempotent over a
       # repeated `just test` - is that a RUNNING server is left alone and its data with it.
       sutura-postgres-tier start
+      port="$(jq -r '.services.postgres.port' "$endpoints")"
       psql -h "$pg" -p "$port" -U postgres -d sutura -v ON_ERROR_STOP=1 \
         -c "CREATE TABLE canary(v int)" -c "INSERT INTO canary VALUES (42)"
       sutura-postgres-tier start

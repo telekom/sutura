@@ -44,6 +44,13 @@ Postgres and DuckDB adapters are dev-dependencies for the same reason, and their
 fail-closed: the Postgres tier is provisioned by `checks.nextest` **and** by `just test` from one
 script, so the two cannot drift.
 
+**A SERVED Postgres source is the other half of that, and it does not contradict it.** Since
+`telekom/sutura#124`/`#125` landed as one change, `sutura-exec-postgres` is also an optional,
+default-off `postgres` dependency of both composition roots: the corpus path reaches it as a
+dev-dependency, and a deployment that writes `kind: postgres` pays the link only when it asks for
+the feature. Nothing a release publishes links it, which is the assertion `checks.shipped-features`
+makes of the artefact.
+
 ## Why a networked adapter hides behind a default-off feature
 
 **Not to save build time - that reason was measured and retracted.** `crane.buildDepsOnly` is
@@ -76,8 +83,8 @@ jobs build them beside the shipped set, so the documented feature-on build is LI
 request rather than argued about. Until it existed the only evidence was a native `cargo check`,
 which stops at metadata and therefore says nothing about the musl link that is the whole risk.
 **What it does not cover:** it links and never runs, and it probes only the features a binary
-declares - `sutura-serve`'s `tls` and `bigquery` are the same shape and are deliberately unprobed,
-because the closure is compiled per target and three probes would triple the job.
+declares - `sutura-serve`'s `tls`, `bigquery` and `postgres` are the same shape and are deliberately
+unprobed, because the closure is compiled per target and a probe for each would multiply the job.
 
 **Running it corrected the paragraph above, and default-off is a decision about the ARTEFACT and
 not about build time** - cite it that way, held by `checks.shipped-features`. `docs/adr/0017` carries

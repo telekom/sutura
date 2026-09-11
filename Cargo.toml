@@ -127,6 +127,25 @@ bytes = "1"
 # The `Sink` API `CopyInSink` drives a text `COPY` through; already in the graph as a
 # tokio-postgres dependency, so naming it adds no supply-chain surface.
 futures-util = "0.3"
+# TLS for a Postgres SOURCE connection: `MakeRustlsConnect`, which turns a `rustls::ClientConfig`
+# into the connector `tokio-postgres::Config::connect` wants. This is the first thing in the
+# workspace that must VERIFY a peer's chain - see `docs/adr/0010` - so the trust store is declared
+# per source and never inherited. `postgres-native-tls` is deliberately absent: two of the four
+# release triples are musl, nixpkgs has no musl OpenSSL, and rustls needs no system library.
+#
+# It has no default features, so its own `ring` provider is the one `tokio-rustls` already asks for.
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
+# rustls itself, to build the `ClientConfig` over the declared trust anchors. The anchor bundle and
+# a client identity are read off disk by `sutura_exec_postgres::tls` (the one adapter that reads
+# those files) using rustls's own trailing `PemObject` reader, so no separate PEM crate enters the
+# graph for it.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# The explicit `transport_anchors: system` choice for an outbound source. This is not a default:
+# configuration has to name the host store before the adapter reads it. On Linux it probes the
+# conventional certificate bundle paths without OpenSSL; macOS and Windows use their platform
+# certificate APIs. The dependency is therefore target-specific at its edge and keeps the Linux
+# musl builds free of a native TLS library.
+rustls-native-certs = "0.8.4"
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
 # was archived by its author: the original still resolves and still parses, and it is exactly
