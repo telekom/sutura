@@ -2585,10 +2585,10 @@ than a flag on the first.</strong></p>
    that carries no filter has no predicate at all, and no clause is the correct rendering rather
    than an error.</li>
 </ol>
-<p>Everything else is shared with <code>generate</code> on purpose - <code>column</code>, <code>aliased</code>, <code>aggregate</code>,
-<code>term_expression</code>, <code>predicate</code>, <code>bucket_expression</code>, <code>joined</code> and <code>render</code> - so a
-change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
-path and not the other.</p>
+<p>Everything else is shared with <code>generate</code> on purpose - <code>column</code>,
+<code>aliased</code>, <code>aggregate</code>, <code>term_expression</code>, <code>predicate</code>, <code>bucket_expression</code>,
+<code>joined</code> and <code>render</code> - so a change to identifier quoting, to placeholder style or to how a
+term renders cannot apply to one path and not the other.</p>
 <p><strong>Nothing a RELEASE runs calls this</strong>, and the reason is worth stating precisely because it used
 to read <em>there is no splitter</em>: there is one - <code>sutura_semantic::federated_plan</code> - and
 <code>sutura-exec-duckdb</code> calls this from a leg it was handed. What no release does is link an adapter
@@ -3131,10 +3131,10 @@ than a flag on the first.</strong></p>
    that carries no filter has no predicate at all, and no clause is the correct rendering rather
    than an error.</li>
 </ol>
-<p>Everything else is shared with <code>generate</code> on purpose - <code>column</code>, <code>aliased</code>, <code>aggregate</code>,
-<code>term_expression</code>, <code>predicate</code>, <code>bucket_expression</code>, <code>joined</code> and <code>render</code> - so a
-change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
-path and not the other.</p>
+<p>Everything else is shared with <code>generate</code> on purpose - <code>column</code>,
+<code>aliased</code>, <code>aggregate</code>, <code>term_expression</code>, <code>predicate</code>, <code>bucket_expression</code>,
+<code>joined</code> and <code>render</code> - so a change to identifier quoting, to placeholder style or to how a
+term renders cannot apply to one path and not the other.</p>
 <p><strong>Nothing a RELEASE runs calls this</strong>, and the reason is worth stating precisely because it used
 to read <em>there is no splitter</em>: there is one - <code>sutura_semantic::federated_plan</code> - and
 <code>sutura-exec-duckdb</code> calls this from a leg it was handed. What no release does is link an adapter

@@ -3262,8 +3262,10 @@ variants share is that the executed value is an owned <code>String</code> produc
 function. The shipped library models exactly that step - <code>codeql/rust/frameworks/stdlib</code> carries
 <code>alloc::fmt::format</code> as <code>Argument[0]</code> to <code>ReturnValue</code>, <code>taint</code>, <code>manual</code> - and the row <strong>is
 loaded</strong>. It is inert: <strong>the database contains no function whose canonical path is <code>alloc::fmt::format</code>,
-and none beginning <code>alloc::</code> at all</strong>, because a buildless database extracts the crate's own
-dependencies but not <code>alloc</code>/<code>std</code>. The summary has no callable to attach to, so the step silently
+and none beginning <code>alloc::</code> at all</strong>. The cause recorded here at the time - <em>a buildless database
+extracts the crate's own dependencies but not <code>alloc</code>/<code>std</code></em> - <strong>is wrong, and the measurement that
+replaces it is further down this record</strong>: the sysroot IS extracted, and its canonical paths are
+UNRESOLVED. Either way the summary has no callable to attach to, so the step silently
 does not exist. Every cargo dependency, <code>rusqlite</code> included, <em>is</em> extracted - which is why the sink
 is recognised and the direct variant flows.</p>
 <p><strong>The first reading of this was wrong, and the correction is the part worth keeping.</strong> It was first
