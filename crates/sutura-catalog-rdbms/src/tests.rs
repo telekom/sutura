@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, Metric, Model};
+use sutura_domain::catalog::{Definitions, Description, InvalidDescription, Metric, Model};
 use sutura_domain::knowledge::{
     Capability, GlossaryEntry, InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase,
     Referent,
@@ -184,6 +184,71 @@ impl DictionaryReader for SparseReader {
     fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
         Ok(self.0.clone())
     }
+}
+
+/// A table comment carrying a control character refuses the load rather than altering the prose.
+///
+/// Not a theoretical guard. `Description::parse` refuses exactly the set `sutura_app::prompt::quote`
+/// DROPS, and a bare `\r` is the reachable member: a comment typed in a Windows editor - or read
+/// from a CRLF dump - carries one, the agent-facing renderer removes it, and the definition digest
+/// is taken over the AUTHORED text. So the prose an agent reads is not the prose that was pinned,
+/// with nothing downstream able to tell. This adapter must surface that as a refusal naming the
+/// table; normalising it would be the adapter altering authored text.
+///
+/// The `\r` is mid-prose because `Description::parse` trims first - a description that merely *ends*
+/// in one is not refused at all, and a test written that way would assert nothing.
+#[test]
+fn a_table_comment_carrying_a_control_character_refuses_the_load() {
+    let crlf = SparseReader(Dictionary::new(
+        vec![Table::new(
+            "orders".to_owned(),
+            vec!["order_id".to_owned()],
+            Some("Orders placed by customers.\r\nOne row per order.".to_owned()),
+        )],
+        Vec::new(),
+    ));
+    let refused = RdbmsCatalog::new(name(), version(), crlf)
+        .load()
+        .expect_err("a control character the renderer would drop is not a loadable description");
+    match refused {
+        RdbmsError::Description { table, cause } => {
+            assert_eq!(table, "orders", "the refusal names the table a reader has to go back to");
+            assert_eq!(cause, InvalidDescription::ControlCharacter { code: 0x0D });
+        }
+        other => panic!("a description the renderer would alter must refuse as `Description`: {other:?}"),
+    }
+}
+
+/// A reader that cannot read its dictionary.
+///
+/// The port's first FALLIBLE implementor, and the reason it exists: every other one in the tree
+/// hands back a recorded [`Dictionary`], so `RdbmsError::Read` was constructed nowhere and the `?`
+/// on `read_dictionary` could be deleted with the whole suite still green. A fake at the port
+/// boundary rather than a stubbed socket - the port's contract includes its failure.
+struct FailingReader;
+
+impl DictionaryReader for FailingReader {
+    fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
+        Err(RdbmsError::Read("the dictionary connection was refused".into()))
+    }
+}
+
+/// A reader's failure is surfaced by the load, not swallowed into an empty bundle.
+///
+/// The failure mode this closes is the quiet one, and it is measured rather than argued: with the
+/// `?` on `read_dictionary` neutralised, this load SUCCEEDS and pins a bundle of `models: {}` - a
+/// deployment told its schema is empty rather than unreadable. The variant is asserted rather than
+/// error-ness because the variant is what a caller branches on, which is the point of a typed
+/// error; the swallowed read is already caught by the load returning `Ok` at all.
+#[test]
+fn a_reader_failure_is_surfaced_by_the_load() {
+    let refused = RdbmsCatalog::new(name(), version(), FailingReader)
+        .load()
+        .expect_err("a reader that cannot read has no dictionary to assemble");
+    assert!(
+        matches!(refused, RdbmsError::Read(_)),
+        "the reader's own failure must reach the caller unchanged: {refused:?}"
+    );
 }
 
 /// Content for a knowledge kind the adapter did not declare fails the load.
