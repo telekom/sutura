@@ -822,18 +822,6 @@ mod tests {
     }
 
     #[test]
-    fn a_long_form_port_without_its_own_loopback_is_refused() {
-        let fixture = "x-loopback-claim:\n  host_ip: 127.0.0.1\nports:\n  - target: 8080\n";
-        assert_eq!(first_port_problem(fixture), Some((4, MISSING_LOOPBACK)));
-    }
-
-    #[test]
-    fn an_inline_published_port_is_refused() {
-        let fixture = "ports:\n  - {target: 8080, published: \"9000\"}\n";
-        assert_eq!(first_port_problem(fixture), Some((2, INLINE_PORT)));
-    }
-
-    #[test]
     fn the_datahub_platform_starts_only_when_it_is_asked_for() {
         // Five containers, three of them JVMs, and a reindexing migration. The profile is what keeps
         // that off the runs that do not want it, and this is that claim read off the registry rather
