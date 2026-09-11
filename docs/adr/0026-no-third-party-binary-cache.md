@@ -75,7 +75,7 @@ are exactly what a pull request restores from, and there is no second carrier st
 
 * **Not that a binary cache would not help a cold run.** A genuinely cold run - a moved
   `flake.lock` or `Cargo.lock` - still compiles a dependency closure that is one of the largest in
-  the ecosystem, and that is what `ci.yml`'s 120-minute timeout exists for. A hosted cache is a
+  the ecosystem, and that is what `ci.yml`'s job timeout exists for. A hosted cache is a
   real answer to that case. It is refused here because the case is rare, the gain is unmeasured
   against a 64% spread, and it costs a trusted third-party key.
 * **Not that the Actions cache is fast.** `#490` is explicit that it buys hygiene and legibility.
