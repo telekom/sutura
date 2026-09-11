@@ -79,13 +79,34 @@ jobs:
       # sits in no nitro push list. Realising it into the shared `sutura` cache lets those steps
       # substitute instead of rebuild. It is a package output, not a release binary - the reference
       # gate ignores non-`checks` packages by design.
+      #
+      # **`hygiene` IS REALISED FIRST AND ALONE, AND THAT IS A RACE, NOT A TIDYING (#600).** The
+      # daemon's post-build hook publishes each path AS IT IS BUILT, so what decides whether a
+      # consumer substitutes this derivation or builds its own copy is the wall-clock moment it
+      # lands. `docs.yml` has two `publish` legs that realise the same `hygiene` derivation, and at
+      # v0.5.1 the main leg started building its own copy at 08:39:02 - 18 s BEFORE this hook
+      # published it at 08:39:20 - which is why those two legs measured 246 s and 70 s for one
+      # identical derivation. In a merged graph nix decides when `hygiene` finishes; in its own
+      # invocation it finishes as early as it can. The tag leg is out of reach either way (it
+      # evaluated at 08:34:03, 34 s before this step started), so the prize is three realises of
+      # that derivation per release becoming two, not one.
+      #
+      # The cost is real and is paid in the right place: `hygiene` no longer overlaps the other
+      # roots, so this step's own wall clock can rise by most of that derivation. This workflow
+      # reports no status-check context and can gate no merge (see the job comment above), so
+      # runner time here is the cheapest kind in the repository.
+      #
+      # A CACHE HIT ON THIS OUTPUT IS PROOF THE GATE PASSED ON THAT TREE, which is why publishing it
+      # earlier needs no `if:`, no extra permission and no soundness argument: the derivation IS the
+      # check. Whether it changes any wall clock is a HYPOTHESIS until a release shows it - the two
+      # docs legs share one concurrency group, so they are serialized and no figure is promised.
       - name: Realise and publish the shared closure
         run: |
           set -eu
+          nix build --print-build-logs .#checks.x86_64-linux.hygiene
           nix build --print-build-logs \
             .#checks.x86_64-linux.nextest \
             .#checks.x86_64-linux.clippy \
-            .#checks.x86_64-linux.hygiene \
             .#xtask
 
   # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
