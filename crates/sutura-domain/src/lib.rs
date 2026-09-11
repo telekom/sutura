@@ -85,6 +85,8 @@ pub mod model;
 pub mod pinned;
 pub mod plan;
 pub mod query;
+#[cfg(test)]
+mod serialized_form_tests;
 pub mod source;
 mod text;
 pub mod warehouse;
