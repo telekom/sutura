@@ -184,8 +184,9 @@ repos:
       # (`fuzz/`, the harness, and the crates each target header names). What runs is `fuzz-smoke`:
       # replay every committed seed once, mutating nothing, so the verdict is a function of the
       # committed files rather than a fresh random path - the only fuzz half that belongs anywhere
-      # near a merge gate (fuzz.yml says so at length). The exhaustive, mutating search stays on
-      # the schedule and the push-to-main workflow. This hook is not per-target tuned because the
+      # near a merge gate (fuzz.yml says so at length). The exhaustive, mutating search runs at a
+      # release and on a manual dispatch, and nowhere else - this hook and `check-fuzz` are the
+      # regression half in full. This hook is not per-target tuned because the
       # file->target map is a review claim written in each target's header, and a hand-table would
       # rot; when the delta lands in a shared crate it replays both (there are two) targets.
       # `require_serial` so two simultaneous prek partitions do not both build the one harness.

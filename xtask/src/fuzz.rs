@@ -11,6 +11,12 @@
 //! hygiene sweep on every pull request - unlike fuzzing itself, which `.github/workflows/fuzz.yml`
 //! argues has to stay off the merge path.
 //!
+//! **And it refuses the fuzzer inside the RELEASE workflow**, which is the same argument one venue
+//! over: fuzzing runs on the release tag now, and a job that ran it inside `release.yml` would be
+//! one `needs:` away from letting a fresh random finding block every release. See
+//! [`RELEASE_WORKFLOW`] for why that is worse than the cost it would save, and
+//! [`FUZZ_INVOCATIONS`] for what the refusal cannot see.
+//!
 //! **Fails closed.** No target directory, no manifest, no matrix block and an empty target list are
 //! all failures rather than a pass over silence.
 //!
@@ -58,6 +64,30 @@ const DICTIONARIES_DIR: &str = "fuzz/dictionaries";
 
 /// The workflow whose matrix decides which targets CI spends a budget on.
 const WORKFLOW: &str = ".github/workflows/fuzz.yml";
+
+/// The workflow that publishes a release, held against the fuzzer never running INSIDE it.
+///
+/// **Why this is a refusal and not a sentence in a header.** Fuzzing is unbounded by nature: a
+/// target that finds nothing today finds something on a path nobody has generated yet, and
+/// `sql_expression` has produced a real defect on runs before now. A fuzz job inside this file is
+/// one `needs:` away from deciding whether a tag may ship, and at that point the first fresh
+/// finding blocks every release until somebody fixes it - which is a far worse outcome than the
+/// cost of running the fuzzer where it cannot. So [`WORKFLOW`] runs on the same `v*` tag as its own
+/// SEPARATE run: no job in one workflow can depend on another workflow's run, so the structure
+/// carries the property rather than a reviewer remembering it.
+const RELEASE_WORKFLOW: &str = ".github/workflows/release.yml";
+
+/// The three ways the fuzzer is invoked in this repository: the runner script, the flake app, and
+/// `cargo-fuzz` itself.
+///
+/// **A NAME REFUSAL AND NOTHING MORE**, and the limits matter more than the list. It reads one
+/// file's text, so a fuzz job in a workflow `release.yml` CALLS is invisible to it. It says nothing
+/// about [`WORKFLOW`]'s own triggers: a `pull_request` or `merge_group` leg added there is held
+/// elsewhere, by `check-workflows`, which requires every job that reports on a gating event to be
+/// classified in `devco/required-contexts`. And a re-added `schedule` or push-to-`main` leg is held
+/// by nothing here on purpose - that is a COST decision, reversible in one line, not a way for
+/// fuzzing to block a release.
+const FUZZ_INVOCATIONS: [&str; 3] = ["run-fuzz.sh", "nix run .#fuzz", "cargo fuzz"];
 
 /// The lock the fuzz crate resolves against.
 ///
@@ -165,6 +195,24 @@ fn matrix_targets(workflow: &str) -> Result<BTreeSet<String>, String> {
     Ok(names)
 }
 
+/// The 1-indexed lines of the release workflow that invoke the fuzzer, with the form each used.
+///
+/// Comment lines are skipped: this file's own argument for the split names the runner script, and a
+/// gate that refused the sentence explaining it would make the explanation unwritable.
+fn release_invocations(workflow: &str) -> Vec<(usize, &'static str)> {
+    workflow
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim_start().starts_with('#'))
+        .flat_map(|(index, line)| {
+            FUZZ_INVOCATIONS
+                .iter()
+                .filter(move |needle| line.contains(**needle))
+                .map(move |needle| (index.saturating_add(1), *needle))
+        })
+        .collect()
+}
+
 /// Does the manifest compile the harness with the shipped panic strategy?
 fn aborts_on_panic(manifest: &str) -> bool {
     manifest.lines().any(|line| line.trim() == PANIC_ABORT)
@@ -229,6 +277,7 @@ fn report(
     harnessed: &BTreeSet<String>,
     matrix: &BTreeSet<String>,
     refused: &[(String, usize)],
+    in_release: &[(usize, &str)],
     locked: bool,
     aborts: bool,
 ) -> Verdict {
@@ -272,6 +321,11 @@ fn report(
             "{DICTIONARIES_DIR}/{dictionary}: error in line {line} - not a `name=\"value\"` entry, so libFuzzer refuses the dictionary after the build and the target executes nothing"
         ));
     }
+    for (line, form) in in_release {
+        failures.push(format!(
+            "{RELEASE_WORKFLOW}:{line} invokes the fuzzer (`{form}`) - a fuzz job there is one `needs:` away from deciding whether a tag ships, and the first finding on a fresh random path would then block every release. {WORKFLOW} runs it on the same `v*` tag as a separate run, which no release job can depend on"
+        ));
+    }
     if !locked {
         failures.push(format!(
             "{LOCK} is absent - a fuzz run against an unlocked graph is not reproducible"
@@ -291,7 +345,9 @@ fn report(
         eprintln!("  {failure}");
     }
     eprintln!();
-    eprintln!("Add the target to fuzz/Cargo.toml, seed fuzz/seeds/<target>/, and name it in the");
+    eprintln!("A fuzz invocation in the release workflow belongs in .github/workflows/fuzz.yml,");
+    eprintln!("which runs on the same tag without a release job depending on it. Otherwise: add");
+    eprintln!("the target to fuzz/Cargo.toml, seed fuzz/seeds/<target>/, and name it in the");
     eprintln!("matrix of .github/workflows/fuzz.yml. An entry in fuzz/dictionaries/<target>.dict is");
     eprintln!("`name=\"value\"`, escaping only \\\\, \\\" and \\xAB. `just fuzz-smoke` replays what is");
     eprintln!("committed.");
@@ -310,6 +366,14 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
     let Ok(workflow) = std::fs::read_to_string(root.join(WORKFLOW)) else {
         eprintln!("xtask check-fuzz: {WORKFLOW} is unreadable - nothing would run a target");
+        return Verdict::Fail;
+    };
+    // Fails closed for the reason every other read here does: a release workflow this gate cannot
+    // open is one whose fuzz job it cannot refuse.
+    let Ok(release) = std::fs::read_to_string(root.join(RELEASE_WORKFLOW)) else {
+        eprintln!(
+            "xtask check-fuzz: {RELEASE_WORKFLOW} is unreadable - a fuzz job inside it would gate every release, and this is what refuses one"
+        );
         return Verdict::Fail;
     };
 
@@ -380,8 +444,19 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let bins = declared_bins(&manifest);
     let locked = root.join(LOCK).is_file();
     let aborts = aborts_on_panic(&manifest);
+    let in_release = release_invocations(&release);
     match matrix_targets(&workflow) {
-        Ok(matrix) => report(&sources, &bins, &seeded, &harnessed, &matrix, &refused, locked, aborts),
+        Ok(matrix) => report(
+            &sources,
+            &bins,
+            &seeded,
+            &harnessed,
+            &matrix,
+            &refused,
+            &in_release,
+            locked,
+            aborts,
+        ),
         Err(message) => {
             eprintln!("xtask check-fuzz: {message}");
             Verdict::Fail
@@ -412,6 +487,7 @@ mod tests {
             &set(&["sql_expression", "question_body"]),
             &set(&["sql_expression", "question_body"]),
             &[],
+            &[],
             true,
             true,
         );
@@ -426,6 +502,7 @@ mod tests {
             &set(&["sql_expression"]),
             &set(&["sql_expression"]),
             &set(&["sql_expression"]),
+            &[],
             &[],
             true,
             true,
@@ -442,6 +519,7 @@ mod tests {
             &set(&["sql_expression"]),
             &set(&[]),
             &[],
+            &[],
             true,
             true,
         );
@@ -456,6 +534,7 @@ mod tests {
             &set(&[]),
             &set(&["sql_expression"]),
             &set(&["sql_expression"]),
+            &[],
             &[],
             true,
             true,
@@ -472,6 +551,7 @@ mod tests {
                 &set(&["sql_expression"]),
                 &set(&["sql_expression"]),
                 &set(&["sql_expression"]),
+                &[],
                 &[],
                 locked,
                 aborts,
@@ -511,6 +591,7 @@ mod tests {
             &set(&["sql_expression"]),
             &set(&["sql_expression"]),
             &[(String::from("sql_expression.dict"), 17)],
+            &[],
             true,
             true,
         );
@@ -564,6 +645,56 @@ mod tests {
         assert!(
             unparseable_entries("# only a comment\n\n\tsum=\"SUM(\"\n").is_empty(),
             "comments, blank lines and a valid entry are not defects"
+        );
+    }
+
+    #[test]
+    fn a_fuzz_invocation_in_the_release_workflow_fails() {
+        let verdict = report(
+            &set(&["sql_expression"]),
+            &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
+            &set(&["sql_expression"]),
+            &set(&["sql_expression"]),
+            &set(&["sql_expression"]),
+            &[],
+            &[(41, "run-fuzz.sh")],
+            true,
+            true,
+        );
+        assert!(verdict == Verdict::Fail, "a fuzz job inside the release workflow must fail");
+    }
+
+    /// Every form a release job could reach the fuzzer by, and the one shape that must stay
+    /// writable: the comment explaining why the split exists names the runner script itself.
+    #[test]
+    fn each_invocation_form_is_found_and_a_comment_about_one_is_not() {
+        assert_eq!(
+            release_invocations("jobs:\n  fuzz:\n    steps:\n      - run: bash nix/run-fuzz.sh run 900 x\n"),
+            vec![(4, "run-fuzz.sh")]
+        );
+        assert_eq!(
+            release_invocations("      - run: nix run .#fuzz -- run\n"),
+            vec![(1, "nix run .#fuzz")]
+        );
+        assert_eq!(
+            release_invocations("      - run: cargo fuzz run x\n"),
+            vec![(1, "cargo fuzz")]
+        );
+        assert!(
+            release_invocations("# fuzzing runs on the same tag via nix/run-fuzz.sh, in its own workflow\n").is_empty(),
+            "a comment naming the runner is the explanation, not an invocation"
+        );
+    }
+
+    #[test]
+    fn the_release_workflow_in_this_tree_invokes_no_fuzzer() {
+        let Some(root) = repo::root() else { return };
+        let Ok(release) = std::fs::read_to_string(root.join(RELEASE_WORKFLOW)) else {
+            panic!("{RELEASE_WORKFLOW} has to be readable - the rule fails closed on it");
+        };
+        assert!(
+            release_invocations(&release).is_empty(),
+            "the release workflow must not run the fuzzer - see RELEASE_WORKFLOW for why"
         );
     }
 }
