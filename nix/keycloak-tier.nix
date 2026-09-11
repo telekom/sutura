@@ -110,15 +110,24 @@ rec {
       client=${client}
       subjects="${builtins.concatStringsSep " " subjects}"
 
-      # The server's own directory. In the sandbox `$NIX_BUILD_TOP` is per-build and goes away with
-      # it; in a dev shell it is keyed by a hash of the worktree so two worktrees cannot share an
-      # embedded store - the fixture nobody can debug.
-      if [ -n "''${NIX_BUILD_TOP:-}" ]; then
-        home="$NIX_BUILD_TOP/sutura-keycloak"
-      else
-        key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
-        home="''${TMPDIR:-/tmp}/sutura-keycloak-$key"
-      fi
+      # The server's own directory, UNDER THE WORKTREE - where the tree is the key and there is
+      # nothing to derive, which is `github.com/telekom/sutura#405`'s first answer and was this
+      # tier's second.
+      #
+      # **The dev-shell arm it replaces put the CALLER'S ENVIRONMENT in the tier's identity.**
+      # `''${TMPDIR:-/tmp}/sutura-keycloak-$key` keys the home, and the pidfile is inside it, so
+      # `running` - `start`'s guard - is keyed by `$TMPDIR` too. Measured for
+      # `github.com/telekom/sutura#528` against a live JVM: same root, a different `TMPDIR`, and
+      # `running` answers false over a server that is up. `start` then takes its cold path, `rm
+      # -rf`s a home nothing is using, and leaves TWO JVMs on two OS-chosen ports sharing one realm
+      # file - the outcome that guard exists to prevent, reached by a route nobody had stated.
+      #
+      # Keycloak needs no short path: it listens on TCP, and a unix socket's ~100-byte cap is the
+      # whole reason `nix/postgres-tier.nix` still takes a machine-shared root. The sandbox arm goes
+      # with it rather than being kept as a second spelling - `$NIX_BUILD_TOP/worktree` IS the root
+      # there, so both venues now run one derivation and the venue that can be tested is the one a
+      # developer gets. Nothing in this script reads `$TMPDIR` or `$NIX_BUILD_TOP` any more.
+      home="$state/keycloak"
       pidfile="$home/tier.pid"
       log="$home/server.log"
       admincfg="$home/kcadm.json"
@@ -411,6 +420,11 @@ rec {
         # credentials for a realm that is gone.
         sutura-tier-endpoint withdraw "$root" keycloak
         rm -f "$realmfile"
+        # AND THE SERVER'S OWN DIRECTORY, which lives under the worktree now: an embedded store is
+        # provisioned on demand, nothing in it is meant to outlive a teardown, and `start`'s cold
+        # path would `rm -rf` it on the way up anyway. `nix/postgres-tier.nix`'s `stop` takes its
+        # data directory for the same reason, measured there at 40 MB a run left behind.
+        rm -rf "''${home:?the tier home is unset}"
       }
 
       case "''${1:-}" in
@@ -464,8 +478,10 @@ rec {
       cd "$tree"
 
       # The tier derives this itself; the check needs it to reach the JVM's own pid file, which is
-      # the only thing that can tell a heal from a second server.
-      kc_home="$NIX_BUILD_TOP/sutura-keycloak"
+      # the only thing that can tell a heal from a second server. Under the worktree, and the
+      # sandbox reads the SAME derivation a dev shell does now - `github.com/telekom/sutura#528`
+      # records that the `$TMPDIR` arm this replaces went unexercised here for exactly that reason.
+      kc_home="$tree/.sutura-dev/keycloak"
 
       # `status` answers by EXIT CODE and its middle answer is 3, so a bare `if` cannot see it: an
       # `if ... status` over 3 is false, exactly as a boolean caller should read it, which makes an
@@ -502,6 +518,20 @@ rec {
         exit 1
       fi
       expect_state 0 "the readable live server returns to the published state"
+
+      # --- THE TIER'S IDENTITY IS THE WORKTREE, AND NOT THE CALLER'S ENVIRONMENT ---
+      # `github.com/telekom/sutura#528`. The home was `''${TMPDIR:-/tmp}/sutura-keycloak-$key` in a
+      # dev shell, so a caller whose `TMPDIR` differed looked for the pidfile elsewhere, `running`
+      # answered false over this live JVM, and `start`'s cold path left two servers sharing one
+      # realm file. `NIX_BUILD_TOP` is unset in here as well as `TMPDIR` being moved, and both are
+      # load-bearing: with it set, the arm this replaced took the sandbox branch and the assertion
+      # could not fail for the reason it is written.
+      ( elsewhere="$NIX_BUILD_TOP/another-tmpdir"
+        mkdir -p "$elsewhere"
+        unset NIX_BUILD_TOP
+        export TMPDIR="$elsewhere"
+        expect_state 0 "a live tier is found by a caller whose TMPDIR and NIX_BUILD_TOP are not the ones that started it"
+      )
 
       # The discovery contract: a harness learns the port from this file and nowhere else,
       # so a tier that started and published nothing is a tier no test can reach.
@@ -614,6 +644,11 @@ rec {
       # clobbering above, in the other direction.
       sutura-keycloak-tier stop
       test ! -f "$realm"
+      # AND THE HOME GOES WITH THE SERVER. It sits under the worktree now, so a home left behind is
+      # an embedded store accumulating in a developer's checkout rather than in a directory the
+      # operating system eventually reclaims - `nix/postgres-tier.nix` measured that at nine
+      # directories of 40 MB from four separate days.
+      test ! -e "$kc_home"
       test -f "$endpoints"
       test "$(jq -r '.services | has("keycloak")' "$endpoints")" = false
       test "$(jq -r '.services.postgres.port' "$endpoints")" = 5432
