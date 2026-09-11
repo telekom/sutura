@@ -216,6 +216,30 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         except: &[],
     },
     Contradicted {
+        // ANCHORED ON `because`, and that is the whole design of this row: the record KEEPS the
+        // superseded sentence, in italics and marked wrong, seventy lines above the measurement
+        // that replaced it - and then quotes it a second time inside that correction. A rule
+        // keyed on the sentence alone would refuse a record for quoting what it corrects, so what
+        // is forbidden is ASSERTING it, which is the connector rather than the words.
+        name: "a buildless CodeQL database leaves out `alloc`/`std`",
+        wordings: &["because a buildless database extracts the crate's own dependencies but not"],
+        // The measurement that replaced the cause. If it ever leaves the record, this rule
+        // retires rather than forbidding a sentence nothing in the tree disproves any more.
+        evidence: &[Evidence {
+            path: "docs/adr/0025-what-a-scorecard-zero-says-about-this-repository.md",
+            holds: "3016 sysroot files",
+        }],
+        instead: "the sysroot IS extracted - \
+                  `docs/adr/0025-what-a-scorecard-zero-says-about-this-repository.md` counts 3016 \
+                  files and 98903 functions from it - and no `alloc::`, `core::` or `std::` \
+                  canonical path exists in the database at all, because the extractor could not \
+                  determine the edition and left those files UNRESOLVED. Same consequence, \
+                  different mechanism, and the difference is what costs: turning \
+                  dependency-as-source extraction on does not reach an unresolved file",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
         name: "the prompt renders only what the catalog endpoint renders",
         wordings: &["renders exactly what `GET /v1/catalog` renders and not one field more"],
         evidence: &[Evidence {
