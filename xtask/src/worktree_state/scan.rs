@@ -591,12 +591,12 @@ fn go(digest: &str) -> PathBuf {
     #[test]
     fn a_shell_derivation_inside_quotes_is_still_a_derivation() {
         // The other half of making the blanking LANGUAGE-scoped. A shell `"$( .. )"` interpolates
-        // and executes, so `pwd -P` inside `key="$(printf '%s' "$root" | cksum ..)"` IS the tiers'
+        // and executes, so `pwd -P` inside `key="$(printf '%s' "$root" | sha256sum ..)"` IS the tiers'
         // own key; blanking it would have reddened both tier scripts.
         let text = r#"
 root="$(pwd -P)"
-key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
-pg="${TMPDIR:-/tmp}/sutura-pg-$key"
+key="$(printf '%s' "$root" | sha256sum | cut -c1-8)"
+pg="${TMPDIR:-/tmp}/sutura-$key-pg"
 "#;
         let found = takings("nix/postgres-tier.nix", Language::Shell, text);
         assert!(found.iter().any(|(_, answer)| *answer == Keyed::Worktree), "{found:?}");
@@ -837,8 +837,8 @@ echo hi >"$log"
         // conservation law counts acts rather than lines for exactly this reason.
         let keyed = r#"
 root="$(pwd -P)"
-key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
-pg="${TMPDIR:-/tmp}/sutura-pg-$key"
+key="$(printf '%s' "$root" | sha256sum | cut -c1-8)"
+pg="${TMPDIR:-/tmp}/sutura-$key-pg"
 "#;
         let found = takings("nix/postgres.sh", Language::Shell, keyed);
         assert_eq!(found.len(), 2, "{found:?}");
