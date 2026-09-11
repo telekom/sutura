@@ -1,54 +1,52 @@
 //! Turning a committed fixture CSV into Postgres tables, for the corpus harness.
 //!
 //! The example models are files; a relational data system has to be *given* tables before it can
-//! answer. This module infers a column type per column from the values, and renders the
-//! `CREATE TABLE` and `COPY ... FROM STDIN` statements plus the copy body. Type inference runs every
-//! time from the same committed bytes, so a fixture cannot drift from the CSV on disk.
+//! answer. The existing importer keeps its historical permissive inference; the conformance path
+//! maps the shared exact fixture types without changing that API.
 
 use sutura_domain::model::{ColumnName, InvalidIdentifier, TableName};
+#[cfg(feature = "fixtures")]
+use sutura_domain::warehouse::csv::{self, FixtureType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PgType {
     Boolean,
     BigInt,
+    Numeric { scale: u8 },
     Double,
     Date,
     Text,
 }
 
 impl PgType {
-    const fn sql(self) -> &'static str {
+    fn sql(self) -> String {
         match self {
-            Self::Boolean => "BOOLEAN",
-            Self::BigInt => "BIGINT",
-            Self::Double => "DOUBLE PRECISION",
-            Self::Date => "DATE",
-            Self::Text => "TEXT",
+            Self::Boolean => String::from("BOOLEAN"),
+            Self::BigInt => String::from("BIGINT"),
+            Self::Numeric { scale } => format!("NUMERIC(38,{scale})"),
+            Self::Double => String::from("DOUBLE PRECISION"),
+            Self::Date => String::from("DATE"),
+            Self::Text => String::from("TEXT"),
         }
     }
 
-    /// Whether this type can hold the given non-empty cell.
     fn holds(self, value: &str) -> bool {
         let value = value.trim();
         match self {
             Self::Boolean => matches!(value, "true" | "false" | "t" | "f"),
             Self::BigInt => value.parse::<i64>().is_ok(),
+            Self::Numeric { .. } => false,
             Self::Double => value.parse::<f64>().is_ok(),
             Self::Date => is_date(value),
-            // Text is the fallback and can hold anything; chosen only after every narrower type has
-            // been ruled out for at least one value in the column.
             Self::Text => true,
         }
     }
 }
 
-/// A date-shaped value: `YYYY-MM-DD`.
 fn is_date(value: &str) -> bool {
     let bytes = value.as_bytes();
-    if bytes.len() != 10 {
-        return false;
-    }
-    bytes.get(4) == Some(&b'-')
+    bytes.len() == 10
+        && bytes.get(4) == Some(&b'-')
         && bytes.get(7) == Some(&b'-')
         && bytes
             .iter()
@@ -58,12 +56,17 @@ fn is_date(value: &str) -> bool {
 
 /// The inferred schema of one fixture table, plus the copy body.
 pub(crate) struct Schema {
-    columns: Vec<(String, PgType)>,
+    columns: Vec<PgColumn>,
     /// The data rows, header excluded, each already joined into one CSV line.
     body: String,
 }
 
-/// One column being accumulated during inference: its name and the cells seen so far.
+/// One inferred column: its name, its type, and - for a decimal - the observed scale.
+struct PgColumn {
+    name: String,
+    kind: PgType,
+}
+
 struct ColumnAccumulator {
     name: String,
     values: Vec<String>,
@@ -76,7 +79,7 @@ impl Schema {
         let defines: Vec<String> = self
             .columns
             .iter()
-            .map(|(name, kind)| format!("\"{name}\" {}", kind.sql()))
+            .map(|column| format!("\"{}\" {}", column.name, column.kind.sql()))
             .collect();
         format!(
             "DROP TABLE IF EXISTS \"{}\"; CREATE TABLE \"{}\" ({})",
@@ -88,7 +91,7 @@ impl Schema {
 
     /// The `COPY ... FROM STDIN` statement.
     pub(crate) fn copy_statement(&self, table: &TableName) -> String {
-        let names: Vec<String> = self.columns.iter().map(|(name, _)| format!("\"{name}\"")).collect();
+        let names: Vec<String> = self.columns.iter().map(|column| format!("\"{}\"", column.name)).collect();
         format!(
             "COPY \"{}\" ({}) FROM STDIN WITH (FORMAT csv)",
             table.as_str(),
@@ -104,31 +107,22 @@ impl Schema {
 
 /// Splits one CSV line on commas. The fixtures carry no quoted commas, embedded newlines or quotes,
 /// which is the ceiling this parser accepts - growing a real CSV parser here is the day a fixture
-/// needs one, and that is `ponytail:` the boundary the importer is allowed to hold.
+/// needs one, and that is the boundary the importer is allowed to hold.
 fn split_row(line: &str) -> Vec<String> {
     line.split(',').map(|cell| cell.trim().to_owned()).collect()
 }
 
-/// Infers the schema of a fixture from its text.
-///
-/// The column names are a CSV header split on commas and interpolated into `CREATE TABLE` and
-/// `COPY` inside double quotes with no other check, so each one is parsed as a [`ColumnName`] first.
-/// A repo fixture has no live hole, but a DDL renderer that trusts its input is precisely the
-/// "document read off disk" shape the repository refuses to trust.
 pub(crate) fn infer_schema(text: &str) -> Result<Schema, InvalidIdentifier> {
     let mut lines = text.lines();
-    let header = lines.next().unwrap_or_default();
-    let names: Vec<String> = split_row(header);
+    let names = split_row(lines.next().unwrap_or_default());
     let column_count = names.len();
-
     for name in &names {
         ColumnName::parse(name)?;
     }
-
-    let mut accumulators: Vec<ColumnAccumulator> = names
-        .iter()
+    let mut columns: Vec<ColumnAccumulator> = names
+        .into_iter()
         .map(|name| ColumnAccumulator {
-            name: name.clone(),
+            name,
             values: Vec::new(),
         })
         .collect();
@@ -138,35 +132,55 @@ pub(crate) fn infer_schema(text: &str) -> Result<Schema, InvalidIdentifier> {
             continue;
         }
         let mut cells = split_row(line);
-        // Pad or truncate to the declared column count, so a ragged row cannot shift where a value
-        // lands in a later column.
         cells.resize(column_count, String::new());
         for (index, cell) in cells.iter().enumerate() {
-            if let Some(column) = accumulators.get_mut(index) {
+            if let Some(column) = columns.get_mut(index) {
                 column.values.push(cell.clone());
             }
         }
         body_rows.push(cells.join(","));
     }
-
-    let columns: Vec<(String, PgType)> = accumulators
-        .into_iter()
-        .map(|column| {
-            let type_for = [PgType::Boolean, PgType::BigInt, PgType::Double, PgType::Date, PgType::Text]
-                .into_iter()
-                .find(|kind| column.values.iter().all(|cell| cell.is_empty() || kind.holds(cell)));
-            let kind = match type_for {
-                Some(kind) if column.values.iter().any(|cell| !cell.is_empty()) => kind,
-                // A column with no data gets the neutral type; letting the Boolean arm claim it
-                // would be an arbitrary win for a type nothing needed.
-                _ => PgType::Text,
-            };
-            (column.name, kind)
-        })
-        .collect();
-
     let mut body = body_rows.join("\n");
     body.push('\n');
+    let columns = columns
+        .into_iter()
+        .map(|column| PgColumn {
+            name: column.name,
+            kind: [PgType::Boolean, PgType::BigInt, PgType::Double, PgType::Date, PgType::Text]
+                .into_iter()
+                .find(|kind| column.values.iter().all(|cell| cell.is_empty() || kind.holds(cell)))
+                .filter(|_| column.values.iter().any(|cell| !cell.is_empty()))
+                .unwrap_or(PgType::Text),
+        })
+        .collect();
+    Ok(Schema { columns, body })
+}
+
+#[cfg(feature = "fixtures")]
+pub(crate) fn infer_fixture_schema(text: &str) -> Result<Schema, csv::InferenceError> {
+    let columns = csv::infer(text)?;
+    let mut body = text
+        .lines()
+        .skip(1)
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    body.push('\n');
+    let columns = columns
+        .into_iter()
+        .map(|column| PgColumn {
+            name: String::from(column.name().as_str()),
+            kind: match column.kind() {
+                FixtureType::Boolean => PgType::Boolean,
+                FixtureType::Integer => PgType::BigInt,
+                FixtureType::WideInteger => PgType::Numeric { scale: 0 },
+                FixtureType::Decimal { scale } => PgType::Numeric { scale },
+                FixtureType::Real => PgType::Double,
+                FixtureType::Date => PgType::Date,
+                FixtureType::Text => PgType::Text,
+            },
+        })
+        .collect();
     Ok(Schema { columns, body })
 }
 
@@ -181,20 +195,57 @@ mod tests {
     #[test]
     fn infers_the_fixture_column_shapes() {
         let schema = infer_schema(ROWS).expect("the fixture headers are valid identifiers");
-        let kinds: Vec<&str> = schema.columns.iter().map(|(_, kind)| kind.sql()).collect();
+        let kinds: Vec<String> = schema.columns.iter().map(|column| column.kind.sql()).collect();
         assert_eq!(kinds, ["DATE", "BIGINT", "TEXT", "BIGINT", "BOOLEAN", "DOUBLE PRECISION"]);
     }
 
     #[test]
     fn an_empty_column_does_not_collapse_the_scan() {
         let schema = infer_schema("only\n\n\n").expect("a valid header");
-        assert_eq!(schema.columns[0].1, PgType::Text);
+        assert_eq!(schema.columns[0].kind, PgType::Text);
     }
 
     #[test]
     fn a_number_only_column_stays_a_number() {
         let schema = infer_schema("k\n0\n1\n").expect("a valid header");
-        assert_eq!(schema.columns[0].1, PgType::BigInt);
+        assert_eq!(schema.columns[0].kind, PgType::BigInt);
+    }
+
+    #[test]
+    fn legacy_inference_keeps_its_boolean_and_floating_spellings() {
+        let schema = infer_schema("flag,amount\nt,2.4\nf,3.57\n").expect("a valid legacy fixture");
+        let kinds: Vec<String> = schema.columns.iter().map(|column| column.kind.sql()).collect();
+        assert_eq!(kinds, ["BOOLEAN", "DOUBLE PRECISION"]);
+    }
+
+    #[test]
+    fn legacy_rows_are_trimmed_padded_and_truncated() {
+        let schema = infer_schema("a,b\n 1 \n 2 , 3 , 4 \n").expect("a valid legacy fixture");
+        assert_eq!(schema.body(), "1,\n2,3\n");
+    }
+
+    #[test]
+    #[cfg(feature = "fixtures")]
+    fn a_decimal_column_is_exact_not_a_double() {
+        // A fixed-point decimal column is typed NUMERIC with the widest observed scale, rather than
+        // widened to a double - the whole reason a decimal is its own shared type.
+        let schema = infer_fixture_schema("amount\n2.4\n3.57\n").expect("a valid header");
+        assert!(
+            schema
+                .create_statement(&TableName::parse("t").unwrap())
+                .contains("NUMERIC(38,2)")
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "fixtures")]
+    fn scientific_notation_uses_the_shared_real_type() {
+        let schema = infer_fixture_schema("amount\n1e2\n2e2\n").expect("a valid header");
+        assert!(
+            schema
+                .create_statement(&TableName::parse("t").unwrap())
+                .contains("DOUBLE PRECISION")
+        );
     }
 
     #[test]

@@ -50,6 +50,14 @@ fn decimal() -> ArrayRef {
     )
 }
 
+fn whole_decimal(value: i128) -> ArrayRef {
+    Arc::new(
+        Decimal128Array::from(vec![value])
+            .with_precision_and_scale(38, 0)
+            .expect("a test whole decimal has a width and no scale"),
+    )
+}
+
 #[test]
 fn every_type_the_engine_maps_answers_what_the_data_source_answers() {
     // The twin of `every_type_this_adapter_maps_answers_what_the_engine_answers` in
@@ -99,6 +107,12 @@ fn every_type_the_engine_maps_answers_what_the_data_source_answers() {
             "Decimal128 stays text so it stays exact",
             decimal(),
             Value::Text(String::from("123.45")),
+        ),
+        ("whole Decimal128 fitting i64", whole_decimal(42), Value::Integer(42)),
+        (
+            "whole Decimal128 past i64",
+            whole_decimal(i128::from(i64::MAX) + 1),
+            Value::Text(String::from("9223372036854775808")),
         ),
         (
             "Utf8",

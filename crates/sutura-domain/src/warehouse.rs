@@ -1,15 +1,12 @@
 //! The execution port: the plan that goes out, and the rows that come back.
 //!
-//! The trait is named `Warehouse`, which is the port's name and says nothing about what sits behind
-//! it. A file read by an in-process engine and a cluster with a login are both implementations.
-//!
+//! `Warehouse` names the port, not whether its implementation is a file or a cluster.
 //! **No statement appears in this module, and its absence is the decision rather than an omission.**
 //! A rendered statement used to live here, on the argument that the port had to hand one to
 //! something. The port takes a [`crate::plan::QueryPlan`] now - [`Warehouse`] below says why that is
 //! what makes a second kind of adapter possible - so nothing in the domain constructs or reads a
 //! statement, and the type that carries one moved out to `sutura-sql`, beside the code that renders
 //! it. A domain holding a rendered statement has acquired a concept no domain operation uses.
-//!
 //! What stays is [`ParamValue`], and it stays because the type the port *does* take is built out of
 //! it: a [`crate::plan::QueryPlan`] carries a vector of them. It is also where the rule lives - a
 //! value is a closed set of typed variants an adapter binds, never text somebody concatenated.
@@ -24,6 +21,9 @@ use crate::model::{QualifiedTable, SourceName};
 use crate::plan::{AnchorPlan, Executable};
 use crate::source::{ImpersonationCapability, SourcePosture};
 
+/// Shared typing for deliberately simple CSV fixtures.
+#[cfg(any(test, feature = "fixtures"))]
+pub mod csv;
 /// The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
 ///
 /// **`pub mod` with no re-export beside it, and that is a documentation decision rather than a

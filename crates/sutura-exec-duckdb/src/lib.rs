@@ -123,6 +123,26 @@ pub enum DuckDbError {
         #[source]
         cause: GenerateError,
     },
+    /// The fixture CSV could not be read to name its column types.
+    ///
+    /// [`attach_fixture_csv`](DuckDbWarehouse::attach_fixture_csv) reads the bytes to type the
+    /// columns before the query; a file that cannot be read is a fixture defect, not a number to
+    /// answer.
+    #[cfg(feature = "fixtures")]
+    #[error("could not read the fixture {path} to type its columns")]
+    FixtureRead {
+        path: String,
+        #[source]
+        cause: std::io::Error,
+    },
+    /// The fixture CSV did not satisfy the shared schema boundary.
+    #[cfg(feature = "fixtures")]
+    #[error("could not infer the fixture {path} schema")]
+    FixtureSchema {
+        path: String,
+        #[source]
+        cause: sutura_domain::warehouse::csv::InferenceError,
+    },
     #[error("could not attach {path} as table {table}")]
     Attach {
         table: String,
@@ -238,17 +258,39 @@ impl DuckDbWarehouse {
     /// Exposes a CSV file as a table.
     ///
     /// A narrow, typed affordance instead of a general "run this SQL" method, which is what a local
-    /// adapter usually grows and what would make every check upstream of here optional. The table
-    /// name is a [`TableName`], so it cannot carry a quote; the path is a string, so it is escaped
-    /// the only way a SQL string literal can be, by doubling every quote.
-    ///
-    /// `read_csv_auto` and not a bind parameter, because a table function's argument is part of the
-    /// statement's shape rather than a value and `DuckDB` will not bind one there.
+    /// adapter usually grows and would make every check upstream of here optional. The table name is
+    /// a [`TableName`], so it cannot carry a quote; the path is a string, so it is escaped the only
+    /// way a SQL string literal can be, by doubling every quote.
     pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DuckDbError> {
         let literal = path.display().to_string().replace('\'', "''");
         let statement = format!(
             "CREATE OR REPLACE VIEW \"{}\" AS SELECT * FROM read_csv_auto('{literal}')",
             table.as_str()
+        );
+        self.connection
+            .execute_batch(&statement)
+            .map_err(|cause| DuckDbError::Attach {
+                table: String::from(table.as_str()),
+                path: path.display().to_string(),
+                cause,
+            })
+    }
+
+    /// Exposes a conformance fixture CSV with shared column typing.
+    ///
+    /// The columns are typed before the read, and the typing comes from
+    /// `sutura_domain::warehouse::csv` - the one classification every adapter shares. Naming the
+    /// complete map keeps decimals exact and prevents `DuckDB`'s boolean and wide-integer inference
+    /// from drifting from the other fixture adapters. Use [`Self::attach_csv`] for CSVs outside the
+    /// deliberately simple fixture format. Available only with the default-off `fixtures` feature.
+    #[cfg(feature = "fixtures")]
+    pub fn attach_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), DuckDbError> {
+        let literal = path.display().to_string().replace('\'', "''");
+        let statement = format!(
+            "CREATE OR REPLACE VIEW \"{}\" AS SELECT * FROM read_csv('{literal}', \
+             auto_detect=true, types={})",
+            table.as_str(),
+            duck_types(path)?,
         );
         self.connection
             .execute_batch(&statement)
@@ -337,10 +379,11 @@ impl DuckDbWarehouse {
     /// `every_type_this_adapter_maps_answers_what_the_engine_answers` in the tests below is the
     /// table both are held to.
     ///
-    /// Every integer width answers, because all of them fit an `i64` losslessly. A 64-bit unsigned
-    /// value that does not is rendered as text rather than wrapped. A 32-bit float is refused, and so
-    /// is a 64-bit one that is not finite: `inf`, `-inf` and `NaN` are what an unguarded division
-    /// answers rather than failing, and [`Real`] is where that stops being an answer.
+    /// Every integer width answers. Values that fit an `i64` use [`Value::Integer`]; wider unsigned
+    /// and 128-bit values cross the shared exact-decimal boundary rather than being wrapped. A 32-bit
+    /// float is refused, and so is a 64-bit one that is not finite: `inf`, `-inf` and `NaN` are what
+    /// an unguarded division answers rather than failing, and [`Real`] is where that stops being an
+    /// answer.
     fn cell(label: &str, value: DuckValue) -> Result<Value, DuckDbError> {
         let unsupported = |duckdb_type: &'static str| DuckDbError::UnsupportedType {
             column: String::from(label),
@@ -528,6 +571,38 @@ impl Warehouse for DuckDbWarehouse {
     // default for `working_set_exhausted`.
 }
 
+/// The `types` argument for [`DuckDbWarehouse::attach_fixture_csv`].
+/// Reads the fixture bytes, infers the shared type of every column, and renders the complete
+/// `DuckDB` type map. Naming every type keeps booleans and wide integers on the same boundary as
+/// the other fixture adapters instead of inheriting `read_csv_auto`'s separate inference rules.
+#[cfg(feature = "fixtures")]
+fn duck_types(path: &Path) -> Result<String, DuckDbError> {
+    let text = std::fs::read_to_string(path).map_err(|cause| DuckDbError::FixtureRead {
+        path: path.display().to_string(),
+        cause,
+    })?;
+    let columns = sutura_domain::warehouse::csv::infer(&text).map_err(|cause| DuckDbError::FixtureSchema {
+        path: path.display().to_string(),
+        cause,
+    })?;
+    let mapped = columns
+        .into_iter()
+        .map(|column| {
+            let kind = match column.kind() {
+                sutura_domain::warehouse::csv::FixtureType::Boolean => String::from("BOOLEAN"),
+                sutura_domain::warehouse::csv::FixtureType::Integer => String::from("BIGINT"),
+                sutura_domain::warehouse::csv::FixtureType::WideInteger => String::from("UBIGINT"),
+                sutura_domain::warehouse::csv::FixtureType::Decimal { scale } => format!("DECIMAL(38,{scale})"),
+                sutura_domain::warehouse::csv::FixtureType::Real => String::from("DOUBLE"),
+                sutura_domain::warehouse::csv::FixtureType::Date => String::from("DATE"),
+                sutura_domain::warehouse::csv::FixtureType::Text => String::from("VARCHAR"),
+            };
+            format!("'{}': '{kind}'", column.name().as_str())
+        })
+        .collect::<Vec<_>>();
+    Ok(format!("{{{}}}", mapped.join(", ")))
+}
+
 /// The value mapping, as a table.
 ///
 /// **The table is duplicated on purpose, and the duplication is the test.** The two `cell` functions
@@ -546,6 +621,8 @@ impl Warehouse for DuckDbWarehouse {
 /// it reaches the widths a Parquet file has and a CSV never will.
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "fixtures")]
+    use super::duck_types;
     use super::{DuckDbError, DuckDbWarehouse, Presented, Real};
     use duckdb::types::{Decimal, TimeUnit, Value as DuckValue};
     use sutura_domain::calendar::Date;
@@ -597,6 +674,20 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "fixtures")]
+    fn fixture_schema_forces_the_shared_boolean_wide_and_decimal_types() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let conformance = duck_types(&root.join("crates/sutura-conformance/corpus/conformance_events.csv"))
+            .expect("the conformance fixture has shared types");
+        assert!(conformance.contains("'wide_amount': 'UBIGINT'"), "{conformance}");
+        assert!(conformance.contains("'decimal_amount': 'DECIMAL(38,2)'"), "{conformance}");
+
+        let example = duck_types(&root.join("examples/single-player/data/fct_subscription_monthly.csv"))
+            .expect("the example fixture has shared types");
+        assert!(example.contains("'churned_in_month': 'BOOLEAN'"), "{example}");
+    }
+
+    #[test]
     fn every_type_this_adapter_maps_answers_what_the_engine_answers() {
         // The twin of `every_type_the_engine_maps_answers_what_the_data_source_answers` in
         // `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. Same logical values, same
@@ -621,6 +712,11 @@ mod tests {
                 "UBIGINT that does not",
                 DuckValue::UBigInt(u64::MAX),
                 Value::Text(String::from("18446744073709551615")),
+            ),
+            (
+                "HUGEINT wider than the shared decimal",
+                DuckValue::HugeInt(i128::MAX),
+                Value::Text(i128::MAX.to_string()),
             ),
             ("DOUBLE", DuckValue::Double(0.1), Value::Real(real(0.1))),
             // Zero is finite, and it is here because the check that refuses `inf` is a check about a

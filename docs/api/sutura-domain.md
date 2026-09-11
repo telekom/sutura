@@ -8375,16 +8375,13 @@ The posture labels this answer would have combined, in name order.
 
 The execution port: the plan that goes out, and the rows that come back.
 
-The trait is named `Warehouse`, which is the port's name and says nothing about what sits behind
-it. A file read by an in-process engine and a cluster with a login are both implementations.
-
+`Warehouse` names the port, not whether its implementation is a file or a cluster.
 **No statement appears in this module, and its absence is the decision rather than an omission.**
 A rendered statement used to live here, on the argument that the port had to hand one to
 something. The port takes a `crate::plan::QueryPlan` now - `Warehouse` below says why that is
 what makes a second kind of adapter possible - so nothing in the domain constructs or reads a
 statement, and the type that carries one moved out to `sutura-sql`, beside the code that renders
 it. A domain holding a rendered statement has acquired a concept no domain operation uses.
-
 What stays is `ParamValue`, and it stays because the type the port *does* take is built out of
 it: a `crate::plan::QueryPlan` carries a vector of them. It is also where the rule lives - a
 value is a closed set of typed variants an adapter binds, never text somebody concatenated.
@@ -8849,6 +8846,123 @@ assert_eq!(
     ImpersonationCapability::NoPlaceForASubject
 );
 ```
+
+### Module `csv`
+
+Shared typing for deliberately simple CSV fixtures.
+Inferring the column types of a fixture CSV, once, for every adapter.
+
+A fixture is a committed CSV, and a data system has to be *given* typed columns before it can
+answer. Three adapters read the same bytes - `DuckDB` via `read_csv`, the engine via Arrow, and
+`Postgres` via `COPY` - and until this module they each decided the types for themselves.
+
+`read_csv_auto` turned a fractional column into `DOUBLE` (so a total answered as a float), the
+engine inferred a double too, and only the Postgres importer held a fraction as an exact
+`NUMERIC`. One classification here is what makes a decimal column a decimal on every wire.
+
+**The Postgres importer's logic is the origin, narrowed to spellings all three readers share.**
+`crate::warehouse::csv::infer` probes Boolean, then a 64-bit integer, then an exact fixed-point
+decimal, then a double, then a date, then text. Boolean means `true` or `false`; Postgres's `t`
+and `f` shorthand stays text because the engine reader does not accept it as Boolean. A fixture
+that Postgres typed `NUMERIC(38,2)` is a
+`crate::warehouse::csv::FixtureType::Decimal` in its canonical scale here, and the engine and
+`DuckDB` now agree rather than drifting to a float.
+
+# The boundary a column metric needs, stated per type
+
+- A column whose integers fit `i64` is `crate::warehouse::csv::FixtureType::Integer`.
+- A non-negative integer column that exceeds `i64` but fits `u64` is
+  `crate::warehouse::csv::FixtureType::WideInteger`.
+- A column with any fixed-point decimal value is
+  `crate::warehouse::csv::FixtureType::Decimal` at the widest canonical scale after trailing
+  fractional zeroes are removed.
+- A column with an integer and a fraction is a decimal too.
+- Everything floating-point stays `crate::warehouse::csv::FixtureType::Real`, a date stays
+  `crate::warehouse::csv::FixtureType::Date`, and an empty column is
+  `crate::warehouse::csv::FixtureType::Text`.
+
+This module lives in the domain - not beside any one adapter - because all three execution
+crates depend on the domain and none may depend on another. It is a pure function over the CSV
+text; nothing here reads a file or touches a data system.
+
+#### `enum FixtureType`
+
+```rust
+pub enum FixtureType
+```
+
+The column types a fixture CSV can declare, and the one classification every adapter maps.
+
+##### Variants
+
+- `Boolean` - A case-insensitive `true`/`false` column.
+- `Integer` - A column of `i64` integers only (a `SUM` over it stays exact).
+- `WideInteger` - A non-negative integer column that needs the shared `u64` range.
+- `Decimal` - An exact fixed-point decimal, carrying the widest canonical scale.
+- `Real` - Everything floating-point.
+- `Date` - A `YYYY-MM-DD` column.
+- `Text` - The fallback, for text and for a column with no data.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct Column`
+
+```rust
+pub struct Column
+```
+
+One inferred column: its name, and the type every adapter should attach for it.
+
+##### Methods
+
+```rust
+pub const fn kind(&self) -> FixtureType
+```
+
+The type every adapter maps.
+
+```rust
+pub const fn name(&self) -> &ColumnName
+```
+
+The column's name, parsed so it is safe to interpolate into a DDL statement.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InferenceError`
+
+```rust
+pub enum InferenceError
+```
+
+Why a fixture column could not be classified.
+
+##### Variants
+
+- `InvalidIdentifier` - A header was not a column name.
+- `DecimalNotCarryable` - A fixed-point value was wider than the exact shared type.
+- `RowWidth` - A data row did not have exactly the number of cells declared by the header.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `fn infer`
+
+```rust
+pub fn infer(text: &str) -> Result<Vec<Column>, InferenceError>
+```
+
+Infers the type of each column of a fixture CSV.
+
+The header names are parsed as `ColumnName`s first, so a column that maps to a DDL statement
+(the `DuckDB` `types` argument, the engine's Arrow schema, Postgres's `CREATE TABLE`) cannot
+carry a quote or other unparseable spelling. A malformed name is `InvalidIdentifier`, the same
+refusal the Postgres importer made.
 
 ### Module `preflight`
 

@@ -613,8 +613,8 @@ mod venue {
     /// **A tier absence declared where a venue said it PROVISIONED one is a defect, not a skip.**
     ///
     /// The hole this closes was measured rather than imagined: with the tier UP and the variable
-    /// set, a fixture answering `Fixture::Absent` unconditionally was 21 tests passed, and the only
-    /// tell was seven printed `NOT RUN` lines. Only the thing that brought a tier up sets that
+    /// set, a fixture answering `Fixture::Absent` unconditionally passed, and the only
+    /// tell was the printed `NOT RUN` lines. Only the thing that brought a tier up sets that
     /// variable, so where it is set an absent tier is impossible.
     ///
     /// Both directions, and the second is not symmetry: a refusal that fired wherever an absence

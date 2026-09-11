@@ -163,6 +163,10 @@ pub(crate) fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, 
         // reason: the domain's `Value` has no boolean, and a text "true" would compare unequal to
         // the other adapter's 1.
         DataType::Boolean => Ok(Value::Integer(i64::from(typed::<BooleanArray>(label, array)?.value(row)))),
+        DataType::Decimal128(_, 0) => {
+            let text = typed::<Decimal128Array>(label, array)?.value_as_string(row);
+            Ok(text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer))
+        }
         // Text, so an exact decimal stays exact. Turning it into an `f64` here is how a total that
         // was correct in the engine stops being correct in an answer.
         DataType::Decimal128(..) => Ok(Value::Text(typed::<Decimal128Array>(label, array)?.value_as_string(row))),
