@@ -135,8 +135,10 @@ The three `SUTURA_BQ_` **secrets** are the two-principal cell's identity values,
 secrets rather than vars for a reason that is not credential material: each names the acceptance
 project or an account in it, a var's value is unmasked wherever a job echoes it, and `just
 infra-set` prints every var it sets. A workflow reading one of them must read `secrets.`, not
-`vars.` - after this the `vars` entry does not exist, so a `vars.` read resolves to the empty string
-and the leg fails closed on it.
+`vars.`: the `vars` row no longer carries the name, so a provisioning run does not create it and a
+`vars.` read is a `check-venues` failure. Whether the live environment still carries a `vars` entry
+one of these three left behind is not something this page or that gate can see - the GitHub API is
+the only authority for that.
 
 The last five `vars` are the two-principal cell's own: the row-access-policied dataset and table,
 the column the two policies filter on, and the grouping value each policy grants. The policied
