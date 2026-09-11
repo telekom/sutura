@@ -9,9 +9,22 @@ mod tests {
 
     const PAGE: &str = "<!-- GENERATED FILE - do not edit. -->\nfixture\n";
     const METADATA_CALL: &str = "<metadata><--format-version><1><--locked><--no-deps>\n";
-    const LIBRARY_CALL: &str =
-        "<rustdoc><-q><-p><doc-library><--all-features><--profile><ci><--><-Z><unstable-options><--output-format><json>\n";
+    const LIBRARY_CALL: &str = "<rustdoc><-q><-p><doc-library><--all-features><--profile><ci><--><-Z><unstable-options><--output-format><json><--document-private-items>\n";
     const RENDERED: &str = "<render><library-only>\n";
+
+    /// The `just api` writer the gate compares its own rustdoc flags against, as a CONTINUED
+    /// shell line - the shape `nix/api-docs.nix` really has, so the fixture exercises the join
+    /// rather than a one-line convenience. The cargo arguments before `--` differ from the
+    /// gate's on purpose; only what rustdoc reads is held equal.
+    const WRITER: &str = r#"
+pkgs.writeShellApplication {
+  text = ''
+    # cargo rustdoc is named in this comment and must not be read as the invocation.
+    cargo rustdoc -q -p "$lib" --all-features --profile ci -- \
+      -Z unstable-options --output-format json --document-private-items
+  '';
+}
+"#;
 
     const CARGO: &str = r#"
 set -eu
@@ -26,11 +39,11 @@ fi
 [ "${CARGO_PROFILE_DEV_CODEGEN_BACKEND+x}" != x ] || exit 42
 docs_target=${CARGO_TARGET_DIR:-"$PWD/target"}
 if [ "$4" = doc-library ]; then
-  [ "$*" = 'rustdoc -q -p doc-library --all-features --profile ci -- -Z unstable-options --output-format json' ] || exit 42
+  [ "$*" = 'rustdoc -q -p doc-library --all-features --profile ci -- -Z unstable-options --output-format json --document-private-items' ] || exit 42
   printf '{}\n' >"$docs_target/doc/doc_library.json"
   exit 0
 fi
-[ "$*" = "rustdoc -q -p $4 --all-features --bin $7 --profile ci -- -Z unstable-options --output-format json" ] || exit 42
+[ "$*" = "rustdoc -q -p $4 --all-features --bin $7 --profile ci -- -Z unstable-options --output-format json --document-private-items" ] || exit 42
 case "$4/$7" in
   bin-one/tool-a|bin-two/doc-library-extra|bin-two/doc_library|bin-two/tool-b|bin-two/tool-c) ;;
   *) exit 42 ;;
@@ -89,10 +102,11 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
         let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("api-docs-{case}-{}", std::process::id()));
         std::fs::create_dir_all(Path::new(env!("CARGO_TARGET_TMPDIR"))).expect("scratch parent");
         std::fs::create_dir(&root).expect("exclusive fixture root");
-        for directory in ["bin", "docs/.tools", "docs/api", "target/doc"] {
+        for directory in ["bin", "docs/.tools", "docs/api", "nix", "target/doc"] {
             std::fs::create_dir_all(root.join(directory)).expect("fixture directories");
         }
         std::fs::write(root.join("flake.nix"), "{}\n").expect("root marker");
+        std::fs::write(root.join("nix/api-docs.nix"), WRITER).expect("the writer the gate must agree with");
         std::fs::write(root.join("Cargo.toml"),
             "[workspace]\nmembers = [\n\"crates/doc-library\",\n\"crates/bin-one\",\n\"crates/bin-two\",\n\"crates/macro-only\",\n]\n[workspace.lints.rustdoc]\nbroken_intra_doc_links = \"forbid\"\n"
         ).expect("armed workspace manifest");
@@ -182,7 +196,7 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
             ("bin-two", "tool-c"),
         ] {
             writeln!(expected,
-                "<rustdoc><-q><-p><{package}><--all-features><--bin><{binary}><--profile><ci><--><-Z><unstable-options><--output-format><json>"
+                "<rustdoc><-q><-p><{package}><--all-features><--bin><{binary}><--profile><ci><--><-Z><unstable-options><--output-format><json><--document-private-items>"
             ).expect("expected invocation ledger");
             expected.push_str("<binary-target><target>\n");
         }
@@ -247,7 +261,12 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
             "empty-name",
         ] {
             let observed = observe(case);
-            if observed.output.status.code() != Some(1) || observed.ledger != METADATA_CALL {
+            // The diagnostic has to NAME the package whose targets are malformed. Exit 1 with a
+            // bare metadata ledger is also what every precondition before `binary_targets`
+            // produces - the arming check and the writer check - so without this the whole loop
+            // would pass over a gate that never reached the targets at all.
+            let named = String::from_utf8_lossy(&observed.output.stderr).contains("bin-two");
+            if observed.output.status.code() != Some(1) || observed.ledger != METADATA_CALL || !named {
                 failures.push(format!("{case}: {observed:?}"));
             }
         }

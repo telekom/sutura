@@ -78,7 +78,7 @@ pub enum InvalidPrincipalId {
 
 /// Parses one principal identifier, rejecting anything that is not one.
 ///
-/// `pub(crate)` and shared by every newtype below through [`principal_newtype`], because three
+/// `pub(crate)` and shared by every newtype below through `principal_newtype!`, because three
 /// hand-written copies of this parser is three things to keep in step - and the identifiers are
 /// carried in one record beside each other, so a rule that held for one and not another would be a
 /// hole with a matching pair right next to it.

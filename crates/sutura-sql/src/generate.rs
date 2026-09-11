@@ -162,10 +162,10 @@ fn column(plan_column: &PlanColumn) -> Expr {
 
 /// A column reference, qualified by its table's own name.
 ///
-/// **Split out of [`column`] rather than duplicated**, because the key probe holds a
-/// [`QualifiedTable`] and a [`ColumnName`] rather than a [`PlanColumn`] and would otherwise have
-/// built the same reference a second way - which is exactly the drift `render`, `aliased` and
-/// `table_path` are shared to prevent one layer down.
+/// **Split out of [`column`](fn@crate::generate::column) rather than duplicated**, because the key
+/// probe holds a [`QualifiedTable`] and a [`ColumnName`] rather than a [`PlanColumn`] and would
+/// otherwise have built the same reference a second way - which is exactly the drift `render`,
+/// `aliased` and `table_path` are shared to prevent one layer down.
 fn qualified(table: &TableName, column: &ColumnName) -> Expr {
     builder::col(&format!("{}.{}", table.as_str(), column.as_str()))
 }
@@ -579,10 +579,10 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 ///    that carries no filter has no predicate at all, and no clause is the correct rendering rather
 ///    than an error.
 ///
-/// Everything else is shared with [`generate`] on purpose - [`column`], [`aliased`], [`aggregate`],
-/// [`term_expression`], [`predicate`], [`bucket_expression`], [`joined`] and [`render`] - so a
-/// change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
-/// path and not the other.
+/// Everything else is shared with [`generate`] on purpose - [`column`](fn@crate::generate::column),
+/// [`aliased`], [`aggregate`], [`term_expression`], [`predicate`], [`bucket_expression`],
+/// [`joined`] and [`render`] - so a change to identifier quoting, to placeholder style or to how a
+/// term renders cannot apply to one path and not the other.
 ///
 /// **Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
 /// to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and

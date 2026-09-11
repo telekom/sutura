@@ -216,15 +216,35 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         except: &[],
     },
     Contradicted {
-        name: "five refusal codes are 422",
-        wordings: &["five of the codes above land", "five of the eleven refusal codes"],
+        // ANCHORED ON `because`, and that is the whole design of this row: the record KEEPS the
+        // superseded sentence, in italics and marked wrong, seventy lines above the measurement
+        // that replaced it - and then quotes it a second time inside that correction. A rule
+        // keyed on the sentence alone would refuse a record for quoting what it corrects, so what
+        // is forbidden is ASSERTING it, which is the connector rather than the words.
+        name: "a buildless CodeQL database leaves out `alloc`/`std`",
+        // Three wordings for the TWO sentences `github.com/telekom/sutura#538` names: the `because`
+        // line is one literal of the first, and neither of the other two exists anywhere in the
+        // tree - so the row is a ratchet on a re-assertion rather than a refusal of prose already
+        // written. They need no `because` anchor because the record does not quote either of them;
+        // it quotes only the "extracts ... but not" phrasing.
+        wordings: &[
+            "because a buildless database extracts the crate's own dependencies but not",
+            "does not extract `alloc`/`std`",
+            "standard library is absent",
+        ],
+        // The measurement that replaced the cause. If it ever leaves the record, this rule
+        // retires rather than forbidding a sentence nothing in the tree disproves any more.
         evidence: &[Evidence {
-            path: "crates/sutura-http/src/wire/refusal.rs",
-            holds: "four variants are `422`",
+            path: "docs/adr/0025-what-a-scorecard-zero-says-about-this-repository.md",
+            holds: "3016 sysroot files",
         }],
-        instead: "four: `grain_not_supported`, `time_range_too_long`, `too_many_dimensions` and \
-                  `duplicate_dimension`. `docs/serving.md`'s own table two lines above the sentence \
-                  lists four, which is the tell that the number was carried and the table was not",
+        instead: "the sysroot IS extracted - \
+                  `docs/adr/0025-what-a-scorecard-zero-says-about-this-repository.md` counts 3016 \
+                  files and 98903 functions from it - and no `alloc::`, `core::` or `std::` \
+                  canonical path exists in the database at all, because the extractor could not \
+                  determine the edition and left those files UNRESOLVED. Same consequence, \
+                  different mechanism, and the difference is what costs: turning \
+                  dependency-as-source extraction on does not reach an unresolved file",
         only: &[],
         except: &[],
     },

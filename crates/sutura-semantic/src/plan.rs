@@ -20,10 +20,11 @@
 //! decides what goes into one.
 //!
 //! **The splitter lives here because it reads a [`Resolution`].** It turns a two-source question
-//! into the fact and lookup [`LegPlan`]s the combiner in `sutura_domain::plan::federated` joins, and
-//! refuses a measure that cannot decompose. The labelling of each leg's terms is `sutura_domain`'s
-//! one function, [`labels`](sutura_domain::plan::labels) - named by the splitter and read back by the
-//! combiner, so the two can never disagree.
+//! into the fact and lookup [`LegPlan`](sutura_domain::plan::LegPlan)s the combiner in
+//! `sutura_domain::plan::federated` joins, and refuses a measure that cannot decompose. The
+//! labelling of each leg's terms is `sutura_domain`'s one function,
+//! [`labels`](sutura_domain::plan::labels) - named by the splitter and read back by the combiner,
+//! so the two can never disagree.
 
 use std::collections::BTreeSet;
 

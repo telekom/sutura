@@ -11,7 +11,8 @@
 //! `Expiry`, any clock or timeout. The constructor takes a [`BootIdentity`] and stores no
 //! credential material beside it, so the root cannot be repurposed to *answer as* the process - it
 //! answers nothing; it only certifies the bundle boot validated. The request path borrows
-//! [`Self::definitions`] off the root; it never receives the root itself.
+//! [`BootRoot::definitions`](crate::boot_root::BootRoot::definitions) off the root; it never
+//! receives the root itself.
 //!
 //! **The honest limit, stated with the claim.** This is a type narrowing WHAT the root holds. It
 //! does not by itself confine `verify_anchor` to boot - that half stays the existing `clippy.toml`

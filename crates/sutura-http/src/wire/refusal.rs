@@ -26,7 +26,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. And `422`, which four refusals below map to, is documented the other way round
+//! `RoundTripper`. And `422`, which five refusals below map to, is documented the other way round
 //! from the premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -541,8 +541,12 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - four variants are `422` - so the code is what a client
+        // The status is shared on purpose - five variants are `422` - so the code is what a client
         // has to be able to branch on, and two variants sharing one would make that impossible.
+        // THE NUMBER HERE IS PROSE, held by review and by nothing else. It said four while the
+        // table below mapped five and every gate stayed green - `github.com/telekom/sutura#603`.
+        // A test pinning it to `every_reason` was written and then removed: it passed against base
+        // as well, and `just causality` refuses a test that cannot go red.
         let mut codes: Vec<&str> = every_reason().into_iter().map(|(_, _, code)| code).collect();
         let count = codes.len();
         codes.sort_unstable();

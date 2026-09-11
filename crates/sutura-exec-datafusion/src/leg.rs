@@ -19,12 +19,13 @@
 //!    carrying no filter has no predicate at all, and no filter node is the correct plan rather
 //!    than an error.
 //!
-//! **Everything else is shared with the whole-plan path on purpose** - [`column`],
-//! [`bucket_expression`], [`term_expression`], [`predicate`] and [`outputs`] - so a change to how a
-//! column is referenced, how a grain truncates, how a term aggregates or how a result is projected
-//! cannot apply to one path and not the other. That is the same one-definition argument
-//! `sutura_sql::generate_leg` makes for the renderer, and it is what makes this path's agreement
-//! with the whole-plan path a property of the code rather than of two tests.
+//! **Everything else is shared with the whole-plan path on purpose** -
+//! [`column`](fn@crate::translate::column), [`bucket_expression`],
+//! [`term_expression`](crate::translate::term_expression), [`predicate`] and [`outputs`] - so a
+//! change to how a column is referenced, how a grain truncates, how a term aggregates or how a
+//! result is projected cannot apply to one path and not the other. That is the same one-definition
+//! argument `sutura_sql::generate_leg` makes for the renderer, and it is what makes this path's
+//! agreement with the whole-plan path a property of the code rather than of two tests.
 //!
 //! **What this module is NOT: a combiner.** It runs one source's share and hands back that share's
 //! rows. The join and the re-aggregation above the legs are

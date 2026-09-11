@@ -83,10 +83,10 @@ where
 /// One cell, as a domain value.
 ///
 /// **One mapping, two adapters, and the set is decided once.** This engine and the `DuckDB` data
-/// source are the two implementors of the [`Warehouse`] port, so a type that answers there and
-/// errors here means an anchor certified against one adapter does not reproduce against the other.
-/// `cell` in `crates/sutura-exec-duckdb/src/lib.rs` is the other half, and
-/// `value_mapping_tests.rs` beside this file is the table both are held to.
+/// source are the two implementors of the [`Warehouse`](sutura_domain::warehouse::Warehouse) port,
+/// so a type that answers there and errors here means an anchor certified against one adapter does
+/// not reproduce against the other. `cell` in `crates/sutura-exec-duckdb/src/lib.rs` is the other
+/// half, and `value_mapping_tests.rs` beside this file is the table both are held to.
 ///
 /// Every integer width answers, because every one of them fits an `i64` losslessly - a Parquet
 /// `INT32` column under a `min` or a `max` used to answer through the data source and error here. A

@@ -1329,7 +1329,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "sutura-app"
-version = "0.4.1"
+version = "0.5.1"
 dependencies = [
  "sutura-domain",
  "sutura-semantic",
@@ -1338,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-config"
-version = "0.4.1"
+version = "0.5.1"
 dependencies = [
  "config",
  "serde",
@@ -1350,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-domain"
-version = "0.4.1"
+version = "0.5.1"
 dependencies = [
  "secrecy",
  "serde",
@@ -1372,7 +1372,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-http"
-version = "0.4.1"
+version = "0.5.1"
 dependencies = [
  "axum",
  "governor",
@@ -1396,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-runtime"
-version = "0.4.1"
+version = "0.5.1"
 dependencies = [
  "sutura-config",
  "sutura-domain",
@@ -1410,7 +1410,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-semantic"
-version = "0.4.1"
+version = "0.5.1"
 dependencies = [
  "sutura-domain",
  "thiserror 2.0.20",
@@ -1418,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-sql"
-version = "0.4.1"
+version = "0.5.1"
 dependencies = [
  "polyglot-sql",
  "serde",

@@ -11,7 +11,8 @@
 //! declares that constant and is non-optional in both shipped binaries. What that does NOT make it
 //! is two-identity: every adapter a release links declares
 //! `ImpersonationCapability::NoPlaceForASubject`, so both legs of a shipped two-source answer run
-//! under one operating-system identity and [`ExecutedAs::and`] records the same shared posture
+//! under one operating-system identity and
+//! [`ExecutedAs::and`](sutura_domain::source::ExecutedAs::and) records the same shared posture
 //! twice. Single-player federation.
 
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
@@ -54,12 +55,12 @@ pub(crate) type LegResult<W, B> = Result<RowSet, LegError<<W as Warehouse>::Erro
 
 /// Executes a two-source question: one leg per data system, combined above them.
 ///
-/// Reached only from [`Compiled::Federated`]. Every data system the plan reads must be open AND be
-/// able to execute a leg (`Warehouse::EXECUTES_LEGS`), or the answer is refused as
-/// [`RefusalReason::FederationNotExecutable`]. That check here, rather than in an adapter, is what
-/// keeps a build whose adapter declares `false` refusing a two-source question cleanly instead of
-/// letting a typed leg refusal surface as a retryable 503 - which is still every build linking
-/// `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
+/// Reached only from [`Compiled::Federated`](sutura_semantic::Compiled::Federated). Every data
+/// system the plan reads must be open AND be able to execute a leg (`Warehouse::EXECUTES_LEGS`), or
+/// the answer is refused as [`RefusalReason::FederationNotExecutable`]. That check here, rather
+/// than in an adapter, is what keeps a build whose adapter declares `false` refusing a two-source
+/// question cleanly instead of letting a typed leg refusal surface as a retryable 503 - which is
+/// still every build linking `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
 ///
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH

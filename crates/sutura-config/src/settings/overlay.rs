@@ -6,9 +6,10 @@
 //! reader whose exported `SUTURA__SERVER__HOST` caused it, that points at two variables that are
 //! neither set nor able to fix it. The process can see which ones it has, so it says so.
 //!
-//! A file of its own for the reason [`super::posture`] and [`super::inbound`] are: `settings.rs`
-//! fails `cargo xtask max-lines` at a thousand lines, and this is separable along the same seam -
-//! nothing here parses a value or refuses a deployment.
+//! A file of its own for the reason [`posture`](crate::settings::posture) and
+//! [`inbound`](crate::settings::inbound) are: `settings.rs` fails `cargo xtask max-lines` at a
+//! thousand lines, and this is separable along the same seam - nothing here parses a value or
+//! refuses a deployment.
 
 use std::ffi::OsString;
 

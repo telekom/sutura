@@ -350,21 +350,21 @@ impl<R: AspectReader> DataHubCatalog<R> {
         ))
     }
 
-    /// One metric aspect carrying the deployment-defined [`SuturaContent`] into a certified domain
-    /// [`Metric`].
+    /// One metric aspect carrying the deployment-defined
+    /// [`SuturaContent`](crate::document::SuturaContent) into a certified domain [`Metric`].
     ///
-    /// The measure ALREADY is the domain's own [`Measure`], and the filters, grains, dimensions and
-    /// anchor are the domain's own closed vocabularies spelled as in a markdown metric - which is
-    /// what makes the document closed: an unknown aggregate, an unknown operator, an unparseable
-    /// value, a dimension unreachable through any relationship, a grainless metric or an unknown
-    /// property all fail before or at `Definitions::assemble`, never guessed at. The three free
-    /// strings (`model`, `time_column`, each nested `column`) are parsed here as the identifier
-    /// type each claims to be, which is what turns an unparseable name into a typed
-    /// [`DataHubError::Identifier`] naming the metric. `Definitions::assemble` is what finally
-    /// decides the metric holds together: an unknown model, a measure or time column the model does
-    /// not have, a filter whose column the model lacks, a dimension reachable only through a
-    /// relationship whose cardinality is not vouched for, or no grains are all its refusals, mapped
-    /// through [`DataHubError::Inconsistent`].
+    /// The measure ALREADY is the domain's own [`Measure`](sutura_domain::measure::Measure), and
+    /// the filters, grains, dimensions and anchor are the domain's own closed vocabularies spelled
+    /// as in a markdown metric - which is what makes the document closed: an unknown aggregate, an
+    /// unknown operator, an unparseable value, a dimension unreachable through any relationship, a
+    /// grainless metric or an unknown property all fail before or at `Definitions::assemble`, never
+    /// guessed at. The three free strings (`model`, `time_column`, each nested `column`) are parsed
+    /// here as the identifier type each claims to be, which is what turns an unparseable name into
+    /// a typed [`DataHubError::Identifier`] naming the metric. `Definitions::assemble` is what
+    /// finally decides the metric holds together: an unknown model, a measure or time column the
+    /// model does not have, a filter whose column the model lacks, a dimension reachable only
+    /// through a relationship whose cardinality is not vouched for, or no grains are all its
+    /// refusals, mapped through [`DataHubError::Inconsistent`].
     fn convert_metric(metric: &document::MetricAspect, property: &document::SuturaProperty) -> Result<Metric, DataHubError> {
         let content = property.assemble().map_err(|cause| DataHubError::Sutura {
             metric: metric.name().to_owned(),

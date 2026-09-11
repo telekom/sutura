@@ -251,10 +251,10 @@ than a flag on the first.**
    that carries no filter has no predicate at all, and no clause is the correct rendering rather
    than an error.
 
-Everything else is shared with `generate` on purpose - `column`, `aliased`, `aggregate`,
-`term_expression`, `predicate`, `bucket_expression`, `joined` and `render` - so a
-change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
-path and not the other.
+Everything else is shared with `generate` on purpose - `column`,
+`aliased`, `aggregate`, `term_expression`, `predicate`, `bucket_expression`,
+`joined` and `render` - so a change to identifier quoting, to placeholder style or to how a
+term renders cannot apply to one path and not the other.
 
 **Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
 to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
@@ -1006,10 +1006,10 @@ than a flag on the first.**
    that carries no filter has no predicate at all, and no clause is the correct rendering rather
    than an error.
 
-Everything else is shared with `generate` on purpose - `column`, `aliased`, `aggregate`,
-`term_expression`, `predicate`, `bucket_expression`, `joined` and `render` - so a
-change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
-path and not the other.
+Everything else is shared with `generate` on purpose - `column`,
+`aliased`, `aggregate`, `term_expression`, `predicate`, `bucket_expression`,
+`joined` and `render` - so a change to identifier quoting, to placeholder style or to how a
+term renders cannot apply to one path and not the other.
 
 **Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
 to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and

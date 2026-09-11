@@ -15,11 +15,11 @@
 //!
 //! **Called function NAMES are an allowlist**, and that is the reversal `docs/adr/0004` records.
 //! The count argument does not transfer to names: the space is every function every target has plus
-//! every user-defined one, so no denylist bounds it, while the set a *measure* needs is short enough
-//! to read in one screen. So [`name_refusal`] refuses every name that is not in
-//! [`ALLOWED_FUNCTION_NAMES`], and a per-dialect variant that needs one more is a one-line,
-//! review-visible edit to that list - which is exactly the property the authored-SQL hatch exists to
-//! have.
+//! every user-defined one, so no denylist bounds it, while the set a *measure* needs is short
+//! enough to read in one screen. So [`name_refusal`] refuses every name that is not in
+//! [`ALLOWED_FUNCTION_NAMES`](vocabulary::ALLOWED_FUNCTION_NAMES), and a per-dialect variant that
+//! needs one more is a one-line, review-visible edit to that list - which is exactly the property
+//! the authored-SQL hatch exists to have.
 //!
 //! A typo in the ALLOWLIST therefore fails closed in the other direction: it refuses a name that
 //! should have been allowed. That is a load failure naming the function, at the moment the catalog is

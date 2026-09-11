@@ -403,8 +403,10 @@ variants share is that the executed value is an owned `String` produced by a **s
 function. The shipped library models exactly that step - `codeql/rust/frameworks/stdlib` carries
 `alloc::fmt::format` as `Argument[0]` to `ReturnValue`, `taint`, `manual` - and the row **is
 loaded**. It is inert: **the database contains no function whose canonical path is `alloc::fmt::format`,
-and none beginning `alloc::` at all**, because a buildless database extracts the crate's own
-dependencies but not `alloc`/`std`. The summary has no callable to attach to, so the step silently
+and none beginning `alloc::` at all**. The cause recorded here at the time - *a buildless database
+extracts the crate's own dependencies but not `alloc`/`std`* - **is wrong, and the measurement that
+replaces it is further down this record**: the sysroot IS extracted, and its canonical paths are
+UNRESOLVED. Either way the summary has no callable to attach to, so the step silently
 does not exist. Every cargo dependency, `rusqlite` included, *is* extracted - which is why the sink
 is recognised and the direct variant flows.
 
