@@ -1149,8 +1149,8 @@ jobs:
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
           echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, outside the checkout"
 
-      # **Mask the three resource names before anything can print them, and this step exists because
-      # of a channel the rest of the job would otherwise open.**
+      # **Mask the three resource names, and this step exists because of a channel the rest of the job
+      # would otherwise open.**
       #
       # Workflow logs on a PUBLIC repository are public. The wire carries the endpoint's own `message`
       # on a refusal - bounded, deliberately, because a `400 invalidQuery` with only a reason code is
@@ -1163,10 +1163,32 @@ jobs:
       # Masking the diagnostic away is the right trade in this direction - a maintainer who needs the
       # unredacted message runs the leg locally, where the log is theirs.
       #
-      # The project id is read from the key rather than configured, for the reason the fixture reads it
-      # from the key: a service-account key names its own project, and a second declaration is a second
-      # answer to *who pays*. `python3 -c` rather than a shell read, so the value never becomes a shell
-      # word that could be logged by `set -x`.
+      # **THE LIMIT, AND THIS COMMENT USED TO OVERSTATE IT (#527).** It said the names were masked
+      # "before anything can print them". For two of the three they are not. The runner prints a
+      # step's resolved `env:` block into that step's own `Run` group BEFORE it executes the body -
+      # `PrintActionDetails` in `actions/runner`'s `src/Runner.Worker/Handlers/Handler.cs` emits
+      # `env:` and every entry of the handler's environment, and `ActionRunner` calls it ahead of
+      # `RunAsync` - so `SUTURA_BQ_DATASET` and `SUTURA_BQ_TABLE` appear in cleartext ONCE, here, and
+      # are redacted from every occurrence after that. An overstated control is worse than an absent
+      # one, because a reader who believes the old sentence stops looking.
+      #
+      # **AND IT CANNOT BE FIXED BY MOVING THE MASK EARLIER**, which is why the shape below is the
+      # best available one rather than a defect left in place. That printed dictionary is built from
+      # the `env` CONTEXT, which the same runner source notes "contains job level env and action's env
+      # block" - so hoisting these to a job-level or workflow-level `env:` prints them in EVERY step's
+      # group, which is strictly worse - and a `${{ }}` read inside a `run:` body is printed too,
+      # because the script is echoed with its expressions already resolved. There is no position in a
+      # workflow from which a `vars` value can be masked ahead of its own first occurrence. The one
+      # thing that closes it is making these two environment SECRETS rather than variables: the runner
+      # adds every secret to the masker before the first step runs, so the dump would read `***`. That
+      # is a forge change no file here can make and NO GATE HERE CAN SEE.
+      #
+      # The project id, by contrast, IS masked before its first occurrence, and the difference is the
+      # lesson: it never becomes an expression at all. Only the key's PATH goes through `env:` and
+      # `python3` reads the value out of the file. It is read from the key rather than configured for
+      # the reason the fixture reads it from the key - a service-account key names its own project, and
+      # a second declaration is a second answer to *who pays*. `python3 -c` rather than a shell read,
+      # so the value never becomes a shell word that could be logged by `set -x`.
       - name: Mask the resource names
         env:
           K: ${{ runner.temp }}/bq-key.json

@@ -240,6 +240,19 @@ three before the leg runs: the project id read out of the key, and the dataset a
 environment's variables. `::add-mask::` is the right mechanism because it does not care where a value
 appears - it redacts every later log line in the job, a panicking test's own message included.
 
+**Corrected: two of the three are masked from their SECOND occurrence, not their first, and that is a
+property of the runner rather than of this job.** The runner prints a step's resolved `env:` block into
+that step's own `Run` group before it executes the body, so the dataset and the table - which reach the
+masking step through its `env:` - are in the log once, in cleartext, before the `::add-mask::` lines
+run. The project id is not, and the difference is the lesson: it never becomes an expression, because
+only the key's *path* goes through `env:` and `python3` reads the value out of the file. This cannot be
+repaired by masking earlier: the printed dictionary is assembled from the `env` context, which carries
+job-level and workflow-level entries too, so hoisting the values prints them in every step's group; and
+an expression read inside a `run:` body is echoed with the expression already resolved. **The one thing
+that closes it is making those two environment secrets rather than variables** - the runner adds every
+secret to its masker before the first step runs. That is a forge change, no file in this repository can
+make it, and no gate in this repository can see whether it has been made.
+
 **The cost is stated rather than hidden:** in CI the diagnostic that made carrying the message worth
 while is redacted away. A maintainer who needs the unredacted text runs the leg locally, where the log
 is theirs. That is the correct direction for a public repository and it is a real loss.
