@@ -1,0 +1,3225 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Why REUSE compliance is already held by a nix-pinned lint inside the one required CI context and what its catch-all cannot catch, why ORT is declined and which gap that leaves open, why OpenSSF Scorecard runs as the official action even though that costs this repository its nix pin, exactly what publishing a score sends and to whom, and why two README badges are held against the mechanisms they claim.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.5.0/adr/0024-three-oss-readiness-scans-and-what-each-discloses/">
+      
+      
+        <link rel="prev" href="../0023-how-the-agent-surface-learns-who-is-asking/">
+      
+      
+        <link rel="next" href="../0025-what-a-scorecard-zero-says-about-this-repository/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Three OSS-readiness scans, and what each discloses - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#three-oss-readiness-scans-and-what-each-discloses" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Three OSS-readiness scans, and what each discloses
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Serve it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the agent surface learns who is asking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Three OSS-readiness scans, and what each discloses
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Three OSS-readiness scans, and what each discloses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#reuse-already-held-and-the-limit-is-not-where-a-reader-would-guess" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REUSE: already held, and the limit is not where a reader would guess
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="REUSE: already held, and the limit is not where a reader would guess">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-copied-tree-can-arrive-attributed-to-us" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No copied tree can arrive attributed to us
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#so-what-the-badge-asserts-exactly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        So what the badge asserts, exactly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ort-declined-and-here-is-the-gap-that-remains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ORT: declined, and here is the gap that remains
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scorecard-the-official-action-publishing-and-what-that-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scorecard: the official action, publishing, and what that costs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scorecard: the official action, publishing, and what that costs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-publication-is-the-decision-and-it-was-made-deliberately" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The publication is the decision, and it was made deliberately
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-action-and-the-pin-this-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The action, and the pin this costs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-permissions-enumerated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The permissions, enumerated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-not-held-and-it-is-most-of-the-value-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is not held, and it is most of the value question
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-08-a-green-publish-step-that-published-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-08: a green publish step that published nothing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment, 2026-09-08: a green publish step that published nothing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-changes-and-why-each-is-a-mechanism-rather-than-a-sentence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What changes, and why each is a mechanism rather than a sentence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-still-not-established-stated-rather-than-assumed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is still not established, stated rather than assumed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#and-the-reuse-half-which-no-code-could-have-fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        And the REUSE half, which no code could have fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a Scorecard zero says about this repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0026-no-third-party-binary-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An OSS binary cache for this repository's own paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#reuse-already-held-and-the-limit-is-not-where-a-reader-would-guess" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REUSE: already held, and the limit is not where a reader would guess
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="REUSE: already held, and the limit is not where a reader would guess">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-copied-tree-can-arrive-attributed-to-us" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No copied tree can arrive attributed to us
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#so-what-the-badge-asserts-exactly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        So what the badge asserts, exactly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ort-declined-and-here-is-the-gap-that-remains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ORT: declined, and here is the gap that remains
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scorecard-the-official-action-publishing-and-what-that-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scorecard: the official action, publishing, and what that costs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scorecard: the official action, publishing, and what that costs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-publication-is-the-decision-and-it-was-made-deliberately" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The publication is the decision, and it was made deliberately
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-action-and-the-pin-this-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The action, and the pin this costs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-permissions-enumerated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The permissions, enumerated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-not-held-and-it-is-most-of-the-value-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is not held, and it is most of the value question
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-08-a-green-publish-step-that-published-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-08: a green publish step that published nothing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment, 2026-09-08: a green publish step that published nothing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-changes-and-why-each-is-a-mechanism-rather-than-a-sentence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What changes, and why each is a mechanism rather than a sentence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-still-not-established-stated-rather-than-assumed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is still not established, stated rather than assumed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#and-the-reuse-half-which-no-code-could-have-fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        And the REUSE half, which no code could have fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="three-oss-readiness-scans-and-what-each-discloses">Three OSS-readiness scans, and what each discloses<a class="headerlink" href="#three-oss-readiness-scans-and-what-each-discloses" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted.</strong> REUSE was already built and is unchanged by this record. ORT is <strong>declined</strong>,
+with the gap stated. Scorecard is <strong>built</strong> as <code>.github/workflows/scorecard.yml</code>, using the
+official action and <strong>publishing its results</strong>, with two README badges held against the mechanisms
+they claim by <code>cargo xtask check-workflows</code>.</p>
+<p>Three tools were asked for, either as their official GitHub Action or through a native
+integration. The answers differ, and the reason they differ is the same in each case: <strong>a scan is
+not free of consequence.</strong> It pins a tool whose version decides what it reports, it may send this
+repository's identity somewhere, and a run that nothing requires is a report rather than a control.</p>
+<h2 id="reuse-already-held-and-the-limit-is-not-where-a-reader-would-guess">REUSE: already held, and the limit is not where a reader would guess<a class="headerlink" href="#reuse-already-held-and-the-limit-is-not-where-a-reader-would-guess" title="Permanent link">&para;</a></h2>
+<p>Not added, because it is here. <code>REUSE.toml</code> declares the licence of every file, <code>LICENSES/</code>
+carries the two texts it references, <code>nix/reuse.nix</code> builds the lint from the same nixpkgs pin
+<code>apps.reuse</code> resolves - one expression, so <code>just licences</code> and the check cannot disagree - and
+<code>checks.reuse</code> runs as the step named <em>Licensing</em> inside <code>ci.yml</code>'s <code>ci</code> job.</p>
+<p><strong>That venue matters and is the strongest thing in this record.</strong> <code>devco/required-contexts</code> reads
+the <code>main</code> ruleset as requiring exactly one status context, <code>ci</code> - read on 2026-09-05, and the API
+remains the authority. So REUSE is one of the few checks here that genuinely gates a merge, and it
+is unconditional within that job: it is not skipped on a docs-only or workflow-only diff, because
+its whole job is to judge every file.</p>
+<p><strong>What it catches, and what it does not, measured rather than read off the manual.</strong> Three runs of
+<code>just licences</code> against this tree on 2026-09-07:</p>
+<table>
+<thead>
+<tr>
+<th>Mutation</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>none (baseline)</td>
+<td>compliant, <code>1162 / 1162</code> files, exit 0</td>
+</tr>
+<tr>
+<td>a new <code>.rs</code> file with <strong>no</strong> licence header</td>
+<td>compliant, <code>1163 / 1163</code>, <strong>exit 0</strong></td>
+</tr>
+<tr>
+<td>a new <code>.rs</code> file declaring <code>GPL-3.0-only</code></td>
+<td><strong>not compliant</strong>, <code>Fix missing licenses</code>, exit 1</td>
+</tr>
+</tbody>
+</table>
+<p>The middle row is the one worth carrying. <code>REUSE.toml</code> opens with a <code>path = "**"</code> catch-all, so a
+file that declares nothing resolves to Apache-2.0 and <em>"the sutura authors"</em> - which means <strong>this
+check cannot fail on an unattributed file, and a newly vendored third-party file is silently
+attributed to us</strong> until somebody appends a block for it. <code>REUSE.toml</code> and <code>nix/reuse.nix</code> both say
+so in their own headers; this record adds the measurement.</p>
+<p>So what the lint holds is that the <strong>declaration</strong> is complete and well formed - a licence
+referenced with no text, a licence text nothing references, a deprecated identifier, a malformed
+expression. It does not police whether the declaration is true. <code>VENDOR.md</code> is where a copied tree
+gets recorded, and keeping the two in step is a review question. The obvious gate - <em>every path
+<code>VENDOR.md</code> names needs a block</em> - is wrong, because most of what that file lists is recorded as
+rewritten rather than copied and is therefore correctly ours.</p>
+<p><strong><code>fsfe/reuse-action</code> was weighed and refused.</strong> It would run the same tool over the same tree and
+produce the same verdict, at the cost of a second pin for a tool whose version decides what it
+reports - which <code>cargo xtask check-pins</code> exists to prevent - and it would run in a venue nothing
+requires, alongside a check that already runs in the one venue that does. For the record, the
+version considered was <code>v6.0.0</code>, commit <code>676e2d560c9a403aa252096d99fcab3e1132b0f5</code>; the pinned
+nixpkgs supplies <code>reuse</code> 6.2.0.</p>
+<p><strong>The badge, and what makes it honest.</strong> <code>README.md</code> now carries the REUSE badge from
+<code>api.reuse.software</code>. It is a true statement of REUSE <em>compliance</em> - every file's licence is
+declared - and it is <strong>not</strong> a statement that the declarations are correct, which is exactly the
+middle row of the table above. Because a badge is a public claim and this repository treats an
+overstated control as itself the defect, <code>cargo xtask check-workflows</code> holds it against a live
+mechanism: the badge may only be claimed while <code>flake.nix</code> declares the check <strong>and</strong> some file CI
+invokes something from actually builds it. A declaration nothing invokes measures nothing.</p>
+<p>Measured on 2026-09-07: <code>https://api.reuse.software/badge/github.com/telekom/sutura</code> answers HTTP
+200 and renders the word <code>unregistered</code>, because api.reuse.software clones the repository to check
+it and this one is private. <code>.../info/github.com/telekom/sutura</code> answers HTTP 404 for the same
+reason. Both become real when the repository is made public; the badge is added now rather than
+gated behind that flip.</p>
+<h3 id="no-copied-tree-can-arrive-attributed-to-us">No copied tree can arrive attributed to us<a class="headerlink" href="#no-copied-tree-can-arrive-attributed-to-us" title="Permanent link">&para;</a></h3>
+<p><strong><code>REUSE.toml</code> already stated this hazard in prose, named the remedy, and nothing held it.</strong>
+Verbatim from its own header: <em>a newly vendored third-party file is </em><em>silently attributed to the
+sutura authors</em><strong> until the narrowing block is appended, and <em>adding a vendored tree means appending
+a block, never editing the catch-all</em>. A rule with no mechanism is a wish, so it is a gate now: every
+immediate child of <code>vendor/</code> must be narrowed by an <code>[[annotations]]</code> block </strong>and** recorded in
+<code>VENDOR.md</code>, and - the other direction, on <code>check-skills</code>' precedent - every <code>vendor/</code> block must
+name a child that exists, so a block cannot outlive its tree while keeping its dated paragraph.</p>
+<p><strong>This is deliberately NOT the mechanism <code>nix/reuse.nix</code> weighs and rejects</strong>, and the difference is
+what makes it sound. That one was <em>every path <code>VENDOR.md</code> names must have its own block</em>, which is
+wrong because most of what that file lists is recorded <em>"Rewritten, not copied"</em> and is therefore
+correctly ours - a gate demanding a foreign licence would fail on correct code. This reads a narrower
+subject in the other direction: the <code>vendor/</code> <strong>directory</strong>, where a true copy lands, so every
+subject of the rule is a copy by construction.</p>
+<p><strong>Its limit, stated because <code>vendor/</code> is a convention rather than a type:</strong> <code>.agents/skill-library/</code>
+is also a copy, narrowed by hand and outside this rule's reach, and nothing here would notice a copy
+placed somewhere new. Telling a copy from a rewrite in general remains the review question
+<code>nix/reuse.nix</code> describes. What is closed is the case that recurs.</p>
+<h3 id="so-what-the-badge-asserts-exactly">So what the badge asserts, exactly<a class="headerlink" href="#so-what-the-badge-asserts-exactly" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>It does assert</strong> that every file's licence is <em>declared</em> - REUSE compliance, held by
+  <code>checks.reuse</code> inside the required <code>ci</code> job - and, now, that no immediate child of <code>vendor/</code> lacks
+  its own covering <code>[[annotations]]</code> block or is missing from <code>VENDOR.md</code>. <strong>Narrowed in review from
+  "no tree under <code>vendor/</code> is unnarrowed", which read stronger than the rule holds:</strong> a block merely
+  <em>under</em> a child used to satisfy it, so one file's block marked a whole tree narrowed while its
+  siblings resolved to us. The rule now requires the child itself or its whole subtree; it still
+  says nothing about a file deeper inside a covered child.</li>
+<li><strong>It does not assert per-file provenance.</strong> A first-party file with no header still passes, by
+  design; the catch-all answers for it. It says nothing about a file <em>inside</em> a narrowed tree, and
+  nothing about a copy placed outside <code>vendor/</code>.</li>
+</ul>
+<p>That is the whole claim. Keeping the catch-all was chosen over per-file headers because the
+alternative does not close the hole either: <code>REUSE.toml</code>'s header records that 420 <code>.snap</code> files,
+100 of 155 markdown files and the vendored trees cannot carry a header at all, so headers everywhere
+would still need three exception groups <strong>plus</strong> a mechanical edit to 485 files.</p>
+<h2 id="ort-declined-and-here-is-the-gap-that-remains">ORT: declined, and here is the gap that remains<a class="headerlink" href="#ort-declined-and-here-is-the-gap-that-remains" title="Permanent link">&para;</a></h2>
+<p>Declined. Not because licence compliance is uninteresting - it is most of what this repository
+already spends effort on - but because the part of ORT that would be <strong>new</strong> here is narrow, and
+the part that is broad is already covered by two mechanisms inside the required context.</p>
+<p>What is already held, and where:</p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Mechanism</th>
+<th>Venue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Is every dependency's licence one we accept?</td>
+<td><code>deny.toml</code>'s <code>[licenses]</code> - a permissive-only <code>allow</code> list with <code>unused-allowed-license = "deny"</code>, so an entry nothing uses <strong>fails</strong> rather than pre-approving a future dependency</td>
+<td><code>nix run .#deny</code> inside <code>ci</code>, <strong>required</strong>; plus weekly in <code>security-audit.yml</code></td>
+</tr>
+<tr>
+<td>Does any dependency have a known advisory?</td>
+<td>the same run's <code>advisories</code> check, against the RustSec database</td>
+<td>as above</td>
+</tr>
+<tr>
+<td>What does a distributor have to carry?</td>
+<td><code>sutura-attribution.md</code>, a release asset generated by <code>cargo metadata</code> and deliberately never committed, held by <code>cargo xtask check-attribution</code> (a generation is complete and every licence declared) and <code>check-attribution-owner</code> (no committed copy, and the release still generates)</td>
+<td>both inside <code>ci</code>, <strong>required</strong></td>
+</tr>
+<tr>
+<td>Is every file's licence answerable?</td>
+<td><code>reuse lint</code></td>
+<td><code>checks.reuse</code> inside <code>ci</code>, <strong>required</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>What ORT would add that none of those does</strong>, stated concretely because "a different report
+format over the same facts" would not be worth the cost:</p>
+<ol>
+<li><strong>A source scan.</strong> Everything above reads <em>declared</em> metadata - a crate's <code>license</code> field, a
+   <code>REUSE.toml</code> annotation. ORT's scanner leg (ScanCode et al.) reads the dependency's <strong>files</strong>
+   and finds a licence statement the manifest does not mention: a copyleft snippet vendored into a
+   permissively-licensed crate, an unexpected copyright holder, a licence file that disagrees with
+   the manifest. <code>xtask/src/attribution.rs</code> names this gap in its own header as <em>"not that the
+   licence expression is TRUE of the crate's source"</em>. It is the one real hole, and ORT is the
+   standard way to close it.</li>
+<li><strong>Curations.</strong> A reviewed correction to a dependency's licence metadata, kept as data rather
+   than as an exception in a config file.</li>
+<li><strong>Ecosystems <code>cargo-deny</code> cannot see.</strong> <code>Cargo.lock</code> is Rust. This repository also resolves
+   conda and PyPI packages through <code>pixi.lock</code> - the docs toolchain and the Pulumi test
+   infrastructure - and neither is covered by any licence mechanism today.</li>
+</ol>
+<p><strong>What it costs, which is why the answer is still no for now.</strong> ORT is a JVM toolchain plus a
+curation database; it is <strong>not in nixpkgs</strong> at the revision <code>flake.lock</code> pins - measured, not
+assumed: <code>nix eval</code> on that revision answers <em>does not provide attribute <code>ort</code></em> - so it would
+arrive either as its GitHub Action (a container this repository cannot reach through
+<code>SUTURA_IMAGE_REGISTRY</code>) or as a second toolchain outside the nix pin. Either way it becomes a
+second authority on a licence verdict, in a venue nothing requires, over a question three required
+mechanisms already answer for the ecosystem that ships.</p>
+<p><strong>So the gap is left open and named</strong>, which is the honest position: <em>no file-level licence scan
+of dependency sources, and no licence mechanism at all for <code>pixi.lock</code>.</em> Reconsider when either
+becomes the constraint - a copyleft finding in a dependency's source, or a Python package that
+ships in something rather than only building the docs.</p>
+<h2 id="scorecard-the-official-action-publishing-and-what-that-costs">Scorecard: the official action, publishing, and what that costs<a class="headerlink" href="#scorecard-the-official-action-publishing-and-what-that-costs" title="Permanent link">&para;</a></h2>
+<p>Built. <code>.github/workflows/scorecard.yml</code> runs <code>ossf/scorecard-action</code> weekly, on a push to <code>main</code>,
+on a <code>branch_protection_rule</code> change, and on request - with <code>publish_results: true</code>.</p>
+<h3 id="the-publication-is-the-decision-and-it-was-made-deliberately">The publication is the decision, and it was made deliberately<a class="headerlink" href="#the-publication-is-the-decision-and-it-was-made-deliberately" title="Permanent link">&para;</a></h3>
+<p><strong><code>publish_results: true</code> sends this repository's aggregate score, every check's score and reason
+text, the repository name and the scored commit to <code>https://api.scorecard.dev</code></strong> - a public
+endpoint, authenticated by a short-lived OIDC token whose subject names this repository and ref.
+From there the score reaches the public OpenSSF dataset and the badge.</p>
+<p><strong>It is on because the badge was asked for, and the badge does not render without it.</strong> The
+action's own documentation names <code>publish_results: true</code> and <code>id-token: write</code> as the two
+prerequisites. So this is not a default and it is not presented as one: it is a disclosure chosen
+in exchange for a public claim somebody wanted. <code>devco/scorecard-publication</code> is the dated record,
+and <code>cargo xtask check-workflows</code> fails if that record is missing or empty while the input is true.</p>
+<p><strong>Reverting is one line.</strong> Set the input <code>false</code>; the gate then fails until the badge is removed
+from <code>README.md</code>, which is the point of holding the two together - a badge served from published
+results is a dead image the moment publication stops, and it would go on asserting a score.</p>
+<p><strong>What a run sends even without publishing, because the two are separate and only one is
+optional.</strong> The action runs every check it has and takes no check-set argument, so three outbound
+queries are part of what running it costs: <code>Vulnerabilities</code> to OSV at <code>osv.dev</code> (with the
+dependency set, not only the name), <code>CII-Best-Practices</code> to <code>bestpractices.dev</code>, and <code>Fuzzing</code> to
+the OSS-Fuzz project list. The first duplicates <code>nix run .#deny</code> against RustSec, which already
+runs inside the required <code>ci</code> job.</p>
+<p><strong>The state of the repository when this was decided:</strong> private, and <code>advanced_security</code> disabled,
+both read from <code>gh api repos/telekom/sutura</code> on 2026-09-07. So today the publication has little to
+disclose and the badge shows little; both become real when the repository is public.</p>
+<h3 id="the-action-and-the-pin-this-costs">The action, and the pin this costs<a class="headerlink" href="#the-action-and-the-pin-this-costs" title="Permanent link">&para;</a></h3>
+<p>This repository's rule is that <strong>nix is the only pin for a tool whose version decides what it
+reports</strong>, held by <code>cargo xtask check-pins</code>. Scorecard reports findings, <code>pkgs.scorecard</code> exists in
+the pinned nixpkgs at 5.5.0, and the first version of this change used it. <strong>The badge overrides
+that</strong>, because the CLI cannot publish - publication is the action's own step - and a second,
+nix-pinned local copy of the same tool would be two pins for one verdict, which is the defect the
+rule exists to prevent. So the CLI route was dropped rather than kept alongside.</p>
+<p>Two costs follow, and neither is hidden:</p>
+<ol>
+<li><strong>The SHA does not pin the code.</strong> <code>ossf/scorecard-action</code>'s <code>action.yaml</code>, read at commit
+   <code>2d1146689b8cda280b9bc96326124645441f03bc</code> (tag <code>v2.4.4</code>) on 2026-09-07, is <code>using: docker</code> with
+   <code>image: docker://ghcr.io/ossf/scorecard-action:v2.4.4</code>. The commit SHA in <code>uses:</code> pins that
+   manifest; what executes comes from a <strong>mutable registry tag</strong>, and there is no way to write the
+   digest from the calling side. Every other third-party reference here is a commit SHA precisely
+   so this cannot happen, and this one is the exception.</li>
+<li><strong>The image comes from <code>ghcr.io</code>.</strong> A network behind a registry mirror has no route to it, and
+   an unprefixed image reference does not fall back - it fails. Every image this repository reaches
+   itself goes through <code>SUTURA_IMAGE_REGISTRY</code>; one named inside a third-party action cannot.</li>
+</ol>
+<h3 id="the-permissions-enumerated">The permissions, enumerated<a class="headerlink" href="#the-permissions-enumerated" title="Permanent link">&para;</a></h3>
+<p><code>permissions: {}</code> at the workflow level; the job declares six, of which exactly one is a write:</p>
+<table>
+<thead>
+<tr>
+<th>Permission</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id-token: write</code></td>
+<td>the publication's authentication - a short-lived OIDC token whose subject names this repository and ref, which <code>api.scorecard.dev</code> verifies. It grants nothing else and exposes no secret</td>
+</tr>
+<tr>
+<td><code>contents: read</code></td>
+<td>the checkout, and every file-reading check</td>
+</tr>
+<tr>
+<td><code>actions: read</code></td>
+<td>workflow runs, for <code>CI-Tests</code> and <code>Dangerous-Workflow</code></td>
+</tr>
+<tr>
+<td><code>checks: read</code></td>
+<td>check runs on a commit, for <code>CI-Tests</code></td>
+</tr>
+<tr>
+<td><code>issues: read</code></td>
+<td>issue activity, for <code>Maintained</code></td>
+</tr>
+<tr>
+<td><code>pull-requests: read</code></td>
+<td>review history, for <code>Code-Review</code></td>
+</tr>
+</tbody>
+</table>
+<p>The four reads below <code>contents</code> are the ones the action's documentation asks for on a private
+repository; without them those checks answer about the token rather than about the repository.</p>
+<p><strong><code>security-events: write</code> is deliberately absent.</strong> It would let the run upload SARIF to code
+scanning, and code scanning on a private repository needs GitHub Advanced Security, which is
+disabled here as read on 2026-09-07 - so the upload would fail rather than be ignored, and the
+permission would be granted for nothing. <code>results_format</code> is <code>json</code> for the same reason: SARIF
+exists to be uploaded, and a format nobody consumes is a step that looks like a control.</p>
+<h3 id="what-is-not-held-and-it-is-most-of-the-value-question">What is not held, and it is most of the value question<a class="headerlink" href="#what-is-not-held-and-it-is-most-of-the-value-question" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The workflow is not required.</strong> It reports no status context on a pull request, because it
+  deliberately does not run on one - the checks read what is on the default branch, so scoring a
+  pull-request head would score a tree that is not the project. The only required context is <code>ci</code>.
+  <strong>A falling score blocks nothing</strong>, and nothing here holds that anyone looks at it.</li>
+<li><strong>It has run, and the answer was worse than "it cannot".</strong> The container action executes fine on
+  the self-hosted label - and the publication was refused by the API for that same label. See the
+  amendment below; this bullet's original prediction ("the first run on <code>main</code> is what will say")
+  was correct about the venue and wrong about which half would fail.</li>
+<li><strong>Several checks cannot answer here.</strong> <code>Branch-Protection</code> needs an admin token for most of its
+  detail and the workflow's token is not one; <code>Webhooks</code> needs admin outright. Their scores are a
+  statement about the token, not about the repository.</li>
+<li><strong>A low score is not a finding.</strong> Several signals Scorecard measures - a badge, OSS-Fuzz
+  registration, a public security policy - are about being a public project. The repository became
+  public on 2026-09-08, so these begin to answer about the project rather than about its visibility.</li>
+<li><strong>The gate does not check the third party.</strong> <code>devco/scorecard-publication</code> is a dated reading of
+  the action's documentation. What <code>api.scorecard.dev</code> does with what it receives is outside
+  anything in this tree.</li>
+</ul>
+<h2 id="amendment-2026-09-08-a-green-publish-step-that-published-nothing">Amendment, 2026-09-08: a green publish step that published nothing<a class="headerlink" href="#amendment-2026-09-08-a-green-publish-step-that-published-nothing" title="Permanent link">&para;</a></h2>
+<p><strong>What this record predicted would happen when the repository went public did not.</strong> <code>scorecard.yml</code>
+ran three times reporting <code>completed success</code>, and <code>api.scorecard.dev</code> held no record of this project
+at all. The three things measured from run <code>34174327175</code>'s log settle every question the record left
+open, and one of them is not about visibility.</p>
+<p><strong>1. The action does not decline to publish for a private repository - it publishes anyway and the
+API refuses.</strong> <code>options.go</code>'s <code>setPublishResults</code> computes <code>PublishResults = input &amp;&amp; !private</code>, and
+that value is only ever PRINTED: the log shows <code>Private repository: true</code> and <code>Publication enabled:
+false</code> on adjacent lines, and the publish happened regardless, because <code>main.go</code> branches on the raw
+<code>INPUT_PUBLISH_RESULTS</code> environment variable instead. So while this repository was private its score
+was signed into the <strong>public sigstore transparency log</strong> (<code>tlog entry created with index:
+2754066664</code>, three times) and POSTed to <code>api.scorecard.dev</code>. That is a disclosure this record did not
+anticipate and it happened before the flip, not after. The field carries no <code>env:</code> tag at all, so
+<code>Publication enabled:</code> is a line that always reads <code>false</code> - it is not a control and it never was.</p>
+<p><strong>2. The refusal is fail-open inside the action.</strong> <code>signing.ProcessSignature</code> retries on a backoff
+schedule and then logs <code>::warning::Unable to POST scorecard results to webapp</code> and <code>return nil</code>, so
+<code>main.go</code>'s <code>log.Fatalf</code> never fires and the step exits 0. Read at the pinned SHA
+<code>2d1146689b8cda280b9bc96326124645441f03bc</code>. <strong>The publication had no witness, and a green run said
+nothing about whether anything landed.</strong></p>
+<p><strong>3. The refusal was never about being private.</strong> Verbatim:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>http response 400 ... {"code":400,"message":"workflow verification failed: workflow verification
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>failed: scorecard job has invalid runner label: 'rust-mcp', see
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>https://github.com/ossf/scorecard-action#workflow-restrictions for details."}
+</span></code></pre></div>
+<p><code>api.scorecard.dev</code> verifies the producing workflow before accepting a score - the code is
+<code>verifyScorecardWorkflow</code> in <code>ossf/scorecard-webapp</code>, read at
+<code>9c2f66d5f6ff56ca4a4ac2fba6ec8dcc5379d31c</code>, the revision the action's own README cites - and one of
+its rules is an allowlist of runner labels: <code>ubuntu-latest</code>, <code>ubuntu-22.04</code>, <code>ubuntu-20.04</code>,
+<code>ubuntu-18.04</code>, and nothing else. <strong>So the badge could never have resolved, public or private</strong>, and
+this record's <em>"both become real when the repository is made public"</em> was wrong about the Scorecard
+half. Making it public was necessary and not sufficient.</p>
+<h3 id="what-changes-and-why-each-is-a-mechanism-rather-than-a-sentence">What changes, and why each is a mechanism rather than a sentence<a class="headerlink" href="#what-changes-and-why-each-is-a-mechanism-rather-than-a-sentence" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>score</code> and <code>published</code> run on <code>ubuntu-latest</code>, and it is THE FIX rather than a preference.</strong>
+  <code>api.scorecard.dev</code> performs <em>workflow verification</em> before accepting a score, and one of its
+  rules is an allowlist of runner labels - an anti-tampering measure, documented at
+  <code>ossf/scorecard-action#workflow-restrictions</code>. <strong>Measured with the repository PUBLIC</strong>, run
+  <code>34198064772</code>, <code>completed success</code>, <code>Private repository: false</code>, <code>publish_results: true</code>:</li>
+</ul>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>error sending scorecard results to webapp: http response 400, status: 400 Bad Request,
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>error: {"code":400,"message":"workflow verification failed: workflow verification failed:
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>scorecard job has invalid runner label: 'rust-mcp',
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>see https://github.com/ossf/scorecard-action#workflow-restrictions for details."}
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>::warning::Unable to POST scorecard results to webapp: http response 400 ...
+</span></code></pre></div>
+<p>Retried three times, then a warning, and <strong>the step exited 0</strong>. So no amount of visibility or
+  permission fixes this: the label is the blocker, and the exception is a requirement of the tool.</p>
+<p><strong>A deliberate exception, not drift.</strong> Every other <code>runs-on:</code> in <code>.github/</code> stayed on the larger
+  Rust runner - <code>rust-mcp</code> when this was written, <code>rust-mcp-32core</code> since that label was pinned and
+  the jobs that compile nothing were moved to <code>ubuntu-latest</code> alongside this one: the
+  custom runner exists to build the Rust, and these two jobs build nothing - <code>score</code> is checkout, a
+  third-party container action and upload-artifact; <code>published</code> is one <code>gh api</code> read and one
+  <code>curl</code>. <strong>A metadata scanner needs none of the build environment</strong>, which is the whole
+  justification.</p>
+<p><strong>Nothing here asserted the label before this change</strong>, verified rather than assumed: <code>git grep
+  rust-mcp</code> over <code>xtask/</code>, <code>devco/</code>, <code>.agents/</code>, <code>nix/</code> and <code>justfile</code> returned nothing outside the
+  files this change itself adds. So no rule had to be weakened - and the new rule in
+  <code>publication.rs</code> now asserts the <em>opposite</em> direction, which is the point.</p>
+<p><strong>The one precondition no file here can read:</strong> whether GitHub-hosted runners are enabled for
+  this organisation. If they are not, the scoring job fails to start - loudly, which is the right
+  failure mode and better than the silent one it replaces.
+* <strong><code>cargo xtask check-workflows</code> now holds <code>scorecard.yml</code> against every rule that verification
+  applies</strong>, offline, inside the required <code>ci</code> job: the runner allowlist, the approved step list,
+  every step being a <code>uses:</code>, no container or services, no job-level or workflow-level <code>env:</code> or
+  <code>defaults:</code>, no workflow-level write permission, and no other job holding <code>id-token: write</code>.
+  <code>xtask/src/workflows/publication.rs</code> is the reading, with the dated revision beside each
+  constant. <strong>This is the rule whose absence let #422 ship a publication that could not land.</strong> Its
+  limit: it is a copy of a third party's source, so a label OpenSSF adds later reads as a failure
+  here until the constant is updated - the safe direction, and the reason the constant names its
+  revision.
+* <strong>The step list is the rule that shaped the fix.</strong> Verification refuses the scoring job's results
+  if it contains any step that is not a call to one of five approved actions, so the obvious
+  witness - a <code>run:</code> step after the publish - would have broken the publication it was checking.
+  The witness is therefore a separate job, and that job is the gate's own test case.
+* <strong>A <code>published</code> job reads the scoring step's own log and fails if the publication was refused.</strong>
+  The evidence was never missing - the 400 and the <code>::warning::</code> were in that step's output every
+  time, and nothing read them. So the witness binds to that, not to a poll of the API: the API
+  indexes with a lag, so <em>no record yet</em> cannot be told from <em>refused</em>, and a check on it would
+  redden on freshness. The refusal is exact, it is in the same run, and it names its own reason,
+  which the job quotes into its error. <strong>What it does not hold:</strong> it trusts the action to log its
+  own refusal, so a future image that failed silently would pass. And with no refusal logged on a
+  repository that is not public it reports <em>unverified</em> rather than success - the publication may
+  not have been attempted. It asks the API nothing at all.</p>
+<h3 id="what-is-still-not-established-stated-rather-than-assumed">What is still not established, stated rather than assumed<a class="headerlink" href="#what-is-still-not-established-stated-rather-than-assumed" title="Permanent link">&para;</a></h3>
+<p><strong>Whether <code>api.scorecard.dev</code> would ALSO refuse a private repository's score is unproven here</strong>, and
+the reason is worth keeping: the runner label was refused first, in every run, so nothing has ever
+got far enough to find out. That is why the <code>published</code> job reports <em>unverified</em> rather than
+<em>failed</em> when no refusal is logged on a repository that is not public.</p>
+<p><strong>The scan itself works and the score is obtainable.</strong> <code>34198064772</code> scored <strong>6.1</strong> with the
+repository public - so the scan was never the problem, only the publication of its result.
+<strong>What the score's low rows mean is <code>docs/adr/0025</code>'s decision, not this one's</strong>: that record reads
+the first run's zeros and says which are findings, and it cites this file for the decision to run
+and publish at all. Nothing here restates it.</p>
+<h3 id="and-the-reuse-half-which-no-code-could-have-fixed">And the REUSE half, which no code could have fixed<a class="headerlink" href="#and-the-reuse-half-which-no-code-could-have-fixed" title="Permanent link">&para;</a></h3>
+<p>The REUSE badge read <code>unregistered</code> for the reason this record gives, and the missing step was
+manual: registration at <code>api.reuse.software/register</code>, a form taking a name, an email and the
+project URL, which the service then clones to evaluate. <strong>Done on 2026-09-08</strong> - the badge now reads
+<code>compliant</code> and <code>api.reuse.software/info/github.com/telekom/sutura</code> answers HTTP 200. So that badge
+is live and unchanged by this amendment; only the Scorecard half needed a mechanism.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

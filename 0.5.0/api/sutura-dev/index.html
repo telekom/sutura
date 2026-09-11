@@ -1,0 +1,3342 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.5.0/api/sutura-dev/">
+      
+      
+        <link rel="prev" href="../sutura-conformance/">
+      
+      
+        <link rel="next" href="../../contributing/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>sutura-dev - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sutura-dev" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              sutura-dev
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Serve it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the agent surface learns who is asking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Three OSS-readiness scans, and what each discloses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a Scorecard zero says about this repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0026-no-third-party-binary-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An OSS binary cache for this repository's own paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-dev">sutura-dev<a class="headerlink" href="#sutura-dev" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-dev</code>, rendered from rustdoc JSON.</p>
+<p>What a worktree's services are called, and where they are listening.</p>
+<p>A library rather than two modules inside a binary, and the reason is the second module: a test
+harness has to be able to LEARN an endpoint, and a binary's modules are reachable from nothing.
+So <code>discovery</code> is a library door - the only one - and <code>scope</code> is beside it because the two
+answer halves of one question.</p>
+<h1 id="two-halves-and-the-second-one-is-what-a-caller-uses">Two halves, and the second one is what a caller uses<a class="headerlink" href="#two-halves-and-the-second-one-is-what-a-caller-uses" title="Permanent link">&para;</a></h1>
+<ul>
+<li><code>discovery</code> is the file: publishing it, reading it, and the fact that there is no other way
+  to learn a port. It is the door that <em>can</em> be opened.</li>
+<li><code>provisioned</code> is the door a caller <em>should</em> open. Same file underneath, plus the two things
+  no test should have to write twice: the diagnostic that names the task to run, and the
+  skip-or-fail decision from <code>requirement</code>. A harness that read <code>discovery</code> directly would
+  get a connection refused thirty seconds later, blamed on the code under test.</li>
+</ul>
+<p>Publishing has one door and consumption has one door, and they are not the same door because the
+two callers are not the same: provisioning knows it is provisioning, while a test does not know
+whether anything is up.</p>
+<h1 id="the-split-that-matters">The split that matters<a class="headerlink" href="#the-split-that-matters" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>Naming is derived</strong> from the worktree path, in <code>scope</code>. It is stable, readable, and a
+  collision in it fails loudly at <code>docker compose up</code>.</li>
+<li><strong>Ports are allocated</strong>, not derived: published ephemerally so docker and the operating system
+  pick them, and read back afterwards. <code>discovery</code> is what reads them back, and there is no
+  constant to read instead.</li>
+</ul>
+<p>A hash collision in a NAME is a startup error somebody sees. A hash collision in a PORT is a
+test that passes against a neighbouring worktree's fixture. That asymmetry is why one of the two
+is derived and the other is not.</p>
+<p><strong>What is NOT here: any knowledge of docker.</strong> Provisioning lives in <code>xtask</code>, which is the
+repo tool and is never packaged. Docker orchestration inside a shipped artifact is test
+scaffolding delivered to users; <code>sutura-dev</code> is not shipped either, but it is the crate a
+harness links, and a harness has no business being able to start a container.</p>
+<h1 id="a-third-half-and-it-answers-a-different-question">A third half, and it answers a different question<a class="headerlink" href="#a-third-half-and-it-answers-a-different-question" title="Permanent link">&para;</a></h1>
+<p><code>issuer</code> is not about a provisioned service at all - it is a <strong>mock authorization server in the
+test sandbox</strong>, behind the default-off <code>mock-issuer</code> feature. It is here rather than in the crate
+that first needed it for the reason <code>discovery</code> is a library door: leg 1 is verified in the
+transport, minted-for in a broker and composed in a root, and a fixture living inside one of those
+three cannot be driven from the other two. What it may never be cited for is written where it is
+defined, because a venue that cannot state its limit is how <em>verified</em> drifts.</p>
+<h2 id="module-discovery">Module <code>discovery</code><a class="headerlink" href="#module-discovery" title="Permanent link">&para;</a></h2>
+<p>The discovery file: the only way to learn where a provisioned service is listening.</p>
+<p>Ports are allocated rather than derived - published ephemerally, so docker and the operating
+system pick them and there is no window between a check and a bind for a neighbour to lose a
+race in. What that costs is exactly one property: a fixed port somebody could memorise between
+runs. This module is what replaces it, with a value that is correct rather than remembered.</p>
+<h1 id="why-the-reader-has-one-door">Why the reader has one door<a class="headerlink" href="#why-the-reader-has-one-door" title="Permanent link">&para;</a></h1>
+<p>A test that reads a constant port works alone, fails in parallel, and <strong>passes review easily</strong> -
+which is why the mechanism has to be the <em>only</em> way to learn an endpoint rather than the
+encouraged one. So:</p>
+<ul>
+<li><code>Endpoint</code>'s fields are private and it has no public constructor, no <code>Default</code> and no
+  <code>parse</code>. A struct literal for it does not compile, which is asserted by a <code>compile_fail</code>
+  doctest with a compiling twin.</li>
+<li><code>Endpoints::discover</code> is the only public function that returns an <code>Endpoints</code>. It reads the
+  file this module writes, in this worktree, and there is nothing else to call.</li>
+<li><code>publish</code> - what provisioning calls - returns the path it wrote and <strong>not</strong> an <code>Endpoints</code>,
+  so even the writer has to go through the reader's door to look at what it published.</li>
+</ul>
+<p><strong>The limit, stated with the claim:</strong> the mint inside <code>publish</code> parses what a container runtime
+reported. A caller that fabricated that text would get an endpoint it made up - but that is
+lying about docker's output, which is a different and much louder thing than reading a constant,
+and no test can do it by accident.</p>
+<h1 id="why-the-writer-only-ever-touches-its-own-entries">Why the WRITER only ever touches its own entries<a class="headerlink" href="#why-the-writer-only-ever-touches-its-own-entries" title="Permanent link">&para;</a></h1>
+<p><code>github.com/telekom/sutura#317</code>. This file has two writers - <code>publish</code> here, and
+<code>nix/tier-endpoints.nix</code> for every nix-native tier - and <code>publish</code> used to serialise the whole
+document from the docker services it had just read. So a <code>dev-up</code> after <code>just keycloak-tier</code>
+dropped the entry that tier had merged, and the server it named went on running unnamed: a
+truthful file about half a tier, which this repository treats as worse than a crash.</p>
+<p>So a provisioner reads and writes <strong>only its own entry</strong>. <code>publish</code> merges, <code>forget</code>
+withdraws what THIS provisioner published and leaves the rest, and the last entry out takes the
+file with it - byte for byte what <code>nix/tier-endpoints.nix</code> does on the other side, because the
+file's EXISTENCE is what discovery reads as <em>something is provisioned here</em>.</p>
+<p>That needs the document to say which provisioner an entry came from, and <strong>that is why
+<code>Provisioner</code> hangs off <code>Endpoint</code> rather than off <code>Endpoints</code></strong>: one field on the
+document cannot answer the question once two provisioners contribute to it, and a field that
+answers <em>nix</em> for a docker entry is exactly the confident wrong answer being removed. The
+decision <code>#317</code> asked for, as a type rather than a paragraph.</p>
+<h3 id="enum-provisioner"><code>enum Provisioner</code><a class="headerlink" href="#enum-provisioner" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioner</span>
+</span></code></pre></div>
+<p>What brought one service up.</p>
+<p><strong>A property of the ENTRY, not of the document.</strong> <code>.sutura-dev/endpoints.json</code> has two writers -
+<code>xtask dev-up</code> through <code>publish</code>, and <code>nix/tier-endpoints.nix</code> for every nix-native tier - and
+both merge into one file, so <em>what provisioned this</em> has as many answers as the file has
+entries. A single document-level field could only be the last writer's opinion about somebody
+else's service.</p>
+<p>It is an enum and not a string because the one caller that matters is <code>forget</code>, which asks <em>is
+this entry mine to withdraw</em>. A <code>&amp;str</code> comparison there is a decision to destroy another
+provisioner's state spelled as a typo away from wrong.</p>
+<h4 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Docker</code> - <code>xtask dev-up</code>: a compose project, an ephemeral host port read back off docker.</li>
+<li><code>Nix</code> - A nix-native tier (<code>nix/postgres-tier.nix</code>, <code>nix/keycloak-tier.nix</code>), merged by <code>nix/tier-endpoints.nix</code>.</li>
+</ul>
+<h4 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h3 id="struct-endpoint"><code>struct Endpoint</code><a class="headerlink" href="#struct-endpoint" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Endpoint</span>
+</span></code></pre></div>
+<p>Where one provisioned service is listening, on this host, right now.</p>
+<p>There is no way to construct one except by reading the discovery file. That is the point:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>use sutura_dev::discovery::Endpoint;
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>// A constant endpoint is exactly what this type refuses to be: the fields are private, so
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>// there is no literal to write.
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>let _ = Endpoint { host: String::from("127.0.0.1"), port: 5432 };
+</span></code></pre></div>
+<p>The compiling twin - the one door, which fails at runtime because nothing is provisioned in a
+temporary directory, rather than at compile time because the door is missing:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>use sutura_dev::discovery::Endpoints;
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>use sutura_dev::scope::Scope;
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>let Ok(scope) = Scope::from_root(&amp;std::env::temp_dir()) else { return };
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>assert!(Endpoints::discover(&amp;scope).is_err(), "nothing is provisioned there");
+</span></code></pre></div>
+<h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">host</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>Host to connect to.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+</span></code></pre></div>
+<p>The host port docker allocated for this run.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">provisioner</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioner</span>
+</span></code></pre></div>
+<p>What brought THIS service up.</p>
+<p>Per entry, because the document has two writers and they merge into one file. A reader that
+wants to know whether it is looking at the docker tier asks the service it is about to
+connect to, which is the only question the file can answer once both have contributed.</p>
+<h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-endpoints"><code>struct Endpoints</code><a class="headerlink" href="#struct-endpoints" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Endpoints</span>
+</span></code></pre></div>
+<p>Every endpoint one worktree's provisioning bound, plus the compose project they belong to.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">discover</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Read this worktree's discovery file.</p>
+<p><strong>The reader's only door.</strong> Nothing else in this crate returns an <code>Endpoints</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Where <code>service</code> is listening.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The compose project these endpoints came from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">services</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every service and where it is listening, in name order.</p>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-discoveryerror"><code>enum DiscoveryError</code><a class="headerlink" href="#enum-discoveryerror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DiscoveryError</span>
+</span></code></pre></div>
+<p>Why an endpoint could not be learned, or could not be recorded.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NotProvisioned</code> - No discovery file. Nothing has provisioned this worktree, or teardown removed it.</li>
+<li><code>Unreadable</code> - The file exists and could not be read.</li>
+<li><code>Malformed</code> - The file is not the shape this module writes.</li>
+<li><code>UnknownService</code> - A service nobody provisioned.</li>
+<li><code>UnreadablePublishedAddress</code> - A published address the container runtime reported that this module cannot read.</li>
+<li><code>Unwritable</code> - The discovery file could not be written.</li>
+</ul>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-malformed"><code>enum Malformed</code><a class="headerlink" href="#enum-malformed" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Malformed</span>
+</span></code></pre></div>
+<p>Which part of the discovery file is wrong. A variant rather than a sentence, because a caller
+that has to match on prose has no contract.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NotJson</code> - Not JSON at all.</li>
+<li><code>NoProject</code> - No <code>project</code> string.</li>
+<li><code>NoServices</code> - No <code>services</code> object.</li>
+<li><code>ServiceEntry</code> - A service entry without a readable <code>host</code> and <code>port</code>.</li>
+<li><code>HostNeitherLoopbackNorSocket</code> - A service host that is neither loopback nor a <code>/</code>-prefixed socket directory.</li>
+<li><code>ServiceProvisioner</code> - An entry no provisioner can be attributed to.</li>
+</ul>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="fn-path_for"><code>fn path_for</code><a class="headerlink" href="#fn-path_for" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path_for</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
+</span></code></pre></div>
+<p>Where this worktree's discovery file lives. Under the worktree, so a neighbour cannot read it.</p>
+<h3 id="fn-publish"><code>fn publish</code><a class="headerlink" href="#fn-publish" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">,</span><span class="w"> </span><span class="n">reported</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[(</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="nb">String</span><span class="p">)])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Record what provisioning actually bound, and return the path written.</p>
+<p><code>reported</code> pairs a service name with the line a container runtime printed for its published
+address - <code>0.0.0.0:32768</code>, <code>[::]:32768</code>, <code>127.0.0.1:32768</code>. Parsing it here is what keeps the
+mint in one place: nothing else in this crate turns a number into an <code>Endpoint</code>.</p>
+<p>It returns the PATH and not an <code>Endpoints</code>, deliberately. Even the writer reads its own work
+back through <code>Endpoints::discover</code>, so there is exactly one door and no second shape of it.</p>
+<p><strong>It MERGES.</strong> Every entry it writes is marked <code>Provisioner::Docker</code> and every other entry in
+the document is left byte for byte as it was, keys this writer does not understand included -
+<code>github.com/telekom/sutura#317</code>. <code>project</code> is the one exception, because it is a fact about the
+worktree rather than about a provisioner and both writers run in one tree - and it is the ONLY
+document-level key either writer sets, which is the shape <code>#317</code> argued for. A <code>root</code> key was
+written here and read nowhere, so it went with the same reasoning.</p>
+<h3 id="fn-forget"><code>fn forget</code><a class="headerlink" href="#fn-forget" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">forget</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Withdraw every entry THIS provisioner published, and remove the file if nothing is left.</p>
+<p>Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
+stale file is the one way discovery could hand back a wrong answer instead of an error.</p>
+<p><strong>It used to <code>remove_file</code>, and that was the other half of <code>github.com/telekom/sutura#317</code>.</strong> A
+nix-native tier merges its entry into this same document, so removing the file withdrew a claim
+over a server that was still running - <code>just dev-down</code> did it deliberately, and every failing
+path through <code>with_endpoints_forgotten</code> did it by accident. Fail-closed is the right posture
+about <em>our</em> entries and is somebody else's data when applied to theirs.</p>
+<p>The last entry out still takes the file with it, because the file's EXISTENCE is what discovery
+reads as <em>something is provisioned here</em> - the rule <code>nix/tier-endpoints.nix</code>'s <code>withdraw</code> holds
+on the other side.</p>
+<p>A document this module cannot read is <strong>refused rather than removed</strong>: it publishes nothing a
+harness can use either way, and destroying state that cannot be attributed is the failure this
+function was changed to stop.</p>
+<p><strong>The limit that widened with it, stated with the claim.</strong> The <code>remove_file</code> this replaced
+healed an unreadable document by deleting it. Attribution needs the document parsed first, so
+ANY <code>Malformed</code> variant - not merely one about an entry - now refuses both <code>just dev-up</code> and
+<code>just dev-down</code> before either touches the tier, and nothing repairs the file automatically. That
+is the trade taken deliberately: state that cannot be attributed is not destroyed, and the price
+is a manual delete, which is why <code>DiscoveryError</code>'s message names it.</p>
+<h2 id="module-issuer">Module <code>issuer</code><a class="headerlink" href="#module-issuer" title="Permanent link">&para;</a></h2>
+<p>A mock authorization server, inside the test sandbox.</p>
+<p>Leg 1 is the product's first identity claim, and until now every test of it built its own key pair
+and its own tokens inside the crate that was being tested. That is right for a unit test and it
+stops one step short of the venue this module adds: <strong>an issuer any crate can link</strong>, so leg 1 and
+the credential path can be driven through an assembled router - and, later, through a composed
+binary - on every run, with no network, no docker and no secret.</p>
+<h1 id="what-this-venue-can-answer-and-the-two-things-it-may-never-be-cited-for">What this venue can answer, and the two things it may never be cited for<a class="headerlink" href="#what-this-venue-can-answer-and-the-two-things-it-may-never-be-cited-for" title="Permanent link">&para;</a></h1>
+<p>It is the default venue and it is not a substitute for an enterprise identity provider. The split
+is not a compromise; it is what each venue can honestly claim.</p>
+<p><strong>Answered here:</strong> a signature, <code>kid</code> selection, algorithm confusion, a symmetric key refused, the
+issuer, the audience against this deployment's own resource identifier, expiry, the <code>iat</code> ceiling,
+the token class, and - the reason this hands back a <em>published document</em> rather than a struct - a
+<strong>key rotation against a source that changes</strong>, which is the one bound whose failure is silent.</p>
+<p><strong>Never cite this for:</strong></p>
+<ol>
+<li><strong>Whether a real identity provider will mint an ID token whose <code>aud</code> is a third party's client
+   id.</strong> A mock answers <em>yes</em> by construction, because <code>Token</code> takes the audience as a parameter.
+   That question has exactly one venue - a real provider - and <code>docs/where-identity-is-proven.md</code>
+   says so.</li>
+<li><strong>Whether a token exchange endpoint accepts what we send it, or whether two subjects read two
+   row sets.</strong> Nothing here talks to a data system.</li>
+</ol>
+<h1 id="the-constraint-that-makes-it-worth-having">The constraint that makes it worth having<a class="headerlink" href="#the-constraint-that-makes-it-worth-having" title="Permanent link">&para;</a></h1>
+<p><strong>It produces real signatures over real documents.</strong> <code>rcgen</code> generates the key pair, <code>jsonwebtoken</code>
+signs the claim set, and the public half goes into a JWK the way an issuer publishes one - so a
+verifier under test runs its real code path. A mock handing back a decoded claim set would be
+testing our test, which <code>AGENTS.md</code> calls a test asserting on source text.</p>
+<p><strong>Every knob is a parameter</strong>, because the useful tests are the negative ones: a wrong audience, a
+wrong issuer, an <code>alg</code> of <code>none</code>, a symmetric key in the set, an ID token where an access token is
+required, an <code>iat</code> dated forward, an <code>exp</code> past the lifetime ceiling. A fixture that could only
+mint a <em>good</em> token would leave every one of those to be hand-rolled again per crate.</p>
+<h1 id="which-algorithms-are-reachable-stated-rather-than-implied">Which algorithms are reachable, stated rather than implied<a class="headerlink" href="#which-algorithms-are-reachable-stated-rather-than-implied" title="Permanent link">&para;</a></h1>
+<p><code>Curve</code> has three variants and they are the three the linked crypto backend can <em>generate</em> a key
+for: <code>ES256</code>, <code>ES384</code> and <code>EdDSA</code>. <code>RS*</code> and <code>PS*</code> are <strong>not</strong> mintable here - an RSA key needs a
+dependency nothing in this workspace wants, and a committed private key in a public repository is a
+committed private key whatever the comment beside it says. What covers those is the family refusal
+<code>MockIssuer::key_set_of_rsa_keys</code> provokes, an exhaustive match in the verifier, and a reviewer.
+Saying that plainly is the point; three of nine tested behind a list of nine would read as coverage.</p>
+<h1 id="which-knobs-have-a-caller-today-said-out-loud">Which knobs have a caller today, said out loud<a class="headerlink" href="#which-knobs-have-a-caller-today-said-out-loud" title="Permanent link">&para;</a></h1>
+<p><strong>A fixture is not exempt from this file's own rule about stating limits.</strong> What the first suites to
+use this module drive: <code>kid</code> selection, the audience (its own, none, and a wrong one), the issuer,
+<code>exp</code>, <code>nbf</code>, the <code>typ</code> in three states, <code>alg: none</code>, a stranger's signature, a duplicate key id,
+all three curves, and both names a deployment is configured with.</p>
+<p><strong>Four knobs have no caller yet, and they are named rather than left to be found:</strong>
+<code>Token::issued_ago</code>, <code>Token::stating_no_issued_at</code>, <code>Token::living_for</code> and
+<code>Token::for_audiences</code>. The first three are the gateway mode's replay-window arithmetic and the
+fourth is the <code>aud</code> array; all four already have standing tests <strong>at the gate</strong>, over that
+transport's own in-place fixtures, so minting them here as well would be a second venue for the
+same refusals - which <code>AGENTS.md</code> calls the shape that reads as coverage. The venue page,
+<code>docs/where-identity-is-proven.md</code>, marks those rows <strong>can</strong> rather than <strong>yes</strong> for that reason.</p>
+<p>They are built now rather than when somebody wants them because the whole argument for a <em>builder</em>
+is that a negative test costs one call - and a builder that had to grow a method per negative would
+send the next author back to hand-rolling a claim set, which is the thing this module exists to stop.</p>
+<h1 id="errors-rather-than-panics-which-is-a-lint-and-not-a-preference">Errors rather than panics, which is a lint and not a preference<a class="headerlink" href="#errors-rather-than-panics-which-is-a-lint-and-not-a-preference" title="Permanent link">&para;</a></h1>
+<p>This is library code in a crate the workspace lints, so <code>expect_used</code> and <code>indexing_slicing</code> are
+denied here as everywhere else - the test-only exemption in <code>clippy.toml</code> does not reach it. Every
+fallible step therefore returns <code>IssuerDefect</code>, whose four variants are the four things that can
+go wrong and none of which a correct caller reaches.</p>
+<h3 id="enum-curve"><code>enum Curve</code><a class="headerlink" href="#enum-curve" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Curve</span>
+</span></code></pre></div>
+<p>The elliptic curves this issuer can generate a signing key for.</p>
+<p>Three, and each is one of the algorithms a deployment can pin. The name is the curve rather than
+the algorithm because the curve is what gets generated; <code>Curve::algorithm</code> is the mapping, and it
+is a match rather than a lookup so a fourth curve does not compile until somebody answers it.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>P256</code> - <code>ES256</code>. What every fixture uses unless it is about something else.</li>
+<li><code>P384</code> - <code>ES384</code>.</li>
+<li><code>Ed25519</code> - <code>EdDSA</code> over Ed25519.</li>
+</ul>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">algorithm</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The JWS algorithm identifier a key on this curve signs with.</p>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-issuerdefect"><code>enum IssuerDefect</code><a class="headerlink" href="#enum-issuerdefect" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">IssuerDefect</span>
+</span></code></pre></div>
+<p>What went wrong, as four variants a correct caller does not reach.</p>
+<p>Hand-written <code>Display</code> and <code>Error</code>, the way <code>crate::discovery</code> does it: this crate carries no error
+derive, and four variants do not earn one.</p>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>KeyPairUngeneratable</code> - A key pair would not generate. The backend said so; there is nothing a caller can do.</li>
+<li><code>NoSuchKey</code> - A token named a key id this issuer does not hold.</li>
+<li><code>Unsignable</code> - The signing step failed, which for a generated key and a JSON claim set means a library defect.</li>
+<li><code>Unpublishable</code> - The key set could not be written where it was asked for.</li>
+</ul>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-mockissuer"><code>struct MockIssuer</code><a class="headerlink" href="#struct-mockissuer" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MockIssuer</span>
+</span></code></pre></div>
+<p>An authorization server that exists for the length of a test.</p>
+<p>It holds an issuer identifier, the audience its tokens are for, and one or more signing keys. Both
+names are held rather than passed per token because they are what a deployment is <em>configured</em>
+with: a test about a wrong issuer should have to say so, and every other test should not have to
+repeat the right one.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">also_holding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">curve</span><span class="p">:</span><span class="w"> </span><span class="nc">Curve</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The same issuer, holding one more key.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>IssuerDefect::KeyPairUngeneratable</code> if the crypto backend will not generate a key pair.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">audience</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>Who its tokens are for - the value an <code>aud</code> claim carries.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generating</span><span class="p">(</span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>An issuer with one <code>P-256</code> key under <code>key_id</code>.</p>
+<p>The ordinary constructor. A test that wants a second key, or another curve, adds one with
+<code>MockIssuer::also_holding</code>.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>IssuerDefect::KeyPairUngeneratable</code> if the crypto backend will not generate a key pair.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">issuer</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>What this issuer calls itself - the value an <code>iss</code> claim carries.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_ids</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The ids of every key it publishes, in the order they were added.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>The JWK set holding every key.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_naming_one_key_twice</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>The JWK set holding one key twice under one id, which a verifier must refuse rather than
+resolve by document order.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_of_rsa_keys</span><span class="p">(</span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>A JWK set holding one RSA key, for the family mismatch a deployment pinning <code>ES*</code> must refuse.</p>
+<p><strong>The modulus is not a real key and does not need to be.</strong> What is asserted with it is that a
+key set of the wrong family is refused <em>at load</em>, which happens before anything verifies a
+signature - so the exponent and the modulus only have to be base64url a decoder will accept.
+This is also why <code>RS*</code> is not mintable here: the refusal is the coverage.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_of_symmetric_keys</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>A JWK set holding one <strong>symmetric</strong> key, which is what must never be accepted.</p>
+<p>An associated function rather than a method: no signing key is involved, and the value of the
+fixture is that the document is otherwise well formed. Accepting it would make algorithm
+confusion reachable - the holder of a <em>published</em> key could sign with it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_without</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>The JWK set with one key <strong>removed</strong>, which is what a rotation looks like from outside.</p>
+<p>The whole reason this hands back a document rather than a struct: revocation is bounded only if
+a verifier re-reads its <em>source</em>, so the assertion has to be against a source whose content
+changed. An in-memory key set would test the cache and not the bound.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Signs <code>token</code> with the key it names, or with the first key if it names none.</p>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<p><code>IssuerDefect::NoSuchKey</code> if the named key is not held, and <code>IssuerDefect::Unsignable</code> if
+the library refuses the claim set - which for a generated key means a library defect.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint_signed_by_a_stranger</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The same claim set, signed by a key this issuer does <strong>not</strong> publish.</p>
+<p>The forgery fixture, and the point is that it is correct in every other respect: the <code>kid</code> names
+a key the verifier holds, the issuer and the audience are right, and only the signature is
+somebody else's. A fixture that changed the <code>kid</code> as well would be asserting the unknown-key
+path instead.</p>
+<h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
+<p>As <code>MockIssuer::mint</code>, plus <code>IssuerDefect::KeyPairUngeneratable</code> for the stranger's key.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint_unsigned</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The same claim set with an <code>alg</code> of <code>none</code> and no signature at all.</p>
+<p>Hand-assembled, because the library will not encode it - which is itself the reassuring part.
+What this provokes is the oldest JWT defect there is: a verifier that reads the algorithm out of
+the header it was handed instead of out of what the deployment pinned.</p>
+<h1 id="errors_4">Errors<a class="headerlink" href="#errors_4" title="Permanent link">&para;</a></h1>
+<p><code>IssuerDefect::NoSuchKey</code> if the token names a key this issuer does not hold. The <code>kid</code> is
+still resolved, so an unsigned token is refused for its algorithm rather than for its key id.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="n">Path</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Publishes the whole key set at <code>path</code>, replacing whatever was there.</p>
+<h1 id="errors_5">Errors<a class="headerlink" href="#errors_5" title="Permanent link">&para;</a></h1>
+<p><code>IssuerDefect::Unpublishable</code> if the write fails.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish_document</span><span class="p">(</span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="n">Path</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">document</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Publishes an arbitrary document at <code>path</code>, which is how a rotation is performed.</p>
+<h1 id="errors_6">Errors<a class="headerlink" href="#errors_6" title="Permanent link">&para;</a></h1>
+<p><code>IssuerDefect::Unpublishable</code> if the write fails.</p>
+<h3 id="struct-token"><code>struct Token</code><a class="headerlink" href="#struct-token" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Token</span>
+</span></code></pre></div>
+<p>One token to mint, with every claim a negative test needs to be able to move.</p>
+<p>A builder rather than a struct literal, so the ORDINARY token is one call and each negative is one
+call plus the one thing it is about. That is what keeps such a suite readable: a reader can see what
+a test varies without diffing it against the good case.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">claiming</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Carries one more claim, for anything this builder has no name for.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">claiming_issuer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Claims an issuer of its own, which is how the wrong-issuer refusal is provoked.</p>
+<p>Named <code>claiming_issuer</code> and not <code>from_issuer</code> because a <code>from_*</code> method that takes <code>self</code> reads
+as a conversion and is not one - <code>clippy::wrong_self_convention</code> says so, and it is right.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">classed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">class</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Sets the <code>typ</code> header, which is what decides a token's CLASS.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expired_since</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Expired <code>seconds</code> ago.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_audience</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Claims one named audience rather than the issuer's own.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_audiences</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">audiences</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Claims an array of audiences, the form RFC 7519 permits.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_nobody_in_particular</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Claims no audience at all, so there is nothing for a verifier to compare.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_subject</span><span class="p">(</span><span class="n">subject</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The ordinary token for <code>subject</code>: this issuer, this audience, an access token, valid for an hour.</p>
+<p>It states an <code>iat</code>, because the mode that needs one requires it and the mode that does not
+ignores it - so the default that is right in both places is to state it, and
+<code>Token::stating_no_issued_at</code> is the negative.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granting</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Carries a space-delimited <code>scope</code> claim, per RFC 6749.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">issued_ago</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Issued <code>seconds</code> ago. A negative value dates it forward, which is how a component would buy a
+longer replay window than the one this deployment chose.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">living_for</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Lives for <code>seconds</code> from its <code>iat</code>, which is what a lifetime ceiling is compared against.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">not_before_in</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Not valid until <code>seconds</code> from now.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">signed_by</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Signs with the named key rather than the issuer's first.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">stating_no_issued_at</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>States no <code>iat</code>, which the gateway mode must refuse because its ceiling is <code>exp - iat</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">unclassed</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Carries no <code>typ</code> at all, which a class check must not be satisfiable by.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="struct-publishedkeyset"><code>struct PublishedKeySet</code><a class="headerlink" href="#struct-publishedkeyset" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PublishedKeySet</span>
+</span></code></pre></div>
+<p>A key set on disk, removed when it goes out of scope.</p>
+<p><strong>The seam a rotation test needs.</strong> The one key set source that ships reads a <em>file</em>, so an
+assertion about a revoked key stopping verifying has to change a file - and a test that left one
+behind in the temporary directory would be a test that passes on its second run for the wrong
+reason. <code>PublishedKeySet::rotate_to</code> is the whole vocabulary: publish a new document at the same
+path and let the verifier notice.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">MockIssuer</span><span class="p">,</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Publishes <code>issuer</code>'s key set at a path named after <code>label</code> and this process.</p>
+<p>The process id is in the name because the suite runs test binaries concurrently and the
+temporary directory is shared; the label is in it because a failure naming the file should say
+which test wrote it.</p>
+<h1 id="errors_7">Errors<a class="headerlink" href="#errors_7" title="Permanent link">&para;</a></h1>
+<p><code>IssuerDefect::Unpublishable</code> if the write fails.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<p>Where it is, which is what a deployment's <code>key_set_file</code> is set to.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotate_to</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">document</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Replaces the published document, which is what a rotation is.</p>
+<h1 id="errors_8">Errors<a class="headerlink" href="#errors_8" title="Permanent link">&para;</a></h1>
+<p><code>IssuerDefect::Unpublishable</code> if the write fails.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Drop</code></p>
+<h2 id="module-provisioned">Module <code>provisioned</code><a class="headerlink" href="#module-provisioned" title="Permanent link">&para;</a></h2>
+<p>The consumption half: how a test, an example or a demo reaches a service this worktree brought up.</p>
+<p><code>crate::discovery</code> is the door that <em>can</em> be opened; this module is the one a caller should
+actually use, and the difference is two things neither a test nor a reader should have to write
+twice.</p>
+<h1 id="1-the-diagnostic-which-is-most-of-the-value-here">1. The diagnostic, which is most of the value here<a class="headerlink" href="#1-the-diagnostic-which-is-most-of-the-value-here" title="Permanent link">&para;</a></h1>
+<p>Without it the failure a developer sees is a connection refused, thirty seconds into a test,
+attributed to the adapter under test rather than to a tier that was never started. Every path
+out of <code>here</code> and <code>in_worktree</code> carries <code>Absent</code> instead, which names the worktree, the
+file it looked in, what the file said, and the task to run. The whole point of allocating a port
+per worktree is that nobody has to know the port; the cost of that is that nobody can guess it
+either, so the message has to close the gap.</p>
+<h1 id="2-the-skip-or-fail-decision-made-once">2. The skip-or-fail decision, made once<a class="headerlink" href="#2-the-skip-or-fail-decision-made-once" title="Permanent link">&para;</a></h1>
+<p><code>here</code> applies <code>crate::requirement</code>: a missing tier skips loudly on a developer machine and
+fails where the tier is required. A test that made that decision for itself would make it
+differently from the next test, and one of them would make it silently.</p>
+<h1 id="what-is-deliberately-not-here">What is deliberately not here<a class="headerlink" href="#what-is-deliberately-not-here" title="Permanent link">&para;</a></h1>
+<p><strong>No fallback port, at any level.</strong> Not a default, not a "try the container port", not an
+environment variable a caller could set to a constant. A fallback connects to whatever else
+holds that port, and on a machine running two worktrees of this repository that is the
+neighbour's fixture - a test that passes against the wrong data and says nothing about it. That
+is the exact failure the per-worktree design removes, so re-introducing it as a convenience
+would remove the design.</p>
+<p><strong>No knowledge of docker</strong>, for the same reason the rest of this crate has none: bringing
+services up is <code>xtask</code>'s job. This module reads a file.</p>
+<h3 id="enum-provisioned"><code>enum Provisioned</code><a class="headerlink" href="#enum-provisioned" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioned</span>
+</span></code></pre></div>
+<p>What a harness gets when it asks for a provisioned service.</p>
+<p>Two variants and no third, because the fail direction does not return: see <code>here</code>.</p>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>At</code> - It is up, and this is where. Read from the discovery file, which is the only place a host port for this worktree exists.</li>
+<li><code>Skipped</code> - Nothing to connect to, on a machine class where that is not a failure.</li>
+</ul>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The endpoint, where there is one.</p>
+<p>For a caller that wants <code>let Some(endpoint) = .. else { return }</code> rather than a match. The
+skip has already been reported either way, so discarding the <code>Absent</code> loses nothing.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code></p>
+<h3 id="struct-absent"><code>struct Absent</code><a class="headerlink" href="#struct-absent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Absent</span>
+</span></code></pre></div>
+<p>Nothing to connect to, and what to do about it.</p>
+<p>The typed fields are the contract and the <code>Display</code> form is the message; a caller that wants to
+branch reads <code>Absent::reason</code> rather than the prose.</p>
+<p>Plain backticks on <code>Display</code> rather than a rustdoc link to <code>std::fmt::Display</code>, and that is the
+rule <code>AGENTS.md</code> states rather than a preference: the api-docs generator copies a link to another
+crate's path through verbatim, and <code>mkdocs build --strict</code> then aborts on an unrecognized
+relative link - which every nix check passes over, because none of them builds the site.</p>
+<p><strong>Boxed, and it is a lint that says so rather than taste.</strong> The diagnostic is four fields wide
+and one of them is another error, which puts the whole thing past <code>result_large_err</code>: every
+<code>Ok(Endpoint)</code> on the way back would carry room for it. This is the cold path and it can afford
+one allocation, so the box is here and not at the call sites - a public
+<code>Result&lt;Endpoint, Box&lt;Absent&gt;&gt;</code> would push it onto everybody instead.</p>
+<h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Reason</span>
+</span></code></pre></div>
+<p>What stopped it. Branch on this, never on the message.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The service that was asked for.</p>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-reason"><code>enum Reason</code><a class="headerlink" href="#enum-reason" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Reason</span>
+</span></code></pre></div>
+<p>Which half failed. A variant rather than a sentence, because "run <code>just dev-up</code>" is the wrong
+advice for two of these and a caller matching on prose has no contract.</p>
+<h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NoWorktree</code> - The directory given is not inside a checkout of this repository, so there is no worktree whose discovery file could be read.</li>
+<li><code>NoScope</code> - A worktree root that could not become a <code>Scope</code>.</li>
+<li><code>NotDiscovered</code> - There is a worktree, and its discovery file does not answer.</li>
+</ul>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code></p>
+<h3 id="fn-in_worktree"><code>fn in_worktree</code><a class="headerlink" href="#fn-in_worktree" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_worktree</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">discovery</span><span class="p">::</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">Absent</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Where one service in ONE named worktree is listening.</p>
+<p>The half with no environment and no printing in it, so a caller that already knows which
+worktree it means - a <code>just</code> task, a test over a fixture directory - can drive it directly.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a>use sutura_dev::provisioned;
+</span><span id="__span-63-2"><a id="__codelineno-63-2" name="__codelineno-63-2" href="#__codelineno-63-2"></a>
+</span><span id="__span-63-3"><a id="__codelineno-63-3" name="__codelineno-63-3" href="#__codelineno-63-3"></a>// A temporary directory is a real directory and nothing has provisioned it, so this is the
+</span><span id="__span-63-4"><a id="__codelineno-63-4" name="__codelineno-63-4" href="#__codelineno-63-4"></a>// diagnostic path rather than an endpoint. Note what it is NOT: a default port.
+</span><span id="__span-63-5"><a id="__codelineno-63-5" name="__codelineno-63-5" href="#__codelineno-63-5"></a>let problem = provisioned::in_worktree(&amp;std::env::temp_dir(), "postgres")
+</span><span id="__span-63-6"><a id="__codelineno-63-6" name="__codelineno-63-6" href="#__codelineno-63-6"></a>    .expect_err("nothing is provisioned in a temporary directory");
+</span><span id="__span-63-7"><a id="__codelineno-63-7" name="__codelineno-63-7" href="#__codelineno-63-7"></a>assert_eq!(problem.service(), "postgres");
+</span><span id="__span-63-8"><a id="__codelineno-63-8" name="__codelineno-63-8" href="#__codelineno-63-8"></a>assert!(problem.to_string().contains("no default port"), "{problem}");
+</span><span id="__span-63-9"><a id="__codelineno-63-9" name="__codelineno-63-9" href="#__codelineno-63-9"></a>
+</span><span id="__span-63-10"><a id="__codelineno-63-10" name="__codelineno-63-10" href="#__codelineno-63-10"></a>// And the remedy is derived from the directory that was ASKED about, not from this repository:
+</span><span id="__span-63-11"><a id="__codelineno-63-11" name="__codelineno-63-11" href="#__codelineno-63-11"></a>// a temporary directory declares `postgres` under neither venue, so there is no task to name.
+</span><span id="__span-63-12"><a id="__codelineno-63-12" name="__codelineno-63-12" href="#__codelineno-63-12"></a>assert!(problem.to_string().contains("nothing declares `postgres` yet"), "{problem}");
+</span></code></pre></div>
+<h3 id="fn-here"><code>fn here</code><a class="headerlink" href="#fn-here" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">here</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioned</span>
+</span></code></pre></div>
+<p>Where one service in THIS worktree is listening, with the skip-or-fail decision applied.</p>
+<p><code>inside</code> is any directory in the worktree; an integration test passes
+<code>Path::new(env!("CARGO_MANIFEST_DIR"))</code>, which is the one thing a test reliably knows about
+where it is. The worktree root is found by walking upwards - see <code>worktree_root</code>.</p>
+<h1 id="panics">Panics<a class="headerlink" href="#panics" title="Permanent link">&para;</a></h1>
+<p>In the <code>Requirement::Required</code> direction, and only there. The caller is a test, a panic is how
+a test fails, and returning <code>Provisioned::Skipped</code> there would be the silent green run this
+whole tier exists to prevent. On a developer machine the direction is
+<code>Requirement::Optional</code>, the notice goes to stderr, and nothing panics.</p>
+<h3 id="fn-worktree_root"><code>fn worktree_root</code><a class="headerlink" href="#fn-worktree_root" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">worktree_root</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The worktree root at or above <code>inside</code>, or <code>None</code> if there is not one.</p>
+<p><strong>Both markers, not either</strong>, and this is borrowed from <code>xtask</code>'s own root walk because the same
+two mistakes are available: <code>flake.nix</code> alone appears in unrelated directories, and <code>Cargo.toml</code>
+alone matches every crate on the way up - which would stop the walk at a workspace MEMBER and
+derive a scope for a directory no provisioning ever used.</p>
+<p>A walk rather than <code>git rev-parse</code>, deliberately. A harness runs where a <code>.git</code> directory may not
+be - a nix sandbox copies the tree without one - and shelling out to git from a test is a
+subprocess in the way of an assertion.</p>
+<h2 id="module-requirement">Module <code>requirement</code><a class="headerlink" href="#module-requirement" title="Permanent link">&para;</a></h2>
+<p>Whether an absent service tier is a skip or a failure - one definition, read by both halves.</p>
+<p>The decision has two call sites and they are on opposite sides of the tier:</p>
+<ul>
+<li><strong>Provisioning</strong> asks it when there is no container runtime to bring services UP with.</li>
+<li><strong>A harness</strong> asks it when there is nothing provisioned to CONNECT to.</li>
+</ul>
+<p>It lived in <code>xtask</code> while there was only the first, and it moved here when the second arrived.
+Two copies of a fail-open/fail-closed decision is the shape that drifts: the copies are edited
+months apart, one of them stops matching the documentation, and the direction a wrong answer
+costs the most is the one that silently flipped.</p>
+<p><strong>Neither direction is the default, and what a wrong answer costs decides it.</strong> A false failure
+blocks a contributor who is not touching services - docker is a host dependency this repository
+deliberately does not pin with nix. A false pass reports green having tested nothing, which is
+the failure the whole tier exists to prevent.</p>
+<p><strong>So the signal is "somebody provisioned a tier here", and it is NOT the <code>CI</code> variable.</strong> That
+distinction was learned rather than designed: this module first read <code>CI</code>, on the reasoning that
+CI is where a silent skip costs most. The reasoning was right and the signal was wrong, and the
+event that proved it happened IN CI: the branch that added this module provisioned no tier, so
+<code>CI=true</code> made a missing tier fatal right where its absence was expected - on its first push, in
+a step that had provisioned nothing. And nothing has changed that shape: no CI job sets <code>CI</code>
+only when it has provisioned a tier. What DOES opt in is the nix <code>checks.nextest</code> derivation,
+which provisions its own Postgres over a unix socket (<code>nix/postgres-tier.nix</code>) and sets the
+variable below; a docker tier needs docker on the host and opts in the same way.</p>
+<p>Only the thing that provisions the tier knows that it did. So that thing opts in by setting the
+variable below and gets the fail-closed direction; everything else skips loudly and names what did
+not run. <strong>The limit, stated with the claim:</strong> nothing here verifies that a process setting the
+variable really did provision anything - it is a declaration, and a process that lies about it
+gets the failure it asked for.</p>
+<h3 id="enum-requirement"><code>enum Requirement</code><a class="headerlink" href="#enum-requirement" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Requirement</span>
+</span></code></pre></div>
+<p>Whether a missing tier is fatal.</p>
+<h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Required</code> - A missing tier FAILS. What a job that has PROVISIONED the tier asks for by setting <code>FORCE</code>: there, a green run that quietly tested nothing is the failure the whole tier exists to prevent.</li>
+<li><code>Optional</code> - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.</li>
+</ul>
+<h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The direction this process is running under, read from the environment.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_required</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Is a missing tier fatal here?</p>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="fn-decide"><code>fn decide</code><a class="headerlink" href="#fn-decide" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-69-1"><a id="__codelineno-69-1" name="__codelineno-69-1" href="#__codelineno-69-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Requirement</span>
+</span></code></pre></div>
+<p>The decision, over the value rather than over the environment, so it is testable.</p>
+<p><strong>One parameter, and it used to be two.</strong> The other was <code>CI</code>, and it is gone rather than ignored:
+a parameter a function does not read is a parameter a caller believes in. See the module header for
+why that signal was the wrong one.</p>
+<h3 id="constant-force"><code>constant FORCE</code><a class="headerlink" href="#constant-force" title="Permanent link">&para;</a></h3>
+<p>The variable that overrides the machine class, in <strong>both</strong> directions.</p>
+<p>Named once, here, because a message that tells somebody to set it and a read that spells it
+differently is a fix that does not work and looks like it should.</p>
+<h3 id="constant-not_required"><code>constant NOT_REQUIRED</code><a class="headerlink" href="#constant-not_required" title="Permanent link">&para;</a></h3>
+<p>Every spelling of <code>FORCE</code> that means <em>no</em>, lowercased and trimmed.</p>
+<p><strong>Public because a second reader of this decision exists and may not depend on this crate.</strong>
+<code>sutura-conformance</code> has to judge whether an absent tier is a defect where a venue declared one,
+and <code>xtask/src/boundaries/harness.rs</code> holds that crate to <code>sutura-domain</code> through a normal
+dependency - so it spells the same predicate a second time. Two statements about one fact can
+disagree, which is the defect <code>nix/with-tier.sh</code> records at a count of one, so this list is the
+OWNER and that crate's own test iterates it as a DEV-dependency. A spelling added here fails
+that cell until the copy agrees, rather than making the two disagree silently about a variable
+people set by hand.</p>
+<h2 id="module-scope">Module <code>scope</code><a class="headerlink" href="#module-scope" title="Permanent link">&para;</a></h2>
+<p>Per-worktree isolation: the part that has to be right.</p>
+<p>Several worktrees of this repo are open at once - that is the point of stacked branches -
+and each needs its own services. Two worktrees sharing a
+container is the worst outcome available: a test passes because the <em>other</em> branch's
+migration ran, and the failure appears in whichever branch is unlucky.</p>
+<p>Every containerised service in the compose tier is scoped to a worktree (Postgres is not here:
+it is nix-native, provisioned by <code>nix/postgres-tier.nix</code> and run by <code>checks.nextest</code> and by
+<code>just test</code>, over a unix socket in a short per-worktree directory under <code>$TMPDIR</code> - see that
+module).</p>
+<p>So everything NAMED is scoped to a worktree, and it all derives from one value: a short digest
+of the worktree's CANONICAL path.</p>
+<ul>
+<li>the compose project name comes from the digest, so containers, networks and volumes are
+  namespaced</li>
+<li>state lives under the worktree, never in a shared directory</li>
+</ul>
+<h1 id="naming-is-derived-ports-are-not">Naming is derived; ports are NOT<a class="headerlink" href="#naming-is-derived-ports-are-not" title="Permanent link">&para;</a></h1>
+<p>An earlier version of this module derived the published ports from the same digest, and that
+design is withdrawn. Two defects, and the second is the worse one:</p>
+<ul>
+<li><strong>A hash into a port range cannot guarantee disjoint blocks.</strong> It is a total function from an
+  unbounded set of paths into a finite set of blocks, so collisions exist by construction. A
+  corpus of sample paths can only fail to find one, which is not the same claim.</li>
+<li><strong>Check-then-bind is a race.</strong> "Refuse if the port is already bound" leaves the whole window
+  between the check and docker's bind open to anything else on the host - including the
+  neighbouring worktree running the same check at the same time. It reads as a guarantee and
+  delivers a probability.</li>
+</ul>
+<p>Ports are therefore allocated by the thing that owns them: published ephemerally, and read back
+after the container is up. See <code>crate::discovery</code>, which is the only way to learn one.</p>
+<p><strong>Naming stays derived, because naming has no allocator</strong> - and the asymmetry is the whole
+reason one of the two moved and the other did not. A hash collision in a NAME is a startup
+error somebody reads; a hash collision in a PORT is a test that passes against the wrong
+fixture.</p>
+<h3 id="struct-service"><code>struct Service</code><a class="headerlink" href="#struct-service" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Service</span>
+</span></code></pre></div>
+<p>A dev service that gets its own container per worktree.</p>
+<p>No port field, derived or otherwise: what a service publishes on the host is allocated at
+provision time and read back, so a port here would be a second answer to a question this type
+is not allowed to answer.</p>
+<h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">container_port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+</span></code></pre></div>
+<p>The port INSIDE the container. Provisioning publishes it ephemerally and reads back the
+host port docker chose.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_default</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Is this service started when no profile was asked for?</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-73-1"><a id="__codelineno-73-1" name="__codelineno-73-1" href="#__codelineno-73-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>Name used in the compose file, in the discovery file and in output.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-74-1"><a id="__codelineno-74-1" name="__codelineno-74-1" href="#__codelineno-74-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The compose profile that turns this service on, or <code>None</code> for one always started.</p>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-scopeerror"><code>enum ScopeError</code><a class="headerlink" href="#enum-scopeerror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-75-1"><a id="__codelineno-75-1" name="__codelineno-75-1" href="#__codelineno-75-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ScopeError</span>
+</span></code></pre></div>
+<p>Why a worktree root could not become a scope.</p>
+<h4 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NotResolvable</code> - The path could not be canonicalised - it does not exist, or a component is not readable.</li>
+</ul>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-scope"><code>struct Scope</code><a class="headerlink" href="#struct-scope" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-76-1"><a id="__codelineno-76-1" name="__codelineno-76-1" href="#__codelineno-76-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scope</span>
+</span></code></pre></div>
+<p>Everything derived from one worktree.</p>
+<p>If an instance exists, its root is canonical: <code>Scope::from_root</code> is the only public
+constructor and it canonicalises first, so no caller has to wonder which spelling of a path a
+scope was built from.</p>
+<h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-77-1"><a id="__codelineno-77-1" name="__codelineno-77-1" href="#__codelineno-77-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>Short digest of the canonical root. Printed so a stray container can be traced back.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-78-1"><a id="__codelineno-78-1" name="__codelineno-78-1" href="#__codelineno-78-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_root</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ScopeError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Derive a scope from a worktree root.</p>
+<p>The canonical constructor. It resolves the path first - symlinks included - so two spellings
+of one directory are one worktree, and two genuinely different directories are two. On a
+case-folding filesystem that is what makes a case-only difference one worktree, and on a
+case-sensitive one it is what stops two real directories being folded into one. Neither
+property comes from lowercasing the string, which an earlier version did and which was wrong
+on exactly one of those two platforms.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-79-1"><a id="__codelineno-79-1" name="__codelineno-79-1" href="#__codelineno-79-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>Compose project name. Lowercase alphanumeric and dashes only, which is all docker
+compose accepts, and prefixed so a stray container is identifiable as ours.</p>
+<p><strong>The one function that supplies this name</strong>, to start and to stop alike. Rule 3 of the
+teardown contract on <code>SERVICES</code> is about the two of them agreeing.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-80-1"><a id="__codelineno-80-1" name="__codelineno-80-1" href="#__codelineno-80-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">root</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<p>The canonical worktree root.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-81-1"><a id="__codelineno-81-1" name="__codelineno-81-1" href="#__codelineno-81-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scratch</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">purpose</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+</span></code></pre></div>
+<p>This worktree's own subtree of the machine-shared temporary root, for one <code>purpose</code>.</p>
+<p><strong>The one derivation of a keyed path under a shared root</strong>, and the only reason it exists
+beside <code>Scope::state_dir</code> is LENGTH: a unix socket path caps around 100 bytes on macOS, so
+a server cannot sit under an arbitrarily deep worktree. Everything that does not have that
+constraint belongs under the worktree, where the tree is the key and there is nothing to
+derive.</p>
+<p><code>purpose</code> namespaces two writers in one worktree from each other; the digest namespaces two
+worktrees from one another. Both are needed and neither substitutes: a purpose alone is the
+defect <code>telekom/sutura#405</code> collects - <code>&lt;temp_dir&gt;/sutura-conformance/&lt;table&gt;.csv</code> carried a
+purpose and no key, so a second checkout of this repository was a second WRITER of it.</p>
+<p><strong>What this does NOT give you.</strong> It is a NAME, not an allocation - the same asymmetry this
+module's header states for ports. Two worktrees whose canonical paths collide in four bytes
+of SHA-256 get one directory, which is a startup error somebody reads rather than a test
+that passes against the wrong fixture. And it makes no directory: a caller creates it, so a
+path this returns is not evidence that anything is there.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-82-1"><a id="__codelineno-82-1" name="__codelineno-82-1" href="#__codelineno-82-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+</span></code></pre></div>
+<p>Where provisioning keeps this worktree's state. Under the worktree, never shared.</p>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="fn-profiles"><code>fn profiles</code><a class="headerlink" href="#fn-profiles" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-83-1"><a id="__codelineno-83-1" name="__codelineno-83-1" href="#__codelineno-83-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every profile any service declares, in declaration order and without repeats.</p>
+<p>Teardown enables all of them, and that is the reason this exists: <code>docker compose down</code> only
+considers services in ACTIVE profiles, so a destroy that forgot one would leave that service's
+container and named volume behind <strong>while reporting success</strong> - the same silent-success failure
+the teardown contract below is about. Derived rather than listed, so adding a profile does not
+need a second edit somewhere else to stay correct.</p>
+<h3 id="constant-services"><code>constant SERVICES</code><a class="headerlink" href="#constant-services" title="Permanent link">&para;</a></h3>
+<p>The services a worktree may run. Adding one is a row here plus a block in
+<code>compose.services.yaml</code> - which is NOT <code>compose.dev.yaml</code>, the dev-container wrapper.</p>
+<h1 id="the-teardown-contract-provisioning-inherits">The teardown contract provisioning inherits<a class="headerlink" href="#the-teardown-contract-provisioning-inherits" title="Permanent link">&para;</a></h1>
+<p><strong>Written here because this list is what provisioning reads, and every rule below is a lesson
+somebody already paid for.</strong> <code>xtask/src/compose.rs</code> is what honours them; this is the statement
+of the rules, and none of them may be cited as an invariant - what enforces each one is named
+beside it in that module.</p>
+<ol>
+<li>
+<p><strong>Destructive cleanup is dry-runnable.</strong> A command that removes containers, networks, volumes
+   or state directories can say what it <em>would</em> remove and exit without removing it. The reason is
+   not caution in the abstract: the selection logic is the part that goes wrong, and a dry run is
+   the only way to inspect the selection without living with it. A destroy whose only mode is
+   "do it" is a destroy nobody can review.</p>
+</li>
+<li>
+<p><strong>Eligibility is re-checked at destroy time, under a lock held across the destroy, and what is
+   deliberately spared is reported as its own category.</strong> Deciding a container is stale and then
+   removing it are two moments, and another worktree can start between them - so the check that
+   said "nobody is using this" has to be re-run inside the lock that the removal happens under,
+   not before it. The lock is held for the whole destroy rather than taken per item, because the
+   window is what is being closed.</p>
+</li>
+</ol>
+<p>And the candidates that survived the re-check are <strong>printed as a category of their own</strong> -
+   "in use, left alone" - never omitted. Silence there is indistinguishable from "there was
+   nothing to consider", which is precisely the case where a reader needs to know the safety
+   mechanism fired. <strong>A spared item is a success of the check and has to read as one.</strong></p>
+<ol>
+<li><strong>One function supplies the compose project name to both start and stop, and it supplies it
+   the same way.</strong> <code>Scope::project</code> is that function. The trap is specific: passing the project
+   by command-line flag alone does NOT populate the variable an override file interpolates, so a
+   compose file that interpolates the project name into a network, a volume or a container name
+   resolves it from an unset variable at destroy time - and the destroy then targets the wrong
+   network, or nothing at all, while reporting success. Whatever start relies on, stop has to be
+   given identically: the flag AND the environment, from one call site.</li>
+</ol>
+<h1 id="signalling-a-process">Signalling a process<a class="headerlink" href="#signalling-a-process" title="Permanent link">&para;</a></h1>
+<p><strong>A PID is signalled only if its working directory is under this repository.</strong> "Whatever is
+listening on a port I expected" is not an identity, and neither is "whatever holds a PID a stale
+file names": a PID is reused. The check is the process's own working directory, resolved and
+compared against this repository's root, because that is the one property a colliding stranger
+cannot accidentally have.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

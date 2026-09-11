@@ -1,0 +1,3707 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Every adapter is configured by a typed declaration rather than discovered - a metadata adapter declares which kinds of metadata it provides, and a data adapter declares whether it reaches a source as a shared service user or as the asking subject - so a capability nobody declared cannot be used, an answer records which mode produced it, and adding a capability is a compile error everywhere it has to be decided; plus what composing several metadata sources actually requires, which is a contribution manifest under the definition digest because today that digest covers the assembly and not the composition, and the one claim this record withdrew - a narrow source cannot contribute source-level usage prose to the prompt, because every note the knowledge layer carries is attached to a metric.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.5.0/adr/0011-pluggable-by-declaration/">
+      
+      
+        <link rel="prev" href="../0010-transport-security-for-a-source/">
+      
+      
+        <link rel="next" href="../0012-conformance-packs-for-inputs-and-adapters/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Pluggable by declaration, and the mode a data adapter is in - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pluggable-by-declaration-and-the-mode-a-data-adapter-is-in" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Pluggable by declaration, and the mode a data adapter is in
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Serve it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metadata-what-the-adapter-provides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata: what the adapter provides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-long-a-metadata-answer-may-be-cached" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How long a metadata answer may be cached
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-which-mode-a-source-is-in-and-which-capability-the-adapter-has" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data: which mode a source is in, and which capability the adapter has
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capabilities-beyond-the-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capabilities beyond the mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-pluggable-does-not-mean-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What pluggable does NOT mean here
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-connectors-this-has-to-carry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The connectors this has to carry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-rdbms-catalog-which-is-the-connector-that-needs-specifying" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The RDBMS catalog, which is the connector that needs specifying
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The RDBMS catalog, which is the connector that needs specifying">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-guidance-and-the-claim-this-record-had-to-withdraw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The guidance, and the claim this record had to withdraw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-somebody-proposes-referentsource-anyway-this-is-the-price" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If somebody proposes Referent::Source anyway, this is the price
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metadata-sources-compose-and-that-is-a-decision-with-teeth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata sources compose, and that is a decision with teeth
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Metadata sources compose, and that is a decision with teeth">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-digest-has-to-be-made-to-cover-the-composition-because-today-it-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The digest has to be made to cover the composition, because today it does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-assembler-is-application-code-not-an-adapter-over-adapters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The assembler is application code, not an adapter over adapters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exploit-what-a-source-actually-knows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exploit what a source actually knows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-the-contribution-manifest-is-built-and-its-serialized-form-is-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the contribution manifest is built, and its serialized form is decided
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#second-amendment-the-second-composition-root-reads-the-tree-too" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment: the second composition root reads the tree too
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the agent surface learns who is asking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Three OSS-readiness scans, and what each discloses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a Scorecard zero says about this repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0026-no-third-party-binary-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An OSS binary cache for this repository's own paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metadata-what-the-adapter-provides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata: what the adapter provides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-long-a-metadata-answer-may-be-cached" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How long a metadata answer may be cached
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-which-mode-a-source-is-in-and-which-capability-the-adapter-has" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data: which mode a source is in, and which capability the adapter has
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capabilities-beyond-the-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capabilities beyond the mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-pluggable-does-not-mean-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What pluggable does NOT mean here
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-connectors-this-has-to-carry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The connectors this has to carry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-rdbms-catalog-which-is-the-connector-that-needs-specifying" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The RDBMS catalog, which is the connector that needs specifying
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The RDBMS catalog, which is the connector that needs specifying">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-guidance-and-the-claim-this-record-had-to-withdraw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The guidance, and the claim this record had to withdraw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#if-somebody-proposes-referentsource-anyway-this-is-the-price" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If somebody proposes Referent::Source anyway, this is the price
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metadata-sources-compose-and-that-is-a-decision-with-teeth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata sources compose, and that is a decision with teeth
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Metadata sources compose, and that is a decision with teeth">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-digest-has-to-be-made-to-cover-the-composition-because-today-it-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The digest has to be made to cover the composition, because today it does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-assembler-is-application-code-not-an-adapter-over-adapters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The assembler is application code, not an adapter over adapters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exploit-what-a-source-actually-knows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exploit what a source actually knows
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-the-contribution-manifest-is-built-and-its-serialized-form-is-decided" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment: the contribution manifest is built, and its serialized form is decided
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#second-amendment-the-second-composition-root-reads-the-tree-too" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment: the second composition root reads the tree too
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pluggable-by-declaration-and-the-mode-a-data-adapter-is-in">Pluggable by declaration, and the mode a data adapter is in<a class="headerlink" href="#pluggable-by-declaration-and-the-mode-a-data-adapter-is-in" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted. The metadata half has a working precedent; the data half is new; the composition
+half needs a change to what the definition digest is taken over.</strong></p>
+<p>Pluggable metadata and pluggable data are requirements. So is a tight security focus, and the two pull
+in opposite directions unless pluggability is built one specific way: <strong>a closed set of typed
+declarations, checked exhaustively, rather than a plugin system that discovers what an adapter can
+do.</strong> This record is that construction.</p>
+<h2 id="the-decision">The decision<a class="headerlink" href="#the-decision" title="Permanent link">&para;</a></h2>
+<p><strong>Every adapter is configured on its declared capability, and a capability nobody declared cannot be
+used.</strong> Two axes, because the two ports answer different questions:</p>
+<ul>
+<li>A <strong>metadata</strong> adapter declares WHICH KINDS of metadata it provides.</li>
+<li>A <strong>data</strong> adapter declares WHICH MODE it is in, and the modes are
+  <code>SharedServiceUser</code> and <code>ImpersonationAtSource</code>.</li>
+</ul>
+<p>Neither declaration has a permissive default. An adapter that does not say does not get the benefit of
+the doubt, because the failure of a default here is silent: content served that nobody vouched for, or
+a source read under one identity for everybody while a deployment believes otherwise.</p>
+<h2 id="metadata-what-the-adapter-provides">Metadata: what the adapter provides<a class="headerlink" href="#metadata-what-the-adapter-provides" title="Permanent link">&para;</a></h2>
+<p>The precedent exists and works, and this decision generalises it rather than inventing anything.
+Knowledge capabilities are already declared per provider, <code>Capability::every()</code> walks them through
+exhaustive matches, and content for a kind the provider did not declare <strong>fails the load</strong> as
+<code>UndeclaredContent</code> naming what happened and where.</p>
+<p>Three properties of that construction are the reason it is the pattern to extend:</p>
+<ol>
+<li><strong>Emptiness cannot carry the distinction.</strong> <em>Declared and empty</em> means the prompt may say nothing
+   is known to be undefined. <em>Not declared</em> means the prompt must not imply the absence list is
+   complete. A map with no entries cannot tell those apart, which is why the declaration exists at
+   all.</li>
+<li><strong>The walk cannot be walked past.</strong> The successor and predecessor functions are exhaustive matches,
+   a <code>const</code> assertion holds the seed of the walk, and a third exhaustive match decides what each
+   capability licenses a document to say. A new kind is a compile error in every place that has to
+   decide about it.</li>
+<li><strong>The declaration is under the digest.</strong> A deployment that quietly stopped declaring a kind has
+   changed what its prompt claims, and provenance that did not move would certify the old claim.</li>
+</ol>
+<p>Extending it to the rest of a metadata adapter's surface - metrics, dimensions, relationships,
+lineage, whatever a Datahub or OpenMetadata adapter can and cannot answer - keeps all three. The
+vocabulary stays closed and the enum stays the contract.</p>
+<h2 id="how-long-a-metadata-answer-may-be-cached">How long a metadata answer may be cached<a class="headerlink" href="#how-long-a-metadata-answer-may-be-cached" title="Permanent link">&para;</a></h2>
+<p>A metadata connector that is a live service puts that service on the query path. Datahub or
+OpenMetadata being down would then stop sutura answering, and it does not, because of something already
+built: <strong>definitions are PINNED.</strong> The load takes no request context, the bundle is read once and
+hashed, and a request reads the pinned copy rather than the catalog. A metadata outage is therefore
+survivable, which is an unclaimed benefit of pinning rather than a feature anyone added for this.</p>
+<p>What is missing is the refresh, and it is <strong>configurable per metadata source</strong>:</p>
+<ul>
+<li><strong>A TTL per source</strong>, configurable, on which the pinned bundle is refreshed.</li>
+<li><strong>A refresh swaps a WHOLE validated bundle, atomically, and bumps the definition version.</strong> Never one
+  metric's definition in place. Two replicas answering from two halves of a bundle is precisely the
+  failure pinning exists to prevent, and a partial swap is how it arrives.</li>
+<li><strong>An unreachable catalog at refresh time keeps the last validated bundle serving, and says so
+  loudly.</strong> This is the same rule as the certificate swap in
+  <a href="../0010-transport-security-for-a-source/">transport security</a>: reloading into a broken state is worse
+  than not reloading, because it breaks everything rather than leaving something stale.</li>
+<li><strong>An unreachable catalog at STARTUP, with no bundle, is fail-closed.</strong> There is nothing to serve and
+  serving nothing is the correct answer.</li>
+</ul>
+<p><strong>A refresh re-runs the anchors, and it has no caller - so it runs as whoever the source declared.</strong>
+This is the question that recurs on a timer, and it is decided rather than open:
+<a href="../0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a> names this exact path -
+the anchor check reaches the execution port from the composition root before any caller exists, and a
+TTL refresh reaches the same path with no caller either - and gives it its own identity type and its
+own port method. What that means here, three consequences and no new mechanism:</p>
+<ul>
+<li><strong>On a <code>SharedServiceUser</code> source the verification identity IS the shared identity</strong>, so a refresh
+  validates under exactly the identity every question will run under, and nothing extra is configured.</li>
+<li><strong>On an <code>ImpersonationAtSource</code> source it is a declared, static, least-authority credential in that
+  source's own entry</strong>, and if none is declared then a bundle carrying an anchor on a metric that
+  reads that source does not boot. A refresh therefore cannot introduce an anchor it has no way to
+  validate: the anchor either had an identity at boot or the deployment never started.</li>
+<li><strong>An anchor that FAILS at refresh keeps the last validated bundle serving and says so loudly</strong>,
+  which is the same rule as an unreachable catalog above and for the same reason. What it is not is a
+  partial adoption: a bundle whose anchors did not all pass is not <code>Validated</code>, so there is no state in
+  which some of it swapped.</li>
+</ul>
+<p>The limit that record states applies here word for word and is worth repeating rather than
+cross-referencing, because a timer makes it recurrent: <strong>a refreshed bundle is proven to compute its
+certified numbers for one declared identity</strong>, not for the asking subject, and under row-level security
+a per-subject anchor is a function rather than a number.</p>
+<p><strong>Replicas refresh independently, and for up to one interval they serve different digests. Accepted,
+with the reason and the limit.</strong> Each replica polls its own TTL, so two replicas can hold two adjacent
+bundle versions at the same moment. That is NOT the failure pinning exists to prevent, and the
+distinction is the whole of why this is acceptable: the refused failure is one ANSWER assembled from two
+halves of a bundle, and it cannot happen because a request reads one pinned bundle from first resolution
+to last leg. Two replicas each serving a whole, internally consistent bundle is a different thing, and
+the answer says which one produced it - the digest travels with the number, which is exactly what that
+field is for.</p>
+<p>What it costs, stated rather than implied: <strong>two answers to the same question, a minute apart, may
+differ and be both correct</strong>, and the only thing that says so is the pair of digests. Anyone comparing
+two numbers across a refresh boundary is comparing two definitions, and a client that ignores the
+digest will read a definition change as a data change. That is a real sharp edge and it is the price of
+not coordinating.</p>
+<p><strong>Coordinated refresh was the alternative and is declined.</strong> Making every replica adopt a version at
+the same instant needs something that hands out the version - a lease, an election, a shared store - and
+that is a coordination dependency in front of the thing whose entire purpose was to remove one: the
+bundle is pinned so that a metadata outage is survivable. Trading that for a window measured in one TTL
+is the wrong trade. A deployment that genuinely needs the window closed shortens the TTL, which shrinks
+it, or refreshes by replacing replicas, which eliminates it by never having two versions live in one
+replica set.</p>
+<p><strong>The cache is sound because it holds no rows - and only while the metadata view is not per subject.</strong>
+In <code>SharedServiceUser</code> mode one view exists, so one cached bundle is the whole truth and a TTL is a
+freshness question rather than a security one. If a metadata source ever impersonates, meaning a catalog
+that shows different metrics to different people, then a shared cached bundle would serve one person's
+view to another. The rule is then the same one that governs rows: <strong>keyed on the subject first, or not
+cached at all. There is no third option.</strong></p>
+<p>Worth separating from that, because they are easy to conflate: filtering what a caller may SEE out of an
+immutable pinned set is per request and is not cached. What is cached is the definitions, which are the
+same for everyone by construction - "a metric means one thing" is the reason they are pinned in the
+first place. Visibility is a filter over that set and never a source of definitions.</p>
+<h2 id="data-which-mode-a-source-is-in-and-which-capability-the-adapter-has">Data: which mode a source is in, and which capability the adapter has<a class="headerlink" href="#data-which-mode-a-source-is-in-and-which-capability-the-adapter-has" title="Permanent link">&para;</a></h2>
+<p><strong>Two declarations, by two different declarers, and conflating them is how a mode acquires two
+owners.</strong> An earlier version of this heading said "a data adapter declares its mode", which
+contradicted this record's own consequence four sections down - <em>the mode is configuration, not
+catalog</em>. Precisely:</p>
+<ul>
+<li><strong>The adapter declares a CAPABILITY</strong>, in code, as a required associated item it cannot omit: whether
+  it can carry a per-subject credential at all. <code>sutura-exec-datafusion</code> over files cannot, and says so.</li>
+<li><strong>Configuration declares the MODE</strong>, per source: which of the two below this deployment is asking for.</li>
+<li><strong>The boot check compares them</strong>, and refuses a source configured for an impersonation its adapter has
+  no way to perform.</li>
+</ul>
+<p>The mode is what the security argument keys on, and it is the configured one - because that is what
+decides what a caller actually gets.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>What it means</th>
+<th>What decides what a subject sees</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SharedServiceUser</code></td>
+<td>Every query reaches the source under one identity the deployment holds</td>
+<td>That identity's grants. Every caller sees the same rows</td>
+</tr>
+<tr>
+<td><code>ImpersonationAtSource</code></td>
+<td>Each query reaches the source as the asking subject</td>
+<td>The SOURCE: its IAM, its row and column policies, its own catalog</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Sensitivity is not declared here, and that is deliberate.</strong> What a person may see lives in the data
+catalog and in that person's own permissions at the source. Sutura does not carry a per-dataset
+classification, does not derive one upward through joins, and does not refuse a question because a
+dataset was labelled. <strong>That is the whole reason impersonation exists:</strong> the source is the thing that
+knows, and reaching it as the subject is what lets it decide. A sensitivity flag here would be a second
+opinion about someone else's authorization, which is the failure this design is arranged against.</p>
+<p><strong>The limit of that position, stated where the position is taken.</strong> Declining to carry a
+classification means that in MULTI-USER mode sutura has no control over what a shared source exposes.
+None. A source in <code>SharedServiceUser</code> mode holding data the operator should have put behind
+impersonation serves that data to every caller who may call the tool, and there is nothing in the query
+path that could notice. The operator's tool is not to configure such a source, and
+<a href="../0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a> part 5c is where that
+became an operator obligation rather than a check - along with the one thing that IS mechanised, which
+is worth being precise about because it is easy to overstate in either direction: in multi-user mode a
+shared source needs a per-source acknowledgement that the settings layer can only construct from a key
+an operator wrote against that source's own entry, so the posture cannot be reached by leaving anything
+at a default and cannot be inherited from a neighbouring source, and a deployment without it <strong>does not
+boot</strong>. That is a control over how the posture is ARRIVED AT. It is not a control over what the source
+contains, and it never becomes one.</p>
+<p>Consequences:</p>
+<ul>
+<li><strong><code>SharedServiceUser</code> is honest, not broken.</strong> It is right for a single-user deployment - static
+  credentials, one user, one host, and those are development and proof-of-concept shapes - and it is
+  right for a source nobody needs to see per subject. The failure is never the mode; it is a source in
+  that mode being BELIEVED to impersonate - and <em>believed</em> is the operative word, because the boot
+  acknowledgement is what makes the belief impossible to hold accidentally, not a check on the data.</li>
+<li><strong>The mode is recorded per leg, in provenance - and RECORDING IS NOT A CONTROL.</strong> An answer says how
+  it was executed, so "everyone sees this account's rows" is a field in the answer rather than something
+  inferred from a deployment diagram. Say plainly what that is worth: provenance is read by the agent
+  <strong>after the rows were served</strong>, so it cannot prevent a disclosure and does not attempt to. It makes
+  one after the fact attributable and it makes a misconfiguration visible to whoever reads an answer.
+  The thing that keeps a shared source from being served in multi-user mode unnoticed is the startup
+  refusal above, which happens before a listener is bound; provenance is the record, not the gate. An
+  earlier version of this bullet said provenance "replaces a classification refusal", which reads as if
+  the two were substitutes. They are not: one is a control that was withdrawn, and the other is a field.</li>
+<li><strong>The mode is configuration, not catalog.</strong> The same bundle may be served by a deployment that
+  impersonates and one that does not, so the mode travels BESIDE the definition digest rather than
+  under it, and the same catalog digests identically in both.</li>
+<li><strong>A mode the deployment cannot DELIVER refuses at boot.</strong> A source declared <code>ImpersonationAtSource</code>
+  while nothing can mint a credential for the asking subject is a configuration that would have to
+  fall back, and there is no fallback: the execution port takes a credential. Refused at startup,
+  naming the source, because a misconfigured deployment must not serve one question.</li>
+<li><strong>Mutual TLS does not change the mode.</strong> A channel authenticated by a client certificate is still
+  <code>SharedServiceUser</code> unless the subject's own identity reaches the source inside it. Both are
+  declared, and they are independent.</li>
+</ul>
+<p>Every data connector is configured this way, and <strong>the first one the mode lands on is the one that
+ships.</strong> <code>sutura-exec-datafusion</code> is the engine <code>sutura-cli</code> and <code>sutura-serve</code> both link, it executes
+a plan over local CSV and Parquet, and its mode is <code>SharedServiceUser</code> by exactly the argument DuckDB's
+is: one process reads a file under one operating-system identity, and there is no place in that path
+for a subject to arrive. Saying so explicitly is the point of the declaration - a file engine is the
+easiest source in the world to assume nothing about, and "nobody configured a mode for the engine" is
+how a deployment ends up believing the whole surface impersonates because its <em>network</em> source does.</p>
+<p><code>sutura-exec-duckdb</code> is next and is <code>SharedServiceUser</code> for the same reason - one process holds one
+connection under one operating-system identity - with the difference that it is a dev-dependency today
+rather than something a deployment links. PostgreSQL 18, BigQuery and Oracle can each be
+<code>ImpersonationAtSource</code>, by three different mechanisms, which is what makes the mode a declaration
+rather than something derivable from the adapter's name.</p>
+<h2 id="capabilities-beyond-the-mode">Capabilities beyond the mode<a class="headerlink" href="#capabilities-beyond-the-mode" title="Permanent link">&para;</a></h2>
+<p>A data adapter also declares what it can do, for the same reason a metadata adapter does: so the
+conformance suite skips only what a source said it cannot do, loudly, with the declaration named,
+rather than a test being edited or a gap reading green. Which dialect it renders. Whether it can
+receive a pushed aggregate of a given kind. Whether it returns Arrow natively. Whether it supports
+mutual TLS.</p>
+<p>That is the same enum-as-contract discipline, and it earns its keep twice: the matrix uses it to
+decide what to run, and the startup check uses the mode to refuse a deployment that declares an
+impersonation it has no way to perform.</p>
+<h2 id="what-pluggable-does-not-mean-here">What pluggable does NOT mean here<a class="headerlink" href="#what-pluggable-does-not-mean-here" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>No dynamic loading and no scripting.</strong> There is no interpreter in the query path and no dependency
+  that would add one. An adapter is a crate that implements a port and is registered at composition
+  time.</li>
+<li><strong>No capability negotiated at run time</strong>, and the two sides of that are not the same sentence, which
+  an earlier version of this bullet got wrong by generalising.<ul>
+<li><strong>The DATA-side mode and capabilities are fixed for the life of the process.</strong> They are
+  configuration, read once at startup, and nothing at run time can widen them. That is what lets
+  the boot check mean anything: a source that gains a capability is a deployment change, and a
+  deployment change is a restart.</li>
+<li><strong>The METADATA-side declaration is under the definition digest and travels with the bundle</strong>, so
+  the TTL refresh above swaps it along with everything else. It does not change <em>within</em> a bundle
+  and no request can renegotiate it, but it is not fixed for the life of the process, and a
+  deployment whose catalog stopped declaring a knowledge capability finds out at the next refresh
+  rather than at the next restart. That is deliberate - it is the same swap, and the digest is what
+  makes it visible - but calling it unchanging was simply false.
+  Neither side is negotiated with a caller, which is the property this bullet is actually about: there
+  is no handshake, no probe and no request field that could ask for a capability, so nothing a caller
+  sends changes what a source can do.</li>
+</ul>
+</li>
+<li><strong>No adapter-specific vocabulary leaking inward.</strong> The real test of pluggability is not the trait,
+  it is whether the pinned bundle stays catalog-neutral. The moment a provider's own identifier,
+  aspect name or property shape appears in the domain's public types, the port is decorative and the
+  second adapter is the only thing that proves otherwise. The local markdown adapter is that second
+  adapter, which is why it is not optional even where it looks small.</li>
+</ul>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Two declarations become part of every adapter's registration, and both are typed. The conformance
+  matrix reads them, the boot check reads the mode, and provenance records the mode per leg.</li>
+<li>A new capability of either kind is a compile error in every exhaustive match that must decide about
+  it. That is the intended cost and it is the mechanism, not a side effect.</li>
+<li>The mode makes one thing impossible to state accidentally: that a deployment impersonates when it
+  does not. Everything else in this record follows from wanting that one property to be unrepresentable
+  rather than reviewed.</li>
+<li><strong>What of this record is scheduled, and what is not.</strong> Only the data half is:
+  <code>docs/implementation-plan.md</code> carries <code>feat/source-registry</code> for the per-source
+  mode and its boot check, and <code>feat/conformance-packs</code> for the declaration that selects packs. The
+  metadata half - a second metadata connector, the assembler over several of them, and the contribution
+  manifest the digest section decides - is in <strong>no branch in that stack</strong>, and the plan's own thesis
+  table says so: the connectors are decided and not built. That matters for two claims in this record
+  rather than being a scheduling note. The manifest is a decision with no owner until a deployment
+  assembles more than one metadata source, so <strong>until then the true sentence about the digest is the
+  smaller one</strong> the digest section names as the fallback - it covers the assembly, not the composition -
+  and the availability rules that depend on the manifest are dormant with it. And the deferral of
+  <code>Referent::Source</code> costs nothing to hold, because the connector that wanted it is unscheduled too.
+  <strong>A decision whose record is accepted and whose branch does not exist is a decision, not progress</strong>,
+  and saying which is which here is what stops the next reader treating an assembled bundle as
+  something this deployment can already serve.</li>
+</ul>
+<h2 id="the-connectors-this-has-to-carry">The connectors this has to carry<a class="headerlink" href="#the-connectors-this-has-to-carry" title="Permanent link">&para;</a></h2>
+<p>The declaration exists to make this list additive rather than structural. Every entry is a target, and
+the ones that exist today are marked.</p>
+<p><strong>Metadata</strong>, declaring which kinds it provides:</p>
+<table>
+<thead>
+<tr>
+<th>Connector</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Wren-style markdown and YAML</td>
+<td>ships</td>
+</tr>
+<tr>
+<td>OKF-style markdown and YAML</td>
+<td>target</td>
+</tr>
+<tr>
+<td>Datahub</td>
+<td>target, and the one that has been <strong>measured</strong> rather than assumed - <a href="../0016-what-datahub-can-carry/">what DataHub can carry</a> reads its published model field by field and finds a narrow source, so it is the canonical instance of an adapter that DECLARES rather than of the rich one that needs no declaration. It is also the record that schedules the metadata-side declaration this section describes, and that found composition is not a precondition for a narrow source</td>
+</tr>
+<tr>
+<td>OpenMetadata</td>
+<td>target</td>
+</tr>
+<tr>
+<td>A custom data catalog over an RDBMS</td>
+<td>target, and the one specified in full below - including the thing it may NOT do, which is contribute source-level usage prose to the prompt</td>
+</tr>
+<tr>
+<td>BPMN</td>
+<td>target</td>
+</tr>
+<tr>
+<td>RDF</td>
+<td>target</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Data</strong>, declaring a mode and its capabilities:</p>
+<table>
+<thead>
+<tr>
+<th>Connector</th>
+<th>Mode it can declare</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DataFusion over local files</td>
+<td><code>SharedServiceUser</code>, and it is the only one of these that SHIPS: both binaries link it, so it is the first adapter the mode is declared for</td>
+</tr>
+<tr>
+<td>DuckDB</td>
+<td><code>SharedServiceUser</code>. A development dependency today</td>
+</tr>
+<tr>
+<td>PostgreSQL</td>
+<td>either, and <code>ImpersonationAtSource</code> from 18 through the native OAuth method</td>
+</tr>
+<tr>
+<td>BigQuery</td>
+<td>either, with impersonation through a federated exchange whose principal is the person</td>
+</tr>
+<tr>
+<td>Oracle</td>
+<td>either, with impersonation through proxy authentication, which records the chain natively</td>
+</tr>
+</tbody>
+</table>
+<p>Two things this list is meant to make obvious. The metadata side is where most of the growth is, and
+none of it touches the query path: a metadata connector answers what a metric MEANS. And the data side
+is four connectors and one mode declaration each, which is the whole security surface of pluggability -
+not four adapters each with an opinion about authorization.</p>
+<h2 id="the-rdbms-catalog-which-is-the-connector-that-needs-specifying">The RDBMS catalog, which is the connector that needs specifying<a class="headerlink" href="#the-rdbms-catalog-which-is-the-connector-that-needs-specifying" title="Permanent link">&para;</a></h2>
+<p>One entry in that table behaves unlike the rest, and it is worth being concrete because a working
+version of it exists elsewhere and the useful half is reproducible here while the other half is not.</p>
+<p><strong>What such a catalog actually has.</strong> Mainly DDL and comments: the tables, the columns, their types,
+their constraints, and whatever prose somebody wrote against them. It is not a semantic layer and does
+not pretend to be one.</p>
+<p><strong>So its declaration is narrow, and that is why composition exists.</strong> A rich source declares
+everything - a full metadata platform provides metrics, descriptions, glossary and lineage on its own,
+and a deployment reading only that one needs no composition at all. Composition exists for the NARROW
+sources, and this is the canonical narrow one:</p>
+<table>
+<thead>
+<tr>
+<th>Provides</th>
+<th>Declared</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Structure: tables, columns, types</td>
+<td><strong>yes</strong> - this is most of what it has</td>
+</tr>
+<tr>
+<td>Comments as descriptions</td>
+<td><strong>yes</strong> - the other part</td>
+</tr>
+<tr>
+<td>Relationships, from foreign keys</td>
+<td><strong>yes</strong>, with evidence rather than assertion - see below</td>
+</tr>
+<tr>
+<td>Certified metrics, measures, grains, allowed values</td>
+<td><strong>no</strong> - a human declares those elsewhere</td>
+</tr>
+</tbody>
+</table>
+<p><strong>And here is the part worth having this connector for.</strong> The root-of-trust file records a real gap:
+<em>"catalog cardinality is a trusted precondition: nothing checks the declaration against the data"</em>. A
+source that has DDL can close it. A foreign key names the join and its direction; a primary-key or
+unique constraint on the referenced column is EVIDENCE that the side being joined to is unique, which
+is exactly the fan-out question a declared cardinality is currently trusted to answer. So this
+connector can:</p>
+<ul>
+<li><strong>Refuse a model whose declared column does not exist</strong>, at load, naming the column and the table -
+  instead of the database rejecting it at query time.</li>
+<li><strong>Refuse a declared cardinality the constraints contradict</strong> - which is worth exactly one direction,
+  and the direction has to be stated or the claim is an overstatement.</li>
+</ul>
+<p><strong>A constraint is evidence one way only, and it is not the dangerous way.</strong> A unique or primary-key
+constraint on the referenced column PROVES that side is unique. The absence of one proves nothing at
+all: a column can be unique in every row of the table and carry no constraint, which is the ordinary
+state of a warehouse dimension built by a transformation job. So the only declaration a constraint can
+contradict is one claiming the referenced side <strong>may duplicate rows</strong> when it provably cannot - and that
+declaration is the harmless one, where the author was merely too cautious and paid for it by having a
+dimension refused that would have been safe. <strong>The dangerous case is declared-unique-and-actually-not,
+and no constraint catches it</strong>, because the evidence that would catch it is the absence of a constraint,
+which is not evidence.</p>
+<p>So the honest claim is smaller than "turns a trusted precondition into a checked one", which is how an
+earlier version of this record put it. What this connector can do is <strong>confirm the safe direction and
+refuse a declaration that is provably over-cautious</strong>. The fan-out risk the cardinality precondition
+exists for is untouched: <code>AGENTS.md</code> records that nothing checks a declaration against the DATA, and
+after this connector nothing still does. Closing that would take a count over the referenced column -
+evidence from the data rather than from the metadata - which is a different thing to build and is not
+what a catalog connector is.</p>
+<p>That is still a stronger contribution than descriptions, and it is still the argument for building this
+connector before the richer ones: it narrows where a declaration is trusted, in a direction a reviewer
+can check, rather than adding another thing to trust.</p>
+<h3 id="the-guidance-and-the-claim-this-record-had-to-withdraw">The guidance, and the claim this record had to withdraw<a class="headerlink" href="#the-guidance-and-the-claim-this-record-had-to-withdraw" title="Permanent link">&para;</a></h3>
+<p>An earlier version of this record said a source's own usage instructions - which search to run before
+selecting anything, that a name must be schema-qualified or the database rejects it, that this source
+carries no certified metric layer - were <em>"exactly the shape the knowledge layer already renders"</em> and
+<em>"one more kind of note, not a new channel"</em>. <strong>Both sentences were false, and the second one was false
+in the direction that matters.</strong> Correcting them costs this connector a feature, and the correction is
+worth more than the feature.</p>
+<p><strong>What the mechanism actually is, read rather than remembered.</strong> A note is attached to a <code>Referent</code>, and
+<code>Referent</code> has three variants - a metric, a dimension of one, a declared value of one - each of which
+carries a <code>MetricName</code>. It is not merely that there is no source variant: <code>Referent::metric()</code> is a
+<code>const fn</code> returning <code>&amp;MetricName</code> with no <code>Option</code> in the signature, and <code>Knowledge::caveats_about</code>
+RETRIEVES notes by comparing that metric against the metric a question named. So the retrieval path
+itself is keyed on a metric, the prompt prints a caveat under the metric it is about, and an unscoped
+note is refused at load as <code>CaveatAboutNothing</code>. Source-level usage prose refers to none of the three.
+There is nothing legal to attach it to, and nowhere for it to render.</p>
+<p><strong>And the shape it would need is the shape that was deliberately not adopted.</strong> The knowledge module
+argues, in its own words, that a <code>rules</code> kind was refused because it is <em>"the only shape among the five
+that would be scoped to NOTHING - a body of prose about the deployment at large - which is an unscoped
+global text channel from the catalog into the prompt"</em>, and that <em>"the injection answer depends on that
+channel not existing"</em>. A <code>Referent::Source</code> would be prose about a source at large, rendered in the
+document's preamble rather than beside a metric a reader is choosing. <strong>For a single-source deployment
+that is the <code>rules</code> kind with a scope word in front of it</strong> - and a single-source deployment is exactly
+the shape this connector exists for. That is the argument, and it is why the answer is not "add a
+variant".</p>
+<p><strong>So the decision is: this connector ships WITHOUT catalog-authored source guidance.</strong> Its guidance
+arrives when it has a certified metric to hang a note on, through the channel that already exists: a
+caveat about that metric, a glossary phrase for that metric, an absence somebody reviewed. No new kind,
+no new referent, no new channel.</p>
+<p><strong>Which leaves the three concrete examples, and two of them were never knowledge to begin with.</strong> That
+is the part the withdrawn claim obscured by calling them all one thing:</p>
+<table>
+<thead>
+<tr>
+<th>What the draft wanted to say</th>
+<th>Where it belongs instead</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>"Search the catalog before selecting anything", "a name must be schema-qualified or the database rejects it"</td>
+<td><strong>First-party prompt text</strong>, in <code>sutura-app</code>'s prompt module, beside the bounds and the refusal section it already renders. These are facts about the TOOL SURFACE, not about a catalog's content - they do not vary per catalog, and a catalog is the wrong owner for them. Owned by this repository, in a diff, under the prompt snapshot</td>
+</tr>
+<tr>
+<td>"This source carries no certified metric layer"</td>
+<td><strong>Derived from the pinned bundle</strong>, not authored. A bundle with no metrics is a fact the prompt can state from what it was handed, and stating it from content would let a source claim the opposite of what it shipped</td>
+</tr>
+<tr>
+<td>What a column or a table MEANS</td>
+<td><strong>Descriptions</strong>, which this connector already declares and which render where descriptions render. This half was always available and is not affected</td>
+</tr>
+</tbody>
+</table>
+<p>Two things worth being exact about, because this is a withdrawal and a withdrawal that overstates its
+own repair is the same defect in a new place. <strong>The first row is a change to first-party prompt prose
+and it is not free</strong>: it is new text in a generated document, it moves the prompt snapshot, and prose
+that teaches an agent to attempt what the surface refuses by construction is what that module's
+documentation argues against - so it has to be written for the raw tool's surface specifically, which
+means it lands with <a href="../0013-a-raw-sql-tool-off-by-default/">a raw SQL tool</a> or not at all. And <strong>the
+first row is not catalog-neutral in the way knowledge is</strong>: it says something true of an RDBMS source
+and not of a file engine, so it is conditioned on what the deployment actually has rather than printed
+always.</p>
+<h3 id="if-somebody-proposes-referentsource-anyway-this-is-the-price">If somebody proposes <code>Referent::Source</code> anyway, this is the price<a class="headerlink" href="#if-somebody-proposes-referentsource-anyway-this-is-the-price" title="Permanent link">&para;</a></h3>
+<p>Recorded so that the next person to want it starts from the cost rather than from the idea, and so that
+nobody reads the deferral above as "nobody thought about it". <strong>It is an architecture change, not a
+feature</strong>, and it touches every mechanism <code>AGENTS.md</code> names for exactly this kind of change:</p>
+<ul>
+<li><strong>A fourth <code>Referent</code> variant with no metric in it</strong>, which changes <code>Referent::metric()</code> from
+  <code>&amp;MetricName</code> to <code>Option&lt;&amp;MetricName&gt;</code> and rewrites both readers of it: <code>fault_in</code>, whose first line
+  resolves the metric, and <code>caveats_about</code>, whose filter IS that comparison. Retrieval then needs a
+  second path that is not keyed on a metric, because a question names a metric and a source note is not
+  about one.</li>
+<li><strong>A fifth <code>Capability</code></strong>, through <code>Capability::next</code>, <code>Capability::previous</code>, <code>Capability::as_str</code> and
+  <code>prompt::knowledge::claim</code> - four exhaustive matches, three of them in the domain - plus the <code>const</code>
+  assertion that holds the seed of the walk <code>Knowledge::assemble</code> guards with. That assertion is on the
+  DISCRIMINANT rather than on <code>previous()</code>, deliberately, because the version on <code>previous()</code> caught the
+  careful author and missed the mechanical one.</li>
+<li><strong>A validation rule for a referent that names a source</strong>, which is a new kind of check: the existing
+  ones resolve a name against the definitions, and a source name is not in the definitions - it is in
+  the composition, which is the manifest decided below. So the two changes are coupled, and the
+  manifest would have to exist first for the note to be attached to something the bundle declares.</li>
+<li><strong>A rendering position in the prompt that is not under a metric</strong>, which is the preamble, which is
+  the thing the <code>rules</code> prohibition is about. Whatever is written there has to survive the argument
+  above rather than reopen it.</li>
+<li><strong>A moved digest for every deployment</strong>, since <code>KnowledgeCapabilities</code> is hashed with the rest.</li>
+</ul>
+<p>None of that is impossible. All of it is a decision about the prompt's trust boundary rather than about
+a connector's convenience, and it belongs in its own record with its own argument.</p>
+<p><strong>And the other half is a separate, configurable decision.</strong> The working version of this pattern pairs
+catalog search with a general select, and an agent composes the two: read what a column means, then run
+SQL against it. Whether this surface offers that tool is a per-deployment choice, off by default, and it
+is decided in <a href="../0013-a-raw-sql-tool-off-by-default/">a raw SQL tool</a> rather than here - including the
+mechanisms that stop it from ever looking certified.</p>
+<p>What does not change either way: a question naming a metric is compiled, and the answer to it is
+produced by compilation rather than by a model writing SQL. A deployment that enables the raw tool gets
+both paths, clearly distinguished; it does not get a blurrier version of the certified one.</p>
+<h2 id="metadata-sources-compose-and-that-is-a-decision-with-teeth">Metadata sources compose, and that is a decision with teeth<a class="headerlink" href="#metadata-sources-compose-and-that-is-a-decision-with-teeth" title="Permanent link">&para;</a></h2>
+<p>The intention is that metrics are provided by a source that has them, and <strong>other metadata must work
+too</strong>: field meanings from one place, a glossary from another, the caveats about a metric from a third.
+So a deployment reads SEVERAL metadata sources and gets ONE bundle. Note the third example, which the
+withdrawal above constrains: what a source may contribute is a note attached to a metric, not prose
+about the source itself.</p>
+<p>That is not what exists. <code>load()</code> returns a whole <code>PinnedDefinitions</code>, and both composition roots wire
+exactly one catalog. So this is new, and the rules matter more than the plumbing.</p>
+<p><strong>Exactly one source may provide a given kind for a given entity.</strong> Two sources providing the same kind
+for the same entity <strong>refuses the load, naming both and the entity.</strong> Guessing which wins is how a
+metric silently means something different after a configuration change, and a precedence rule that
+nobody stated is a precedence rule nobody reviewed. A deployment that genuinely wants one can declare it
+explicitly, and declaring it shows up in a diff.</p>
+<p><strong>For metrics there is no precedence at all, declared or otherwise.</strong> Two sources defining one metric is
+refused, always. Two definitions of one number is the failure this whole system exists to prevent, and
+letting configuration pick a winner would put that choice outside review.</p>
+<p><strong>Declared-and-empty stays distinct from not-declared</strong>, which the capability model already handles: a
+source that declares descriptions and has none for a particular model is fine and says nothing; a source
+that never declared them cannot contribute one.</p>
+<h3 id="the-digest-has-to-be-made-to-cover-the-composition-because-today-it-does-not">The digest has to be made to cover the composition, because today it does not<a class="headerlink" href="#the-digest-has-to-be-made-to-cover-the-composition-because-today-it-does-not" title="Permanent link">&para;</a></h3>
+<p>An earlier version of this record said <em>"change which sources contribute and the digest moves, which is
+correct: it is a different bundle."</em> <strong>That is false against the code, and the correction is the
+decision this section makes.</strong> <code>PinnedDefinitions::pin</code> computes the digest from two things and stores
+them: the assembled <code>Definitions</code> and the <code>Knowledge</code>. <code>DefinitionDigest::of</code> hashes a canonical form
+over exactly that pair - a two-element JSON sequence over the parsed content - and there is no third
+element. So the digest covers the <strong>ASSEMBLY</strong>, and two different compositions that assemble to the same
+definitions and the same knowledge produce the same digest, indistinguishably. The claim was not merely
+imprecise; the whole point of it was to make a composition change visible, and it would not have been.</p>
+<p>Two ways out, and this record takes the first. The second is written down because it is the fallback if
+the first is judged too expensive, and because stating the smaller true thing is always available:</p>
+<p><strong>Decided: a canonical CONTRIBUTION MANIFEST, hashed as a third element beside the definitions and the
+knowledge.</strong> Its shape, in the same style as the two things it joins:</p>
+<ul>
+<li><strong>What it holds:</strong> one entry per metadata source the deployment configured, keyed by the source's
+  declared name. Each entry carries the source's typed capability declaration - which kinds it said it
+  provides - whether it was declared required or optional, and whether it was REACHED for this bundle.
+  Nothing else: no host, no credential, no URL. Connection material lives apart from governance
+  metadata, which is a position <a href="../0009-the-plan-from-one-source-to-many/">the plan</a> already holds, and
+  putting a hostname under the definition digest would make a network move look like a definition
+  change.</li>
+<li><strong>In what order:</strong> a <code>BTreeMap</code> keyed on the source name, so collection order is content order rather
+  than hash order. That is the same property <code>Definitions</code> and <code>Knowledge</code> already have and the same
+  reason: the canonical form is deterministic because the collections are ordered, not because
+  <code>serde_json</code> happens to be stable.</li>
+<li><strong>How it is computed:</strong> by <code>pin</code>, from the manifest it stores, in the same step. <strong>No manifest
+  parameter, no closure, no trait.</strong> This is the shape the existing invariant already has and it is not
+  a coincidence - that constructor has been wrong twice, both times by accepting from a caller something
+  that was supposed to describe what it stored, and passing content to untrusted code is not the same as
+  that code having used it. A manifest a caller could hand in would be the third instance of the same
+  bug.</li>
+</ul>
+<p>What it buys, precisely. <strong>An optional source that was configured and could not be reached produces a
+different digest from the run that included it</strong>, even when the assembly is byte-identical - which is
+what the availability rules below need in order to mean anything. <strong>A source removed from the
+configuration is visible in the digest</strong> even if it was contributing nothing anybody used. <strong>And a
+deployment that swapped one narrow source for another that happens to carry the same descriptions is a
+different bundle</strong>, which is the case the withdrawn sentence was actually about.</p>
+<p>What it costs, stated with the claim. <strong>Every committed digest moves once</strong>, when the canonical form
+gains its third element - a single, reviewable diff, and the same class of change as adding the
+knowledge was. <strong>A single-source deployment carries a one-entry manifest</strong> rather than none, because a
+shape that differed between one source and N would put the interesting case on the untested path.
+<strong>A source RENAME moves the digest without changing what a metric means</strong>, which is the honest limit:
+the manifest keys on the declared name because that is what a reviewer reads in a settings file, and the
+cost of that choice is that renaming is a certification event. And <strong>the manifest says what was
+configured and reached, not what a source returned</strong>: it is not a content hash per source, so two
+different bundles from the same reachable sources are told apart by the assembly, exactly as they are
+today.</p>
+<p><strong>Not decided: the smaller true thing.</strong> If the manifest is judged too expensive to land with this
+connector, the sentence that replaces it is <em>"the digest covers the assembly, not the composition, and a
+re-composition that assembles identically is indistinguishable"</em> - and then the availability rules below
+lose their teeth and have to say so, because "the digest differs from the one that includes it" is a
+claim about the manifest and not about the assembly. <strong>Whichever is true has to be the one written
+here.</strong> The version this record shipped previously was neither.</p>
+<h3 id="the-assembler-is-application-code-not-an-adapter-over-adapters">The assembler is application code, not an adapter over adapters<a class="headerlink" href="#the-assembler-is-application-code-not-an-adapter-over-adapters" title="Permanent link">&para;</a></h3>
+<p><code>AGENTS.md</code>'s <em>Ports and Adapters</em> says <em>"an adapter never calls another adapter."</em> Two things have to be
+said accurately about that before it decides anything. <strong>It is not an invariant</strong>: it lives under
+<em>Design Principles</em>, which that file states is advisory and may not be cited as an invariant, and the
+only mechanism in the area is <code>check-boundaries</code>, which reads dependency DIRECTION and cannot see which
+crate calls which. So nothing fails a build here, and an earlier version of this record picked the shape
+that breaks the principle without noticing it had.</p>
+<p><strong>A shape still has to be picked, and it is the one that keeps the principle.</strong> The assembler is
+<strong>application code in <code>sutura-app</code>, over N <code>SemanticCatalog</code> ports</strong>, not an assembling adapter that
+implements the port over N others. Three reasons, and the third is the one that would have bitten:</p>
+<ol>
+<li><strong>The rules being decided here are DOMAIN rules, not one adapter's.</strong> "Exactly one source may provide
+   a given kind for a given entity", "two sources defining one metric is refused always" - those are
+   statements about what a bundle may be. In an adapter they would be one implementation's opinion, and
+   a second assembling adapter could hold a different one.</li>
+<li><strong><code>load()</code> stays free of a request context</strong> either way, so the property the port exists for is not
+   what chooses between them. Saying so removes the argument the earlier version leaned on.</li>
+<li><strong>The composition roots already name the adapters.</strong> <code>sutura-cli</code> and <code>sutura-serve</code> each wire
+   exactly one catalog today; wiring N and handing them to an assembler in <code>sutura-app</code> is a change at
+   the place that is supposed to change, and it does not add a crate that depends on every adapter -
+   which is what an assembling adapter would eventually become.</li>
+</ol>
+<p>The resemblance to something refused for DATA sources is worth keeping, along with why it is not the
+same thing: a composing adapter with a synthetic source name was refused there because it hid two
+identities behind one, and identity is what a data leg carries. A metadata source in shared-service mode
+carries no identity, so composing them hides nothing. <strong>If a metadata source ever impersonates, this
+section is void and the caching rule above applies instead.</strong></p>
+<p><strong>Availability, per source, declared.</strong> A source is required or optional:</p>
+<ul>
+<li><strong>Required and unreachable at startup: fail closed.</strong> There is nothing to serve.</li>
+<li><strong>Optional and unreachable at startup: start without it, and the bundle records that it did.</strong> The
+  digest differs from the one that includes it, which is the point - the answer says which bundle
+  produced it rather than quietly serving a lesser one under the same name. <strong>That claim depends on the
+  contribution manifest above and on nothing else.</strong> Without it the digest is taken over the assembly,
+  so an optional source that was unreachable and would have contributed nothing anybody's question read
+  produces the SAME digest as the run that included it - and this bullet would be describing a
+  distinction the code cannot make. The manifest is where "the bundle records that it did" is recorded.</li>
+<li><strong>Unreachable at REFRESH, either way: keep the last validated bundle and say so loudly.</strong> Same rule as
+  everywhere else here: reloading into a broken or diminished state is worse than not reloading.</li>
+</ul>
+<p>Optionality is therefore a declaration too, not a fallback the code takes on its own. A deployment that
+wants to survive its description source being down says so, and accepts that answers then carry a
+different digest.</p>
+<h2 id="exploit-what-a-source-actually-knows">Exploit what a source actually knows<a class="headerlink" href="#exploit-what-a-source-actually-knows" title="Permanent link">&para;</a></h2>
+<p><strong>Metrics are always the goal, and they are not where a deployment starts.</strong> So the value of a metadata
+source is how much of a metric definition it can carry BEFORE a human writes one - because every field a
+source fills is a field nobody has to type, and the promotion step from an ungoverned answer to a
+certified metric is exactly as smooth as the amount already filled in.</p>
+<p>That makes flattening every source to "it provides descriptions" a waste. Some sources know far more,
+and the declaration should be able to say so:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>What it can carry beyond descriptions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DDL and comments</td>
+<td>Columns and types; foreign keys as relationships; primary-key and unique constraints as <strong>evidence</strong> for cardinality</td>
+</tr>
+<tr>
+<td>An ontology in RDF</td>
+<td>Labels and alternative labels as glossary phrases; definitions as descriptions; domain and range as relationships; <strong>functional properties and cardinality restrictions as cardinality evidence</strong>; a class hierarchy as dimension structure</td>
+</tr>
+<tr>
+<td>A process model in BPMN</td>
+<td>The stages of a process as the <strong>allowed values</strong> of a status dimension, in their real order, each with what it means</td>
+</tr>
+<tr>
+<td>A full metadata platform</td>
+<td>All of the above, declared as such, so a deployment reading only that one composes nothing</td>
+</tr>
+</tbody>
+</table>
+<p><strong>One constraint runs through the whole table and is the same one the withdrawal above turns on.</strong> A
+glossary entry carries a <code>Referent</code> - <code>GlossaryEntry</code> holds <code>means: Referent</code>, and there is no
+constructor without it - so a harvested label becomes a glossary phrase only where it names a metric,
+a dimension of one, or a declared value of one. A label for a table or a column has nothing to point
+at. So harvesting is bounded by what the bundle already declares, and a rich source does not widen the
+set of things a note can be about; it fills in more of what is said about the things already there.</p>
+<p>Three consequences worth stating, because each is a decision rather than an observation.</p>
+<p><strong>Cardinality stops being purely trusted wherever a source has evidence, in one direction.</strong> The
+root-of-trust file records that a declared cardinality is a trusted precondition nothing checks against
+the data. A unique constraint, or a functional property in an ontology, is evidence for exactly that
+claim - and the direction is the one the RDBMS section above states in full: it PROVES the referenced
+side is unique, its absence proves nothing, so what can be refused is a declaration that was too
+cautious rather than one that was too confident. The dangerous case stays trusted. Evidence from
+metadata is also still not evidence from the data, and both distinctions stay in the wording rather than
+being smoothed into "checked".</p>
+<p><strong>A process model is the best source of an allowlist there is.</strong> A status dimension's legitimate values,
+typed by hand, are a list that rots the first time somebody adds a stage. Taken from the process model,
+they are the same list the business runs on - and its ORDER is information a hand-typed set does not
+carry.</p>
+<p><strong>None of them supplies a measure, and none of them should be asked to.</strong> An ontology does not say that
+revenue is a sum of one column with two filters. A human owns that sentence, and inferring it from
+structure is precisely the guessing this design exists to avoid: it would produce a certified number
+whose definition nobody wrote. So the split is: <strong>structure and meaning can be harvested; the measure is
+declared.</strong></p>
+<p><strong>That claim has since been tested against a source that does carry a metric, and it survived for a
+better reason than the one given here.</strong> <a href="../0016-what-datahub-can-carry/">What DataHub can carry</a>
+measures a full metadata platform that has first-class metric and semantic-model entities, and finds
+that what it holds a measure as is a raw expression string tagged with a dialect, beside an
+independently authored aggregation name that nothing reconciles with it. So the argument is not only
+that a structural source cannot say what a measure is - it is that a source which <em>does</em> say it says it
+in a form that would have to be either translated or half-read, and both of those produce a certified
+number nobody here can vouch for. The split above is unchanged; the mechanism under it is stronger.</p>
+<p>What that buys, concretely: with a rich source present, a candidate definition can arrive with the model,
+the dimensions, their allowed values, the joins and their cardinality already filled, leaving a human to
+supply the measure and approve it. That is the difference between promotion being a form to fill and
+promotion being a sentence to confirm.</p>
+<h2 id="amendment-the-contribution-manifest-is-built-and-its-serialized-form-is-decided">Amendment: the contribution manifest is built, and its serialized form is decided<a class="headerlink" href="#amendment-the-contribution-manifest-is-built-and-its-serialized-form-is-decided" title="Permanent link">&para;</a></h2>
+<p>This amendment resolves the one thing the digest section above deferred - <em>the amendment is what a
+reviewer needs in front of them</em> - and it reconciles a sentence in that section with the shape that
+had to be built. It is the record of steps 3 and 4 of #115.</p>
+<p><strong>The sentence <em>"no manifest parameter, no closure, no trait"</em> is reconciled, not broken.</strong> Read
+against the two hash-constructor bugs the section itself names, it means: <code>PinnedDefinitions::pin</code>
+takes no digest, no hashing closure and no trait object - a caller can still not influence what the
+digest is taken over. The manifest is the fourth piece of CONTENT, in exactly the sense the
+knowledge argument already established (<code>pin(version, definitions, knowledge)</code> became
+<code>pin(version, definitions, knowledge, manifest)</code>), hashed with the rest by the domain's own
+canonical form, and stored beside them. A caller could no more hand in a manifest unconnected to
+the assembly than it could hand in definitions unconnected to the digest: the digest is computed
+over the three values being stored, and there is no parameter through which a caller reaches the
+hashing. <code>MetadataCapabilities::checked_against</code> in the assembler is what keeps a manifest entry's
+capability declaration from lying about its own content.</p>
+<p><strong>The serialized form.</strong> One entry per configured metadata source, in a <code>BTreeMap</code> keyed on the
+source's declared name (the name an operator writes as a <code>catalogs:</code> key). Each entry:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">"capabilities"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">"definitions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"structure"</span><span class="p">,</span><span class="w"> </span><span class="s2">"descriptions"</span><span class="p">,</span><span class="w"> </span><span class="s2">"..."</span><span class="p">],</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">"knowledge"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"glossary"</span><span class="p">,</span><span class="w"> </span><span class="s2">"..."</span><span class="p">]</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">"required_or_optional"</span><span class="p">:</span><span class="w"> </span><span class="s2">"required"</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">"reached"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Nothing else: no host, no credential, no URL, no version. The canonical JSON sequence the digest is
+taken over grows from a two-element pair <code>(definitions, knowledge)</code> to a three-element triple
+<code>(definitions, knowledge, manifest)</code>, which is the "single, reviewable diff" the section priced, and
+every committed digest moves once on the landing of this amendment.</p>
+<p><strong>Three recorded limits, each stated where the claim is.</strong> <code>required_or_optional</code> is <code>required</code> for
+every entry on every bundle this code can produce - no settings shape declares an optional source
+yet, so serving starts only when every configured source loaded, and an entry's <code>reached</code> is
+therefore always true. Both fields are carried because the availability rules this section decided
+land on top of them; a deployment that can declare <code>optional</code> is the diff that first writes a value
+other than <code>required</code>. And a manifest entry carries the source's <em>declared</em> capabilities - what the
+composition recorded it as providing - which is not a content hash per source: two different bundles
+from the same reachable sources are told apart by the assembly, exactly as before.</p>
+<p><strong>Two composing sources must name the same version.</strong> A bundle is one snapshot, and two sources
+certified at different times is the "answers that differ across a refresh boundary" shape this record
+already refuses to paper over - so the assembler refuses contributions whose versions differ, naming
+both. <strong>And a metric may reference only a model its own source also declares</strong>, which is a limit of
+the port as built: <code>SemanticCatalog::load</code> returns an already-assembled <code>PinnedDefinitions</code>, so a
+source whose metric names a model held only by another source cannot load today. The wave-one
+deployment this amendment enables therefore composes a narrow structural source with a certified
+source that is self-contained, and the cross-source-reference case - the literal "DataHub's model,
+metrics certified here" - lands with the raw-contribution port, which is a separate decision and not
+this amendment's.</p>
+<h2 id="second-amendment-the-second-composition-root-reads-the-tree-too">Second amendment: the second composition root reads the tree too<a class="headerlink" href="#second-amendment-the-second-composition-root-reads-the-tree-too" title="Permanent link">&para;</a></h2>
+<p><strong>One line of this record was left behind by the code and is corrected here rather than left to be
+re-derived.</strong> <em>The composition roots already name the adapters</em> was written when <code>sutura-cli</code> compared
+a catalog's declared source name against one constant and refused everything else. Since
+telekom/sutura#121 it reads the same <code>sources:</code> tree <code>sutura-serve</code> reads, dispatches the declared
+<code>SourceKind</code> through an exhaustive match of its own, and hands the adapter the posture that entry
+declared - so <em>pluggable by declaration</em> is now true of both binaries rather than of the server alone.
+That is this record's decision arriving in the second place it applies, not a new one.</p>
+<p><strong>Two differences are the command-line tool's own, and both are stated where the code is.</strong></p>
+<ul>
+<li><strong>An absent entry is a fallback there and a refusal on the server.</strong> <code>sutura</code> is a tool a person
+  runs against a directory they name, so a source the tree does not declare gets that binary's own
+  built-in declaration: a <code>files</code> source called <code>local</code>, over the directory on the command line, read
+  as whoever ran the command. It is a declaration in code rather than an absence treated as
+  permission, and it is why <code>[data-dir]</code> is optional now - a fully declared deployment needs none, and
+  supplying both for one source is refused as two answers to one question.</li>
+<li><strong>The built-in declaration keeps its NAME</strong>, which is the control the registry did not replace, and
+  the reason is a LOOKUP rather than a comparison. <em>An earlier version of this bullet named a
+  <code>plan.source() != warehouse.source()</code> guard; that guard does not exist anywhere in the tree, and
+  <code>sutura-app</code>'s own source says the opposite - "The plan SELECTS its warehouse - it is not compared
+  against one."</em> What happens is <code>warehouses.get(plan.source())</code>, in <code>answer</code> and again in
+  <code>verify_anchors</code>, keyed on the name the CATALOG declared. So an engine registered under whatever
+  the catalog said makes that lookup succeed by construction and a bundle certifying a metric against
+  a real data system gets it answered out of the caller's CSV files under the real bundle's digest;
+  an engine under a fixed name misses, and a miss is <code>SourceUnavailable</code> / <code>SourceNotConfigured</code> - a
+  clean refusal. A DECLARED source replaces the name check with the declaration; an UNDECLARED one
+  replaces it with nothing, so the name still has to match.</li>
+<li><strong>And a declaration is not a claim about CONTENT</strong>, which is the limit this decision introduces and
+  which belongs beside it: an entry says where a data system is, and the only thing that checks the
+  data there is an anchor - <code>verify_anchors</code> walks the metrics that declare one, and the table-set
+  comparison at boot reads names. So a bundle of unanchored metrics is answered under its real digest
+  out of whatever directory an operator points the entry at. Parity with <code>sutura-serve</code> rather than
+  something the second root opened, and stated because this is the change that makes it the
+  documented command-line workflow.</li>
+</ul>
+<p><strong>And the limit, because a registry reads like availability:</strong> which KINDS a given binary can open is
+still a property of the build. <code>kind: bigquery</code> parses - the adapter exists - and a build without the
+default-off <code>bigquery</code> feature links none of it, so that is a refusal naming the FEATURE and not the
+kind.</p>
+<p><strong>Amended, because the sentence here named an open question that is now closed.</strong> It read <em>"the
+<code>sutura</code> command links none of it … whether it gains a feature of its own is telekom/sutura#121's
+second step"</em>. That step landed: <strong>both</strong> composition roots now open <code>kind: bigquery</code>, each behind a
+default-off <code>bigquery</code> feature of its own, and <code>docs/adr/0017</code>'s seventh amendment is the decision.
+What is unchanged is the half that matters - <code>nix/shipped.nix</code> publishes both binaries with cargo's
+DEFAULT features, so no published artefact links the adapter, and <code>checks.shipped-features</code> reads
+<code>ureq</code>'s and <code>ring</code>'s absence off each shipped binary rather than off a manifest.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
