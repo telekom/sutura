@@ -2692,6 +2692,12 @@
 <code>AtomicU64</code> or <code>AtomicUsize</code> anywhere in the workspace</strong>, so the counters here are the first. The
 absence is already deliberate in three places - <code>sutura-runtime</code>'s and <code>sutura-http</code>'s module docs and
 <code>docs/serving.md</code> - and this record replaces that silence with a shape.</p>
+<p><strong>Corrected on the last clause only, and the rest of that sentence still holds</strong> - which is why it is
+narrowed rather than struck. There is one <code>AtomicU64</code> in the workspace now: the correlation counter in
+<code>crates/sutura-http/src/correlation.rs</code>, and an <code>AtomicUsize</code> in test fixtures. So the counters this
+record specifies are the first <strong>metric</strong> counters, not the first atomics. The four candidate
+dependencies are still absent from <code>Cargo.lock</code> and there is still no <code>/metrics</code> route, so the status
+line above is accurate - this is the one record in the set whose <em>Nothing here is built</em> is still true.</p>
 <h2 id="decision-1-its-own-credential-never-the-deployment-token">Decision 1: its own credential, never the deployment token<a class="headerlink" href="#decision-1-its-own-credential-never-the-deployment-token" title="Permanent link">&para;</a></h2>
 <p><code>docs/serving.md</code> states plainly that a holder of the API token <em>"can read the whole catalog and ask
 any question the catalog certifies… There is no way to give one caller less than that."</em></p>
@@ -2915,6 +2921,16 @@ its hand-written <code>Debug</code> exposes only the source - and a new <code>Re
 exhaustion is currently indistinguishable from a dead data system</strong>: it arrives as
 <code>DataFusionError::Execute</code> and leaves as <code>503 unavailable</code>, so a caller is told to retry against a
 bound that will fire again. <code>ResourcesExhausted</code> appears nowhere in the workspace.</p>
+<p><strong>Corrected: both verified absences above are now present, so the precondition this section waits on
+is met and the series are still unshipped.</strong> <code>crates/sutura-exec-datafusion/src/pool.rs</code> builds a
+<code>RuntimeEnv</code> with a <code>GreedyMemoryPool</code> sized from the configured ceiling - that file's own module doc
+states the same fact in the past tense, correctly. <code>ResourcesExhausted</code> exists as a <code>RefusalReason</code>
+variant, is raised on the federated path and maps to <code>422</code>, so exhaustion is no longer
+indistinguishable from a dead data system. <strong>What this does NOT change is the decision</strong>: the series
+are still specified and still must not ship, and <em>absent, not zero</em> still holds, because the reason
+was never the missing pool alone - it is the sentence two paragraphs down, which is unchanged and is
+the one to read next to any gauge that does ship: the pool bounds the engine's own operators and
+nothing else.</p>
 <p><strong>Take the ceiling from the configured value, not from the pool.</strong> <code>MemoryPool::memory_limit()</code> defaults
 to unknown, so a pool that does not override it reports no ceiling and the ratio an operator wants is
 unavailable.</p>

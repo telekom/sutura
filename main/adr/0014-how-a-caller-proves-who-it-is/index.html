@@ -3149,6 +3149,16 @@ configured to accept that IdP's access token, a SAML provider on the pool, or co
 requires the <code>BehindGateway</code> mode. This belongs in the plan with the same treatment the Postgres SASL
 question already gets - <em>blocked on one verification, to do FIRST</em> - because the answer decides whether
 an adapter is buildable, not when.</p>
+<p><strong>Corrected, and this is the premise the rest of the two-exchange chain rests on, so read it before
+planning from that paragraph.</strong> <em>The Security Token Service wants <code>id_token</code></em> is too broad, and the
+built exchange contradicts it: <code>crates/sutura-exec-bigquery/src/wire/sts.rs</code> declares
+<code>urn:ietf:params:oauth:token-type:jwt</code> as the subject token type, sends it, and a test asserts the
+sent value. <strong>A WORKLOAD pool accepts <code>jwt</code>, and that is what shipped.</strong> The <code>id_token</code> question is
+the WORKFORCE-pool one - the path described further up this record, where the principal is the person
+rather than a service account - and it is still open, which is why the paragraph is kept rather than
+deleted. What changes is its scope: it blocks the workforce chain, not the adapter, and the adapter is
+built. Anyone planning the enterprise chain from this record was planning against the wrong token
+type for the half that already works.</p>
 <p><strong>Per source, one audience, from one decision.</strong> 0008 already rejects one <code>mint</code> call per leg because it
 puts the subject and the deadline in N places, and notes that RFC 8707 wants N audience-restricted
 tokens from one decision anyway. This is that shape made concrete: PostgreSQL 18's SASL OAUTHBEARER

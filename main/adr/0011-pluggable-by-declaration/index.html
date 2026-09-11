@@ -2842,8 +2842,13 @@
 
 
 <h1 id="pluggable-by-declaration-and-the-mode-a-data-adapter-is-in">Pluggable by declaration, and the mode a data adapter is in<a class="headerlink" href="#pluggable-by-declaration-and-the-mode-a-data-adapter-is-in" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted. The metadata half has a working precedent; the data half is new; the composition
-half needs a change to what the definition digest is taken over.</strong></p>
+<p>Status: <strong>accepted. The metadata half has a working precedent; the data half has LANDED; the
+composition half needs a change to what the definition digest is taken over.</strong></p>
+<p><strong>Corrected:</strong> this said <em>the data half is new</em>. It is built - <code>crates/sutura-domain/src/source.rs</code>
+holds <code>SourcePosture</code>, <code>deliverable_by</code>, <code>ImpersonationCapability</code> and <code>anchors_run_as</code>, and the boot
+check is wired in <code>crates/sutura-serve/src/main.rs</code>, where a declared source's posture is held against
+the linked adapter's capability. What is still new is the composition half, which this line already
+says.</p>
 <p>Pluggable metadata and pluggable data are requirements. So is a tight security focus, and the two pull
 in opposite directions unless pluggability is built one specific way: <strong>a closed set of typed
 declarations, checked exhaustively, rather than a plugin system that discovers what an adapter can
@@ -3090,9 +3095,10 @@ impersonation it has no way to perform.</p>
 <li>The mode makes one thing impossible to state accidentally: that a deployment impersonates when it
   does not. Everything else in this record follows from wanting that one property to be unrepresentable
   rather than reviewed.</li>
-<li><strong>What of this record is scheduled, and what is not.</strong> Only the data half is:
-  <code>docs/implementation-plan.md</code> carries <code>feat/source-registry</code> for the per-source
-  mode and its boot check, and <code>feat/conformance-packs</code> for the declaration that selects packs. The
+<li><strong>What of this record is scheduled, and what is not</strong> - and the data half is now past scheduling:
+  <code>feat/source-registry</code> landed, so the per-source mode and its boot check exist rather than being
+  queued. <code>docs/implementation-plan.md</code> carries
+  <code>feat/conformance-packs</code> for the declaration that selects packs, and that row is still open. The
   metadata half - a second metadata connector, the assembler over several of them, and the contribution
   manifest the digest section decides - is in <strong>no branch in that stack</strong>, and the plan's own thesis
   table says so: the connectors are decided and not built. That matters for two claims in this record

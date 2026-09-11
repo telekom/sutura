@@ -2642,7 +2642,14 @@
 
 
 <h1 id="the-plan-from-one-source-to-many-and-one-user-to-many">The plan, from one source to many and one user to many<a class="headerlink" href="#the-plan-from-one-source-to-many-and-one-user-to-many" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted as the plan of record. Nothing here is built.</strong></p>
+<p>Status: <strong>accepted as the plan of record, and partly built.</strong> The branch table below is the authority
+on which rows have landed - the ones struck through and marked <code>DONE</code> - and it is worth reading before
+citing anything above it, because a row that shipped may have shipped in a shape this record's prose
+still describes as proposed. <code>AuditSink</code> is the clearest case: it exists, with <code>TracingAuditSink</code> as
+its first implementor, and the bullet further down says so in as many words.</p>
+<p><strong>Corrected:</strong> this status line read <em>"Nothing here is built."</em> while the same file carried a <code>DONE</code>
+row and a bullet opening <em><code>AuditSink</code> now exists</em>. A record contradicting itself on line 8 is the
+worst version of this defect, because line 8 is what a reader trusts before reading anything else.</p>
 <p>Seven records decide the pieces.
 <a href="../0006-several-databases-behind-one-data-system/">Several databases behind one data system</a>
 declines a federation crate and declines attaching several databases below the port.
@@ -3140,7 +3147,7 @@ number at all:</p>
 </tr>
 <tr>
 <td><code>test/startup-source-refusals</code></td>
-<td>Red against a build with the more-than-one-source arm of <code>open_engine</code> removed. That arm has no test in either binary today</td>
+<td>Red against a build with the more-than-one-source arm of <code>open_engine</code> removed. <strong>That arm has a test now, and it changed shape as well as gaining one</strong>: the refusal is per-KIND rather than per-source-count, and <code>crates/sutura-serve/src/tests.rs</code> asserts on its own sentence - <em>one kind of data system at a time</em>. Two sources of one kind load and both open, which is what <code>docs/adr/0006</code>'s correction records</td>
 </tr>
 <tr>
 <td><code>feat/source-registry</code></td>

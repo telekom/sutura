@@ -3376,6 +3376,16 @@ not the warehouse's.</p>
 before a socket is opened, so a deployment cannot load a two-source catalog at all. Deleting the
 plan-stage check would have no observable effect on a deployment - worth knowing precisely so that
 nobody reads it as permission.</p>
+<p><strong>Corrected, and the whole of this paragraph is spent.</strong> The startup refusal is per-KIND now, not
+per-source-count: <code>crates/sutura-serve/src/main.rs</code>'s <code>one_kind</code> rejects a catalog mixing kinds of
+data system and admits two sources of the same kind. <code>crates/sutura-config/src/settings/tests.rs</code>
+loads two and asserts each says what it is, <code>crates/sutura-serve/src/tests.rs</code> opens both and checks
+each carries its own posture, and <code>crates/sutura-serve/tests/served.rs</code> answers a question spanning
+two of them over a real port. So a deployment CAN load a two-source catalog, the plan-stage refusal
+IS reachable in <code>sutura-serve</code>, and the sentence above holds only of <code>sutura-cli</code>. The survey it sits
+in is kept as written because it is the argument the correction acts on - the six assumptions were
+real when they were counted, and which of them have since moved is a question for the tree rather
+than for this paragraph.</p>
 <p><strong>Removing it would produce a wrong answer rather than an error.</strong> The plan stage collects the joined
 model's source into its set and then throws it away: the plan is stamped with the metric's own model's
 source alone. So <code>answer</code>'s guard compares one name against the same name and passes, and the engine
@@ -3386,6 +3396,10 @@ defect above, arrived at from inside our own code.</p>
 <p><strong>The startup refusal, the one that actually holds today, has no test.</strong> Its wrong-name branch is
 covered; its more-than-one branch is not. By this repository's own standard that is a mechanism nobody
 has watched fail, and it is worth a test whichever route eventually lands.</p>
+<p><strong>Corrected: it has one.</strong> <code>crates/sutura-serve/src/tests.rs</code> asserts on the refusal's own sentence -
+<em>one kind of data system at a time</em> - and it is the per-kind branch rather than the more-than-one
+branch, because the rule changed shape as well as gaining a test. The source-NAME comparison this
+paragraph is about was replaced by a declared kind.</p>
 <p>And what replaces the rule when it does move: the plan stage's set stops holding source names and
 starts holding the identity each source resolves to, refusing unless exactly one is in it. Two sources
 that resolve to one subject are then allowed and two subjects are refused, which is the property that

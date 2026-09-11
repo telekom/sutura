@@ -2933,10 +2933,12 @@ one.</p>
   for the same reason and by the same mechanism as a source declaring an impersonation it cannot perform.</li>
 <li><strong>Enabling it over the shipped file engine is a separate decision about a second SQL parser</strong>, and
   that decision belongs in its own record rather than being inherited from this one.</li>
-<li><strong>This record has no branch in the implementation stack, and that is deliberate rather than an
-  omission.</strong> It is listed among the records the plan executes, so the absence would otherwise read as
-  a gap; what it is instead is the <em>unscheduled</em> status at the top of this file, and the prerequisites
-  there are what would have to be scheduled first.</li>
+<li><strong>This record's branch is <code>feat/raw-sql-tool</code>, row 20 of the plan, and it is scheduled LAST rather
+  than unscheduled.</strong> The prerequisites at the top of this file are what decide the position; three of
+  the four are now spent, and the remaining one is what the row is blocked on. <strong>This bullet used to
+  say the record has no branch in the stack and that the status at the top is <em>unscheduled</em>. Both were
+  false, and the correction at the top of this file had already said so for 300 lines</strong> - a record with
+  two answers to one question is worse than one answer, and this is the half that was left standing.</li>
 <li>The demo that motivated this becomes reproducible: catalog search plus a select, with the answers
   labelled for what they are, and a path from there to a metric that makes the next identical question
   certified.</li>

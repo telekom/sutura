@@ -3193,7 +3193,11 @@ the other: architecture there, identity here.</p>
 <h2 id="what-is-true-today">What is true today<a class="headerlink" href="#what-is-true-today" title="Permanent link">&para;</a></h2>
 <p>Read this first. The rest is written in the future tense on purpose, and the reason is that every
 identity claim this repository makes about itself is currently a design target. Each row was checked
-against the tree at the commit this record was written on, not remembered.</p>
+against the tree at the commit this record was written on, not remembered - <strong>and that commit is
+2026-08-28, the day this record was added.</strong> The date used to be missing, which is the one thing an
+inventory may not omit: a table of present-tense claims with no date is unauditable, and this
+repository's own dependency-currency rule says so about every other measured claim. <strong>Read the
+correction block below before citing any row.</strong></p>
 <table>
 <thead>
 <tr>
@@ -3255,10 +3259,70 @@ against the tree at the commit this record was written on, not remembered.</p>
 </tr>
 </tbody>
 </table>
-<p>So <code>AGENTS.md</code>'s opening line - "we support e2e impersonation" - describes an intention, and its
-<em>Changing The Query Path Or The Tool Surface</em> table is the honest version: a test that two subjects
-get different rows "does not exist and cannot, until a credential exists per leg". This record is
-about making that sentence obsolete.</p>
+<p><strong>Corrected, as of 2026-09-11. Most of the rows above have moved, and the table is kept as written
+because it is the argument the rest of this record acts on</strong> - striking each cell would leave a reader
+unable to tell which half was decided when. <strong>No count of how many moved is given</strong>, because this
+record has already carried a wrong one on its own status line and nothing derives this one either:
+read the rows. Every row is answered below, and a row answered <em>still true</em> is answered rather than
+omitted.</p>
+<table>
+<thead>
+<tr>
+<th>Row</th>
+<th>What has moved since 2026-08-28</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>describes_identity()</code></td>
+<td>Still a <code>const fn</code>, and it no longer answers <code>false</code>: <code>crates/sutura-config/src/security.rs</code> computes it from the loaded settings, and that file's own comment records that it <em>used to be a constant answering <code>false</code></em>. A deployment that declares an inbound issuer answers <code>true</code>, and a settings test asserts it</td>
+</tr>
+<tr>
+<td>the bearer gate</td>
+<td><code>require_token</code> is unchanged and still authenticates the DEPLOYMENT. What is no longer true is <em>builds no principal</em>: <code>crates/sutura-http/src/inbound/</code> verifies an inbound token and a <code>CredentialBroker</code> implementation reaches the principal chain. The gate and the principal are two mechanisms now, not one</td>
+</tr>
+<tr>
+<td>no signature-verifying crate</td>
+<td>False. <code>jsonwebtoken</code> is in <code>Cargo.lock</code> and is a direct dependency of <code>sutura-http</code>; <code>crates/sutura-http/src/inbound/keys.rs</code> and <code>inbound/token.rs</code> are the verifying path. What the row recorded - nothing on the request path able to verify a signature - is spent</td>
+</tr>
+<tr>
+<td>no subject reaches execution</td>
+<td>False. <code>crates/sutura-domain/src/warehouse.rs</code> declares <code>fn execute(&amp;self, executable: Executable&lt;'_&gt;, presented: &amp;Presented)</code>. <strong>The subject reaches the port. What it does not do is make the source execute AS them</strong> - that is leg 2, and it is not built on anything published</td>
+</tr>
+<tr>
+<td>no subject reaches the application</td>
+<td>False. <code>crates/sutura-app/src/surface.rs</code> declares <code>fn answer(&amp;self, context: &amp;RequestContext, query: &amp;Query)</code>. A subject reaches the application; the limit is what a source does with it</td>
+</tr>
+<tr>
+<td>the boot path calls the port with no identity</td>
+<td>Still true in substance, and the quoted call form is stale: <code>execute</code> no longer takes <code>&amp;plan</code>. <code>verify_and_validate</code> still runs during composition, so the boot path is still a caller of the execution port</td>
+</tr>
+<tr>
+<td>one process, one connection</td>
+<td>Still true of the DuckDB adapter, and no longer true of the deployment: <code>crates/sutura-serve/src/main.rs</code> opens one BigQuery adapter per declared source under a declared credential</td>
+</tr>
+<tr>
+<td>a data system is not even configurable</td>
+<td>False, and the row's own claim header is the false half. <code>crates/sutura-config/src/sources.rs</code> holds a <code>SourceRegistry</code> and a <code>SourceKind</code>, and the composition root dispatches on the configured kind. <code>defaults.yaml</code> still ships no ACTIVE <code>sources:</code> key - deliberately, and it says so - which is the narrow sense in which the cell is true</td>
+</tr>
+<tr>
+<td>the domain reads no clock</td>
+<td>True of <code>sutura-domain</code>. False of <code>sutura-app</code>, which calls <code>std::time::SystemTime::now()</code> on the record path - so the claim is about the interior alone, not about both crates</td>
+</tr>
+<tr>
+<td>the refusal enum already says so</td>
+<td>Stale. Identity IS a control now, not only a design target: <code>SourcePosture::deliverable_by</code> refuses at boot and <code>RefusalReason::CredentialUnavailable</code> refuses a subject with no credential at the source it reads</td>
+</tr>
+</tbody>
+</table>
+<p><strong>And the citation this section closes on is dead.</strong> <code>AGENTS.md</code>'s opening line still reads <em>e2e
+impersonation</em>, and it still describes an intention rather than a shipped control. Its <em>Changing The
+Query Path Or The Tool Surface</em> table no longer exists - the invariant register moved out of that file
+to <code>.agents/skills/sutura/query-surface</code>, and a second sentence further down this record cites the
+same dead table. <strong>The claim it was standing in for is unchanged and is the one to state next to every
+row above: leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS them - is not, on
+anything published.</strong> <code>docs/where-identity-is-proven.md</code> is the authority on which venue may be cited
+for which claim. This record is about making that second sentence obsolete, and it has not yet.</p>
 <h2 id="what-impersonation-requires-per-data-system">What impersonation requires, per data system<a class="headerlink" href="#what-impersonation-requires-per-data-system" title="Permanent link">&para;</a></h2>
 <p>Federation is wanted for three data systems, and the routes on the table differ in exactly one
 respect: whether per-subject identity stays reachable. That trade cannot be made without knowing what
@@ -4591,8 +4655,13 @@ still reads no clock, exactly as this part requires; what changed is that the di
 comparison lives with the value instead of being left to whoever has a clock.</p>
 <h3 id="7-secret-composes-it-does-not-grow-an-expiry">7. <code>Secret</code> composes; it does not grow an expiry<a class="headerlink" href="#7-secret-composes-it-does-not-grow-an-expiry" title="Permanent link">&para;</a></h3>
 <p><code>Secret</code> is unchanged: one property - opacity - an infallible constructor because every string is a
-valid secret, a hand-written redacting <code>Debug</code> and <code>Display</code>, and no <code>PartialEq</code>, so <code>==</code> on
-credential material does not compile.</p>
+valid secret, a hand-written redacting <code>Debug</code> and <strong>no <code>Display</code> at all</strong>, and no <code>PartialEq</code>, so
+<code>==</code> on credential material does not compile.</p>
+<p><strong>Corrected:</strong> this said <em>a hand-written redacting <code>Debug</code> and <code>Display</code></em>. There is no
+<code>impl Display for Secret</code> anywhere under <code>crates/</code> - removing it is the whole of
+<a href="../0020-a-credential-the-compiler-refuses-to-print/">0020</a>, and it is what makes a secret unable to
+reach a format string by accident. A redacting <code>Display</code> would have been a printer; no <code>Display</code> is a
+compile error.</p>
 <p>An expiring token is not a secret with a date on it. Adding <code>not_after</code> to <code>Secret</code> would put an
 invariant on a type whose constructor correctly has none, and would make the field either optional - a
 pre-shared bearer token does not expire - or a lie for the values that have none. So the expiry lives
@@ -4921,7 +4990,14 @@ is why two of them are worded more narrowly than the sections above were in an e
 what to do with a claim whose mechanism does not exist yet: write it where a reader cannot mistake it
 for the table.</p>
 <p><strong>Two things in <code>AGENTS.md</code> this record now contradicts, and they are changes to that file rather than
-to this one.</strong> Recorded here so the contradiction is visible from the record that caused it. First, the
+to this one.</strong> Recorded here so the contradiction is visible from the record that caused it.
+<strong>Corrected: neither citation resolves any more, and the addressee changed rather than the point.</strong>
+<code>AGENTS.md</code> no longer carries a <em>Changing The Query Path Or The Tool Surface</em> table, a <em>Built And Not
+Wired</em> section or an <em>Invariants</em> table - the invariant register moved out of that file into the agent
+skill tree, and <code>.agents/skills/sutura/query-surface</code> is where the query-path rows live and
+<code>.agents/skills/sutura/invariants</code> is where a claim about what is enforced is judged. So both
+paragraphs below are claims against a register that has moved; what they say is worth keeping and
+where they say to change it is not. First, the
 <em>Changing The Query Path Or The Tool Surface</em> row for a second execution leg reads "every leg runs as
 the same subject, or the plan is refused rather than downgraded"; part 4 shows that is not what the
 shape delivers in a deployment with a shared source, and the accurate version is the pair of claims in

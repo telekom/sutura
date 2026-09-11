@@ -3122,8 +3122,17 @@ which cannot be re-aggregated across legs is REFUSED.
 <a href="../0009-the-plan-from-one-source-to-many/">The plan</a> decides the opposite and supersedes it: push what
 descends, and otherwise retrieve finer-grained rows and compute above. Decision 3 of the same record
 retires the per-leg <strong>row</strong> cap in favour of a working set bounded in bytes.</p>
+<p><strong>Corrected, and this is the one worth reading before citing either record: the two are not
+opposites, and the refusal was never superseded.</strong> What the plan changed is the DEFAULT - push what
+descends, retrieve and compute above - and it kept this record's refusal for the measures that cannot
+be recombined at all. <code>RefusalReason::MeasureDoesNotFederate</code> is live and is raised at two sites in
+<code>crates/sutura-semantic/src/plan.rs</code>; <code>docs/adr/0005</code>'s status table still carries its row. So the
+behaviour this record decided is the behaviour the tree has, and the paragraph above disowned it - the
+shape that makes a reader trust the wrong document, which is exactly what the next paragraph warns
+about one revision too late.</p>
 <p>A previous revision of this page put those two facts in this paragraph and left four later parts
-arguing the withdrawn design: an ordered step whose evidence was a refusal that no longer exists, a
+arguing the withdrawn design: an ordered step whose evidence was a refusal that no longer exists
+(<strong>and it does exist - see the correction above; only that step's ordering moved</strong>), a
 guarantee table asserting both that a non-combinable measure refuses and that a per-leg cap is
 asserted, and two open questions that were closed. <strong>Each is rewritten below rather than struck.</strong> A
 banner over a live design is the shape this repository has already paid for once, and a reader who

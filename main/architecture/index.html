@@ -3011,7 +3011,14 @@ composition no automated test has watched answer, is not a registered data syste
 <p><strong>And that leg is a SMOKE test rather than the acceptance leg 0017 specifies</strong>, which is worth knowing
 before reading its green as closing the gap: one hand-built <code>SUM</code> over a two-column table, exercising
 none of the constructs the parse check was measured to be blind about. The wider leg is #78's importer
-shape pointed at a dataset, and it is not built.</p>
+shape pointed at a dataset, and <strong>it is built</strong> - <code>crates/sutura-exec-bigquery/tests/corpus.rs</code>, run
+green against a real dataset, which is where those constructs are covered and where the one divergence
+it found is recorded. <strong>The limit next to that: every test in it is <code>#[ignore]</code>d and it is outside
+<code>just validate</code></strong>, because a nix check has no network - it runs by binary selection in the acceptance
+tier, on a push that touches this data source, so a green <code>just validate</code> says nothing about it. This
+sentence said <em>it is not built</em> after that landed;
+<a href="../adr/0017-what-a-bigquery-test-runs-against/"><code>adr/0017</code></a>'s third amendment is the record and says
+which of its four bullets the run answered and which it did not.</p>
 <p><strong>One thing that leg now does prove, and it is the reason it grew:</strong> the same table read by its
 <strong>fully qualified</strong> <code>project.dataset.table</code> name answers the same numbers as the unqualified read, and
 a qualified path naming a dataset that is not there is refused - which is the control that makes the
