@@ -5,7 +5,7 @@
 //!
 //! 1. what `test-infra/pulumi/google/sync-bq-test-env.sh` pushes;
 //! 2. what `test-infra/README.md`'s table says the environment carries;
-//! 3. what a workflow reads as `vars.SUTURA_BQ_*` and `secrets.SVC_*`.
+//! 3. what a workflow reads as `vars.SUTURA_BQ_*`, `secrets.SVC_*` or `secrets.SUTURA_BQ_*`.
 //!
 //! `crate::venues::acceptance` reads (3) for the properties that matter at the seam - the fork
 //! rule, the credential write and removal, an emptiness guard per value, and what may reach a
@@ -56,13 +56,17 @@ const KINDS: [Kind; 2] = [
         name: "secrets",
         dict: "SECRETS = {",
         row: "| `secrets` |",
-        prefix: "SVC_",
+        // TWO, because this environment's secrets are not only keys: the identity values the
+        // two-principal cell is pointed at carry the `SUTURA_BQ_` prefix and moved here from
+        // `vars`. With `SVC_` alone a `secrets.SUTURA_BQ_<typo>` read was compared against
+        // nothing, which is the job that fails closed forever with both pages agreeing.
+        prefixes: &["SVC_", "SUTURA_BQ_"],
     },
     Kind {
         name: "vars",
         dict: "VARS = {",
         row: "| `vars` |",
-        prefix: "SUTURA_BQ_",
+        prefixes: &["SUTURA_BQ_"],
     },
 ];
 
@@ -74,9 +78,9 @@ struct Kind {
     dict: &'static str,
     /// The row in [`PAGE`]'s table that must hold exactly those names.
     row: &'static str,
-    /// The prefix that makes a workflow reference one of THIS stack's values rather than one of
-    /// GitHub's own. Without it `secrets.GITHUB_TOKEN` would be reported as unprovisioned.
-    prefix: &'static str,
+    /// The prefixes that make a workflow reference one of THIS stack's values rather than one of
+    /// GitHub's own. Without them `secrets.GITHUB_TOKEN` would be reported as unprovisioned.
+    prefixes: &'static [&'static str],
 }
 
 /// What reconciling the three lists found.
@@ -157,7 +161,7 @@ pub(super) fn problems(root: &Path) -> Contract {
                 kind.name
             ));
         }
-        for name in referenced(&workflows, kind.name, kind.prefix).difference(&pushed) {
+        for name in referenced(&workflows, kind.name, kind.prefixes).difference(&pushed) {
             problems.push(format!(
                 "a workflow reads `{}.{name}` and {SYNC} pushes no such name",
                 kind.name
@@ -215,8 +219,8 @@ fn row_names(page: &str, row: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Every `<kind>.<PREFIX>...` name a workflow reads.
-fn referenced(text: &str, kind: &str, prefix: &str) -> BTreeSet<String> {
+/// Every `<kind>.<PREFIX>...` name a workflow reads, for any of that kind's prefixes.
+fn referenced(text: &str, kind: &str, prefixes: &[&str]) -> BTreeSet<String> {
     let needle = format!("{kind}.");
     let mut names = BTreeSet::new();
     for chunk in text.split(needle.as_str()).skip(1) {
@@ -225,7 +229,7 @@ fn referenced(text: &str, kind: &str, prefix: &str) -> BTreeSet<String> {
         // one of them lower-case in the workflow and upper-case in the script - so a case-sensitive
         // comparison would report a correct reference as unprovisioned.
         let name = name.to_uppercase();
-        if name.starts_with(prefix) {
+        if prefixes.iter().any(|prefix| name.starts_with(prefix)) {
             names.insert(name);
         }
     }
@@ -325,12 +329,38 @@ mod tests {
             "      group: x-${{ vars.SUTURA_BQ_DATASET }}\n",
         );
         assert_eq!(
-            super::referenced(workflow, "secrets", "SVC_"),
+            super::referenced(workflow, "secrets", &["SVC_"]),
             BTreeSet::from([String::from("SVC_KEY_CI")])
         );
         assert_eq!(
-            super::referenced(workflow, "vars", "SUTURA_BQ_"),
+            super::referenced(workflow, "vars", &["SUTURA_BQ_"]),
             BTreeSet::from([String::from("SUTURA_BQ_DATASET")])
+        );
+    }
+
+    #[test]
+    fn a_secret_pushed_under_this_stacks_bq_prefix_is_reconciled_and_githubs_own_is_not() {
+        // The three identity values the two-principal cell is pointed at are `secrets` and carry
+        // the `SUTURA_BQ_` prefix, so `SVC_` alone no longer describes this environment's secrets:
+        // a `secrets.SUTURA_BQ_<misspelled>` read would be compared against nothing, and that is
+        // the job that fails closed forever with both pages agreeing. Read off KINDS rather than a
+        // hand-written slice, so dropping the prefix there is what this reddens for.
+        let kind = super::KINDS
+            .iter()
+            .find(|kind| kind.name == "secrets")
+            .expect("the secrets kind");
+        assert_eq!(
+            super::referenced(
+                "          AUD: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}\n",
+                kind.name,
+                kind.prefixes
+            ),
+            BTreeSet::from([String::from("SUTURA_BQ_WORKLOAD_AUDIENCE")])
+        );
+        // AND THE ARM THAT MUST NOT FIRE: GitHub's own names are why a prefix is read at all.
+        assert!(
+            super::referenced("${{ secrets.GITHUB_TOKEN }}\n", kind.name, kind.prefixes).is_empty(),
+            "GitHub's own secret is not one this stack provisions"
         );
     }
 
