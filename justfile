@@ -100,6 +100,10 @@ fmt:
     # must never do. xtask/src/fmt.rs derives the member list and explains it at length.
     cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
+    # The non-Rust text, in the same recipe rather than a second one a developer has to remember:
+    # markdown, YAML and TOML through dprint, Python through ruff. `just lint-text` is this exact
+    # script in its checking mode, and it says so and continues on a host with no nix.
+    bash nix/format-text.sh fmt
 
 # Lint everything: the three checks the commit hooks gate on, run directly.
 #
@@ -283,6 +287,14 @@ validate:
         printf '  Continuing, and this run will NOT be green.\n\n'
     fi
     just ci
+    # Markdown, YAML, TOML and Python. Here rather than inside `just ci`, and that is a
+    # correction rather than a preference: `ci` is the nix checks, this is not one and cannot
+    # become one - the candidate set is `git ls-files` and the sandbox's git-derived copy of the
+    # tree carries no `.git`. `tasks.rs` also EXECUTES the `ci` recipe body against a fake nix
+    # with an empty PATH, so a line there that shells out breaks a fixture about something else.
+    # The same script the `format-text` commit hook, `just lint-text` and `format.yml` call.
+    printf '\n=== format-text ===\n'
+    bash nix/format-text.sh check
     just secrets
     nix run .#deny
     if [ "$site" != ok ]; then
@@ -558,6 +570,14 @@ lint-actions:
 # cheap way - it used to be inline there and had no local caller at all.
 lint-workflows:
     bash nix/lint-workflows.sh
+
+# Markdown, YAML and TOML formatted; Python formatted AND linted. `just fmt` is the same script in
+# its fixing mode, and the `format-text` commit hook, `just validate` and
+# `.github/workflows/format.yml` run this one - for the reason the recipe above has a script at
+# all: a sequence with more than one caller, written more than once, is how the callers come to
+# check different things.
+lint-text:
+    bash nix/format-text.sh check
 
 # The shell the line above cannot reach: the script bodies inside `devenv.nix`. They are Nix
 # strings, so the `*.sh` glob, zizmor and the composite-action reader all filter them out - and

@@ -171,6 +171,16 @@ docs.yml:publish
 # would need a `merge_group` trigger added here.
 security-audit.yml:audit
 
+# The text formatters: markdown, YAML and TOML through dprint, Python through ruff. Path-scoped, so
+# it reports nothing at all on a pull request that changes no text - which is on its own a reason it
+# cannot be required: a required context that does not report is a permanently pending merge, and
+# this one deliberately does not report on most pull requests. The same script runs in the
+# `format-text` commit hook and inside `just validate`, so a developer sees it before pushing and
+# this leg is the backstop rather than the only reader. Making it required would mean either
+# dropping the paths filter - a formatter run on every Rust-only pull request - or adding a job that
+# reports green when the filter excludes it, which is a context that says nothing.
+format.yml:format
+
 # The runner probe is DISPATCH-ONLY and reports no pull-request context, so it is deliberately
 # absent here - a measurement tool, run by hand when a runner needs checking, never a reportable on
 # a gating event. `.github/workflows/runner-probe.yml` carries the design.
