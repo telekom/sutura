@@ -450,7 +450,6 @@ pub struct Relationship {
 
 impl Relationship {
     /// A relationship a foreign key records.
-    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         name: Option<String>,
         origin_table: String,

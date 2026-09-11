@@ -60,14 +60,14 @@ pub fn corpus() -> Dictionary {
 ///
 /// The constructor the conformance registry uses to register the adapter; it is `pub` because an
 /// integration suite is a separate crate and cannot reach a `#[cfg(test)]` item.
-pub fn over_fixture_source(name: SourceName, version: DefinitionVersion) -> RdbmsCatalog<FixtureReader> {
+pub const fn over_fixture_source(name: SourceName, version: DefinitionVersion) -> RdbmsCatalog<FixtureReader> {
     RdbmsCatalog::new(name, version, FixtureReader)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{FixtureReader, corpus};
-    use crate::DictionaryReader;
+    use crate::DictionaryReader as _;
 
     #[test]
     fn the_fixture_carries_models_and_a_foreign_key_and_no_metric() {
@@ -76,6 +76,6 @@ mod tests {
         // metric.
         assert_eq!(dictionary.tables().len(), 2);
         assert_eq!(dictionary.relationships().len(), 1);
-        assert!(FixtureReader.read_dictionary().is_ok());
+        FixtureReader.read_dictionary().unwrap();
     }
 }
