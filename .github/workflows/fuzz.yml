@@ -63,13 +63,20 @@
 # which no later run is. The harness therefore builds cold on every run, and nothing waits on it -
 # and `devco/action-inputs` loses its `actions/cache` record with the last `uses:` of it.
 #
-# THE `nix-store-cache` STEP IS UNTOUCHED, AND NOT BECAUSE IT WAS CLEARED. `zizmor` is invoked over
-# `.github/workflows` and reads exactly those files, so it never opens a local composite action:
-# an `actions/cache` step planted inside that action produced NO finding, where the same step in
-# this file produced two. So a tag-started run here still RESTORES a store cache, and that is
-# unassessed by the audit rather than absolved by it. What bounds it is the store's own write
-# gate - `save:` on a push to `main`, which nothing here can satisfy - so the `fuzz` scope can only
-# go stale and be evicted. The change that removes the step owns the decision to remove it.
+# THE `nix-store-cache` STEP IS GONE TOO, and its own argument is what removed it. That step
+# RESTORED scope `fuzz`, and `zizmor` never saw it: the audit is invoked over `.github/workflows`
+# and reads exactly those files, so an `actions/cache` step inside a local composite action
+# produced NO finding where the same step in this file produced two - unassessed rather than
+# absolved. What settled it is not the audit but the write gate the paragraph above already
+# states: `save:` on a push to `refs/heads/main`, which neither trigger here can satisfy, and
+# `scope: fuzz` was named in no other file. So the entry could never be written, only looked up
+# and missed. The steps that remain restore nothing.
+#
+# WHAT REPLACES IT is the binary cache, and only in part: every installer below now names the
+# three stores `cachix-push.yml` publishes, with their keys committed beside them. Those hold the
+# STABLE closure - the pinned toolchain and the dependency derivations - and not this workspace's
+# own nightly, sanitizer-codegen outputs, which nothing publishes. So the harness still compiles
+# its own crates cold on every run; what it no longer does is fetch their inputs from upstream.
 #
 # THIRD-PARTY ACTIONS: pinned by digest, as everywhere else here.
 name: fuzz
@@ -122,17 +129,28 @@ jobs:
           # The flag that makes nix honour settings from flake.nix itself is deliberately absent,
           # for the reason `security-audit.yml` gives: with it, a pull request could add a
           # substituter and a trusted key and have CI fetch attacker-built store paths.
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # A scope of its OWN, and it has to be its own: nothing here is shareable with `ci`. This
-      # workspace compiles under the pinned NIGHTLY with sanitizer codegen, from its own
-      # `Cargo.lock` and its own `[profile.*]` - so its store paths are different derivations by
-      # construction, not the same ones under another name. Without this the whole fuzz workspace
-      # was rebuilt on every push to the default branch.
-      - uses: ./.github/actions/nix-store-cache
-        with:
-          scope: fuzz
+      # NO STORE-CACHE STEP. It restored scope `fuzz`, and nothing in this repository can write
+      # that entry: `.github/actions/nix-store-cache` gates `save:` on a push to `refs/heads/main`,
+      # `scope: fuzz` was named in this file alone, and this file triggers on a tag and on a manual
+      # dispatch - so the restore was a lookup of an entry that has never existed. What it cost was
+      # measured before it went, on the argument the header used to make for keeping it: 17 s of
+      # restore per run. The header's own note said the change that removes it owns the decision;
+      # this is that change. What it claimed - that the fuzz workspace's nightly, sanitizer-codegen
+      # derivations are unshareable with `ci` - is still true and is now the reason a cache would
+      # have to be provisioned rather than restored: a `main`-gated write site is what it needs
+      # first, and neither trigger here is one.
 
       - name: Replay the committed corpus
         run: bash nix/run-fuzz.sh smoke
@@ -167,8 +185,17 @@ jobs:
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       - name: Fuzz ${{ matrix.target }}
         run: bash nix/run-fuzz.sh run "${SECONDS_BUDGET}" "${{ matrix.target }}"

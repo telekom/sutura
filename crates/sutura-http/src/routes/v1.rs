@@ -7,7 +7,7 @@
 //! prefix applied once by the caller. So `v2` is a second module with a second
 //! [`openapi_router`](self::openapi_router), a second constant beside
 //! [`API_V1_PREFIX`](crate::constants::API_V1_PREFIX), and one more `nest` in
-//! [`crate::router`]. Nothing here moves, and nothing here is called from there.
+//! [`crate::router`](fn@crate::router). Nothing here moves, and nothing here is called from there.
 //!
 //! **A `v2` does not delegate to a `v1`.** If a shape changes, `v2` gets its own handler and its own
 //! wire type and `v1` is frozen as it stands until it is deleted whole. Delegating between versions

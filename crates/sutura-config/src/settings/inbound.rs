@@ -109,9 +109,9 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
 /// required" is a support request; "`direct` requires it" is an answer.
 ///
 /// An empty value counts as absent here, which is the opposite of what
-/// [`crate::inbound::primitive`]'s parsers do with one - and both are right for their position. An
-/// unset variable arrives in a shell as `""`, so at *this* layer the accurate diagnostic is "the mode
-/// requires this key"; a value that is present and empty past a `required` call has come from
+/// `crate::inbound::primitive`'s parsers do with one - and both are right for their position. An
+/// unset variable arrives in a shell as `""`, so at *this* layer the accurate diagnostic is "the
+/// mode requires this key"; a value that is present and empty past a `required` call has come from
 /// somewhere else and gets the empty-value refusal instead.
 fn required<'written>(value: Option<&'written str>, key: &'static str, mode: &str) -> Result<&'written str, SettingsError> {
     match value.map(str::trim) {

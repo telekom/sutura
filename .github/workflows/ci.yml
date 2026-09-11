@@ -47,12 +47,12 @@ name: ci
 # gate a catalog edit has to get past.
 #
 # `!docs/**` is LAST deliberately, and it is the one push exclusion that must win outright: a page
-# under docs/ has its own workflow and must not start this 120-minute one after merge, even if
+# under docs/ has its own workflow and must not start this whole `ci` chain after merge, even if
 # somebody writes `docs/.../catalog/x.md`.
 #
 # `!mkdocs.yml` sits beside it so the two push filters remain complements. They were
 # not: `mkdocs.yml` is in docs.yml's filter AND matched the leading `**` here, so an ADR-only pull
-# request that added a nav entry started BOTH, paying this 120-minute chain and the docs job's own
+# request that added a nav entry started BOTH, paying the full `ci` chain and the docs job's own
 # gates for a prose change. It cannot affect what cargo produces: `mkdocs.yml` is read by mkdocs
 # and by `check-docs`, which docs.yml runs. Measured on the pull request that found this,
 # `docs/adr/**` plus `mkdocs.yml` was the whole diff bar one line.
@@ -198,14 +198,44 @@ jobs:
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
     # promotion PR whose tip happens to be a release commit is still gated.
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
-    runs-on: rust-mcp-32core
-    # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
-    # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
-    # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
-    # the store cache has anything to restore - spends most of an hour compiling before a
-    # single test runs, and 60 killed exactly that run mid-`Tests`. Warm runs are far quicker;
-    # the cap has to survive the cold one that fills the cache for the rest.
-    timeout-minutes: 120
+    runs-on: rust-mcp-16core
+    # 75, AND THE CEILING IS THE MERGE QUEUE RATHER THAN THE SLOWEST RUN. `ci` is the only
+    # REQUIRED check, so the queue's check-response timeout - 90 minutes - is the point past which
+    # a verdict cannot be consumed by anything. The 120 this replaces sat 30 minutes beyond it: a
+    # runaway was ejected from the queue at 90 and then went on burning a paid runner for half
+    # an hour producing an answer nothing could read.
+    #
+    # WHY NOT 120. It was set when the cold cost was an ESTIMATE. The engine brought DataFusion and
+    # Arrow in, a cap of 60 had killed one cold run mid-`Tests`, and "most of an hour compiling"
+    # was the guess that replaced it. The number now exists, taken over the last 300 runs of this
+    # workflow (2026-09-09 to 2026-09-11; 170 `pull_request`, 70 `merge_group`, 60 `push`), of
+    # which 266 `ci` jobs actually executed:
+    #
+    #   whole window   n=266   median  708 s   p90 959 s   p99 1107 s   max 1296 s (21.6 min)
+    #   since #586     n= 55   median  586 s   p90 882 s   p99 1057 s   max 1065 s (17.8 min)
+    #
+    # Exactly one job in the window exceeded 1200 s. Both COLD classes are inside that spread: a
+    # full Actions-cache MISS with warm cachix stores ran 1041 s, and a pull request that ADDS a
+    # crate, so the deps derivation is rebuilt from source, ran 992 s. Neither came near an hour.
+    #
+    # WHY NOT 60. That is the value that killed the cold run, and the estimate it lost to is the
+    # only record of what that run needed - so it is the one number the evidence cannot clear. 75
+    # is 3.5x the worst job ever seen in the window, 4.2x the worst since #586, and at least 4.3x
+    # either cold class; and, the property that actually matters, it is below 90.
+    #
+    # **THE LIMIT, STATED NEXT TO THE CLAIM - TWO THINGS THIS NUMBER DOES NOT DO.**
+    #
+    # It is NOT HELD BY A GATE. Nothing in this repository reads this key, and nothing can read the
+    # 90 either: that is a repository ruleset setting and `check-workflows` runs inside a derivation
+    # with no network. The pairing is text, so drift back above 90 would be green - the same shape
+    # of limit the store-cache action records about a credential's scope.
+    #
+    # AND IT DOES NOT BOUND A JOB THAT NEVER STARTED. The two longest `ci` walls in that window
+    # were 7794 s and 3653 s, and both are `cancelled` with ZERO steps, no runner name and no
+    # runner group - queued against an environment policy that never released them, which is an
+    # open gap and not compute. `timeout-minutes` begins when a runner picks the job up, so it
+    # would not have fired on either one. This cap is not protection against that.
+    timeout-minutes: 75
     # SCOPED TO THIS JOB, and it restates `contents: read` because a job-level block REPLACES the
     # workflow-level one rather than adding to it - omitting the line would take away the read
     # this job's checkout needs.
@@ -537,7 +567,7 @@ jobs:
       # step above just cached. Measured in the dev container on 16 cores, `--workspace` coverage
       # spent over 80 CPU-minutes and 6m18 wall recompiling DataFusion, Arrow and DuckDB and never
       # reached a single test. On this runner's four vCPUs that is twenty minutes and up, added to
-      # a job whose timeout was already raised from 60 to 120 because the tests alone killed it.
+      # a job whose timeout has already had to be raised once because the tests alone killed it.
       # That belongs nowhere in CI, let alone here.
       #
       # What runs instead is scoped to `sutura-domain`, whose dependency set is serde and
@@ -889,14 +919,55 @@ jobs:
 
   # HALF (a): publish this pull request's OWN store paths to `sutura-prs`, the PR's additive cache.
   # Runs ONLY on a pull request and only after `ci` has warmed the closure (`needs`), mirroring
-  # `cachix-push.yml`'s own push job. The credential is a PR-only environment token - Write on
-  # sutura-prs, no Write on `sutura` - and the ENVIRONMENT is the boundary the gate cannot see;
-  # this text rule can only PIN the environment name and the pull_request gating and pair them,
-  # which is what it does below.
+  # `cachix-push.yml`'s own push job.
+  #
+  # **WHAT SELECTS THE PULL-REQUEST CREDENTIAL IS THE `environment:` DECLARATION, and that is the
+  # whole of the mechanism.** This job declares `environment: cachix-push-pr`, which is how it reads
+  # that environment's secret rather than the main one, and `cache_scope`'s PR-writer pairing PINS
+  # that declaration - deleting it turns the gate red, verified by mutation rather than assumed.
+  #
+  # **AND THIS COMMENT USED TO OVERSTATE IT.** It said the credential carries "Write on sutura-prs,
+  # no Write on `sutura`". It does not. The credential for the main store is the narrow one - one
+  # store, default branch only - while the pull-request and mixed credentials are restricted on
+  # neither store nor branch. So the separation between the two write paths is convention and
+  # configuration, NOT capability. That posture is an accepted decision and is recorded here rather
+  # than implied, because an overstated control is itself the defect: a reader who saw "no Write on
+  # `sutura`" stopped looking for the thing that would have made it true.
+  #
+  # **THE LIMIT, STATED NEXT TO THE CLAIM: a gate cannot read a credential's scope and cannot read a
+  # branch policy.** Nothing in this repository can verify any of the paragraph above -
+  # `check-workflows` runs inside a derivation with no network. What it CAN do is what it does: pin
+  # the environment name and the pull_request gating, and pair them.
+  #
+  # The READ side is the half that IS held in text, and it is unchanged: the default branch never
+  # lists the pull-request store's public key, so no merged-main resolve substitutes from it. That
+  # is what stops an in-repository pull-request author reaching main, and `docs/adr/0027` records it.
   pr-cache:
     needs: [ci]
-    if: github.event_name == 'pull_request'
-    runs-on: rust-mcp-32core
+    # `!cancelled()` RATHER THAN NOTHING, AND IT IS THE WHOLE REASON THIS CACHE READ AS UNUSED.
+    # With a bare `needs: [ci]` GitHub skips this job whenever `ci` FAILS, so the store filled only
+    # after a green run - precisely when nobody needs it - and every red push, which is when you
+    # iterate and when the expensive closure gets rebuilt, contributed nothing. Measured on #597
+    # push 3, a branch that ADDS a crate so main's stores cannot hold its closure: `ci` substituted
+    # 129 paths, every one from `cache.nixos.org` and ZERO from `sutura-prs`, while this job on the
+    # two earlier pushes was SKIPPED because `ci` failed on both. It then published 7 paths
+    # (`sutura-deps-0.1.0` among them) that no fourth push existed to read.
+    #
+    # PUBLISHING AFTER A FAILURE IS SAFE, and the argument is nix's: a derivation that failed has no
+    # store path to push. A red `ci` means some check's derivation failed; its successful
+    # sub-derivations - `sutura-deps` above all - are valid store paths either way. So this pushes
+    # exactly what genuinely built.
+    #
+    # `!cancelled()` and not `always()`, because this job takes a paid runner: `always()` would
+    # start it after somebody pressed cancel and publish whatever partial store the runner held.
+    # `ci` being SKIPPED is not a live case - that skip is for `chore(release):` commits, which are
+    # not `pull_request` events.
+    #
+    # THE TOKEN ORDER IS LOAD-BEARING: `cache_scope`'s PR-writer pairing reads this job's `if:`
+    # with `github.event_name == 'pull_request'` as a pinned PREFIX and refuses the reversed
+    # spelling and a `${{ }}` wrapping alike.
+    if: github.event_name == 'pull_request' && !cancelled()
+    runs-on: rust-mcp-16core
     environment: cachix-push-pr
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -913,6 +984,32 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
+      # RESTORE-ONLY, AND THIS JOB CANNOT EVER SAVE THIS SCOPE. The action's `save:` is gated on a
+      # push to `main` and this job runs on `pull_request` alone, so it reads the scope `ci` entry
+      # that a `main` push wrote and writes nothing back - the step summary it prints says
+      # "restore-only, nothing written" on every run here. That is the DESIGNED shape and not an
+      # oversight: `cache_scope` refuses an `if:` on this step and on any caller of it, precisely so
+      # a pull request's restore survives while the write stays gated to `main`.
+      #
+      # KEPT ON EVIDENCE, because #604 deleted this exact shape twice as pure cost and it is NOT
+      # pure cost here. Measured on job `103311822910`: the restore took 42 s of a 157 s job, hit an
+      # older generation, pulled 3.65 GB, and left nix with 4 derivations to build and 4 paths -
+      # 2.7 MiB - to fetch. It supplied essentially the whole build-time closure.
+      #
+      # Deleting it moves those bytes to the cachix substituters, which is the trade #604 made for
+      # scope `bq` - and that one came out at NO MEASURABLE CHANGE: `bigquery-acceptance` ran a
+      # median of 179 s over the 143 executed jobs before that merge and 178 s over the 8 after it.
+      # (#604 claimed no after-number itself; this is that number.) So the expected saving here is
+      # nothing, and there is no census gain either, because the entry is shared rather than this
+      # job's own.
+      #
+      # IT DOES NOT DEFEAT THE PUBLISH BELOW, which was the one way it could have been load-bearing
+      # in reverse. cachix's post-build hook publishes only what nix BUILDS, and a restore carries
+      # dependencies rather than this pull request's own check outputs - the same run built and
+      # pushed 4 paths while skipping 1541.
+      #
+      # THE LIMIT: n=8 after that merge is a direction and not a distribution, and no A/B of THIS
+      # step exists - deleting it would need its own before-and-after on this job, not the `bq` one.
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
@@ -1080,7 +1177,7 @@ jobs:
     # nothing for the dataset-serialising acceptance leg. `ci-aggregate` holds that this job may be
     # skipped ONLY when its category is not selected, or the event cannot run it, never silently.
     if: github.event_name == 'push' && needs.ci.outputs.data_source_bigquery == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.ci.outputs.data_source_bigquery == 'true'
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
     timeout-minutes: 60
@@ -1110,9 +1207,16 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - uses: ./.github/actions/nix-store-cache
-        with:
-          scope: bq
+      # NO STORE CACHE HERE, AND THE REASON IS ARITHMETIC. One complete generation of this
+      # repository's Actions-cache entries is ~13 GB against a 10 GB effective ceiling, so something
+      # is always being evicted - measured 2026-09-11 at 10,309,515,473 B over 217 entries, of which
+      # the main-ref scopes are `bq` 4082 MB, `ci` 3483 MB and the musl triple 2118 MB, with
+      # `aarch64` and the causality-target entry already gone. `bq` was the largest single claim on
+      # that ceiling and it carried a closure `cachix-push.yml` already publishes, so every reader
+      # here can substitute it from the stores the installer above names. Restoring it cost 25-47 s;
+      # what the substitution costs instead is unmeasured, and this job's own run is the measurement.
+      # `cachix-push.yml`'s `connectors` job lost its `scope: bq` restore in the same change: this
+      # job was the only writer, and a restore of a scope nobody writes is the defect `fuzz` was.
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #
@@ -1142,8 +1246,8 @@ jobs:
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
           echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, outside the checkout"
 
-      # **Mask the three resource names before anything can print them, and this step exists because
-      # of a channel the rest of the job would otherwise open.**
+      # **Mask the three resource names, and this step exists because of a channel the rest of the job
+      # would otherwise open.**
       #
       # Workflow logs on a PUBLIC repository are public. The wire carries the endpoint's own `message`
       # on a refusal - bounded, deliberately, because a `400 invalidQuery` with only a reason code is
@@ -1156,10 +1260,32 @@ jobs:
       # Masking the diagnostic away is the right trade in this direction - a maintainer who needs the
       # unredacted message runs the leg locally, where the log is theirs.
       #
-      # The project id is read from the key rather than configured, for the reason the fixture reads it
-      # from the key: a service-account key names its own project, and a second declaration is a second
-      # answer to *who pays*. `python3 -c` rather than a shell read, so the value never becomes a shell
-      # word that could be logged by `set -x`.
+      # **THE LIMIT, AND THIS COMMENT USED TO OVERSTATE IT (#527).** It said the names were masked
+      # "before anything can print them". For two of the three they are not. The runner prints a
+      # step's resolved `env:` block into that step's own `Run` group BEFORE it executes the body -
+      # `PrintActionDetails` in `actions/runner`'s `src/Runner.Worker/Handlers/Handler.cs` emits
+      # `env:` and every entry of the handler's environment, and `ActionRunner` calls it ahead of
+      # `RunAsync` - so `SUTURA_BQ_DATASET` and `SUTURA_BQ_TABLE` appear in cleartext ONCE, here, and
+      # are redacted from every occurrence after that. An overstated control is worse than an absent
+      # one, because a reader who believes the old sentence stops looking.
+      #
+      # **AND IT CANNOT BE FIXED BY MOVING THE MASK EARLIER**, which is why the shape below is the
+      # best available one rather than a defect left in place. That printed dictionary is built from
+      # the `env` CONTEXT, which the same runner source notes "contains job level env and action's env
+      # block" - so hoisting these to a job-level or workflow-level `env:` prints them in EVERY step's
+      # group, which is strictly worse - and a `${{ }}` read inside a `run:` body is printed too,
+      # because the script is echoed with its expressions already resolved. There is no position in a
+      # workflow from which a `vars` value can be masked ahead of its own first occurrence. The one
+      # thing that closes it is making these two environment SECRETS rather than variables: the runner
+      # adds every secret to the masker before the first step runs, so the dump would read `***`. That
+      # is a forge change no file here can make and NO GATE HERE CAN SEE.
+      #
+      # The project id, by contrast, IS masked before its first occurrence, and the difference is the
+      # lesson: it never becomes an expression at all. Only the key's PATH goes through `env:` and
+      # `python3` reads the value out of the file. It is read from the key rather than configured for
+      # the reason the fixture reads it from the key - a service-account key names its own project, and
+      # a second declaration is a second answer to *who pays*. `python3 -c` rather than a shell read,
+      # so the value never becomes a shell word that could be logged by `set -x`.
       - name: Mask the resource names
         env:
           K: ${{ runner.temp }}/bq-key.json
@@ -1225,13 +1351,14 @@ jobs:
   # is held to the run-or-fail rule above.
   #
   # `ubuntu-latest`, WHICH IS WHAT `.github/actionlint.yaml` ALREADY DECLARES FOR A JOB LIKE THIS:
-  # `rust-mcp-32core` where Rust is compiled, `ubuntu-latest` where nothing is. This job checks out
+  # a larger runner where Rust is compiled, `ubuntu-latest` where nothing is. This job checks out
   # nothing, installs nothing, builds nothing and runs one bash step over its two `needs` results -
-  # measured at 2-5 s over the last 14 `main` runs that reached it - so a 32-core host was paying
+  # measured at 2-5 s over the last 14 `main` runs that reached it - so a larger host was paying
   # for a string comparison. What it can and cannot say about the LABEL: an org runner group has to
   # serve this repository for `rust-mcp-32core` to resolve at all, which is a permission on the
   # GitHub side that no gate here can read (`.github/actionlint.yaml` says so of its own list), and
-  # every run above proves it is served today - so this is a cost move, not a reachability fix. The
+  # the workflows that still name it prove it is served today - so this is a cost move, not a
+  # reachability fix. The
   # reported CONTEXT does not move: `devco/required-contexts` names it, and a context is a job's
   # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
   ci-aggregate:

@@ -1,11 +1,12 @@
 //! Everything `prompt.catalog_prose` decides about one catalog reply, and the only two ways to ask.
 //!
-//! **A module rather than two branches in [`super::CatalogContent::of`], because `#266`'s `H1` was
-//! not a wrong branch - it was a construction reachable without the setting at all.** The named
+//! **A module rather than two branches in
+//! [`CatalogContent::of`](crate::wire::catalog::CatalogContent::of), because `#266`'s `H1` was not
+//! a wrong branch - it was a construction reachable without the setting at all.** The named
 //! constructor closed that for the reply as a whole; what stayed open was the field, which could
-//! still be filled with `Some(..)` by anyone editing the builder. Here the inner `Option` is private
-//! to this file and [`Carried::under`] is the only way to make one, so a description that did not
-//! consult the operator's decision does not compile.
+//! still be filled with `Some(..)` by anyone editing the builder. Here the inner `Option` is
+//! private to this file and [`Carried::under`](prose::Carried::under) is the only way to make one,
+//! so a description that did not consult the operator's decision does not compile.
 //!
 //! The second reason is the one review raised against `is_quoted()` inside an `if`: a question asked
 //! of one variant reads every future spelling as the `else`, and on this setting the `else`

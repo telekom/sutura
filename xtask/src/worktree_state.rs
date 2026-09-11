@@ -44,14 +44,20 @@
 //!   compose block, and Postgres - the one tier that provisions a listening server - has no such
 //!   block and is skipped by its own loop. So a THIRD tier is held if it is named like the two
 //!   that exist, and a tier for a blockless service is held by the habit, not by the gate.
-//! * **The worktree key has two spellings and nothing compares them.** `Scope` derives four bytes
-//!   of SHA-256 over the canonical root; `nix/postgres-tier.nix:85` and `nix/keycloak-tier.nix:118`
-//!   each derive `printf '%s' "$root" | cksum | cut -d' ' -f1`, a CRC-32 over the same input. Both
-//!   isolate, so nothing is shared - but they are different values, so no Rust writer can find a
-//!   tier's directory and no gate notices if one side is changed. Measured on the tree this gate
-//!   landed on, both tiers are keyed and Postgres listens on no TCP port at all, so
-//!   `telekom/sutura#405`'s instance 5 is not reproducible as stated - and that dismissal rests on
-//!   these two unreconciled lines.
+//! * **The worktree key HAD two spellings and nothing compared them.** `Scope` derives four bytes
+//!   of SHA-256 over the canonical root; both tiers derived `printf '%s' "$root" | cksum`, a CRC-32
+//!   over the same input. Both isolated, so nothing was shared - but they were different values, so
+//!   no Rust writer could find a tier's directory and no gate noticed when one side moved. One
+//!   spelling now: `nix/keycloak-tier.nix` derives no key at all - its home is under the worktree,
+//!   where the tree IS the key (`telekom/sutura#528`) - and `nix/postgres-tier.nix`, which needs a
+//!   short path for a unix socket, spells `Scope::scratch("pg")`. Held by
+//!   `the_tier_and_the_rust_scope_derive_one_worktree_key` below, which RUNS the tier's own two
+//!   lines rather than comparing their text. **Its limits, next to the claim:** it reads the
+//!   dev-shell arm of ONE tier, so a second tier that takes a shared root is held by nothing here;
+//!   and it needs `bash` and `sha256sum`, which every venue that runs this suite has and a bare
+//!   host may not. `telekom/sutura#405`'s instance 5 is still not reproducible as stated - both
+//!   tiers are keyed and Postgres listens on no TCP port at all - and that dismissal no longer
+//!   rests on two unreconciled lines.
 //! * **A log path an agent chooses is outside every gate.** `telekom/sutura#405`'s instance 2 is a
 //!   `shipcheck.log` in a shared scratchpad, which is not a file in this repository. What this gate
 //!   reaches is the shell that IS: `nix/*.sh`, where such a path would be written if it were
@@ -597,6 +603,55 @@ mod tests {
             found.iter().any(|(_, keyed)| keyed.is_shared()),
             "the falsifier tree carries no violation of this gate's own rule, so its refusal there \
              would come from a missing input: {found:?}"
+        );
+    }
+
+    #[test]
+    fn the_tier_and_the_rust_scope_derive_one_worktree_key() {
+        // `telekom/sutura#405`'S PROPERTY 1 - one derivation of *this worktree's own state* - AND
+        // IT IS NOT A TEXT COMPARISON. The tier derived a `cksum` CRC-32 and `Scope` four bytes of
+        // SHA-256 over one canonical root: two keys for one worktree, so no Rust writer could name
+        // the tier's directory and nothing reddened when either side moved. This RUNS the tier's
+        // own two lines - taken out of the file rather than restated here - and compares the path
+        // they build with `Scope::scratch("pg")`, which is the ONE derivation of a keyed path under
+        // a machine-shared root.
+        //
+        // The lines are located by SHAPE, and a shape it cannot find is an assertion failure rather
+        // than a pass over a tier whose key went somewhere else. That is the anchor: this gate's
+        // module header records the same requirement one level up.
+        let root = crate::repo::root().expect("this test runs inside a checkout");
+        let scope = sutura_dev::scope::Scope::from_root(&root).expect("the repository root resolves");
+        let expected = scope.scratch("pg");
+        let shared = expected.parent().expect("a scratch path sits under a shared root");
+        let text = std::fs::read_to_string(root.join("nix/postgres-tier.nix")).expect("the tier is readable");
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        let derived: Vec<&str> = lines.iter().copied().filter(|line| line.starts_with("key=")).collect();
+        let built: Vec<&str> = lines
+            .iter()
+            .copied()
+            .filter(|line| line.starts_with("pg=") && line.contains("TMPDIR"))
+            .collect();
+        assert_eq!(derived.len(), 1, "the tier derives its key on one line: {derived:?}");
+        assert_eq!(built.len(), 1, "the tier builds its scratch path on one line: {built:?}");
+        // `''${` is how a nix indented string spells a shell `${`, and `$root` is the only input
+        // those two lines have. `TMPDIR` is handed the parent `Scope::scratch` chose, so both sides
+        // read one shared root and what is compared is the key and the name under it.
+        let key = derived[0];
+        let path = built[0];
+        let canonical = scope.root().display();
+        let script = format!("set -eu\nroot='{canonical}'\n{key}\n{path}\nprintf '%s' \"$pg\"").replace("''${", "${");
+        let ran = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(&script)
+            .env("TMPDIR", shared)
+            .output()
+            .expect("bash runs the tier's own derivation");
+        assert!(ran.status.success(), "{script}\n{}", String::from_utf8_lossy(&ran.stderr));
+        let answered = String::from_utf8_lossy(&ran.stdout);
+        assert_eq!(
+            std::path::Path::new(answered.trim()),
+            expected,
+            "the tier and `Scope::scratch` build two different paths for one worktree"
         );
     }
 

@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""The demo's readiness probe: both halves, and the tool surface they exist for.
+
+Compose runs this from `demo/Dockerfile`'s `HEALTHCHECK`. It is the demo's answer to the fact that
+the shipped `sutura-serve` image has no probe of its own: "the container is healthy" has to mean the
+server answered, the chat client answered, AND the served document still exposes the two operations
+the demo is about. A client that is up while its server is not would otherwise read as healthy, and
+the tier's provision would report success over a demo that can answer nothing.
+
+It never prints a credential: the deployment token is read from a file this process can read and is
+used only as a request header.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+# The two operations the served document must describe, and the method each is reached by. The demo
+# exposes exactly these; a document that stopped carrying one is a demo that cannot answer, however
+# alive its sockets look.
+OPERATIONS = (("/v1/catalog", "get"), ("/v1/query", "post"))
+
+
+def fetch(url: str, token: str | None = None, timeout: float = 4.0) -> bytes:
+    request = urllib.request.Request(url)
+    if token is not None:
+        request.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def fail(reason: str) -> None:
+    # stderr, and only the reason - never a header, a token or an environment value.
+    print(f"healthcheck: {reason}", file=sys.stderr)
+    sys.exit(1)
+
+
+def main() -> None:
+    sutura_port = int(os.environ.get("SUTURA_DEMO_SUTURA_PORT", "9000"))
+    webui_port = int(os.environ.get("SUTURA_DEMO_WEBUI_PORT", "8080"))
+    run_dir = os.environ.get("SUTURA_DEMO_RUN_DIR", "/run/sutura-demo")
+
+    # The server: liveness first, so a failure names the server rather than the document.
+    try:
+        body = fetch(f"http://127.0.0.1:{sutura_port}/health")
+    except (urllib.error.URLError, OSError) as problem:
+        fail(f"the sutura server did not answer /health: {problem}")
+    if json.loads(body).get("status") != "ok":
+        fail("the sutura server answered /health without status ok")
+
+    # The tool surface: the document the chat client reads, carrying both operations. This is the
+    # half that separates "a process is running" from "the demo can answer a question".
+    try:
+        with open(os.path.join(run_dir, "token"), encoding="utf-8") as handle:
+            token = handle.read().strip()
+    except OSError as problem:
+        fail(f"the deployment token was not readable: {problem}")
+    try:
+        document = json.loads(fetch(f"http://127.0.0.1:{sutura_port}/openapi.json", token))
+    except (urllib.error.URLError, OSError) as problem:
+        fail(f"the served interface description did not read back: {problem}")
+    paths = document.get("paths", {})
+    for route, method in OPERATIONS:
+        if method not in paths.get(route, {}):
+            fail(f"the served document does not describe {method.upper()} {route}")
+
+    # The chat client last, so the two failures that are the demo's own are reported first.
+    try:
+        body = fetch(f"http://127.0.0.1:{webui_port}/health")
+    except (urllib.error.URLError, OSError) as problem:
+        fail(f"the chat client did not answer /health: {problem}")
+    if json.loads(body).get("status") is not True:
+        fail("the chat client answered /health without status true")
+
+    print("healthcheck: the sutura server, its two operations and the chat client are all up")
+
+
+if __name__ == "__main__":
+    main()

@@ -929,6 +929,18 @@ dev-up-identity:
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
+# The demo profile, built and started but not supervised.
+#
+# The sibling of `dev-up-identity` and `dev-up-datahub` above, and it exists for the reason they do:
+# a service behind a profile is brought up by the task named after that profile, and the tier's own
+# remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived
+# image, and that (plus the model configuration the container refuses to start without) lives in
+# `demo/start.sh`, so one owner shapes the validation and the build rather than two that can drift.
+#
+# `just demo` is the walkthrough: it prints the URL, supervises, and removes everything on exit.
+dev-up-demo:
+    bash demo/start.sh --up-only
+
 # The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
 #
 # A named task rather than a cell in the default suite, and NOT because a network is missing - the
@@ -975,3 +987,13 @@ dev-down:
 # What `just dev-down` would remove, and what it would deliberately spare. Removes nothing.
 dev-down-dry:
     cargo run -q -p xtask -- dev-down --dry-run
+
+# The local chat demo: the sutura server and a chat client over `examples/single-player`, from a
+# clean checkout, with the browser URL read out of the discovery file rather than written down.
+#
+# NOT a gate, deliberately - the plan's own rule and #595's: a demo that fails a gate gets disabled,
+# and a disabled demo holds nothing. It needs a language model, which no gate has. The
+# configuration, the acknowledgement, the image build and the supervision are in `demo/start.sh`;
+# this recipe is only the name. `docs/demo.md` is the walkthrough.
+demo:
+    bash demo/start.sh

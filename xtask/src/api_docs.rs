@@ -31,6 +31,12 @@
 //!     precondition is over THIS function rather than over that module - see
 //!     `check_refuses_before_documenting_anything_when_the_lint_is_not_armed`, which exists
 //!     because deleting the call and handing `check` a literal left every test in `lints` green.
+//!     **And a lint cannot say what it was pointed AT**: rustdoc runs no link-resolution pass over
+//!     an item it is not documenting, so the same armed `forbid` was exit 0 over 33 unresolvable
+//!     links inside private modules - `github.com/telekom/sutura#327`.
+//!     `--document-private-items` is what points it at them, `writer` is what keeps `just api`
+//!     passing the identical flag, and the visibility filter in the generator is why no private
+//!     item reaches a page.
 //!   * IT IS THE SAME CODE PATH. The `cargo rustdoc` line and the generator script are the ones
 //!     the `api` recipe in the justfile runs. A gate that reimplemented the rendering could
 //!     disagree with `just api`, and then the fix its own message asks for would not make it
@@ -55,6 +61,9 @@ use crate::repo;
 
 /// Whether the rustdoc run below is armed to judge doc links at all.
 mod lints;
+
+/// Whether `just api` hands rustdoc the same flags this gate does.
+mod writer;
 
 /// Where the committed pages live, relative to the repo root.
 ///
@@ -135,6 +144,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                 "  {} binary-only target(s) documented for links; API pages remain library-only",
                 outcome.binaries
             );
+            println!("  rustdoc flags, agreed with `just api`'s writer: {:?}", outcome.flags);
             Verdict::Pass
         }
         Ok(outcome) => {
@@ -157,6 +167,8 @@ struct Outcome {
     arming: lints::Arming,
     /// Binary-only targets whose rustdoc invocation succeeded, not generated pages.
     binaries: usize,
+    /// The rustdoc flags `just api` and this gate agree on - see [`writer`].
+    flags: Vec<String>,
 }
 
 /// Regenerate every library crate's page and collect what disagrees.
@@ -171,9 +183,23 @@ fn check(root: &Path) -> Result<Outcome, String> {
     // resolvable doc link from an unresolvable one, so regenerating pages from it and reporting
     // that they match would be a green verdict over a question nobody asked. See `lints`.
     let arming = lints::check(root, &metadata)?;
+    // SECOND precondition, and an `Err` for the same reason: the fix this gate names is
+    // `just api`, and a writer passing other flags produces pages from a rustdoc run whose
+    // question was not the one asked here. See `writer`.
+    let flags = writer::check(root)?;
     let packages = library_packages(&metadata)?;
     let binaries = binary_targets(&metadata)?;
     let target_dir = target_directory(root, &metadata);
+
+    if let Some((package, binary)) = colliding_json(&packages, &binaries) {
+        return Err(format!(
+            "binary target `{package}/{binary}` would write {}, which is a library crate's page \
+             input - rename the binary target. The binary and library rustdoc runs share one \
+             target directory so the binary runs reuse the library closure instead of rebuilding \
+             it, and that sharing only holds while the two cannot write the same file.",
+            json_file_name(binary)
+        ));
+    }
 
     let generator = root.join(GENERATOR);
     if !generator.is_file() {
@@ -196,10 +222,14 @@ fn check(root: &Path) -> Result<Outcome, String> {
         }
         inputs.push(json);
     }
-    // Binary and library Rust identifiers can coincide. Their JSON must not share a directory.
-    let binary_target_dir = target_dir.join("binary-api-docs");
+    // THE SAME target directory as the libraries above, and that is the whole cost of this
+    // phase. A directory of its own made the first binary rebuild the workspace's dependency
+    // closure from nothing while the warm one sat next to it: MEASURED at 86 s of a 280 s CI
+    // step (run 34572387467, `sutura-sql` at 07:04:39 to the last binary at 07:06:05), for
+    // three packages that produce no page at all. Sharing is sound only while no binary's
+    // rustdoc JSON can land on a library's page input, which [`colliding_json`] refuses.
     for (package, binary) in &binaries {
-        rustdoc_json(&cargo, root, package, Some((binary, &binary_target_dir)))
+        rustdoc_json(&cargo, root, package, Some(binary))
             .map_err(|error| format!("binary target `{package}/{binary}`: {error}"))?;
     }
 
@@ -221,6 +251,7 @@ fn check(root: &Path) -> Result<Outcome, String> {
         problems,
         arming,
         binaries: binaries.len(),
+        flags,
     })
 }
 
@@ -353,6 +384,21 @@ fn json_file_name(package: &str) -> String {
     name
 }
 
+/// A binary target whose rustdoc JSON would overwrite a library crate's, if any.
+///
+/// Package names are unique, but a `[[bin]] name` is not bound to its package's - so a binary
+/// CAN be named after a library crate, and rustdoc names its JSON after the Rust identifier
+/// rather than the package. Nothing else in this module would notice: the generator would render
+/// the binary's surface onto the library's page and the byte comparison would call it a drift.
+/// It is a refusal and not a workaround because the workaround is what cost the 86 s above.
+fn colliding_json<'a>(packages: &BTreeSet<String>, binaries: &'a BinaryTargets) -> Option<(&'a str, &'a str)> {
+    let pages: BTreeSet<String> = packages.iter().map(|package| json_file_name(package)).collect();
+    binaries
+        .iter()
+        .find(|(_, binary)| pages.contains(&json_file_name(binary)))
+        .map(|(package, binary)| (package.as_str(), binary.as_str()))
+}
+
 /// The cargo to invoke.
 ///
 /// The environment variable rather than `env!("CARGO")`: the compile-time form bakes cargo's
@@ -371,7 +417,7 @@ fn cargo_bin() -> String {
 /// the caller named - `$CARGO`, which the Nix check sets to the nightly. This binary itself is
 /// compiled on the same nightly toolchain every gate uses, which is why the check can share their
 /// dependency closure.
-fn rustdoc_json(cargo: &str, root: &Path, package: &str, binary: Option<(&str, &Path)>) -> Result<(), String> {
+fn rustdoc_json(cargo: &str, root: &Path, package: &str, binary: Option<&str>) -> Result<(), String> {
     let profile = std::env::var(PROFILE_ENV).ok();
     let status = std::process::Command::new(cargo)
         .current_dir(root)
@@ -384,10 +430,10 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str, binary: Option<(&str, &
         .env_remove("CARGO_PROFILE_DEV_CODEGEN_BACKEND")
         .env_remove("CARGO_UNSTABLE_CODEGEN_BACKEND")
         .args(["rustdoc", "-q", "-p", package, "--all-features"])
-        .args(binary.into_iter().flat_map(|(name, _)| ["--bin", name]))
-        .envs(binary.map(|(_, target)| ("CARGO_TARGET_DIR", target)))
+        .args(binary.into_iter().flat_map(|name| ["--bin", name]))
         .args(profile_args(profile.as_deref()))
-        .args(["--", "-Z", "unstable-options", "--output-format", "json"])
+        .arg("--")
+        .args(writer::RUSTDOC_ARGS)
         .status()
         .map_err(|error| format!("could not run `{cargo} rustdoc`: {error}"))?;
     if status.success() {
@@ -667,7 +713,33 @@ fn report(problems: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{excerpt, first_difference, is_lib_target, json_file_name, library_packages, profile_args, python_command};
+    use super::{
+        colliding_json, excerpt, first_difference, is_lib_target, json_file_name, library_packages, profile_args, python_command,
+    };
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn a_binary_named_after_a_library_crate_is_refused() {
+        // The binary and library rustdoc runs share one target directory - that sharing is what
+        // stops the binary phase rebuilding the closure - so a binary whose Rust identifier
+        // matches a library crate's would overwrite that crate's page input after it was
+        // collected. Nothing downstream could tell that from a drifted page.
+        let packages = BTreeSet::from([String::from("sutura-domain"), String::from("sutura-app")]);
+        let collides = BTreeSet::from([(String::from("sutura-cli"), String::from("sutura_domain"))]);
+        assert_eq!(
+            colliding_json(&packages, &collides),
+            Some(("sutura-cli", "sutura_domain")),
+            "the refusal has to name the binary, because renaming it is the fix"
+        );
+
+        // And this workspace's own shape is not a collision: no binary target is named after a
+        // library crate, so the gate still runs.
+        let clear = BTreeSet::from([
+            (String::from("sutura-cli"), String::from("sutura")),
+            (String::from("xtask"), String::from("xtask")),
+        ]);
+        assert_eq!(colliding_json(&packages, &clear), None);
+    }
 
     #[test]
     fn check_refuses_before_documenting_anything_when_the_lint_is_not_armed() {

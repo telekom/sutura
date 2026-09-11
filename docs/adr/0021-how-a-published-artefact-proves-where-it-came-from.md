@@ -1,6 +1,6 @@
 ---
 title: How a published artefact proves where it came from
-description: Why a release is signed keylessly with Sigstore rather than with a key we hold, why both a cosign bundle and a GitHub attestation are published when either would verify, what the image SBOM covers and the exact question it cannot answer, and which of the four things a green verification does not establish.
+description: Why a release is signed keylessly with Sigstore rather than with a key we hold, why both a cosign bundle and a GitHub attestation are published when either would verify, what the image SBOM covers and the exact question it cannot answer, and which of the five things a green verification does not establish.
 ---
 
 # How a published artefact proves where it came from
@@ -14,9 +14,12 @@ reads.
 **The second amendment closes the roadmap bullet's licence half** and is at the bottom under
 *Second amendment: the attribution document, and the licence report as a signed asset*. **The first
 amendment closes the crate-graph gap** and is at the bottom under *Amendment: the crate graph moved
-inside the binary*. The paragraphs between them are kept as written rather than corrected in place -
-they are the arguments the amendments act on, and rewriting them would leave a reader unable to tell
-which half was decided when.
+inside the binary*. The paragraphs between them are kept as written rather than rewritten - they are
+the arguments the amendments act on, and rewriting them would leave a reader unable to tell which half
+was decided when. **Where one asserted an absence an amendment has since closed, it keeps its original
+claim and carries an inline *Corrected:* note naming that amendment**, because this sentence used to
+say the paragraphs are never corrected in place while one of them stood false to any reader who did
+not reach the amendment - both halves legible beats one half quietly wrong.
 
 **Nothing here signs source, gates a merge, or says an artefact is good.** The scope is one
 question - *are these bytes the ones this pipeline emitted* - and the rest of this record is mostly
@@ -244,8 +247,12 @@ Not claimed:
 - **Not that the dependency set is free of advisories.** That is `cargo-deny` in CI, and its verdict
   is a run rather than an artefact.
 - **Not that licence obligations are discharged.** `deny.toml` is an allowlist of SPDX identifiers,
-  which is a policy check. There is no attribution document, and `NOTICE` still says nothing about
-  third-party crates.
+  which is a policy check. **Corrected: both absences in this bullet are spent, and the *Second
+  amendment* below already said so while this bullet was left standing** - the same half-applied
+  correction this record set exists to be checked against. An attribution document is generated and
+  published with every release, and `NOTICE` carries a third-party crates section. What survives is
+  narrower and is the part worth keeping: it carries no per-dependency notice text, so an
+  Apache-2.0 crate's own `NOTICE` is not reproduced.
 - **Not that the SBOM is a dependency inventory.** See above; it is a filesystem inventory, and the
   distinction is the most load-bearing sentence on this page.
 - **Not that a transparency log is honest.** `cosign` checks an inclusion proof against Rekor. Rekor's

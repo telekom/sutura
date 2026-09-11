@@ -464,6 +464,17 @@ before a socket is opened, so a deployment cannot load a two-source catalog at a
 plan-stage check would have no observable effect on a deployment - worth knowing precisely so that
 nobody reads it as permission.
 
+**Corrected, and the whole of this paragraph is spent.** The startup refusal is per-KIND now, not
+per-source-count: `crates/sutura-serve/src/main.rs`'s `one_kind` rejects a catalog mixing kinds of
+data system and admits two sources of the same kind. `crates/sutura-config/src/settings/tests.rs`
+loads two and asserts each says what it is, `crates/sutura-serve/src/tests.rs` opens both and checks
+each carries its own posture, and `crates/sutura-serve/tests/served.rs` answers a question spanning
+two of them over a real port. So a deployment CAN load a two-source catalog, the plan-stage refusal
+IS reachable in `sutura-serve`, and the sentence above holds only of `sutura-cli`. The survey it sits
+in is kept as written because it is the argument the correction acts on - the six assumptions were
+real when they were counted, and which of them have since moved is a question for the tree rather
+than for this paragraph.
+
 **Removing it would produce a wrong answer rather than an error.** The plan stage collects the joined
 model's source into its set and then throws it away: the plan is stamped with the metric's own model's
 source alone. So `answer`'s guard compares one name against the same name and passes, and the engine
@@ -475,6 +486,11 @@ defect above, arrived at from inside our own code.
 **The startup refusal, the one that actually holds today, has no test.** Its wrong-name branch is
 covered; its more-than-one branch is not. By this repository's own standard that is a mechanism nobody
 has watched fail, and it is worth a test whichever route eventually lands.
+
+**Corrected: it has one.** `crates/sutura-serve/src/tests.rs` asserts on the refusal's own sentence -
+*one kind of data system at a time* - and it is the per-kind branch rather than the more-than-one
+branch, because the rule changed shape as well as gaining a test. The source-NAME comparison this
+paragraph is about was replaced by a declared kind.
 
 And what replaces the rule when it does move: the plan stage's set stops holding source names and
 starts holding the identity each source resolves to, refusing unless exactly one is in it. Two sources

@@ -142,12 +142,19 @@ gh attestation verify sutura-x86_64-unknown-linux-gnu.tar.gz \
   --bundle sutura-provenance.intoto.jsonl \
   --custom-trusted-root "$TRUSTED_ROOT" \
   --repo telekom/sutura \
-  --signer-workflow telekom/sutura/.github/workflows/release.yml \
   --source-ref "refs/tags/$TAG" --source-digest "$SOURCE_COMMIT" \
   --cert-identity "https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/$TAG" \
   --cert-oidc-issuer https://token.actions.githubusercontent.com \
   --predicate-type https://slsa.dev/provenance/v1
 ```
+
+`--cert-identity` and `--signer-workflow` are **mutually exclusive** - `gh` puts
+`cert-identity`, `cert-identity-regex`, `signer-repo` and `signer-workflow` in one flag group and
+refuses more than one of them before it verifies anything. This command used to print both and
+therefore could not run; `--cert-identity` is the one kept, because it pins the workflow *and* the
+tag in a single value. Measured against `gh` 2.98.0, and no gate in this tree holds it: the
+`documented` suite spawns the `sutura` binary over the pages' own commands, so a `gh` invocation on
+a published release is checked by running it and by nothing else.
 
 The [verifier's bundle mode](https://cli.github.com/manual/gh_attestation_verify) accepts JSONL
 without fetching attestations from the forge. Test the command with network access disabled to
@@ -156,11 +163,15 @@ reference can still require registry access; this file example does not prove of
 retrieval or verification.
 
 **Venue limit:** PR CI can exercise fake bundle output and refusal paths, not the tagged job's
-OIDC signing, real bundle export or release upload. After merge, the first intended tagged release
-must demonstrate the five-record asset, successful verification of the mirrored original bytes
-under the policy above, and rejection of altered bytes and a wrong source ref. Until that tagged
-run and mirror-only check are recorded, those outcomes remain unproven; older releases need not
-contain the export. No tag or release is created merely to make a PR check green.
+OIDC signing, real bundle export or release upload. Those were unproven until a tag ran, and
+`v0.5.1` is that tag: the release carries `sutura-provenance.intoto.jsonl` as a five-record asset,
+and over bytes downloaded from the release page the command above exits 0 against the tag's own
+source commit, exits non-zero on a byte appended to the tarball (`verifying with issuer
+"sigstore.dev"`), and exits non-zero against a wrong source ref (`expected SourceRepositoryRef to
+be refs/tags/v0.4.1, got refs/tags/v0.5.1`). **What is still unproven is the OFFLINE half** - that
+run had network reach, so it establishes verification from mirrored bytes and a locally supplied
+trusted root, not that the verifier fetches nothing. Older releases need not contain the export. No
+tag or release is created merely to make a PR check green.
 
 ## Verifying an image
 
