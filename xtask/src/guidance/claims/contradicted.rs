@@ -222,16 +222,13 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // keyed on the sentence alone would refuse a record for quoting what it corrects, so what
         // is forbidden is ASSERTING it, which is the connector rather than the words.
         name: "a buildless CodeQL database leaves out `alloc`/`std`",
-        // Three wordings for the TWO sentences `github.com/telekom/sutura#538` names: the `because`
-        // line is one literal of the first, and neither of the other two exists anywhere in the
-        // tree - so the row is a ratchet on a re-assertion rather than a refusal of prose already
-        // written. They need no `because` anchor because the record does not quote either of them;
-        // it quotes only the "extracts ... but not" phrasing.
-        wordings: &[
-            "because a buildless database extracts the crate's own dependencies but not",
-            "does not extract `alloc`/`std`",
-            "standard library is absent",
-        ],
+        // ONE wording, and the second sentence `github.com/telekom/sutura#538`'s criteria name is
+        // deliberately ABSENT. Measured wrap-tolerantly over the whole tree: neither a `does not
+        // extract` phrasing nor `standard library is absent` occurs anywhere, so a wording for it
+        // would be a refusal that cannot fire - which is this table's own failure mode, not a use
+        // of it. The wording below differs in kind: it fires on the record as it stood before the
+        // correction, measured at exit 1. `#538` therefore stays OPEN for that second phrasing.
+        wordings: &["because a buildless database extracts the crate's own dependencies but not"],
         // The measurement that replaced the cause. If it ever leaves the record, this rule
         // retires rather than forbidding a sentence nothing in the tree disproves any more.
         evidence: &[Evidence {
