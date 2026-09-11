@@ -9,7 +9,14 @@ Status: **accepted.** The transport is built, feature-gated, linted, tested and 
 2026-08-30 it has been **run against a real project**, which is the first time anything in this
 repository has had a statement accepted by `BigQuery`. *What is claimed, and what is not* is the
 section at the end, and it is the one to read before taking a green run for more than it is:
-**one hand-built `SUM` was accepted, not the corpus.**
+**one hand-built `SUM` was accepted first, and since 2026-08-31 the example corpus has run green
+against a real dataset too.**
+
+**Corrected:** this status block read *one hand-built `SUM` was accepted, not the corpus* while the
+correction in *What is claimed, and what is not* records the corpus leg as built and run. A record
+with two answers to one question is worse than one answer, and a status line is the half a reader
+meets first. The limits that survive are the three `#[ignore]`d dataset legs and the single identity
+the credential carries, both stated where that correction is rather than restated here.
 
 [0017](0017-what-a-bigquery-test-runs-against.md) decided what a `BigQuery` test runs against and
 left one seam deliberately empty: `sutura_exec_bigquery::transport::JobTransport`, with the sentence
@@ -327,9 +334,14 @@ where the CI job that repeats it is decided.
 **It is ONE statement, not the corpus.** No join, no `COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF`
 ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and `ISOWEEK` plus `DATE_TRUNC`'s argument order
 are precisely the two constructs `0017` MEASURED a parse check to be blind about, which makes them what
-a live run is worth most for. The corpus-wide leg `0017` specifies - load the fixtures, run the 21
-questions, compare rows with the engine - is #78's importer shape and is not built. Every sentence in
-this repository that promised the corpus has been narrowed to what the leg does.
+a live run is worth most for. The corpus-wide leg `0017` specifies - load the fixtures, run the
+corpus's questions, compare rows with the engine - **is now built**, as
+`crates/sutura-exec-bigquery/tests/corpus.rs`. **Corrected: this said the corpus-wide leg *is not
+built*, which made this the THIRD answer in this file to one question** - the status block said it,
+this bullet said it, and the correction further down this section contradicted both. What is still
+true of the run this bullet is about is its own first sentence: that run was one statement. The count
+that used to sit here is gone rather than corrected - it said *21 questions* against a corpus that
+has grown twice since, and nothing here derives it.
 
 **It says nothing about identity.** A service-account key is `SharedServiceUser`: one identity for
 everybody who asks. So what is established is *accepted, and correct for that identity*.
@@ -401,11 +413,15 @@ at a dataset** - load the example fixtures, run the corpus's questions, compare 
 0017's amendment, `AGENTS.md`, `docs/architecture.md`, both plan pages, the justfile recipe and the
 leg's own header. **It is built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`, and it has run
 green against a real dataset; [0017](0017-what-a-bigquery-test-runs-against.md)'s third amendment is
-the record of that run and says which of the four bullets it answered. **The limit next to that: every
-test in that file is `#[ignore]`d and none of them is inside `just validate`**, because a nix check has
-no network - they run by binary selection in the acceptance tier, so a green local run proves nothing
-about this leg. The correction landed there and was not carried here, which is the sibling-drift
-class this record set exists to be checked against.
+the record of that run and says which of the four bullets it answered. **The limit next to that: the
+three legs that reach a real dataset are `#[ignore]`d and outside `just validate`**, because a nix
+check has no network - they run by binary selection in the acceptance tier, so a green local run
+proves nothing about those three. **The file's other eight tests DO run in `checks.nextest`** - the
+run-isolation, per-run naming and comparison-semantics rules, none of which needs a project - and
+`corpus.rs` says *NOT `#[ignore]`d, unlike the three legs below* of one of them in as many words. An
+earlier revision of this sentence said *every* test in the file is ignored and none is inside
+`just validate`; it is 11 `#[test]` of which 3 are `#[ignore]`d. The correction landed there and was
+not carried here, which is the sibling-drift class this record set exists to be checked against.
 The narrowness that survives is the identity one, and it is stated in that file's own header rather
 than restated here: the credential is one identity for everybody who asks, so a green there reads
 *accepted, and correct for that identity*. The count that used to sit in this sentence is gone rather

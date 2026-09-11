@@ -237,10 +237,11 @@ before reading its green as closing the gap: one hand-built `SUM` over a two-col
 none of the constructs the parse check was measured to be blind about. The wider leg is #78's importer
 shape pointed at a dataset, and **it is built** - `crates/sutura-exec-bigquery/tests/corpus.rs`, run
 green against a real dataset, which is where those constructs are covered and where the one divergence
-it found is recorded. **The limit next to that: every test in it is `#[ignore]`d and it is outside
-`just validate`**, because a nix check has no network - it runs by binary selection in the acceptance
-tier, on a push that touches this data source, so a green `just validate` says nothing about it. This
-sentence said *it is not built* after that landed;
+it found is recorded. **The limit next to that: the three legs in it that reach a real dataset are
+`#[ignore]`d and outside `just validate`**, because a nix check has no network - they run by binary
+selection in the acceptance tier, on a push that touches this data source, so a green `just validate`
+says nothing about those three. The file's other eight tests do run in `checks.nextest`; it is 11
+`#[test]` of which 3 are `#[ignore]`d. This sentence said *it is not built* after that landed;
 [`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md)'s third amendment is the record and says
 which of its four bullets the run answered and which it did not.
 

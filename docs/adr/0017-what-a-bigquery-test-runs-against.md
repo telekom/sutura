@@ -324,9 +324,12 @@ hand-built `SUM` over a two-column table a developer supplies. It contains no jo
 `COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF` ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and
 `ISOWEEK` and `DATE_TRUNC`'s argument order are exactly the two things this page MEASURED the parse
 check to be blind about, so they are what a live run is worth most for. **The leg this page specifies
-is #78's importer shape pointed at a dataset - load the fixtures, run the 21 questions, compare rows
-with the engine - and it is not built.** `docs/adr/0018` records that gap, and the smoke leg's own
-header opens with it.
+is #78's importer shape pointed at a dataset - load the fixtures, run the corpus's questions, compare
+rows with the engine - and it is now built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`.
+**Corrected: this sentence said *it is not built*, and the third amendment below already quotes it as
+the sentence that stopped being true** - so this record contradicted itself while `docs/adr/0018` and
+`docs/architecture.md` both cite it as their authority for the opposite. The quotation in that
+amendment keeps the original wording, count included, because a quote that is edited is not a quote.
 
 **This record said the change adding the wire would be the change that could first run it against a
 project. It was not** - the machine it was written on had no `gcloud`, no application-default
