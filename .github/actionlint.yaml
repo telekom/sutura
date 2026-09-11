@@ -25,9 +25,12 @@
 # runs `actionlint` against this file - inside `ci`, the one required context. The refusal is
 # `label "rust-mcp" is unknown. available labels are ...`.
 #
-# `rust-mcp-16core` is absent for the same reason rather than by omission: this list is what is IN
-# USE, so adding a label here is the same decision as putting a job on it. It is added by whatever
-# change first measures it.
+# `rust-mcp-16core` IS in use ON THIS MEASUREMENT BRANCH ONLY, by `ci.yml`'s `ci` job, moved there
+# so that a FULL required run is timed on the smaller host rather than argued about. It stays
+# registered on both arms of the pairing, because a pair whose trees differ by more than the one
+# `runs-on` line measures the difference and not the host. On `main` the `ci` job stays on the
+# 32-core label, and this line reverts with the experiment.
 self-hosted-runner:
   labels:
     - rust-mcp-32core
+    - rust-mcp-16core

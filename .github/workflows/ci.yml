@@ -198,7 +198,7 @@ jobs:
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
     # promotion PR whose tip happens to be a release commit is still gated.
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
     # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
