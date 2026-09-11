@@ -202,7 +202,7 @@ jobs:
     # 75, AND THE CEILING IS THE MERGE QUEUE RATHER THAN THE SLOWEST RUN. `ci` is the only
     # REQUIRED check, so the queue's check-response timeout - 90 minutes - is the point past which
     # a verdict cannot be consumed by anything. The 120 this replaces sat 30 minutes beyond it: a
-    # runaway was ejected from the queue at 90 and then went on burning a 32-core runner for half
+    # runaway was ejected from the queue at 90 and then went on burning a paid runner for half
     # an hour producing an answer nothing could read.
     #
     # WHY NOT 120. It was set when the cold cost was an ESTIMATE. The engine brought DataFusion and
@@ -958,7 +958,7 @@ jobs:
     # sub-derivations - `sutura-deps` above all - are valid store paths either way. So this pushes
     # exactly what genuinely built.
     #
-    # `!cancelled()` and not `always()`, because this job takes a 32-core runner: `always()` would
+    # `!cancelled()` and not `always()`, because this job takes a paid runner: `always()` would
     # start it after somebody pressed cancel and publish whatever partial store the runner held.
     # `ci` being SKIPPED is not a live case - that skip is for `chore(release):` commits, which are
     # not `pull_request` events.
@@ -1351,13 +1351,14 @@ jobs:
   # is held to the run-or-fail rule above.
   #
   # `ubuntu-latest`, WHICH IS WHAT `.github/actionlint.yaml` ALREADY DECLARES FOR A JOB LIKE THIS:
-  # `rust-mcp-32core` where Rust is compiled, `ubuntu-latest` where nothing is. This job checks out
+  # a larger runner where Rust is compiled, `ubuntu-latest` where nothing is. This job checks out
   # nothing, installs nothing, builds nothing and runs one bash step over its two `needs` results -
-  # measured at 2-5 s over the last 14 `main` runs that reached it - so a 32-core host was paying
+  # measured at 2-5 s over the last 14 `main` runs that reached it - so a larger host was paying
   # for a string comparison. What it can and cannot say about the LABEL: an org runner group has to
   # serve this repository for `rust-mcp-32core` to resolve at all, which is a permission on the
   # GitHub side that no gate here can read (`.github/actionlint.yaml` says so of its own list), and
-  # every run above proves it is served today - so this is a cost move, not a reachability fix. The
+  # the workflows that still name it prove it is served today - so this is a cost move, not a
+  # reachability fix. The
   # reported CONTEXT does not move: `devco/required-contexts` names it, and a context is a job's
   # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
   ci-aggregate:
