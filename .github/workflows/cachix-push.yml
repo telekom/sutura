@@ -187,14 +187,13 @@ jobs:
             fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-      # Restore the `bq` scope the acceptance job wrote on `main` - the closure `nix run
-      # .#bigquery-acceptance` needs. It is the warm start a realise step below recompiles
-      # against, and it is NOT the thing published: cachix-action's post-build hook pushes only
-      # paths nix BUILDS while its daemon is alive, never the store it finds restored. A job that
-      # only restores scope `bq` publishes nothing, which is the empty-cache bug this realises fix.
-      - uses: ./.github/actions/nix-store-cache
-        with:
-          scope: bq
+      # NO `scope: bq` RESTORE ANY MORE, because nothing writes that scope. `ci.yml`'s
+      # `bigquery-acceptance` job was its only writer and lost its store-cache step for the
+      # ceiling arithmetic recorded there; a restore of a scope with no writer is a lookup of an
+      # entry that cannot exist, which is exactly what the deleted `fuzz` scope was. The warm start
+      # comes from the stores the installer above names instead - `sutura` holds the same
+      # `checks.nextest` closure this job realises, published by the `push` job on the previous
+      # main push.
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: sutura-connectors
@@ -202,7 +201,7 @@ jobs:
           pushFilter: "(-source$|nixpkgs)"
       # Realise the closure THIS cache is for and publish it. cachix-action's daemon publishes
       # only what nix builds after it starts, so this step must genuinely RE-COMPILE, not re-derive
-      # the already-restored `bq` closure (which realises instantly and still fires the hook
+      # a closure that is already present (which realises instantly and still fires the hook
       # nothing). Building `checks.nextest` does that for the same reason the main `push` job's
       # publish works: the cache key is lockfile-based but the source is not, so on every push to
       # `main` the workspace crates - `sutura-exec-bigquery`'s acceptance target included - are

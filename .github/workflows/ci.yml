@@ -1110,9 +1110,16 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - uses: ./.github/actions/nix-store-cache
-        with:
-          scope: bq
+      # NO STORE CACHE HERE, AND THE REASON IS ARITHMETIC. One complete generation of this
+      # repository's Actions-cache entries is ~13 GB against a 10 GB effective ceiling, so something
+      # is always being evicted - measured 2026-09-11 at 10,309,515,473 B over 217 entries, of which
+      # the main-ref scopes are `bq` 4082 MB, `ci` 3483 MB and the musl triple 2118 MB, with
+      # `aarch64` and the causality-target entry already gone. `bq` was the largest single claim on
+      # that ceiling and it carried a closure `cachix-push.yml` already publishes, so every reader
+      # here can substitute it from the stores the installer above names. Restoring it cost 25-47 s;
+      # what the substitution costs instead is unmeasured, and this job's own run is the measurement.
+      # `cachix-push.yml`'s `connectors` job lost its `scope: bq` restore in the same change: this
+      # job was the only writer, and a restore of a scope nobody writes is the defect `fuzz` was.
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #
