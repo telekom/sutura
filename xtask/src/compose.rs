@@ -730,51 +730,107 @@ mod tests {
         let Ok(text) = std::fs::read_to_string(&path) else {
             panic!("{} is missing", path.display());
         };
-        let mut long_ports = 0;
-        let mut loopback_hosts = 0;
+        if let Some((number, problem)) = first_port_problem(&text) {
+            panic!("{}:{number}: {problem}", path.display());
+        }
         for (index, line) in text.lines().enumerate() {
             let trimmed = line.trim();
             let number = index + 1;
-            // A published-port entry is a list item under `ports:`. The ephemeral form is a single
-            // container port; anything with a colon has named a host port.
-            if let Some(entry) = trimmed.strip_prefix("- ") {
-                let value = entry.trim().trim_matches('"');
-                if value.chars().all(|c| c.is_ascii_digit()) && !value.is_empty() {
-                    continue;
-                }
-                if value.starts_with("target:") {
-                    long_ports += 1;
-                }
-                assert!(
-                    !value.chars().next().is_some_and(|c| c.is_ascii_digit()),
-                    "{}:{number}: `{value}` names a host port - publish ephemerally instead",
-                    path.display()
-                );
-            }
-            assert!(
-                !trimmed.starts_with("published:"),
-                "{}:{number}: a long-form port names a fixed host port - omit `published`",
-                path.display()
-            );
-            if let Some(host) = trimmed.strip_prefix("host_ip:") {
-                assert_eq!(
-                    host.trim(),
-                    "127.0.0.1",
-                    "{}:{number}: a published port must bind to loopback",
-                    path.display()
-                );
-                loopback_hosts += 1;
-            }
             assert!(
                 !trimmed.starts_with("container_name:"),
                 "{}:{number}: a literal container name collides between worktrees",
                 path.display()
             );
         }
-        assert_eq!(
-            long_ports, loopback_hosts,
-            "every long-form port needs one loopback `host_ip`"
-        );
+    }
+
+    const MISSING_LOOPBACK: &str = "a long-form port needs its own loopback `host_ip`";
+    const INLINE_PORT: &str = "flow-style ports are unsupported because their fields evade this guard";
+
+    fn first_port_problem(text: &str) -> Option<(usize, &'static str)> {
+        let mut ports_indent = None;
+        let mut long_port = None;
+
+        for (index, line) in text.lines().enumerate() {
+            let number = index + 1;
+            let trimmed = line.trim();
+            let indent = line.len() - line.trim_start().len();
+
+            if let Some(parent_indent) = ports_indent {
+                if !trimmed.is_empty() && !trimmed.starts_with('#') && indent <= parent_indent {
+                    if let Some((target_line, _, false)) = long_port {
+                        return Some((target_line, MISSING_LOOPBACK));
+                    }
+                    ports_indent = None;
+                    long_port = None;
+                } else {
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+                    if let Some(entry) = trimmed.strip_prefix("- ") {
+                        if let Some((target_line, _, false)) = long_port {
+                            return Some((target_line, MISSING_LOOPBACK));
+                        }
+                        long_port = None;
+                        let value = entry.trim().trim_matches('"');
+                        if value.starts_with('{') || value.starts_with('[') {
+                            return Some((number, INLINE_PORT));
+                        }
+                        if !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) {
+                            continue;
+                        }
+                        let Some(target) = value.strip_prefix("target:") else {
+                            return Some((number, "a port entry is not an ephemeral container port"));
+                        };
+                        let target = target.trim();
+                        if target.is_empty() || !target.chars().all(|c| c.is_ascii_digit()) {
+                            return Some((number, "a long-form target must be a literal container port"));
+                        }
+                        long_port = Some((number, indent, false));
+                        continue;
+                    }
+                    if trimmed.starts_with("published:") {
+                        return Some((number, "a long-form port names a fixed host port"));
+                    }
+                    if let Some(host) = trimmed.strip_prefix("host_ip:") {
+                        let Some((_, item_indent, has_loopback)) = long_port.as_mut() else {
+                            return Some((number, "a `host_ip` is not attached to a long-form port"));
+                        };
+                        if indent <= *item_indent || *has_loopback {
+                            return Some((number, "a long-form port has a misplaced or duplicate `host_ip`"));
+                        }
+                        if host.trim() != "127.0.0.1" {
+                            return Some((number, "a published port must bind to loopback"));
+                        }
+                        *has_loopback = true;
+                        continue;
+                    }
+                    return Some((number, "an unsupported long-form port field evades this guard"));
+                }
+            }
+
+            if trimmed.starts_with("ports:") {
+                if trimmed != "ports:" {
+                    return Some((number, INLINE_PORT));
+                }
+                ports_indent = Some(indent);
+            }
+        }
+
+        let (target_line, _, has_loopback) = long_port?;
+        (!has_loopback).then_some((target_line, MISSING_LOOPBACK))
+    }
+
+    #[test]
+    fn a_long_form_port_without_its_own_loopback_is_refused() {
+        let fixture = "x-loopback-claim:\n  host_ip: 127.0.0.1\nports:\n  - target: 8080\n";
+        assert_eq!(first_port_problem(fixture), Some((4, MISSING_LOOPBACK)));
+    }
+
+    #[test]
+    fn an_inline_published_port_is_refused() {
+        let fixture = "ports:\n  - {target: 8080, published: \"9000\"}\n";
+        assert_eq!(first_port_problem(fixture), Some((2, INLINE_PORT)));
     }
 
     #[test]
