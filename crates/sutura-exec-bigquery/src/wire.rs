@@ -731,6 +731,15 @@ where
         tables::was_refused(error)
     }
 
+    /// Whether the endpoint REFUSED the statement at the identity/authorization level.
+    ///
+    /// **Delegates to the SAME classifier [`Self::listing_was_refused`] does**, so the boot-time and
+    /// query-time splits cannot drift apart: a refused status is refused the same way whether the
+    /// refused read was a listing or a job. `tables::was_refused` holds the match.
+    fn job_was_refused(&self, error: &Self::Error) -> bool {
+        tables::was_refused(error)
+    }
+
     /// One arm, and it is the wire's own reading of the endpoint's page contract.
     ///
     /// `MoreThanOnePage` is raised by `complete` when the answer carries a `pageToken`, which is the

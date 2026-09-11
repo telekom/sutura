@@ -691,6 +691,31 @@ where
         }
         RowSet::new(columns, out).map_err(|cause| BigQueryError::Shape { cause })
     }
+
+    /// Whether an adapter error wraps the configured transport REFUSING: answered for the
+    /// [`BigQueryError::Endpoint`] variant by `transport_says` and `false` for everything else -
+    /// the ONE place this adapter decides a non-`Endpoint` error is never a transport refusal.
+    /// [`Self::preflight_was_refused`] and [`Self::source_refused`] delegate here, so boot-time and
+    /// query-time cannot diverge.
+    fn refused_via(error: &BigQueryError<T::Error>, transport_says: impl Fn(&T::Error) -> bool) -> bool {
+        match *error {
+            BigQueryError::Endpoint { ref cause } => transport_says(cause),
+            BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::Render { .. }
+            | BigQueryError::LegWithoutCombiner { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::PresentedDisagreesWithPosture { .. }
+            | BigQueryError::UnmappedType { .. }
+            | BigQueryError::NotAnInteger { .. }
+            | BigQueryError::NotADouble { .. }
+            | BigQueryError::NotABool { .. }
+            | BigQueryError::NotFinite { .. }
+            | BigQueryError::NotADate { .. }
+            | BigQueryError::RowWidth { .. }
+            | BigQueryError::Incomplete { .. }
+            | BigQueryError::Shape { .. } => false,
+        }
+    }
 }
 
 impl<T> Warehouse for BigQueryWarehouse<T>
@@ -901,23 +926,15 @@ where
     /// decided here - and `false` is the reading that keeps a deployment serving, which is the safe
     /// direction the port states.
     fn preflight_was_refused(&self, error: &Self::Error) -> bool {
-        match *error {
-            BigQueryError::Endpoint { ref cause } => self.transport.listing_was_refused(cause),
-            BigQueryError::NoIdentityInTheAnswer { .. }
-            | BigQueryError::Render { .. }
-            | BigQueryError::LegWithoutCombiner { .. }
-            | BigQueryError::NoPrincipalSwitch { .. }
-            | BigQueryError::PresentedDisagreesWithPosture { .. }
-            | BigQueryError::UnmappedType { .. }
-            | BigQueryError::NotAnInteger { .. }
-            | BigQueryError::NotADouble { .. }
-            | BigQueryError::NotABool { .. }
-            | BigQueryError::NotFinite { .. }
-            | BigQueryError::NotADate { .. }
-            | BigQueryError::RowWidth { .. }
-            | BigQueryError::Incomplete { .. }
-            | BigQueryError::Shape { .. } => false,
-        }
+        Self::refused_via(error, |cause| self.transport.listing_was_refused(cause))
+    }
+
+    /// Was this [`execute`](Warehouse::execute) failure the endpoint REFUSING the statement at the
+    /// identity/authorization level? The query-time sibling of [`Self::preflight_was_refused`]: an
+    /// authorization refusal used to leave [`BigQueryError::Endpoint`] as a `503`. It asks the
+    /// TRANSPORT through [`JobTransport::job_was_refused`]; the classification is [`Self::refused_via`].
+    fn source_refused(&self, error: &Self::Error) -> bool {
+        Self::refused_via(error, |cause| self.transport.job_was_refused(cause))
     }
 
     // `working_set_exhausted` is deliberately NOT overridden. The port's default is `None`, and that
