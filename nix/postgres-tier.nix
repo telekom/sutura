@@ -470,6 +470,36 @@ rec {
       expect_state 0 "the wrapper republished the entry onto the address the server is on"
       expect_entry true "the stale-address entry was repaired"
 
+      # --- A PRE-#298 TIER ON PATH, WHOSE `status` ANSWERS FROM THE POSTMASTER ALONE ---
+      # `github.com/telekom/sutura#335`. Every arm above drives `nix/with-tier.sh` against THIS
+      # tier, and which build a dev shell has on PATH is not a property of this repository: a shell
+      # entered before `#298` landed carries a `status` that is `pg_ctl` and nothing else. Two
+      # answers, so its exit 0 means *a postmaster* rather than *a postmaster the suite can find*,
+      # the republish arm is unreachable, and a `git commit` on a green branch failed both
+      # fail-closed cells - the same GREEN `status` as `#298`, measured again six days later.
+      #
+      # The stub IS that build: `pg_ctl` for `status`, this tier for everything else. With the
+      # entry withdrawn over the live server it answers 0 where the real one answers 3, so a
+      # wrapper that trusts the answer to be endpoint-derived adopts a tier the suite cannot find
+      # and publishes nothing. RED on that form, GREEN on one that reads the document itself.
+      stub="$NIX_BUILD_TOP/pre-298"
+      mkdir -p "$stub"
+      cat > "$stub/sutura-postgres-tier" <<EOS
+      #!/bin/sh
+      if [ "\$1" = status ]; then
+        exec pg_ctl -D "$pg" status >/dev/null 2>&1
+      fi
+      exec ${tier}/bin/sutura-postgres-tier "\$@"
+      EOS
+      chmod +x "$stub/sutura-postgres-tier"
+      sutura-tier-endpoint withdraw "$tree" postgres
+      expect_entry absent "the claim is withdrawn while the postmaster keeps running"
+      ( PATH="$stub:$PATH"
+        . ${./with-tier.sh}
+        sutura_tier_up )
+      expect_entry true "the wrapper read the endpoint file itself rather than trusting a two-state status"
+      expect_state 0 "and the entry it republished names the socket the server is on"
+
       # A tier that is up AND published is left alone too - the same rule, its ordinary arm.
       ( . ${./with-tier.sh}; sutura_tier_up )
       expect_state 0 "an already-published tier survives the wrapper"
