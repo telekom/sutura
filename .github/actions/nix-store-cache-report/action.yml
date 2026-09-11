@@ -19,6 +19,22 @@
 # WHAT THE NUMBER IS NOT. A path count is not a time share - one derivation can cost minutes while
 # hundreds cost seconds - and run-to-run duration on this repository varies 64% (1351 s against
 # 825 s at identical dependency state), so it says what the cache CARRIED and not what it saved.
+#
+# AND THE SECOND NUMBER USED TO CLAIM MORE THAN IT MEASURES (#512, item 5). It printed
+# `after - before` as the count that "were built here". That difference is the count of paths that
+# APPEARED, which includes every path substituted from `cache.nixos.org` and from the three cachix
+# stores. Measured on job 103193974547, whose reported line read `cache carried 4050 of 5552 paths
+# (72%), built 1502`: that job's log carries 102 `copying path ... from 'https://cache.nixos.org'`
+# lines. An UPSTREAM HIT IS DESIRABLE HERE - our stores exist for first-party and derived paths, and
+# the per-consumer bucket quota is the constrained resource - so counting upstream hits as local
+# builds made the cache look worse than it is and buried a real build regression in the noise. It is
+# reported as what it measures now, in the same voice `nix-store-cache`'s witness uses when it
+# distinguishes PERMITTED to write from actually saved.
+#
+# THE BUILT-VERSUS-SUBSTITUTED SPLIT IS REFUSED RATHER THAN MISSING. It exists only in a build log,
+# and this action runs after the gates reading a count off `nix path-info --all`; there is no cheap
+# source for it here. A log parser for it would be a second, harder thing to keep true, and #487's
+# ~94% had to be obtained exactly that way - by hand, once.
 # A SEPARATE ACTION RATHER THAN A STEP IN `ci.yml`, and not for tidiness: that file now stands ONE
 # line under the 1000-line cap `cargo xtask max-lines` holds, which is a cap `.github/**` could be
 # exempted from and has not been. Anything added to the `ci` job from here needs a line taken out
@@ -35,14 +51,22 @@ runs:
         set -eu
         before="$(cat "$RUNNER_TEMP/nix-store-cache-carried" 2>/dev/null || echo 0)"
         after="$(nix path-info --all 2>/dev/null | wc -l | tr -d ' ')"
-        built=$((after > before ? after - before : 0))
+        # APPEARED, not BUILT: this difference counts every path that entered the store after the
+        # restore, and a path substituted from `cache.nixos.org` or from a cachix store entered it
+        # the same way a compiled one did. Nothing here can tell them apart - see the header.
+        appeared=$((after > before ? after - before : 0))
         if [ "$after" -gt 0 ]; then share=$((before * 100 / after)); else share=0; fi
         {
           printf '### cache effectiveness\n\n'
-          printf '%s of %s store paths came from the cache (%s%%); %s were built here.\n' \
-            "$before" "$after" "$share" "$built"
+          printf '%s of %s store paths came from the Actions cache (%s%%); %s appeared after it.\n' \
+            "$before" "$after" "$share" "$appeared"
+          printf '\nThat second number is paths that APPEARED, not paths built here: a path\n'
+          printf 'substituted from cache.nixos.org or from a cachix store counts in it too, and\n'
+          printf 'splitting the two needs a build log this step does not read. An upstream hit is\n'
+          printf 'the desired outcome, not a miss.\n'
           printf '\nA path count is not a time share, and run-to-run duration here varies 64%%\n'
           printf '(1351 s against 825 s at identical dependency state) - so read this as what the\n'
           printf 'cache carried, not as what it saved.\n'
         } >> "$GITHUB_STEP_SUMMARY"
-        printf 'cache carried %s of %s paths (%s%%), built %s\n' "$before" "$after" "$share" "$built"
+        printf 'cache carried %s of %s paths (%s%%), %s appeared after the restore (built here or substituted)\n' \
+          "$before" "$after" "$share" "$appeared"
