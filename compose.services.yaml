@@ -514,8 +514,8 @@ services:
   # because a fixed host port is the collision this whole tier exists to prevent. A browser on THIS
   # machine must reach the chat client and nothing else must, so the port needs BOTH halves: ephemeral
   # (no `published`) and loopback (`host_ip`). The short form has one colon and no place for an
-  # address, so this is the long form - and the gate reads it as neither a fixed port nor a bare
-  # container port.
+  # address, so this is the long form; the gate requires its loopback address and refuses a
+  # `published` value.
   demo:
     # CI venue: compose only.
     # Because: the demo needs a language model and a browser, and the derived image is built from the
@@ -524,6 +524,7 @@ services:
     # Converges: never, by design. This is a demonstration a person runs, not a service a gate
     #   provisions - `docs/demo.md` states that limit beside the demo itself.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/sutura/local-chat-demo:0.11.3
+    pull_policy: never
     profiles:
       - demo
     environment:

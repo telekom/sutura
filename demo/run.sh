@@ -23,6 +23,13 @@ model="${SUTURA_DEMO_MODEL:?SUTURA_DEMO_MODEL is required}"
 acknowledged="${SUTURA_DEMO_ACKNOWLEDGE:?SUTURA_DEMO_ACKNOWLEDGE is required}"
 api_key="${SUTURA_DEMO_MODEL_API_KEY:-}"
 
+case "$acknowledged" in
+    *'"'* | *\\* | *$'\n'*)
+        printf 'sutura-demo: SUTURA_DEMO_ACKNOWLEDGE must be one line without a double quote or a backslash\n' >&2
+        exit 1
+        ;;
+esac
+
 mkdir -p "$run_dir"
 chmod 0700 "$run_dir"
 

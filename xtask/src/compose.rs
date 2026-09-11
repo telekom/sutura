@@ -730,6 +730,8 @@ mod tests {
         let Ok(text) = std::fs::read_to_string(&path) else {
             panic!("{} is missing", path.display());
         };
+        let mut long_ports = 0;
+        let mut loopback_hosts = 0;
         for (index, line) in text.lines().enumerate() {
             let trimmed = line.trim();
             let number = index + 1;
@@ -740,6 +742,9 @@ mod tests {
                 if value.chars().all(|c| c.is_ascii_digit()) && !value.is_empty() {
                     continue;
                 }
+                if value.starts_with("target:") {
+                    long_ports += 1;
+                }
                 assert!(
                     !value.chars().next().is_some_and(|c| c.is_ascii_digit()),
                     "{}:{number}: `{value}` names a host port - publish ephemerally instead",
@@ -747,11 +752,29 @@ mod tests {
                 );
             }
             assert!(
+                !trimmed.starts_with("published:"),
+                "{}:{number}: a long-form port names a fixed host port - omit `published`",
+                path.display()
+            );
+            if let Some(host) = trimmed.strip_prefix("host_ip:") {
+                assert_eq!(
+                    host.trim(),
+                    "127.0.0.1",
+                    "{}:{number}: a published port must bind to loopback",
+                    path.display()
+                );
+                loopback_hosts += 1;
+            }
+            assert!(
                 !trimmed.starts_with("container_name:"),
                 "{}:{number}: a literal container name collides between worktrees",
                 path.display()
             );
         }
+        assert_eq!(
+            long_ports, loopback_hosts,
+            "every long-form port needs one loopback `host_ip`"
+        );
     }
 
     #[test]

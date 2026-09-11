@@ -87,8 +87,8 @@ call one and writes the prose around the result.
 
 The model calls `ask_metric`, and the runtime answers from `recurring_revenue` grouped by region,
 under the definition digest it reports beside the rows - the same certified figure
-`examples/single-player` pins, which sums to 202121 for the month. The client shows a number; the
-provenance came from the runtime.
+`examples/single-player` pins, which sums to 202121 minor units (2021.21) for the month. The client
+shows a number; the provenance came from the runtime.
 
 **A refusal.** Ask for something the catalog does not define.
 
@@ -125,3 +125,5 @@ Stated here rather than left to a reader, because an overstated control is itsel
   so `just validate` never touches it, and `demo/Dockerfile` is demo-only packaging around the
   shipped server binary. A demo that failed a gate would be disabled, and a disabled demo holds
   nothing.
+- **Development mode disables rate limiting.** It keeps the interface description available for
+  the chat client's OpenAPI connection, and also makes this unsuitable for a shared deployment.

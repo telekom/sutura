@@ -61,7 +61,7 @@ host="${endpoint#*://}"
 host="${host%%/*}"
 host="${host%%:*}"
 case "$host" in
-    127.0.0.1 | localhost | ::1 | host.docker.internal) local_model=true ;;
+    127.0.0.1 | localhost | host.docker.internal) local_model=true ;;
     *) local_model=false ;;
 esac
 if [ -z "$api_key" ] && [ "$local_model" = false ]; then
