@@ -187,6 +187,22 @@ pub const SERVICES: &[Service] = &[
         container_port: 8080,
         profile: Some("datahub"),
     },
+    Service {
+        // The local chat demo, and the ONE service whose container holds two processes: the
+        // `sutura-serve` binary against the example corpus, and the chat client that calls it.
+        //
+        // OFF unless asked for, and the reason is not cost but SCOPE: it needs a language model -
+        // hosted with an operator's key, or local - which no other service in this tier needs, so
+        // it can only come up on a machine where somebody has configured one. `just demo` is what
+        // asks for the profile; `just dev-up` never does.
+        //
+        // `container_port` is the CHAT CLIENT's, because that is the endpoint a person opens in a
+        // browser. The server the client calls is loopback inside the same container and is never
+        // published, so it is deliberately not a row here.
+        name: "demo",
+        container_port: 8080,
+        profile: Some("demo"),
+    },
 ];
 
 /// The directory, under the worktree, where provisioning keeps its state. Gitignored.
@@ -469,12 +485,16 @@ mod tests {
         //   * `datahub` is opt-in because it COSTS - five containers, three of them JVMs, and a
         //     reindexing migration. There IS a reader for it, which is precisely why the argument
         //     had to be restated rather than reused: "nothing reads it" does not apply.
+        //   * `demo` is opt-in because it is the only service that needs a LANGUAGE MODEL, hosted
+        //     with an operator's key or run locally - so it can only come up where somebody has
+        //     configured one, and a `dev-up` that started it would fail for want of a model on
+        //     every developer's machine.
         let opt_in: Vec<&str> = SERVICES
             .iter()
             .filter(|service| !service.is_default())
             .map(super::Service::name)
             .collect();
-        assert_eq!(opt_in, vec!["keycloak", "datahub"]);
+        assert_eq!(opt_in, vec!["keycloak", "datahub", "demo"]);
 
         // And a CHEAP data source is not behind a profile: that is what an adapter is tested
         // against, so making it opt-in would be the tier failing at its own job. `clickhouse` is
@@ -523,7 +543,7 @@ mod tests {
         // ACTIVE profiles - so a profile missing from this walk leaves a container and a named
         // volume behind while the destroy reports success. Derived from `SERVICES`, so adding a
         // profile cannot forget to update it.
-        assert_eq!(super::profiles(), vec!["identity", "datahub"]);
+        assert_eq!(super::profiles(), vec!["identity", "datahub", "demo"]);
         for service in SERVICES {
             if let Some(profile) = service.profile() {
                 assert!(
