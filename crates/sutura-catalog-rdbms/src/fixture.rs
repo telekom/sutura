@@ -13,7 +13,7 @@
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
-use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, Table, TargetUniqueness};
+use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table};
 
 /// The fake [`DictionaryReader`] that serves the recorded corpus.
 #[derive(Debug, Clone)]
@@ -54,7 +54,7 @@ pub fn corpus() -> Dictionary {
                 "customers".to_owned(),
                 "customer_id".to_owned(),
             )
-            .with_target_uniqueness(TargetUniqueness::PrimaryKey),
+            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
         ],
     )
 }

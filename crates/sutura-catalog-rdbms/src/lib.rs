@@ -37,10 +37,12 @@
 //! 2. **A foreign key carries no metric cardinality.** It names the source and target columns, so
 //!    this adapter declares the `Cardinality` *capability* absent: a dictionary carries no metric to
 //!    reach a dimension `via` a relationship.
-//! 3. **A primary or unique key is evidence, and only the safe direction.** ADR 0011's "part worth
-//!    having this connector for" is the one-direction uniqueness argument: a reader must supply a
-//!    [`TargetUniqueness`] before the foreign key maps to [`JoinType::ManyToOne`]. Without that key
-//!    evidence, loading refuses rather than asserting the relationship.
+//! 3. **A single-column primary or unique key is evidence, and only the safe direction.** ADR
+//!    0011's "part worth having this connector for" is the one-direction uniqueness argument: a
+//!    reader must supply a [`SingleColumnTargetUniqueness`] before the foreign key maps to
+//!    [`JoinType::ManyToOne`]. Membership in a composite constraint is not evidence that one column
+//!    is unique. Without the single-column evidence, loading refuses rather than asserting the
+//!    relationship.
 //!
 //! # The declaration, and what it means for the bundle
 //!
@@ -134,8 +136,8 @@ pub enum RdbmsError {
         #[source]
         cause: sutura_domain::catalog::InvalidDescription,
     },
-    /// The referenced column had no primary or unique-key evidence.
-    #[error("referenced column {table}.{column} has no primary or unique-key evidence")]
+    /// The referenced column had no single-column primary or unique-key evidence.
+    #[error("referenced column {table}.{column} has no single-column primary or unique-key evidence")]
     TargetUniquenessUnknown { table: String, column: String },
     /// The assembled definitions did not hold together.
     #[error("the dictionary definitions do not hold together: {cause}")]
@@ -224,9 +226,10 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
 
     /// A foreign key into a [`Relationship`].
     ///
-    /// A primary or unique-key constraint on the referenced column is required before this maps the
-    /// join to [`JoinType::ManyToOne`]. The adapter still declares no `Cardinality` capability: the
-    /// dictionary carries no metric for a dimension to reach through the relationship.
+    /// A single-column primary or unique-key constraint on the referenced column is required before
+    /// this maps the join to [`JoinType::ManyToOne`]. Membership in a composite constraint does not
+    /// qualify. The adapter still declares no `Cardinality` capability: the dictionary carries no
+    /// metric for a dimension to reach through the relationship.
     fn convert_relationship(relationship: &Relationship) -> Result<DomainRelationship, RdbmsError> {
         if relationship.target_uniqueness.is_none() {
             return Err(RdbmsError::TargetUniquenessUnknown {
@@ -296,8 +299,9 @@ where
     /// yield - and nothing else.
     ///
     /// `Structure` is unconditional; descriptions and relationships are declared-and-conditional.
-    /// A relationship is emitted only when the reader supplies primary or unique-key evidence for
-    /// its target, while a schema with no foreign key carries no relationship lawfully.
+    /// A relationship is emitted only when the reader supplies single-column primary or unique-key
+    /// evidence for its target, while a schema with no foreign key carries no relationship
+    /// lawfully.
     ///
     /// What is declared is nothing more. No
     /// [`Cardinality`](sutura_domain::capabilities::DefinitionKind::Cardinality) - a foreign key
@@ -395,19 +399,20 @@ impl Dictionary {
     }
 }
 
-/// Why the target side of a foreign key is known to be unique.
+/// Why the target column of a foreign key is known to be individually unique.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TargetUniqueness {
-    /// The target column belongs to a primary key.
+pub enum SingleColumnTargetUniqueness {
+    /// The target column is the sole column of a primary key.
     PrimaryKey,
-    /// The target column belongs to a unique constraint.
+    /// The target column is the sole column of a unique constraint.
     UniqueConstraint,
 }
 
-/// A join a foreign key records: the two endpoints, their columns, and target-key evidence.
+/// A join a foreign key records: the two endpoints, their columns, and single-column target-key
+/// evidence.
 ///
-/// [`TargetUniqueness`] is evidence for the safe `ManyToOne` direction, not a metric cardinality.
-/// Without it, loading refuses before a domain relationship is emitted.
+/// [`SingleColumnTargetUniqueness`] is evidence for the safe `ManyToOne` direction, not a metric
+/// cardinality. Without it, loading refuses before a domain relationship is emitted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Relationship {
     name: Option<String>,
@@ -415,7 +420,7 @@ pub struct Relationship {
     origin_column: String,
     target_table: String,
     target_column: String,
-    target_uniqueness: Option<TargetUniqueness>,
+    target_uniqueness: Option<SingleColumnTargetUniqueness>,
 }
 
 impl Relationship {
@@ -441,7 +446,7 @@ impl Relationship {
 
     /// Records why the target column is unique.
     #[must_use]
-    pub const fn with_target_uniqueness(mut self, evidence: TargetUniqueness) -> Self {
+    pub const fn with_target_uniqueness(mut self, evidence: SingleColumnTargetUniqueness) -> Self {
         self.target_uniqueness = Some(evidence);
         self
     }

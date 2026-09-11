@@ -46,10 +46,12 @@ Three findings, and two of them are the declaration's content:
 2. **A foreign key carries no metric cardinality.** It names the source and target columns, so
    this adapter declares the `Cardinality` *capability* absent: a dictionary carries no metric to
    reach a dimension `via` a relationship.
-3. **A primary or unique key is evidence, and only the safe direction.** ADR 0011's "part worth
-   having this connector for" is the one-direction uniqueness argument: a reader must supply a
-   `TargetUniqueness` before the foreign key maps to `JoinType::ManyToOne`. Without that key
-   evidence, loading refuses rather than asserting the relationship.
+3. **A single-column primary or unique key is evidence, and only the safe direction.** ADR
+   0011's "part worth having this connector for" is the one-direction uniqueness argument: a
+   reader must supply a `SingleColumnTargetUniqueness` before the foreign key maps to
+   `JoinType::ManyToOne`. Membership in a composite constraint is not evidence that one column
+   is unique. Without the single-column evidence, loading refuses rather than asserting the
+   relationship.
 
 # The declaration, and what it means for the bundle
 
@@ -110,7 +112,7 @@ a reader back to all of them.
 - `ColumnName` - A column's name did not parse.
 - `RelationshipName` - A foreign key's name did not parse.
 - `Description` - A table description did not pass the authored-prose rule.
-- `TargetUniquenessUnknown` - The referenced column had no primary or unique-key evidence.
+- `TargetUniquenessUnknown` - The referenced column had no single-column primary or unique-key evidence.
 - `Inconsistent` - The assembled definitions did not hold together.
 - `Digest` - Pinning failed.
 
@@ -212,18 +214,18 @@ The tables the dictionary names.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
-## `enum TargetUniqueness`
+## `enum SingleColumnTargetUniqueness`
 
 ```rust
-pub enum TargetUniqueness
+pub enum SingleColumnTargetUniqueness
 ```
 
-Why the target side of a foreign key is known to be unique.
+Why the target column of a foreign key is known to be individually unique.
 
 ### Variants
 
-- `PrimaryKey` - The target column belongs to a primary key.
-- `UniqueConstraint` - The target column belongs to a unique constraint.
+- `PrimaryKey` - The target column is the sole column of a primary key.
+- `UniqueConstraint` - The target column is the sole column of a unique constraint.
 
 ### Implements
 
@@ -235,10 +237,11 @@ Why the target side of a foreign key is known to be unique.
 pub struct Relationship
 ```
 
-A join a foreign key records: the two endpoints, their columns, and target-key evidence.
+A join a foreign key records: the two endpoints, their columns, and single-column target-key
+evidence.
 
-`TargetUniqueness` is evidence for the safe `ManyToOne` direction, not a metric cardinality.
-Without it, loading refuses before a domain relationship is emitted.
+`SingleColumnTargetUniqueness` is evidence for the safe `ManyToOne` direction, not a metric
+cardinality. Without it, loading refuses before a domain relationship is emitted.
 
 ### Methods
 
@@ -281,7 +284,7 @@ pub fn target_table(&self) -> &str
 The table the foreign key points to.
 
 ```rust
-pub const fn with_target_uniqueness(self, evidence: TargetUniqueness) -> Self
+pub const fn with_target_uniqueness(self, evidence: SingleColumnTargetUniqueness) -> Self
 ```
 
 Records why the target column is unique.

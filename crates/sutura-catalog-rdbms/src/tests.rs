@@ -7,7 +7,7 @@ use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 use sutura_domain::query::{Query, RefusalReason};
 
 use crate::fixture::FixtureReader;
-use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, Table, TargetUniqueness};
+use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table};
 
 fn name() -> SourceName {
     SourceName::parse("local").expect("a test name is a name")
@@ -139,7 +139,7 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
                 "customers".to_owned(),
                 "customer_id".to_owned(),
             )
-            .with_target_uniqueness(TargetUniqueness::UniqueConstraint),
+            .with_target_uniqueness(SingleColumnTargetUniqueness::UniqueConstraint),
         ],
     ));
     let pinned = RdbmsCatalog::new(name(), version(), fk_only)
@@ -180,9 +180,14 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
     );
 }
 
-/// A relationship is accepted only when the reader supplies unique-target evidence.
+/// A relationship is accepted only when the reader supplies single-column unique-target evidence.
+///
+/// Belonging to a composite primary or unique constraint does not make `target_column` individually
+/// unique, so [`SingleColumnTargetUniqueness`] deliberately has no variant a reader can use for
+/// membership alone. The relationship below represents that case by carrying no qualifying
+/// evidence and must refuse rather than asserting `ManyToOne`.
 #[test]
-fn a_relationship_requires_target_uniqueness_evidence() {
+fn a_relationship_requires_single_column_target_uniqueness_evidence() {
     let pinned = over().load().expect("the evidenced relationship loads");
     let relationship = pinned
         .definitions()

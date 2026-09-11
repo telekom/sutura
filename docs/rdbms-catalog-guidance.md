@@ -24,8 +24,9 @@ explicitly:
 
 - **Structure** - the tables and their columns.
 - **Descriptions** - table comments.
-- **Relationships** - the join a foreign key records, in the safe direction: a primary or unique
-  constraint on the referenced column is required evidence before the join maps to `ManyToOne`.
+- **Relationships** - the join a foreign key records, in the safe direction: the referenced column
+  must be the sole column of a primary or unique constraint before the join maps to `ManyToOne`.
+  Membership in a composite constraint does not qualify.
 
 And nothing else. There is **no measure, no grain, no definitional filter, no value allowlist, no
 anchor and no cardinality** - a human declares those in a semantic layer. A bundle from this source
@@ -60,16 +61,15 @@ starting point:
 Each is an option with a payoff. This adapter itself remains a dictionary-only catalog with zero
 metrics.
 
-## The two sentences that may not be written
+## What this page deliberately does not claim
 
 `docs/adr/0016-what-datahub-can-carry.md` decision 7 established the rule for a narrow connector, and
-this page follows the same writing boundary. Two sentences are prohibited:
+this page follows the same boundary by keeping two claims out of the adapter contract:
 
-- **"Configure your database like this."** It is not ours to say. A database's DDL, constraints and
-  comments are whatever they already are, and nothing here turns a particular way of configuring them
-  into a precondition. Every choice named on this page is an option with a payoff.
-- **"This source is not usable without X."** It is false. The source is usable with zero metrics, zero
-  comments, and no raw tool - it loads a bundle whose declaration is exactly the empty-of-metric
-  truth.
+- It does not prescribe a database configuration. A database's DDL, constraints and comments are
+  whatever they already are, and nothing here turns a particular configuration into a precondition.
+  Every choice named on this page is an option with a payoff.
+- It does not make metrics, comments or a raw tool prerequisites. The source is usable without them:
+  it loads a bundle whose declaration is exactly the empty-of-metric truth.
 
 Options name their payoff without becoming preconditions.
