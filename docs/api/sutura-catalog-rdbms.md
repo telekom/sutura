@@ -64,10 +64,14 @@ Three findings, and two of them are the declaration's content:
 
 # The declaration, and what it means for the bundle
 
-`SemanticCatalog::KIND` is `CatalogKind::Declaring`.
-`SemanticCatalog::capabilities` provides `Structure`, `Descriptions` and `Relationships`
-unconditionally - exactly the three kinds the spike found a dictionary yields - and declares
-**nothing** else: no `Cardinality` (a foreign key vouches for no fan-out), no `Metrics`, no
+`SemanticCatalog::capabilities` provides `Structure`, `Descriptions` and `Relationships` as
+**declared-and-conditional** kinds - the 0011 state
+`DefinitionCapabilities::and_may_provide` adds, whose whole job is exactly this: a dictionary
+is whatever the database documents about itself, so whether a bundle carries table comments or
+a foreign key is a fact about the schema rather than a claim the adapter may over-state. A
+sparse dictionary - an FK with no comments, a schema with no FK - is therefore a FAITHFUL
+bundle, and `checked_against`'s `Unprovided` direction exempts the absent half. What is declared
+is nothing more: no `Cardinality` (a foreign key vouches for no fan-out), no `Metrics`, no
 `Grains`, no `RequiredFilters`, no `AllowedValues`, no `Anchors`, and an empty knowledge half.
 A bundle from this source therefore **loads, pins and validates with zero metrics**, and answers
 no certified question - which is issue #115's shape and the whole reason the declaration exists:

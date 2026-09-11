@@ -55,10 +55,14 @@
 //!
 //! # The declaration, and what it means for the bundle
 //!
-//! [`SemanticCatalog::KIND`] is [`CatalogKind::Declaring`].
-//! [`SemanticCatalog::capabilities`] provides `Structure`, `Descriptions` and `Relationships`
-//! unconditionally - exactly the three kinds the spike found a dictionary yields - and declares
-//! **nothing** else: no `Cardinality` (a foreign key vouches for no fan-out), no `Metrics`, no
+//! [`SemanticCatalog::capabilities`] provides `Structure`, `Descriptions` and `Relationships` as
+//! **declared-and-conditional** kinds - the 0011 state
+//! [`DefinitionCapabilities::and_may_provide`] adds, whose whole job is exactly this: a dictionary
+//! is whatever the database documents about itself, so whether a bundle carries table comments or
+//! a foreign key is a fact about the schema rather than a claim the adapter may over-state. A
+//! sparse dictionary - an FK with no comments, a schema with no FK - is therefore a FAITHFUL
+//! bundle, and `checked_against`'s `Unprovided` direction exempts the absent half. What is declared
+//! is nothing more: no `Cardinality` (a foreign key vouches for no fan-out), no `Metrics`, no
 //! `Grains`, no `RequiredFilters`, no `AllowedValues`, no `Anchors`, and an empty knowledge half.
 //! A bundle from this source therefore **loads, pins and validates with zero metrics**, and answers
 //! no certified question - which is issue #115's shape and the whole reason the declaration exists:
@@ -274,25 +278,39 @@ where
 
     /// A **declaring** adapter, measured against its own declaration rather than the golden oracle.
     const KIND: CatalogKind = CatalogKind::Declaring;
-    /// Provides `Structure`, `Descriptions` and `Relationships` - exactly what a dictionary yields -
-    /// and nothing else.
+    /// Provides `Structure`, `Descriptions` and `Relationships` - exactly what a dictionary *can*
+    /// yield - and nothing else.
     ///
-    /// `Relationships` is provided unconditionally because a foreign key is read into a
-    /// [`Relationship`] with the evidence-backed, safe direction: the referenced column is provably
-    /// unique, so the join maps to [`JoinType::ManyToOne`] and cannot duplicate rows. What is **not**
-    /// declared is [`Cardinality`](sutura_domain::capabilities::DefinitionKind::Cardinality): a
-    /// foreign key vouches for no fan-out in the dangerous direction, and a dictionary carries no
-    /// metric for a dimension to be reached `via` one, so `produced` observes `Cardinality` absent
-    /// and the declaration agrees. **The knowledge half is empty for the same reason
-    /// `sutura-catalog-datahub`'s is**: nothing here reads a glossary-like aspect, so a standalone
-    /// bundle carries no `Knowledge` referent for a phrase or a caveat to attach to.
+    /// All three are **declared-and-conditional** ([`DefinitionCapabilities::of`] plus
+    /// `and_may_provide`): a dictionary is whatever the database documents about itself, so whether
+    /// a bundle actually carries prose or a foreign key is a fact about the schema, not a claim this
+    /// adapter may over-state. A relationship IS read with the evidence-backed, safe direction - the
+    /// referenced column is provably unique, so the join maps to [`JoinType::ManyToOne`] and cannot
+    /// duplicate rows - but a schema with no foreign key carries no relationship, lawfully. The
+    /// conditional marking is what keeps a thin dictionary from tripping `checked_against`'s
+    /// `Unprovided` direction: absence of a may-provide kind is a faithful bundle, not an
+    /// aspirational declaration.
     ///
-    /// Written as an explicit list the way an adapter over a fixed external schema must, so a tenth
-    /// definition kind or a fifth knowledge capability leaves this declaration alone rather than
-    /// silently widening it.
+    /// What is declared is nothing more. No
+    /// [`Cardinality`](sutura_domain::capabilities::DefinitionKind::Cardinality) - a foreign key
+    /// vouches for no fan-out in the dangerous direction, and a dictionary carries no metric for a
+    /// dimension to be reached `via` one, so `produced` observes `Cardinality` absent and the
+    /// declaration agrees. No `Metrics`, no `Grains`, no `RequiredFilters`, no `AllowedValues`, no
+    /// `Anchors`. **The knowledge half is empty for the same reason `sutura-catalog-datahub`'s
+    /// is**: nothing here reads a glossary-like aspect, so a standalone bundle carries no
+    /// `Knowledge` referent for a phrase or a caveat to attach to.
+    ///
+    /// Written as `of([..])` plus `and_may_provide([..])` with two explicit lists, the way an
+    /// adapter over a fixed external schema must, so a tenth definition kind or a fifth knowledge
+    /// capability leaves this declaration alone rather than silently widening it.
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::of(
             DefinitionCapabilities::of([
+                DefinitionKind::Structure,
+                DefinitionKind::Descriptions,
+                DefinitionKind::Relationships,
+            ])
+            .and_may_provide([
                 DefinitionKind::Structure,
                 DefinitionKind::Descriptions,
                 DefinitionKind::Relationships,

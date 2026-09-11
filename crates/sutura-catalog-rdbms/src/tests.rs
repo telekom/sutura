@@ -10,7 +10,7 @@ use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 use sutura_domain::query::{Query, RefusalReason};
 
 use crate::fixture::FixtureReader;
-use crate::{RdbmsCatalog};
+use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, Table};
 
 fn name() -> SourceName {
     SourceName::parse("local").expect("a test name is a name")
@@ -105,6 +105,78 @@ fn a_foreign_key_licenses_no_dimension_without_a_declared_cardinality() {
     );
     // The relationship is present in the bundle as a `Relationships` contribution.
     assert!(produced.declares(DeclarableKind::Definition(DefinitionKind::Relationships)));
+}
+
+/// A sparse dictionary does not over-claim its declaration.
+///
+/// A dictionary is whatever the database documents about itself. A schema with a foreign key but no
+/// table or column comments carries `Relationships` and `Structure` but no `Descriptions`; a schema
+/// with comments and no foreign key carries prose and no relationship. Both are FAITHFUL bundles,
+/// and because the declaration marks all three kinds declared-and-conditional
+/// ([`DefinitionCapabilities::and_may_provide`]), `checked_against`'s `Unprovided` direction
+/// exempts the absent half rather than failing a source that underfed the adapter - the defect a
+/// dictionary's thinness used to trip.
+#[test]
+fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
+    // A dictionary with the FK and no comments at all: Descriptions absent, lawfully.
+    let fk_only = SparseReader(Dictionary::new(
+        vec![
+            Table::new("orders".to_owned(), vec!["order_id".to_owned(), "customer_id".to_owned()], None),
+            Table::new("customers".to_owned(), vec!["customer_id".to_owned()], None),
+        ],
+        vec![Relationship::new(
+            Some("orders_customer_fk".to_owned()),
+            "orders".to_owned(),
+            "customer_id".to_owned(),
+            "customers".to_owned(),
+            "customer_id".to_owned(),
+        )],
+    ));
+    let pinned = RdbmsCatalog::new(name(), version(), fk_only)
+        .load()
+        .expect("a sparse dictionary loads");
+    let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
+    assert!(
+        !produced.declares(DeclarableKind::Definition(DefinitionKind::Descriptions)),
+        "no comments means no descriptions produced"
+    );
+    assert_eq!(
+        <RdbmsCatalog<SparseReader> as SemanticCatalog>::capabilities().checked_against(&produced),
+        Ok(()),
+        "the declaration must not over-claim descriptions the sparse dictionary did not carry"
+    );
+
+    // The twin: comments but no foreign key - Relationships absent, lawfully.
+    let prose_only = SparseReader(Dictionary::new(
+        vec![Table::new(
+            "orders".to_owned(),
+            vec!["order_id".to_owned()],
+            Some("Orders." .to_owned()),
+        )],
+        Vec::new(),
+    ));
+    let pinned = RdbmsCatalog::new(name(), version(), prose_only)
+        .load()
+        .expect("a prose-only dictionary loads");
+    let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
+    assert!(
+        !produced.declares(DeclarableKind::Definition(DefinitionKind::Relationships)),
+        "no foreign key means no relationship produced"
+    );
+    assert_eq!(
+        <RdbmsCatalog<SparseReader> as SemanticCatalog>::capabilities().checked_against(&produced),
+        Ok(()),
+        "the declaration must not over-claim a relationship the sparse dictionary did not carry"
+    );
+}
+
+/// A reader that hands its recorded dictionary back unchanged.
+struct SparseReader(Dictionary);
+
+impl DictionaryReader for SparseReader {
+    fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
+        Ok(self.0.clone())
+    }
 }
 
 /// Content for a knowledge kind the adapter did not declare fails the load.
