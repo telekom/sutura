@@ -47,12 +47,12 @@ name: ci
 # gate a catalog edit has to get past.
 #
 # `!docs/**` is LAST deliberately, and it is the one push exclusion that must win outright: a page
-# under docs/ has its own workflow and must not start this 120-minute one after merge, even if
+# under docs/ has its own workflow and must not start this whole `ci` chain after merge, even if
 # somebody writes `docs/.../catalog/x.md`.
 #
 # `!mkdocs.yml` sits beside it so the two push filters remain complements. They were
 # not: `mkdocs.yml` is in docs.yml's filter AND matched the leading `**` here, so an ADR-only pull
-# request that added a nav entry started BOTH, paying this 120-minute chain and the docs job's own
+# request that added a nav entry started BOTH, paying the full `ci` chain and the docs job's own
 # gates for a prose change. It cannot affect what cargo produces: `mkdocs.yml` is read by mkdocs
 # and by `check-docs`, which docs.yml runs. Measured on the pull request that found this,
 # `docs/adr/**` plus `mkdocs.yml` was the whole diff bar one line.
@@ -567,7 +567,7 @@ jobs:
       # step above just cached. Measured in the dev container on 16 cores, `--workspace` coverage
       # spent over 80 CPU-minutes and 6m18 wall recompiling DataFusion, Arrow and DuckDB and never
       # reached a single test. On this runner's four vCPUs that is twenty minutes and up, added to
-      # a job whose timeout was already raised from 60 to 120 because the tests alone killed it.
+      # a job whose timeout has already had to be raised once because the tests alone killed it.
       # That belongs nowhere in CI, let alone here.
       #
       # What runs instead is scoped to `sutura-domain`, whose dependency set is serde and
