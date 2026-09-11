@@ -19,7 +19,7 @@
 # `nix/lint-workflows.sh`'s header gives for the same split one level down: what moves is the BODY,
 # and the condition stays where the thing it gates is decided.
 #
-# WHAT IT COSTS: the four legs are reported as `cross / link (<triple>)` rather than
+# WHAT IT COSTS: the legs are reported as `cross / link (<triple>)` rather than
 # `cross (<triple>)`. None of them is a required context - `ci` is the only one in the `main`
 # ruleset - so no ruleset changes with this file. THE OTHER HALF OF THAT SENTENCE, which went
 # unstated: none of them is required as read on 2026-09-05, so a red leg does not block a merge,
@@ -48,26 +48,46 @@
 # reached by a `just` task and by the release path as well, so *ordinary CI* is not that file's
 # venue and the refusal has no meaning there. The REFERENCE scan above does read those scripts.
 #
-# PULL REQUESTS: the two aarch64 targets, `ci` profile, no image. A branch proves that the
-# architecture the native `ci` job NEVER compiles still COMPILES AND LINKS under both its libcs;
-# the tag-triggered release workflow alone builds and proves what ships.
+# ONE REDUCED SET, ON EVERY ORDINARY-CI EVENT. THE FULL FOUR ONLY WHERE A RELEASE IS BUILT.
+# A pull request and a push to `main` run the SAME two triples, `ci` profile, no image, so there
+# is no event scoping in the matrix below - and its absence is the decision rather than an
+# omission: a ternary that cannot change what runs is worse than none, because a reader takes it
+# for a live restriction.
 #
-# MAIN: all four targets. Why the archs are checked at all, and why the PR set is a pair: the
-# allocator is C, compiled once per target, and cross breakage lives there rather than in the
-# Rust. A glibc-only run would not see it. The `ci` job natively builds and links the host
-# triple `x86_64-unknown-linux-gnu`, so that cross leg is pure duplication of native coverage on
-# a pull request; the pair that is genuinely new compile+link surface is `aarch64` under both its
-# libcs. Dropping `x86_64-unknown-linux-musl` from the pull request costs its static C-allocator
-# cross-link check on the branch - `main`'s all-4 push run catches it before any tag, which is
-# the event-scoping this file now implements in the matrix below. Whichever set runs, the
-# `feature-probes` and `embedded-dependency-list` steps ride the same matrix, so a dropped triple
-# loses its `--features bigquery` link check on pull requests and keeps it on `main`.
+# WHY TWO CELLS, AND WHY THESE TWO. The allocator is C, compiled once per target, and cross
+# breakage lives there rather than in the Rust - so there are two independent axes, and one cell
+# isolates each:
 #
-# A MATRIX rather than four `nix build` lines in `ci`, and the reason is wall clock, not
-# cost: four runners is more total compute than one runner doing the same four builds in
+#   * `x86_64-unknown-linux-musl` - the static-allocator C risk, on the HOST architecture. A red
+#     leg here is the libc axis and nothing else. A glibc-only run would not see it at all.
+#   * `aarch64-unknown-linux-gnu` - the architecture the native `ci` job never compiles, on the
+#     libc the host already exercises. A red leg here is the arch axis and nothing else.
+#
+# `aarch64-unknown-linux-musl` is NOT the single cell that would replace both, because it combines
+# the two axes: a failure there does not say which one broke. And `x86_64-unknown-linux-gnu` is
+# the cell to drop first in either venue - `ci`'s own shipped-set step links it NATIVELY on every
+# run, so as a link gate it duplicates coverage that already exists, and its only unique role was
+# priming an Actions-cache entry that is itself part of an eviction problem.
+#
+# WHAT THIS COSTS, BESIDE THE CLAIM. Two things, and the second is the larger one:
+#
+#   * A link failure unique to `x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-musl` now
+#     surfaces at RELEASE rather than on `main`. `release.yml`'s `build` matrix still builds all
+#     four and its `publish` job asserts that exactly four artefacts arrived, so such a failure
+#     blocks a release rather than shipping a broken artefact. A later signal, not an absent one.
+#   * The `feature-probes` and `embedded-dependency-list` steps ride THIS matrix and nothing else
+#     runs them, so the two dropped triples lose their `--features bigquery` link check and their
+#     embedded-dependency-list assertion OUTRIGHT - not deferred to release, which runs neither.
+#     `docs/adr/0017` carries the correction.
+#
+# `cargo xtask check-workflows` holds all three sets rather than this comment: the reduced list
+# below, the same list in `cachix-push.yml`, and the full four still in `release.yml`.
+#
+# A MATRIX rather than one `nix build` line per triple in `ci`, and the reason is wall clock,
+# not cost: one runner per triple is more total compute than one runner doing them in
 # sequence, because each job builds its own dependency closure instead of reusing the
-# previous target's. What it buys is that a branch waits for ONE target instead of four,
-# while a person is watching. Same trade release.yml's matrix makes, and stated the same way.
+# previous target's. What it buys is that a branch waits for ONE target rather than for all of
+# them, while a person is watching. Same trade release.yml's matrix makes, stated the same way.
 #
 # Note what does NOT protect the attribute names below: `check-workflows` tracks apps and
 # `checks.*` only, and ignores `nix build .#<package>` on purpose, because the cross package
@@ -76,7 +96,7 @@
 name: cross-link
 
 # `workflow_call` and nothing else. No `push`, no `pull_request`: the event tests and the
-# classification this job gates on are `ci.yml`'s, and a second trigger here would run the four
+# classification this job gates on are `ci.yml`'s, and a second trigger here would run these
 # builds again on its own schedule of when.
 on:
   workflow_call:
@@ -102,7 +122,7 @@ env:
 
 jobs:
   link:
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     # 120 for the same reason as `ci`, with more of it: each target in the matrix compiles that
     # same large closure again for its own triple, and none of them shares the host's artifacts.
     timeout-minutes: 120
@@ -114,20 +134,15 @@ jobs:
       # work the cache had already paid for.
       fail-fast: false
       matrix:
-        # THE SHIPPED SET, SCORED BY EVENT. On a pull request only the aarch64 pair runs - the
-        # architecture the native `ci` job never compiles, under both its libcs - so a branch
-        # proves the genuinely new cross surface without re-paying for the host triple the
-        # native job has already linked. A push to `main` runs all four: that is the all-4 link
-        # gate (it keeps `x86_64-unknown-linux-musl`'s static-allocator check and
-        # `x86_64-unknown-linux-gnu` live before any tag) and the run that writes the per-target
-        # Actions-cache entries every pull-request leg then restores. The full-set half stays
-        # deliberately the same list as release.yml's `build`.
-        #
-        # In a CALLED workflow the `github` context reflects the CALLER's event, not
-        # `workflow_call`; `ci.yml`'s `cross` job runs this on `pull_request` and on a push to
-        # `main` (never on `merge_group`), so `github.event_name == 'pull_request'` selects the
-        # two-aarch64 set and every other call gets the full four.
-        target: ${{ github.event_name == 'pull_request' && fromJSON('["aarch64-unknown-linux-gnu","aarch64-unknown-linux-musl"]') || fromJSON('["x86_64-unknown-linux-gnu","aarch64-unknown-linux-gnu","x86_64-unknown-linux-musl","aarch64-unknown-linux-musl"]') }}
+        # THE REDUCED SET, ON EVERY EVENT THIS WORKFLOW IS CALLED FOR. One cell per failure
+        # axis - the header says which axis each isolates and what the two dropped triples cost.
+        # A plain list and not a `${{ }}` ternary on `github.event_name`: a pull request and a
+        # push to `main` run the same set now, so an event test could not change what runs.
+        # `cargo xtask check-workflows` pins this list, refuses an expression here, and refuses a
+        # `cachix-push.yml` or `release.yml` matrix that has drifted from it.
+        target:
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
     steps:
       # No `fetch-depth: 0` here: nothing in this job diffs against a base. `ci` owns that.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -142,18 +157,21 @@ jobs:
         with:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
           # substituter stays absent, so a pull request cannot point CI at a store it controls.
-          # No third-party substituter is configured here either - `docs/adr/0026` records the
-          # Actions cache as the only carrier. `cargo xtask check-workflows` refuses one NAMED in
-          # a workflow, in either spelling nix accepts (`name = value` and `--name value`); it
-          # cannot see a URL assembled from pieces or handed to nix by another action, so this
-          # says what is configured here rather than what nix can possibly be told.
+          # ONE store outside this repository is trusted - `sutura.cachix.org`, this repository's
+          # own OSS binary cache, provisioned by `docs/adr/0027` and named below with its public
+          # key committed - beside the Actions store cache. It is a live second carrier behind the
+          # Actions cache, not a third-party one. `cargo xtask check-workflows` refuses a store
+          # NAMED in a workflow, in either spelling nix accepts (`name = value` and `--name value`)
+          # unless it is exactly this permitted pair in the `extra-` assignment form; it cannot see
+          # a URL assembled from pieces or handed to nix by another action, so this says what is
+          # configured here rather than what nix can possibly be told.
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # One entry PER TARGET: each leg builds a different closure, so a shared key would have the
-      # four overwrite each other. Restore-only on a pull request - see
+      # legs overwrite each other. Restore-only on a pull request - see
       # `.github/actions/nix-store-cache`, whose save condition `check-workflows` pins.
       - uses: ./.github/actions/nix-store-cache
         with:
@@ -165,7 +183,7 @@ jobs:
       # EVERY SHIPPED BINARY, and the loop is what makes this job the measurement issue #111
       # asks for. A second shipped executable changes what has to LINK for two musl triples -
       # the allocator's C included - and this is the job that answers whether it does, on the
-      # pull request, rather than at tag time after four cross builds have been paid for.
+      # pull request, rather than at tag time after every cross build has been paid for.
       - name: Link check
         env:
           TARGET: ${{ matrix.target }}

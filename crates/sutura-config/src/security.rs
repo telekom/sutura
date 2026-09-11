@@ -25,22 +25,31 @@
 
 use sha2::Digest as _;
 use subtle::ConstantTimeEq as _;
-use sutura_domain::identity::Secret;
 use sutura_domain::source::{AcknowledgementReason, InvalidOperatorText};
 
 use crate::inbound::InboundIdentity;
 
 /// A pre-shared secret a caller presents to reach the service.
 ///
-/// Held as a [`Secret`], so the whole settings tree can be written to the startup log with
-/// `Debug` and the token cannot come out with it.
+/// The configured token is reduced to its SHA-256 digest at parse and nothing else is retained, so
+/// the whole settings tree can be written to the startup log with `Debug` and the token cannot
+/// come out with it. `Debug` prints a placeholder for the same reason `Secret`'s does.
 ///
-/// **Not comparable with `==`, and that is inherited rather than reimplemented.** [`Secret`]
-/// implements no `PartialEq` on purpose: a derived comparison on credential material returns on
-/// the first differing byte, which is a timing oracle at whatever call site adds it. The
-/// comparison lives here instead, once, as [`AccessToken::matches_in_constant_time`].
-#[derive(Debug, Clone)]
-pub struct AccessToken(Secret);
+/// **Not comparable with `==`.** `AccessToken` implements no `PartialEq`: a derived comparison on
+/// credential material returns on the first differing byte, which is a timing oracle at whatever
+/// call site adds it. The comparison lives here instead, once, as
+/// [`AccessToken::matches_in_constant_time`].
+#[derive(Clone)]
+pub struct AccessToken {
+    /// SHA-256 of the configured token, computed once at parse so the raw value is not retained.
+    digest: [u8; 32],
+}
+
+impl core::fmt::Debug for AccessToken {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("AccessToken(REDACTED)")
+    }
+}
 
 /// Why a string is not usable as an access token.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -52,6 +61,12 @@ pub enum InvalidAccessToken {
     /// operator intended for it.
     #[error("an access token is at least {minimum} characters and this one is {found}")]
     TooShort { found: usize, minimum: usize },
+    /// Longer than [`AccessToken::MAX_LENGTH`].
+    ///
+    /// An unbounded configured string is an availability surface, and a bearer token has no reason
+    /// to reach this size. Carries the length and never the value, as [`Self::TooShort`] does.
+    #[error("an access token is at most {limit} characters and this one is {found}")]
+    TooLong { found: usize, limit: usize },
     /// Whitespace at either end, which is almost always a copy-paste artefact and would
     /// otherwise make every request fail for a reason nobody can see in a log.
     #[error("an access token may not begin or end with whitespace")]
@@ -84,6 +99,14 @@ impl AccessToken {
     /// bytes hex-encoded would pass it and should not be used.
     pub const MIN_LENGTH: usize = 32;
 
+    /// The longest token accepted.
+    ///
+    /// A ceiling, not a strength estimate: an operator-generated bearer token has no reason to
+    /// reach this size, and an unbounded configured string is an availability surface. It is the
+    /// far side of [`Self::MIN_LENGTH`] and shares its framing - a bound on a value the operator
+    /// generates, decided so a misconfiguration is refused at startup rather than accepted.
+    pub const MAX_LENGTH: usize = 1024;
+
     /// Reads a configured token.
     ///
     /// **Parses the wire grammar, not merely a length.** The type is named for a value that
@@ -101,8 +124,20 @@ impl AccessToken {
                 minimum: Self::MIN_LENGTH,
             });
         }
+        if found > Self::MAX_LENGTH {
+            return Err(InvalidAccessToken::TooLong {
+                found,
+                limit: Self::MAX_LENGTH,
+            });
+        }
         Self::wire_grammar(raw)?;
-        Ok(Self(Secret::new(raw)))
+        // Digest at parse: the configured token is reduced to its SHA-256 before it is stored, so
+        // the raw value is not retained after boot and a request comparison hashes only the
+        // presented value. An operator-generated high-entropy token is exactly the case where a
+        // plain digest is a safe stand-in - `matches_in_constant_time` does not need to recover
+        // the token, and nothing here is stored for an attacker to crack offline.
+        let digest = sha2::Sha256::digest(raw.as_bytes()).into();
+        Ok(Self { digest })
     }
 
     /// Is every character one an `Authorization: Bearer` value may hold?
@@ -139,25 +174,20 @@ impl AccessToken {
     /// Named for the property rather than for the operation, because the property is the only
     /// reason this function exists rather than a `==`.
     ///
-    /// **Both sides are hashed first, and that is not ceremony.** `subtle` compares equal-length
-    /// byte slices without branching, which removes the early-return oracle - but comparing the
-    /// raw strings would still have to decide what to do about differing lengths, and every
-    /// answer to that leaks the length before it leaks anything else. Reducing both sides to a
-    /// fixed 32 bytes removes the question: every comparison is over the same number of bytes
-    /// whatever arrived.
+    /// **The expected side is the digest stored at parse, and the presented side is hashed here.**
+    /// `subtle` compares equal-length byte slices without branching, which removes the
+    /// early-return oracle - but comparing the raw strings would still have to decide what to do
+    /// about differing lengths, and every answer to that leaks the length before it leaks anything
+    /// else. Reducing both sides to a fixed 32 bytes removes the question: every comparison is over
+    /// the same number of bytes whatever arrived, and the configured token is never re-hashed per
+    /// request because it is already a digest.
     ///
     /// What this still does not do: it is not a password hash. There is no salt and no work
     /// factor, because the input is a high-entropy secret an operator generated rather than
     /// something a person chose, and nothing here is stored for an attacker to find offline.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the deployment token has to be hashed to be compared; the exposed value reaches \
-                  a digest and nothing else, and never a log or an error"
-    )]
     pub fn matches_in_constant_time(&self, presented: &str) -> bool {
-        let expected = sha2::Sha256::digest(self.0.expose_secret().as_bytes());
         let actual = sha2::Sha256::digest(presented.as_bytes());
-        expected.ct_eq(&actual).into()
+        self.digest.ct_eq(&actual).into()
     }
 }
 
@@ -638,8 +668,8 @@ mod tests {
         // different strings, and every request would fail with nothing in the log to explain it.
         //
         // Written as `expect_err` rather than `assert_eq!` on the whole `Result`, and that is not
-        // a style choice: `AccessToken` has no `PartialEq`, inherited from `Secret`, so comparing
-        // two `Result<AccessToken, _>` values does not compile. The awkwardness is the invariant.
+        // a style choice: `AccessToken` has no `PartialEq`, so comparing two
+        // `Result<AccessToken, _>` values does not compile. The awkwardness is the invariant.
         assert_eq!(
             AccessToken::parse(format!("{GOOD} ")).expect_err("a trailing space is not a token"),
             InvalidAccessToken::Untrimmed
@@ -652,8 +682,9 @@ mod tests {
 
     #[test]
     fn a_token_is_not_printed_by_debug_at_any_depth() {
-        // The reason the field is a `Secret`. The startup log prints the whole settings tree
-        // with `Debug`, so this is the assertion that keeps that safe.
+        // The token is stored only as a digest, and `Debug` prints a placeholder anyway. The
+        // startup log prints the whole settings tree with `Debug`, so this is the assertion that
+        // keeps that safe.
         let settings = SecuritySettings::new(
             Some(AccessToken::parse(GOOD).expect("a valid token")),
             TlsTermination::None,
@@ -676,6 +707,45 @@ mod tests {
         assert!(!token.matches_in_constant_time("0123456789abcdef"));
         // Nor a superstring of it.
         assert!(!token.matches_in_constant_time(&format!("{GOOD}x")));
+    }
+
+    #[test]
+    fn an_overlong_token_is_refused_rather_than_accepted() {
+        // The ceiling is the far side of the floor: a bearer token an operator generates has no
+        // reason to reach it, and an unbounded configured string is an availability surface.
+        let at_limit = "a".repeat(AccessToken::MAX_LENGTH);
+        assert!(
+            AccessToken::parse(&at_limit)
+                .expect("at the ceiling is a token")
+                .matches_in_constant_time(&at_limit),
+            "the ceiling itself is a token"
+        );
+        let over = "a".repeat(AccessToken::MAX_LENGTH + 1);
+        assert_eq!(
+            AccessToken::parse(over).expect_err("one over the ceiling is not a token"),
+            InvalidAccessToken::TooLong {
+                found: AccessToken::MAX_LENGTH + 1,
+                limit: AccessToken::MAX_LENGTH
+            }
+        );
+        // The value is never in the message, for the same reason `TooShort` carries a length.
+        let rendered = AccessToken::parse("a".repeat(AccessToken::MAX_LENGTH + 1))
+            .expect_err("one over the ceiling is refused")
+            .to_string();
+        assert!(!rendered.contains(&"a".repeat(AccessToken::MAX_LENGTH + 1)), "{rendered}");
+    }
+
+    #[test]
+    fn parse_retains_a_digest_and_not_the_configured_token() {
+        use sha2::Digest as _;
+        // The mechanism C8's hash-at-parse rests on: the configured token is reduced to its SHA-256
+        // once, at parse, and the raw value is not retained. A revert that holds the raw value (or
+        // re-hashes it per request) is caught here - the one stored thing is a digest of the token,
+        // not the token itself.
+        let token = AccessToken::parse(GOOD).expect("a valid token");
+        let expected: [u8; 32] = sha2::Sha256::digest(GOOD.as_bytes()).into();
+        assert_eq!(token.digest, expected);
+        assert_ne!(&token.digest[..], GOOD.as_bytes(), "the digest is not the configured value");
     }
 
     #[test]

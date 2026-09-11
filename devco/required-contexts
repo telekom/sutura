@@ -79,28 +79,39 @@
 # gated for the same reason, which is how a gate that only runs there is genuinely gating.
 ci
 
+# The category aggregator: a plain job, so its context resolves like any other - the reason the file
+# header prefers one over a matrix-expanded or called-workflow context. It holds that a category-
+# gated leg may be skipped green only when the diff did not select its category, so a filter that
+# silently skips an affected adapter fails here rather than publishing a green-but-red merge. This
+# entry and the `ci` entry beside it are the two contexts the ruleset's `required_status_checks`
+# holds - the second is the owner-held edit `ci-aggregate` needs in the same ruleset to actually
+# block a merge.
+ci-aggregate
+
 [advisory]
 
 # A red leg in this section does not block a merge, read on 2026-09-05, in the queue or out of it,
 # with no override and no bypass - nobody has to click anything. Present tense on purpose: see the
 # dated paragraph in the header for what a ruleset's representation does and does not say about
 # its own past. That is the status quo made visible, not a recommendation: whether any of these
-# should become required is a decision, and the cost of requiring one is four context names to
-# maintain by hand - which `cargo xtask check-workflows` REFUSES, because it derives a plain job's
+# should become required is a decision, and the cost of requiring one is one context name per
+# matrix cell, maintained by hand - which `cargo xtask check-workflows` REFUSES, because it derives a plain job's
 # context and cannot spell `cross / link (<triple>)` - or one aggregating job to add, whose plain
 # context it can check like any other.
 
 # The cross link matrix. It calls `cross-link.yml`, so its legs report `cross / link (<triple>)`
-# and the required set contains none of them. The risk the job exists for - the allocator's C for
-# the two musl triples - is therefore covered advisorily: a pull request that breaks the cross link
-# for a published triple can merge with the leg red.
+# and the required set contains none of them. The risk the job exists for - the allocator's C,
+# which for ordinary CI is now isolated on `x86_64-unknown-linux-musl` alone - is therefore covered
+# advisorily: a pull request that breaks the cross link for a published triple can merge with the
+# leg red. Which cells run is `cross-link.yml`'s matrix and `cargo xtask check-workflows` holds it;
+# the full four survive only in `release.yml`.
 ci.yml:cross
 
-# The called workflow's own job - the one that reports those four legs. ADVISORY DELIBERATELY, and
+# The called workflow's own job - the one that reports those legs. ADVISORY DELIBERATELY, and
 # this is the entry where that decision is written down rather than left to the reader:
 #
-#   * REQUIRING THE LEGS DIRECTLY was weighed and refused. Four context strings maintained by
-#     hand, each carrying a matrix value and the caller's job name, and `cargo xtask
+#   * REQUIRING THE LEGS DIRECTLY was weighed and refused. One context string per cell,
+#     maintained by hand, each carrying a matrix value and the caller's job name, and `cargo xtask
 #     check-workflows` cannot derive any of them - so the gate would be blind exactly where the
 #     cost is. Note what does NOT discriminate here, because the first draft of this bullet leaned
 #     on it: *a required context that stops reporting is a permanently pending merge* is equally
@@ -134,6 +145,12 @@ cross-link.yml:link
 # inside `ci` is what gates the policy.
 ci.yml:crap-comment
 
+# Publishes this pull request's own realised store paths to the additive PR cache. Advisory by
+# design: it warms the next push of the same PR, so a red or missing publish costs a rebuild and
+# never blocks a merge - a fork's pull request cannot see its environment either, which alone
+# would leave it permanently pending.
+ci.yml:pr-cache
+
 # The live BigQuery acceptance venue. Advisory deliberately rather than by omission: it needs an
 # environment a fork's pull request cannot see, so requiring it would leave every fork pull request
 # permanently pending - the failure mode this file's own header warns about.
@@ -158,8 +175,10 @@ security-audit.yml:audit
 # absent here - a measurement tool, run by hand when a runner needs checking, never a reportable on
 # a gating event. `.github/workflows/runner-probe.yml` carries the design.
 
-# Generated input against the parsers that read untrusted input. BOTH jobs advisory, and the
-# `fuzz` matrix does not report on a pull request at all - `.github/workflows/fuzz.yml` argues why
-# a time-budgeted fuzz run must not gate a merge, and the entry is here so that argument is a
-# classification rather than an omission. What IS gated on every pull request is `check-fuzz`
-# inside the hygiene sweep, which reads the harness and costs milliseconds.
+# Generated input against the parsers that read untrusted input is DELIBERATELY ABSENT here, the
+# way the runner probe above is, and the sentence that used to stand here classified both its jobs
+# `[advisory]` over no entry at all. `.github/workflows/fuzz.yml` triggers on the release tag and
+# on `workflow_dispatch` - neither of them a gating event - so it reports no status-check context
+# and there is nothing for this record to classify. It argues at length why a time-budgeted search
+# over random input must gate neither a merge nor a release. What IS gated on every pull request is
+# `check-fuzz` inside the hygiene sweep, which reads the harness and costs milliseconds.

@@ -663,3 +663,123 @@ mod venue {
         assert!(absent().missing().is_some());
     }
 }
+
+/// **What the corpus must CONTAIN for three of the packs' claims to say anything.**
+///
+/// Not facts about an adapter, so not [`Behaviour`]s: a behaviour would re-establish each of these
+/// once per bound adapter, and what they are about is this tree. They sit here rather than in
+/// `corpus.rs`'s own `mod tests` for a mechanical reason - `cargo xtask test-causality` restores
+/// the base version of a changed file that added no test and HOLDS one that did, so an assertion
+/// about the corpus written beside the corpus is measured against its own new data and reads as
+/// green against base. Split across two files the pair is separable, and each test below is red
+/// with `corpus.rs` at base.
+///
+/// Each guards something a count cannot see. [`sutura_conformance::census`] prints how many CASES
+/// there are, so a deleted case is loud; a deleted ROW inside a case is silent, because a CSV line
+/// and its expected row removed together leave every adapter cell green over a corpus that no
+/// longer asks the question.
+#[cfg(test)]
+mod corpus_shape {
+    use sutura_conformance::corpus;
+    use sutura_domain::model::Aggregate;
+    use sutura_domain::plan::{PlanMeasure, PlanTerm};
+    use sutura_domain::warehouse::Value;
+
+    /// A null sits in a GROUP-KEY position in the corpus, and every row carrying one sorts LAST.
+    ///
+    /// **The position is the assertion, and the first version of this test did not make it.** It
+    /// asked `row.contains(&Value::Null)` - a null ANYWHERE in the row, the measure included - and
+    /// a review moved the corpus's null out of the key and into the measure, leaving the test
+    /// green over a corpus with no null group key at all. `QueryPlan::result_labels` projects the
+    /// dimension keys first, then the time bucket, then the measure, so a key position is an index
+    /// below the key count and nothing else is.
+    ///
+    /// What the row it guards buys is stated where the corpus states it, and it is NOT a check on
+    /// our own null-placement rendering: for all three bound adapters the placement is their
+    /// engine's own default, so deleting `sutura_sql`'s statement of it changes neither their SQL
+    /// nor their answer. It is an upstream-default regression detector plus, through
+    /// `Behaviour::Content`, a claim about our grouping - that a null key is a GROUP and not a row
+    /// something dropped.
+    #[test]
+    fn a_null_group_key_is_expected_and_expected_last() {
+        let mut null_keyed_rows = 0_usize;
+        for case in corpus::cases() {
+            // The key positions, and ONLY those: a null in the bucket or in the measure is a
+            // different fact and must not satisfy this test.
+            let keys = case.plan().keys().len();
+            let mut after_a_null_key = false;
+            for (index, row) in case.expected().rows().iter().enumerate() {
+                let null_key = row.iter().take(keys).any(|cell| *cell == Value::Null);
+                if null_key {
+                    null_keyed_rows = null_keyed_rows.saturating_add(1);
+                }
+                assert!(
+                    null_key || !after_a_null_key,
+                    "case `{}`: row {index} has no null in a key position and follows one that does, so the null group is not last",
+                    case.name()
+                );
+                after_a_null_key = after_a_null_key || null_key;
+            }
+        }
+        assert!(
+            null_keyed_rows > 0,
+            "no expected answer in the corpus carries a null in a GROUP-KEY position, so \
+             `Behaviour::Content` asserts nothing about a null key being a group rather than a row \
+             something dropped, and `Behaviour::Order` asserts nothing about where such a group \
+             sorts"
+        );
+    }
+
+    /// An expected total reaches `i64::MAX`, which is the one integer no `f64` carries.
+    ///
+    /// `2^63 - 1` has 63 significant bits, so it rounds to `2^63` in a 64-bit float. Without a
+    /// value there, every wide-integer arm in every bound adapter - a `HUGEINT`, a `NUMERIC` and an
+    /// `Int64` - is interchangeable with a 32-bit read and with a float, and nothing says so.
+    #[test]
+    fn an_expected_total_reaches_the_i64_boundary() {
+        let reached = corpus::cases().iter().any(|case| {
+            case.expected()
+                .rows()
+                .iter()
+                .flatten()
+                .any(|cell| *cell == Value::Integer(i64::MAX))
+        });
+        assert!(
+            reached,
+            "no expected answer reaches `i64::MAX`, so the corpus cannot tell a wide-integer arm \
+             from a narrow one or from an `f64`"
+        );
+    }
+
+    /// A `SUM` answers a real number, which it can do only over a fractional column.
+    ///
+    /// The `AVG` case answers one too, and by a different route: its real number comes from an
+    /// aggregate's division, and for Postgres from a cast `sutura_sql` applies to an `AVG`. This
+    /// asserts the OTHER route - each adapter's own type inference over a fractional literal on the
+    /// load path - so a corpus whose only fractional answer is the mean cannot satisfy it.
+    #[test]
+    fn a_sum_in_the_corpus_answers_a_real_number() {
+        let found = corpus::cases().iter().any(|case| {
+            let sums = matches!(
+                *case.plan().measure(),
+                PlanMeasure::Simple {
+                    term: PlanTerm::Aggregate {
+                        aggregate: Aggregate::Sum,
+                        ..
+                    }
+                }
+            );
+            sums && case
+                .expected()
+                .rows()
+                .iter()
+                .flatten()
+                .any(|cell| matches!(*cell, Value::Real(_)))
+        });
+        assert!(
+            found,
+            "no `SUM` in the corpus answers a real number, so no measure column is fractional and \
+             the fractional class is only ever reached through a division"
+        );
+    }
+}

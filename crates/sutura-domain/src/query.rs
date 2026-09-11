@@ -395,6 +395,37 @@ pub enum RefusalReason {
     /// system's to say, and guessing it here would be this deployment holding a second opinion about
     /// somebody else's authorization.
     CredentialUnavailable { source: SourceName },
+    /// The data system refused the executed statement because the identity it ran it as may not ask
+    /// it.
+    ///
+    /// **The refusal a data system hands back at the identity/authorization level, as opposed to the
+    /// two bounds [`ResourcesExhausted`](RefusalReason::ResourcesExhausted) and
+    /// [`ResultTooLarge`](RefusalReason::ResultTooLarge) classify.** Those are the domain's own
+    /// numbers - a reservation this deployment refused, a page it caps. This one is the DATA
+    /// SYSTEM saying no about WHO asked: the role it runs the question under lacks the permission,
+    /// a statement's `SELECT` names a table or column that identity may not read, row-level security
+    /// denies it. It is permanent in the same sense [`CredentialUnavailable`](RefusalReason::CredentialUnavailable)
+    /// is - the same question as the same identity is refused again - but it is not a missing
+    /// credentials decision: the identity that ran the query WAS presented, and the source refuses
+    /// it.
+    ///
+    /// **A refusal rather than an error, and the distinction is the whole variant.** It used to
+    /// arrive as [`crate::warehouse::Warehouse::execute`]'s `Err` and leave the transport as the
+    /// `503` a dead data system produces - so a caller was told to retry an authorization decision
+    /// that will refuse again at the same place. It is an answer, and the answer does not change by
+    /// asking again.
+    ///
+    /// **It is the query-time sibling of the boot-time
+    /// [`Warehouse::preflight_was_refused`](crate::warehouse::Warehouse::preflight_was_refused)
+    /// split.** That predicate tells a pre-flight's *could not verify* apart from *this identity may
+    /// not ask*; this variant is the same split when the asking happens in `execute`. An adapter
+    /// answers [`Warehouse::source_refused`](crate::warehouse::Warehouse::source_refused), and this
+    /// is what the domain names the `true` half.
+    ///
+    /// Carries the source and nothing about which permission or which identity: both are the data
+    /// system's to say, and echoing them would publish a foreign authorization decision into a log,
+    /// a UI and an agent's context.
+    SourceRefused { source: SourceName },
     /// The legs of one answer would not all decide identity the same way.
     ///
     /// **Not a source count, and that distinction is the whole variant.**
@@ -422,6 +453,46 @@ pub enum RefusalReason {
     /// two `shared-service-user` legs may be two different deployment-held identities and this
     /// passes them.
     LegsDecideIdentityDifferently { postures: BTreeSet<&'static str> },
+}
+
+impl RefusalReason {
+    /// The machine-readable `code` a client or an agent branches on, shared by every transport.
+    ///
+    /// **The one place this is decided.** The HTTP and agent surfaces used to spell their own
+    /// tables and nothing compared them, so a code could drift until the two transports disagreed
+    /// about what a refusal was. Both now read [`RefusalReason::code`] and neither writes its own
+    /// list, so there is one spelling for the whole surface.
+    ///
+    /// Being exhaustive with no wildcard arm, a variant added here either gets its code in the same
+    /// edit or does not compile. The derivation is fixed by
+    /// `the_code_is_the_variant_name_in_snake_case`: each code is the `snake_case` spelling
+    /// of the variant's own name, read off this type's own `Serialize` rather than a list typed
+    /// beside it - so a hand-written code that drifted from the variant fails that test, and the two
+    /// transports, both reading this one method, cannot drift from each other without first drifting
+    /// from the variant.
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::MetricUnknown { .. } => "metric_unknown",
+            Self::GrainNotSupported { .. } => "grain_not_supported",
+            Self::DimensionNotPermitted { .. } => "dimension_not_permitted",
+            Self::DimensionNotFilterable { .. } => "dimension_not_filterable",
+            Self::DimensionValueNotAllowed { .. } => "dimension_value_not_allowed",
+            Self::DuplicateDimension { .. } => "duplicate_dimension",
+            Self::TooManyDimensions { .. } => "too_many_dimensions",
+            Self::ResultTooLarge { .. } => "result_too_large",
+            Self::TimeRangeTooLong { .. } => "time_range_too_long",
+            Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",
+            Self::FederationNotExecutable => "federation_not_executable",
+            Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
+            Self::MeasureDoesNotFederate { .. } => "measure_does_not_federate",
+            Self::PlanTablesShareAnIdentifier { .. } => "plan_tables_share_an_identifier",
+            Self::SourceUnavailable { .. } => "source_unavailable",
+            Self::ResourcesExhausted { .. } => "resources_exhausted",
+            Self::CredentialUnavailable { .. } => "credential_unavailable",
+            Self::SourceRefused { .. } => "source_refused",
+            Self::LegsDecideIdentityDifferently { .. } => "legs_decide_identity_differently",
+        }
+    }
 }
 
 /// Which bound a result was too large for.
@@ -497,7 +568,7 @@ impl ToolOutcome {
 
 #[cfg(test)]
 mod tests {
-    use super::{Filter, Query, RefusalReason, ToolOutcome};
+    use super::{Filter, Query, RefusalReason, ResultBound, ToolOutcome};
     use crate::calendar::{Date, TimeRange};
     use crate::catalog::DimensionValue;
     use crate::model::{DimensionName, Grain, MetricName};
@@ -607,5 +678,104 @@ mod tests {
         let rendered = format!("{reason:?}");
         assert!(!rendered.contains("north"), "{rendered}");
         assert!(rendered.contains("region"), "{rendered}");
+    }
+
+    /// Every variant, so the cross-transport contract is checked over the whole enum and not over
+    /// whichever ones somebody remembered.
+    fn every_reason() -> Vec<RefusalReason> {
+        use crate::model::{Aggregate, SourceName, TableName};
+        vec![
+            RefusalReason::MetricUnknown {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+            },
+            RefusalReason::GrainNotSupported {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+                grain: Grain::Week,
+            },
+            RefusalReason::DimensionNotPermitted {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+            },
+            RefusalReason::DimensionNotFilterable {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+            },
+            RefusalReason::DimensionValueNotAllowed {
+                metric: MetricName::parse("revenue").expect("a test metric"),
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+            },
+            RefusalReason::DuplicateDimension {
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+            },
+            RefusalReason::TooManyDimensions { requested: 5, limit: 4 },
+            RefusalReason::ResultTooLarge {
+                bound: ResultBound::Rows { limit: 10_000 },
+            },
+            RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
+            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::FederationNotExecutable,
+            RefusalReason::FederationLinkAmbiguous {
+                source: SourceName::parse("warehouse").expect("a test source"),
+            },
+            RefusalReason::MeasureDoesNotFederate {
+                metric: MetricName::parse("active_subscriptions").expect("a test metric"),
+                aggregate: Aggregate::CountDistinct,
+            },
+            RefusalReason::PlanTablesShareAnIdentifier {
+                table: TableName::parse("orders").expect("a test table"),
+            },
+            RefusalReason::SourceUnavailable {
+                source: SourceName::parse("local").expect("a test source"),
+            },
+            RefusalReason::SourceRefused {
+                source: SourceName::parse("local").expect("a test source"),
+            },
+            RefusalReason::ResourcesExhausted {
+                ceiling_bytes: 1024 * 1024 * 1024,
+            },
+            RefusalReason::CredentialUnavailable {
+                source: SourceName::parse("warehouse").expect("a test source"),
+            },
+            RefusalReason::LegsDecideIdentityDifferently {
+                postures: crate::source::SourcePosture::NAMES.iter().copied().collect(),
+            },
+        ]
+    }
+
+    /// The derivation that keeps the two transports' vocabularies equal without either being able
+    /// to see the other - in the crate both read.
+    ///
+    /// The transport surfaces each read [`RefusalReason::code`], so a drift in that single method
+    /// is a drift in BOTH transports at once, and this is the test that would see it: the code is
+    /// held to the `snake_case` spelling of the variant's own name. The variant name is read out of
+    /// this type's own `Serialize` - externally tagged, so the one key of the serialized object IS
+    /// the variant name - rather than from a list typed here, which would be the same hand-written
+    /// table the transports used to carry.
+    #[test]
+    fn the_code_is_the_variant_name_in_snake_case() {
+        for reason in every_reason() {
+            let value = serde_json::to_value(&reason).expect("a refusal serializes");
+            let variant = match value {
+                serde_json::Value::Object(map) => map.keys().next().cloned().expect("an externally tagged enum has one key"),
+                serde_json::Value::String(name) => name,
+                _ => panic!("a refusal serializes to an object or a unit string"),
+            };
+            assert_eq!(reason.code(), &snake_case(&variant), "{variant}");
+        }
+    }
+
+    fn snake_case(name: &str) -> String {
+        let mut out = String::with_capacity(name.len().saturating_add(4));
+        for (index, character) in name.char_indices() {
+            if character.is_ascii_uppercase() {
+                if index != 0 {
+                    out.push('_');
+                }
+                out.push(character.to_ascii_lowercase());
+            } else {
+                out.push(character);
+            }
+        }
+        out
     }
 }

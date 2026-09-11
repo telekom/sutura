@@ -114,27 +114,155 @@ pub fn sql(&self) -> &str
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
-## `use None`
+## `use Dialect`
 
-## `use None`
+The data systems a statement can be rendered for.
 
-## `use None`
+A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
+here is a claim that we generate correct SQL for it and have a golden that says so. Adding one is
+a feature flag, a match arm and a snapshot.
 
-## `use None`
+## `use PlaceholderStyle`
 
-## `use None`
+How a bind parameter is written.
 
-## `use None`
+## `use Construct`
 
-## `use None`
+A construct an authored fragment may not contain, and why.
 
-## `use None`
+Every variant is a refusal a compile can produce, and the reason is carried with it rather than
+left in a design document: a refusal that names a construct without saying why sends an author to
+read this file.
 
-## `use None`
+## `use ExpressionError`
 
-## `use None`
+Why an authored expression could not be compiled.
 
-## `use None`
+**All of these are load failures.** A catalog that produces one does not serve; there is no
+degraded mode in which the metric is skipped and the rest is answered, because a metric that is
+present in a bundle and unanswerable is a metric an agent will ask about.
+
+**Four of them cannot be produced by any fragment, and each says so on itself rather than here:**
+`Self::Qualify`, `Self::Unrenderable`, `Self::Render` and `Self::RenderedDoesNotParse`
+each need a defect in the dialect layer, and **not the same defect** - which is why the argument
+is on the variant and not summarised here. `Self::Qualify` needs that layer's own transformer to
+violate one of its own invariants; `Self::Unrenderable` and `Self::Render` are ruled out by
+construction, because this module's caps sit under the layer's complexity guard and no dialect
+configuration raises its unsupported level; and `Self::RenderedDoesNotParse` is **not** ruled
+out by construction at all - it is the load-time net for a generator that emits text its own
+parser rejects, which is the reason it is a check here rather than a test. They exist
+because the calls they wrap return a `Result` and this crate may not `unwrap` one, and what is
+pinned about them is the wiring - the fields, and that the cause survives `#[source]` - not a
+refusal a catalog can provoke. `tests::the_four_refusals_only_a_dialect_layer_defect_can_produce`
+is that test, and it is named for what it is so that nobody reads it as coverage of an input.
+
+**Every field is the value, never prose about it**, and that is this enum's one shape rule. The
+dialect word a refusal is about is a `DialectTag` and not a `String`, because that is what every
+construction site already holds; the two refusals that name a *set* carry the set rather than a
+sentence built from it. A caller that wants the sentence gets it from `Display`, and a caller that
+wants the list has it - where before, recovering "which dialects was this authored for" meant
+splitting a message on `", "`, which is a contract nothing checks and a format edit breaks.
+
+## `use CompiledExpression`
+
+An authored expression, compiled for every dialect this build renders for.
+
+Complete by construction: `compile` returns one of these only when every entry in
+`crate::dialect::ALL` resolved and rendered. So there is no per-query moment at which a target
+turns out to have no expression - that failure has already happened, at load, naming the dialect.
+
+## `use Rendering`
+
+One authored fragment, compiled for one dialect.
+
+`authored_for` is the traceability half and is not cosmetic: with a `portable` fragment and a
+`clickhouse` one in the same metric, "which one did this statement use" is otherwise a question
+answered by re-deriving the resolution rule in your head.
+
+## `use compile`
+
+Compiles an authored expression for every dialect this build renders for.
+
+`columns` is the metric's own model's declared column set and `table` its table. Both are
+required rather than optional, which is the decision worth writing down: **an unknown column
+fails the load.** Wren's cube path does not check them - its own documentation tells the agent to
+expect a runtime error from the warehouse - while its model path does, through a schema-driven
+AST rewrite. The model path is right. A metric whose fragment names a column that does not exist
+is broken whether or not anybody asks about it, and the difference between finding out at load
+and finding out at query time is the difference between a refusal an operator can fix and a stack
+trace an agent shows a user.
+
+## `use GenerateError`
+
+Why a statement could not be rendered.
+
+Not a refusal: a caller cannot cause one of these and there is nothing they could ask
+differently. A plan that will not render is a bug here or upstream.
+
+## `use generate`
+
+Renders a plan as one statement, paired with its parameters.
+
+## `use generate_key_probe`
+
+Renders one declared join key's uniqueness probe as one statement.
+
+**Two counts over one column of one table, and nothing else.** `COUNT(col)` beside
+`COUNT(DISTINCT col)` is the whole question a `many_to_one` declaration can be contradicted by,
+and the pair is equal exactly when the declaration holds. There is no `WHERE`, no `GROUP BY`, no
+`HAVING` and no `LIMIT`: the declaration is unconditional, so a probe carrying a filter would
+answer a narrower question than the one the join path spends.
+
+**No parameter, and nothing from a question.** A `DeclaredKey` is built out of a pinned
+bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
+returned `GeneratedQuery` carries an empty parameter list rather than one this could fill.
+
+**No key value is projected**, which is the same decision the answer type makes and for the same
+reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
+source data copied into a sink nobody scoped for it.
+
+Shared with `generate` and `generate_leg`: `qualified`, `aliased`, `table_path` and
+`render`, so identifier quoting, column qualification and path depth cannot be one thing here
+and another there. The two aliases are `sutura-domain`'s constants rather than this crate's
+literals, so the label an adapter reads the count back under is the label the statement asked
+for.
+
+## `use generate_leg`
+
+Renders one leg of a federated question as one statement, paired with its parameters.
+
+**Four differences from `generate`, and each of them is why a second entry point exists rather
+than a flag on the first.**
+
+1. **It projects a LIST of term columns**, one per descending term, instead of one measure
+   expression. That is the whole of 0009's Decision 2 at the rendering layer: a decomposed `Avg`
+   travels as a sum beside a count and a ratio travels as an undivided numerator and denominator,
+   so nothing here can emit a division. It never calls `measure_expression`, and it could not -
+   there is no `PlanMeasure` in a `LegPlan` to hand it.
+2. **The bucket and the joins are the fact leg's alone.** A dimension lookup reads a table with
+   no time column, so it projects its keys and groups by them, which is a distinct key set.
+3. **It emits no `LIMIT`.** A leg is not an answer:
+   `sutura_domain::plan::MAX_ROWS` caps one answer's rows and
+   `QueryPlan::row_limit` is how an adapter asks for one more than the cap, so a cap applied per
+   leg would refuse a question no answer was too large for. What bounds a leg is the byte budget
+   at the conversion boundary, which belongs with the code that converts.
+4. **The `WHERE` clause is optional.** A `QueryPlan` always carries the two bounds of its range
+   so `GenerateError::NoPredicate` is unreachable there; a lookup leg for a remote dimension
+   that carries no filter has no predicate at all, and no clause is the correct rendering rather
+   than an error.
+
+Everything else is shared with `generate` on purpose - `column`,
+`aliased`, `aggregate`, `term_expression`, `predicate`, `bucket_expression`,
+`joined` and `render` - so a change to identifier quoting, to placeholder style or to how a
+term renders cannot apply to one path and not the other.
+
+**Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
+to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
+`sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
+that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+which builds a logical plan instead. So what pins this is the golden family under
+`crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
+dialect it was generated for - and none of those four is what a release executes.
 
 ## Module `dialect`
 
@@ -751,6 +879,8 @@ splitting a message on `", "`, which is a contract nothing checks and a format e
 - `NotOneExpression`
 - `Unrenderable` - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a `Shape`, because a `Shape` carries no cause and this one has one worth keeping.
 - `Refused`
+- `NonAscii` - A character the pinned dialect layer's generator cannot survive.
+- `UnclosedParenthesis` - A parenthesis the fragment opens and never closes.
 - `UnknownColumn`
 - `UnknownFunction` - A called function that is not one of the names a measure may call.
 - `TooDeep` - A fragment nesting deeper than the checks can walk. See the guard in `super::parse`, in the parent module.
@@ -876,10 +1006,10 @@ than a flag on the first.**
    that carries no filter has no predicate at all, and no clause is the correct rendering rather
    than an error.
 
-Everything else is shared with `generate` on purpose - `column`, `aliased`, `aggregate`,
-`term_expression`, `predicate`, `bucket_expression`, `joined` and `render` - so a
-change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
-path and not the other.
+Everything else is shared with `generate` on purpose - `column`,
+`aliased`, `aggregate`, `term_expression`, `predicate`, `bucket_expression`,
+`joined` and `render` - so a change to identifier quoting, to placeholder style or to how a
+term renders cannot apply to one path and not the other.
 
 **Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
 to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and

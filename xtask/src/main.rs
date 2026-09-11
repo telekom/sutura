@@ -21,6 +21,8 @@ mod changes;
 mod commit_msg;
 mod compose;
 mod conformance;
+#[cfg(test)]
+mod cpu_busy;
 mod crap;
 mod default_feature_tests;
 mod default_features;
@@ -43,7 +45,9 @@ mod line_endings;
 mod markdown;
 mod max_lines;
 mod newtype_leaks;
+mod nix_platform;
 mod one_bound;
+mod orphan_modules;
 mod pins;
 mod refusals;
 mod registry;
@@ -58,6 +62,8 @@ mod tasks;
 mod text;
 mod threshold_expect;
 mod unused_deps;
+#[cfg(test)]
+mod validated_base;
 mod venues;
 mod warm_start;
 mod workflows;
@@ -67,14 +73,15 @@ use std::process::ExitCode;
 
 // The registry's types live in `registry`, which `max-lines` is the reason for - see that
 // module's header. Re-exported here so every gate's `crate::Verdict` resolves unchanged.
-use registry::{Kind, Task};
+use registry::{Falsifier, Kind, Task};
 pub(crate) use registry::{Reads, Verdict};
 
-const TASKS: &[Task] = &[
+pub(crate) const TASKS: &[Task] = &[
     Task {
         name: "check-boundaries",
         description: "the domain crate depends on no framework",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: boundaries::run,
     },
     Task {
@@ -85,19 +92,39 @@ const TASKS: &[Task] = &[
         name: "check-jscpd",
         description: "no copied block in crates/ or xtask/ without a reason in devco/dup-ignore",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: jscpd::run,
     },
     Task {
         name: "max-lines",
         description: "no file over 1000 lines (exemptions: devco/max-lines-ignore)",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier {
+            seeds: &[],
+            in_scope: Some("over-long.txt"),
+        },
         run: max_lines::run,
     },
     Task {
         name: "check-pins",
         description: "no tool is pinned by both nix and pixi",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: pins::run,
+    },
+    Task {
+        // Beside `check-pins` because the subject is the same tree of nix expressions, read as
+        // text. It exists because a deprecated `stdenv.is<Platform>` STILL EVALUATES: nixpkgs
+        // warns and carries on, so one site survived here while every other had moved and nothing
+        // failed. `Reads::Code`: no `docs/*.md` diff can change a nix file.
+        name: "check-nix-platform",
+        description: "no nix file reads a platform predicate off the deprecated stdenv alias",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[],
+            in_scope: Some("nix/platform.nix"),
+        },
+        run: nix_platform::run,
     },
     Task {
         // Beside `check-pins` because it is the same shape of gate: two files, read as text
@@ -105,18 +132,32 @@ const TASKS: &[Task] = &[
         name: "check-warm-start",
         description: "the warm start's directory, stamp, profile and sweep agree with what reads them",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: warm_start::run,
     },
     Task {
         name: "unused-deps",
         description: "every declared dependency is actually used",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: unused_deps::run,
+    },
+    Task {
+        // The unreachable-public-module gate (issue #131, the "either way" slice). The sibling of
+        // `unused-deps` in the other direction: that gate fails a DEPENDENCY no crate uses; this
+        // fails a `pub` MODULE no first-party crate references. Reads the whole workspace, so a
+        // consumer in another crate is seen. `Reads::Code` for the same reason `unused-deps` is.
+        name: "check-unreachable-public-modules",
+        description: "no pub module in a library crate that no first-party crate references",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
+        run: orphan_modules::run,
     },
     Task {
         name: "check-arrow",
         description: "one Arrow major in Cargo.lock, or an explained exception",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: arrow_major::run,
     },
     Task {
@@ -128,6 +169,7 @@ const TASKS: &[Task] = &[
         name: "check-shared-client",
         description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018)",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: shared_client::run,
     },
     Task {
@@ -144,11 +186,12 @@ const TASKS: &[Task] = &[
         name: "check-shipped-binaries",
         description: "every release-path binary literal equals nix/shipped.nix, and every documented feature build is probed",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier::declared_in_programme(),
         run: shipped::run,
     },
     Task {
         // Beside `check-shipped-binaries` because it reads the same declaration, and STANDALONE
-        // rather than hygiene for `check-attribution-current`'s reason: it invokes cargo, so it
+        // rather than hygiene for `check-attribution`'s reason: it invokes cargo, so it
         // needs a resolvable registry and a target directory the nix sandbox has not got, so `just
         // gates` is its caller. The lane it covers is the one every other compiling gate is blind
         // to; CI reaches it as `nix run .#default-features` inside the one required job, and it
@@ -156,6 +199,7 @@ const TASKS: &[Task] = &[
         name: "check-default-features",
         description: "every shipped package compiles and lints at cargo's default features",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: default_features::run,
     },
     Task {
@@ -167,17 +211,25 @@ const TASKS: &[Task] = &[
         name: "check-default-feature-tests",
         description: "every shipped package runs its tests at cargo's default features",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: default_feature_tests::run,
     },
     Task {
-        // Beside `check-arrow` and `check-shared-client` because it is the same shape of gate: a
-        // GENERATED artefact checked against the file it is generated from, read as text so the
-        // check needs no resolver. `docs/adr/0021`'s attribution amendment is the decision, and
-        // `just attribution` is the fix every failure message names.
-        name: "check-attribution",
-        description: "ATTRIBUTION.md names every third-party crate in Cargo.lock",
+        // AN ABSENCE GATE, which is a different shape from the two beside it, and the reason it has
+        // to exist is that an absence nothing witnesses silently returns. `ATTRIBUTION.md` is
+        // generated and deliberately NOT committed - `github.com/telekom/sutura#462`'s decision,
+        // because a committed copy fell behind `Cargo.lock` on every dependency bump and made each
+        // one red on arrival - and a commit re-adding it would restore all of that with the next
+        // tag signing the stale copy. `xtask/src/workflows/sast.rs` is the local precedent.
+        //
+        // `Reads::Code` covers workflow YAML, which is the second half: with nothing committed, the
+        // release is the ONLY place the notice is produced, so a release that stopped generating it
+        // would publish binaries with no attribution.
+        name: "check-attribution-owner",
+        description: "no committed ATTRIBUTION.md, and release.yml generates the attribution asset",
         kind: Kind::Hygiene(Reads::Code),
-        run: attribution::run_check,
+        falsifier: Falsifier::declared_in_programme(),
+        run: attribution::run_check_owner,
     },
     Task {
         // Beside the boundary gate because it is the same principle in the same shape: a rule from
@@ -187,6 +239,7 @@ const TASKS: &[Task] = &[
         name: "check-serde-parse",
         description: "a validated newtype's serde goes through its constructor, both ways",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: serde_parse::run,
     },
     Task {
@@ -194,8 +247,9 @@ const TASKS: &[Task] = &[
         // same kind of check - and this one is about the ERROR principle rather than the newtype
         // one. Name coverage is narrower than proving a test actually provokes the refusal.
         name: "check-refusal-coverage",
-        description: "every variant of the 3 ENROLLED refusal enums is named, or separately excused with a date and reason",
+        description: "every variant of an enrolled refusal enum is named, or separately excused with a date and reason",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: refusals::run,
     },
     Task {
@@ -206,6 +260,7 @@ const TASKS: &[Task] = &[
         name: "check-feature-remedies",
         description: "a refusal that says to rebuild names a feature the crate declares",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: feature_remedies::run,
     },
     Task {
@@ -213,9 +268,23 @@ const TASKS: &[Task] = &[
         // GREEN - there was no first-party `Deref` and no `Borrow` in the tree when it was written
         // - so its whole job is to keep it that way, which makes it the cheapest gate here and the
         // one most likely to earn its keep years from now.
+        //
+        // The falsifier here is the #371 proof case (`telekom/sutura#371`): before it, the shared
+        // tree carried NO `.rs` file, so `run()` refused on its `scanned == 0` empty-scan floor
+        // and never on the Deref rule - which is how a real-finding `Fail -> Pass` flip stayed
+        // green (FlexGateVerify's item 5, measured live). The seed is a REAL first-party `impl
+        // Deref`, so the refusal here must come from this gate's own rule, and the in-scope
+        // proviso names the seeded file so a subject that never entered the scan is not accepted.
         name: "check-newtype-leaks",
         description: "no first-party Deref or Borrow - both leak a newtype's invariant",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[(
+                "src/leaky.rs",
+                "struct Digest(String);\nimpl core::ops::Deref for Digest {\n    type Target = str;\n}\n",
+            )],
+            in_scope: Some("src/leaky.rs"),
+        },
         run: newtype_leaks::run,
     },
     Task {
@@ -227,6 +296,7 @@ const TASKS: &[Task] = &[
         name: "check-boot-order",
         description: "the pre-flight runs after the credential and before the transport",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: boot_order::run,
     },
     Task {
@@ -237,6 +307,7 @@ const TASKS: &[Task] = &[
         name: "check-one-bound",
         description: "one composition root builds one execution bound, and a transport builds none",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: one_bound::run,
     },
     Task {
@@ -251,6 +322,7 @@ const TASKS: &[Task] = &[
         name: "check-bounded-wait",
         description: "one place in the compose tier can be blocked by a child process",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: bounded_wait::run,
     },
     Task {
@@ -263,6 +335,10 @@ const TASKS: &[Task] = &[
         name: "check-worktree-state",
         description: "no test or gate writes to a path a second worktree also reaches",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[],
+            in_scope: Some("nix/shared-scratch.sh"),
+        },
         run: worktree_state::run,
     },
     Task {
@@ -277,24 +353,34 @@ const TASKS: &[Task] = &[
         name: "check-conformance-bindings",
         description: "every registered data system is bound to the conformance packs, or declared unbound",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: conformance::run,
     },
     Task {
         name: "line-endings",
         description: "every text file uses LF, not CRLF",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier {
+            seeds: &[],
+            in_scope: Some("carriage-return.txt"),
+        },
         run: line_endings::run,
     },
     Task {
         name: "text-hygiene",
         description: "conflict markers, whitespace, final newline, file size; --fix",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier {
+            seeds: &[],
+            in_scope: Some("carriage-return.txt"),
+        },
         run: text::run,
     },
     Task {
         name: "check-skills",
         description: "the skill router and the skill tree agree",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: skills::run,
     },
     Task {
@@ -305,6 +391,7 @@ const TASKS: &[Task] = &[
         name: "check-scope",
         description: "a narrowed just recipe prints the scope it covered",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: tasks::run,
     },
     Task {
@@ -315,6 +402,7 @@ const TASKS: &[Task] = &[
         name: "check-inconclusive",
         description: "every venue invoking a gate that can answer INCONCLUSIVE handles exit 3",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: inconclusive::run,
     },
     Task {
@@ -325,6 +413,7 @@ const TASKS: &[Task] = &[
         name: "check-hook-tiers",
         description: "the pre-push stage runs only the security checks, and compiles nothing",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: hooks::run,
     },
     Task {
@@ -337,12 +426,14 @@ const TASKS: &[Task] = &[
         name: "check-devenv-shell",
         description: "every devenv script body goes through the wrapper ShellCheck reads",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: devenv_shell::run,
     },
     Task {
         name: "check-guidance",
         description: "docs and comments still describe this repo",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier::declared_in_programme(),
         run: guidance::run,
     },
     Task {
@@ -352,18 +443,21 @@ const TASKS: &[Task] = &[
         name: "check-venues",
         description: "every identity claim's venue states its limit, and the acceptance job holds it",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier::declared_in_programme(),
         run: venues::run,
     },
     Task {
         name: "check-workflows",
         description: "every flake output a workflow names exists",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: workflows::run,
     },
     Task {
         name: "check-docs",
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier::declared_in_programme(),
         run: docs::run,
     },
     Task {
@@ -374,6 +468,7 @@ const TASKS: &[Task] = &[
         name: "check-api-links",
         description: "no page under docs/api links to a Rust path",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier::declared_in_programme(),
         run: api_links::run,
     },
     Task {
@@ -382,6 +477,7 @@ const TASKS: &[Task] = &[
         name: "check-examples",
         description: "every directory under examples/ is reached by a test",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: examples::run,
     },
     Task {
@@ -392,6 +488,7 @@ const TASKS: &[Task] = &[
         name: "check-gate-classification",
         description: "every hygiene gate is in exactly one of the plan's two groups",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier::declared_in_programme(),
         run: gate_classification::run,
     },
     Task {
@@ -401,6 +498,7 @@ const TASKS: &[Task] = &[
         name: "check-expect-thresholds",
         description: "no #[expect] on a count-threshold lint (too_many_lines / too_many_arguments / cognitive_complexity)",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: threshold_expect::run,
     },
     Task {
@@ -411,6 +509,7 @@ const TASKS: &[Task] = &[
         name: "check-crap",
         description: "the CRAP policy is a gate, its allowlist annotated, its scope real",
         kind: Kind::Hygiene(Reads::Prose),
+        falsifier: Falsifier::declared_in_programme(),
         run: crap::run_check,
     },
     Task {
@@ -421,6 +520,7 @@ const TASKS: &[Task] = &[
         name: "crap",
         description: "CRAP score over the scoped crates (COMPILES; needs llvm-cov and crap)",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: crap::run,
     },
     Task {
@@ -435,18 +535,21 @@ const TASKS: &[Task] = &[
         name: "crap-delta",
         description: "did the CHANGE make anything worse; --baseline <F> --head <F> [--comment <F>]",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: crap::run_delta,
     },
     Task {
         name: "commit-msg",
         description: "the commit subject is a conventional commit (the hook passes the file)",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: commit_msg::run,
     },
     Task {
         name: "classify",
         description: "what a diff requires; --since <ref>, or paths (fails open)",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: changes::run_classify,
     },
     Task {
@@ -461,18 +564,21 @@ const TASKS: &[Task] = &[
         name: "hook-coverage",
         description: "what a diff-scoped hook run left uninspected; --since <ref> [--log <stage>:<path>]... [--ran <task>]... [--surface-tasks]",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: hook_coverage::run,
     },
     Task {
         name: "changed-packages",
         description: "the cargo packages owning the given .rs paths",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: changes::run_changed_packages,
     },
     Task {
         name: "check-changed",
         description: "cargo check, narrowed to the packages that changed",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: changes::run_check_changed,
     },
     Task {
@@ -485,27 +591,35 @@ const TASKS: &[Task] = &[
         name: "check-api-docs",
         description: "docs/api/*.md is what the generator produces (NIGHTLY; compiles)",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: api_docs::run,
     },
     Task {
-        // The BYTE-COMPARE half, and `check-api-docs` is the shape it copies including why it is
-        // not in the hygiene sweep: it needs an input the nix sandbox has not got - a compiler
-        // there, a resolvable registry here. It exists because a review found that the offline gate
-        // could only see that a licence cell was non-empty, so the main content of a generated
-        // artefact was trusted rather than compared.
-        name: "check-attribution-current",
-        description: "ATTRIBUTION.md is what the generator produces (needs a resolvable registry)",
+        // `check-api-docs` is the shape it copies including why it is not in the hygiene sweep: it
+        // needs an input the nix sandbox has not got - a compiler there, a resolvable registry
+        // here. **It cannot byte-compare, because nothing is committed to compare against**, so
+        // the oracle is the disagreement between two independent inputs: `Cargo.lock` decides the
+        // package set and `cargo metadata` supplies the licences. It refuses a crate that declares
+        // no licence, which the generator used to print and pass.
+        name: "check-attribution",
+        description: "a generation names every third-party crate in Cargo.lock with a declared licence (needs a resolvable registry)",
         kind: Kind::Standalone,
-        run: attribution::run_check_current,
+        falsifier: Falsifier::declared_in_programme(),
+        run: attribution::run_check,
     },
     Task {
         // NOT `Kind::Hygiene`, and for `check-api-docs`' reason rather than its own: it invokes
         // `cargo metadata`, which needs a resolvable registry, and the hygiene sweep runs inside a
-        // nix sandbox with no network. `check-attribution` above is the half that runs everywhere,
-        // and it reads `Cargo.lock` precisely so it can.
+        // nix sandbox with no network. `check-attribution-owner` is the half that runs everywhere,
+        // and it reads a path's absence precisely so it can.
+        //
+        // Takes an optional destination, because there are two callers and neither wants a
+        // committed file: `just attribution` uses the default under `/target`, and `release.yml`
+        // names the release's own asset directory.
         name: "attribution",
-        description: "regenerate ATTRIBUTION.md from cargo metadata (needs a resolvable registry)",
+        description: "write the attribution document from cargo metadata (needs a resolvable registry)",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: attribution::run_generate,
     },
     Task {
@@ -517,12 +631,14 @@ const TASKS: &[Task] = &[
         name: "action-shell",
         description: "extract every composite action's shell into a directory, for shellcheck",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: action_shell::run,
     },
     Task {
         name: "collect-provenance",
         description: "export five release attestation bundles after exact subject-set checks",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: release_provenance::run,
     },
     Task {
@@ -535,24 +651,28 @@ const TASKS: &[Task] = &[
         name: "check-devenv-linter",
         description: "the devenv wrapper's checkPhase still runs bash -n and a store shellcheck; <store-path>",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: devenv_linter::run,
     },
     Task {
         name: "fmt",
         description: "cargo fmt, scoped to our packages (--check to verify)",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: fmt::run,
     },
     Task {
         name: "check-fuzz",
         description: "every fuzz target is declared, seeded, and run by the workflow",
         kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier::declared_in_programme(),
         run: fuzz::run,
     },
     Task {
         name: "hygiene",
         description: "every cheap structural gate, in order (the one list)",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: run_hygiene,
     },
     Task {
@@ -565,18 +685,21 @@ const TASKS: &[Task] = &[
         name: "dev-up",
         description: "this worktree's services, on ephemeral ports, with a discovery file (needs docker)",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: compose::run_up,
     },
     Task {
         name: "dev-down",
         description: "remove this worktree's services and volumes; --dry-run says what it would take",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: compose::run_down,
     },
     Task {
         name: "dev-endpoints",
         description: "where this worktree's services are listening, from the discovery file",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: compose::run_endpoints,
     },
     Task {
@@ -587,6 +710,7 @@ const TASKS: &[Task] = &[
         name: "dev-endpoint",
         description: "one service's host:port on stdout, for a shell to substitute; <service>",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: compose::run_endpoint,
     },
     Task {
@@ -598,12 +722,14 @@ const TASKS: &[Task] = &[
         name: "clean-branches",
         description: "branches and worktrees whose work has landed; DRY RUN unless --delete",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: branches::run,
     },
     Task {
         name: "test-causality",
         description: "a changed test is red on base, green on head; --since <ref>",
         kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
         run: causality::run,
     },
 ];
@@ -679,6 +805,15 @@ fn usage() {
     }
     eprintln!();
     eprintln!(". = run together by `cargo xtask hygiene`");
+    eprintln!(
+        "{} of {} hygiene gate(s) have a written own-rule falsifier; the rest await the per-gate \
+         seed programme (`telekom/sutura#371`)",
+        TASKS
+            .iter()
+            .filter(|t| matches!(t.kind, Kind::Hygiene(_)) && t.falsifier.in_scope.is_some())
+            .count(),
+        TASKS.iter().filter(|t| matches!(t.kind, Kind::Hygiene(_))).count()
+    );
 }
 
 /// `cargo metadata` as JSON, with `extra` appended (for example `--no-deps`).
@@ -852,87 +987,6 @@ mod tests {
             packages
                 .iter()
                 .any(|p| p.get("name").and_then(|n| n.as_str()) == Some("xtask"))
-        );
-    }
-
-    #[test]
-    fn every_registered_hygiene_gate_refuses_a_tree_it_cannot_attest() {
-        use std::process::ExitCode;
-
-        // EVERY GATE IN THE TABLE, EXECUTED AGAINST A TREE IT MUST REFUSE -
-        // `github.com/telekom/sutura#371`. `crate::falsifier` carries the tree and the argument
-        // for its shape; what this adds is that the gates are reached through the FN POINTER out
-        // of `TASKS` and judged by the EXIT CODE. Membership is the table, so nothing opts out.
-        //
-        // HELD, NOT WISHED - the first version got that wrong in the change whose subject it is.
-        // `set_current_dir` is process-global: measured, `cargo test -p xtask --bin xtask` went
-        // from `917 passed` to `907 passed; 11 failed`, the eleven every real-tree anchor
-        // resolving through `repo::root`, whose walk reads the current directory first.
-        // `AGENTS.md` bans a bare `cargo clippy` and `cargo nextest`, NOT `cargo test`, so
-        // "correct under nextest" was a sentence. nextest gives each test its own process and sets
-        // `NEXTEST`; refusing without it fails before the directory moves.
-        assert!(
-            std::env::var_os("NEXTEST").is_some(),
-            "this test moves the process's current directory, so it must have the process to \
-             itself: run it under `just test`, which is cargo-nextest and one process per test. \
-             Under `cargo test`'s threads it breaks every sibling resolving a path through \
-             `repo::root` - 11 of them, measured."
-        );
-
-        let tree = crate::falsifier::falsifier_tree();
-        let original = std::env::current_dir().expect("a current directory");
-        std::env::set_current_dir(&tree).expect("point the process at the falsifier tree");
-
-        let mut executed: Vec<&str> = Vec::new();
-        let mut attested: Vec<&str> = Vec::new();
-        for task in TASKS {
-            if !matches!(task.kind, super::Kind::Hygiene(_)) {
-                continue;
-            }
-            let verdict = (task.run)(&[]);
-            executed.push(task.name);
-            // `Fail`'s code, not merely "not SUCCESS": `Usage` is 2 and `Inconclusive` is 3, and
-            // the second exists here precisely because *could not measure* is not a clean bill.
-            // All 31 answer `Fail` today, so the stricter form is live rather than aspirational.
-            if format!("{:?}", verdict.exit_code()) != format!("{:?}", ExitCode::FAILURE) {
-                attested.push(task.name);
-            }
-        }
-
-        // Restored before any assertion, so a failure cannot leave a wrong directory behind.
-        std::env::set_current_dir(&original).expect("restore the current directory");
-        drop(std::fs::remove_dir_all(&tree));
-
-        // THE FLOOR IS A SET OF NAMES AND ITS OTHER SIDE IS `hygiene_gates`. Two counts off two
-        // spellings of one expression are two enforcers of one key: measured, `.take(18)` on BOTH
-        // left the previous version green with 13 gates unexecuted. `hygiene_gates` is the
-        // registry's other reader - `check-gate-classification` reconciles it against the
-        // implementation plan's two tables, both directions - so narrowing it to hide a narrowed
-        // loop reddens that gate instead. The hand-written anchor list this replaces was #371's
-        // own defect 8: red when a name joins the list, green when one is left out of it.
-        let registered: Vec<&str> = super::hygiene_gates().map(|(name, _)| name).collect();
-        assert!(
-            !registered.is_empty(),
-            "the sweep registers no gate - this test judged nothing"
-        );
-        assert_eq!(
-            executed, registered,
-            "the gates this test executed are not the gates the sweep registers - one it skipped \
-             is one it says nothing about"
-        );
-
-        assert_eq!(
-            attested,
-            Vec::<&str>::new(),
-            "{} of {} gate(s) did not FAIL over a tree that is not this repository. A gate that \
-             cannot be made to fail is a gate whose green says nothing - `github.com/telekom/\
-             sutura#371`. WHICH REMEDY IS RIGHT DEPENDS ON THE GATE'S SUBJECT. If that subject is \
-             every text file in the tree, absence is a legitimate pass and nothing is wrong with \
-             the gate: seed a violation into `falsifier_tree`, whose doc carries the argument. \
-             Otherwise the gate needs a floor over what it actually read, or a refusal on the input \
-             whose absence makes its other rules vacuous.",
-            attested.len(),
-            registered.len()
         );
     }
 }

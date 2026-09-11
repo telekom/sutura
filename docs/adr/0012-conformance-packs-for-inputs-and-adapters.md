@@ -215,15 +215,37 @@ reddens it naming `row 0, column 2 (amount_total)` - so *the execute packs canno
 defect* is exactly backwards about the built harness. The stronger behaviour is the right call, and
 correcting the record matters because the sentence would otherwise be cited to justify dropping it.
 
-**What the re-sort actually existed for has not gone away, and this is the open decision.** A source
-executes the plan's `ORDER BY` under its own **collation** and its own **NULL placement**, neither of
-which the plan states. The built corpus avoids the question - all-lowercase ASCII keys with distinct
-first letters, no null in a group key - which is weaker than deciding it, and says so about itself.
-So: **`agree_on_order` governs, and a case whose order a source could legitimately answer differently
-may not be asserted on order.** The packs have no field for that today; every case is compared both
-ways. Building it is the corpus branch's, and it must land WITH the null-in-a-group-key case rather
-than after it - otherwise the first such case reports a source's collation as a conformance failure.
-The per-source row snapshot in `sutura-app/tests` remains the place a collation difference is a diff a
+**Half of what the re-sort existed for is now DECIDED and the other half is still open, and this
+record used to state them as one.** The sentence was: a source executes the plan's `ORDER BY` under
+its own **collation** and its own **NULL placement**, *"neither of which the plan states"*. That is
+now false about the second of them, so the per-case opt-out this record asked the corpus branch to
+build alongside the null case **is not built and is not owed**.
+
+**NULL placement IS stated, and uniformly: `ASC NULLS LAST`.** `sutura_sql`'s `ordered_nulls_last`
+puts it in the AST for every dialect and `every_order_by_states_nulls_last` holds it there;
+`sutura-exec-datafusion` renders no SQL at all and reaches the same placement, because
+`LogicalPlanBuilder::sort_by` is `Expr::sort(true, false)`. So there is no case whose null order a
+conforming source may legitimately answer differently, and the null-in-a-group-key case lands on
+its own with the null group expected LAST.
+
+**What that case detects is NOT our statement of the placement, and the record should not be read
+as claiming it is.** Measured: the layer collapses `NULLS LAST` away for every target whose default
+is already nulls-last, so deleting `nulls_first: Some(false)` leaves `DuckDB`'s and Postgres's
+rendered SQL **byte-identical** and changes only `BigQuery`'s text - and `BigQuery` has no
+`execute_packs!` binding, so no corpus cell executes it. Our statement of the placement is held by
+`every_order_by_states_nulls_last`, over the AST, which is the right venue for a rendering
+decision.
+
+**Two things the case does buy.** `Behaviour::Order` over a null key pins the three bound engines'
+own default null ordering - most usefully `datafusion`'s, which a version bump could change with no
+diff of ours, so this is a dependency regression detector rather than a check on first-party code.
+`Behaviour::Content` over the same row is first-party: a null key must be a GROUP and not a row a
+join or a filter dropped.
+
+**COLLATION is still open, and the corpus still avoids it** - all-lowercase ASCII keys with distinct
+first letters. A case whose TEXT order a source could legitimately answer differently would still
+need the field the packs do not have, and would still report a locale as a conformance failure. The
+per-source row snapshot in `sutura-app/tests` remains the place a collation difference is a diff a
 reviewer reads rather than a red cell.
 
 ### Cases the corpus must contain by name, because nothing else finds them
@@ -433,3 +455,15 @@ declaration. Neither touches a pack body, and that is the property the requireme
   YAML, which is the quiet way a new adapter ends up conformance-tested locally and untested in CI.
 - Compile packs make the semantic compiler testable against N catalogs with no data system, which is
   the tier most of the value lives in and the one that can run on every push.
+- **The compile packs live behind a default-off `compile` feature of the harness crate.** They need
+  `sutura-semantic` and `sutura-sql` - two crates the harness is otherwise forbidden from reaching,
+  because crossing to them would let a pack body be written against something concrete. Growing them
+  unconditionally would break the portability contract `crates/sutura-conformance/src/corpus.rs`
+  states - a pack can be bound to an adapter without acquiring a catalog adapter, the compiler or the
+  renderer - and would add the compiler+renderer+dialect closure to data adapters' test builds, most
+  materially `sutura-exec-datafusion`, whose test build links neither today. So the manifest names an
+  empty `default`, a `compile` feature carrying exactly the three dependencies
+  (`sutura-semantic`, `sutura-sql`, `serde_json`), and `xtask/src/boundaries/harness.rs`'s harness
+  gate holds the shape: the default-feature walk keeps the closure to the interior, a `compile_feature`
+  check refuses `default = ["compile"]`, and the `--all-features` lanes of `just test`/`just lint`
+  build and run the compile cells, so neither direction is a switch nobody flips.

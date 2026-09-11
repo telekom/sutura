@@ -7,9 +7,9 @@
 # GCP credential is needed. Pushes each output with the `gh` CLI, which must be installed and
 # authenticated with write access to the repo's chosen environment.
 #
-# No value is ever printed: the secret keys are base64-decoded (pulumi `-j` encodes secret outputs)
-# into files under a mode-0600 temp dir that a trap removes, and `gh secret set` reads them from
-# stdin.
+# No SECRET value is ever printed: each is written into a file under a mode-0600 temp dir that a
+# trap removes, and `gh secret set` reads it from stdin rather than from an argv. A var's value IS
+# printed, which is part of why the three identity names below are secrets.
 #
 # Usage (from this directory):
 #   STACK=sutura-test BQ_TEST_ENV=bq-test \
@@ -43,18 +43,31 @@ def need(*names):
               + "; run `just infra-up` first", file=sys.stderr)
         sys.exit(1)
 
-# Secret keys: pulumi `-j` base64-encodes secret outputs, so decode each to a key document file.
+# The three service-account keys, plus the three values that NAME an identity in the acceptance
+# project. Secrets rather than vars for the identity names too: they are not credential material,
+# and they are still identifiers of that project and of two accounts in it, which a job log and a
+# `gh variable list` must not carry. The var loop below prints every value it sets; this one prints
+# none, and `gh secret set` reads each from stdin rather than from an argv the process table shows.
 SECRETS = {
     "SVC_SUTURUA_BQ_CI": "ci_key",
     "SVC_SUTURUA_BQ_PRINCIPAL_A": "principal_a_key",
     "SVC_SUTURUA_BQ_PRINCIPAL_B": "principal_b_key",
+    "SUTURA_BQ_WORKLOAD_AUDIENCE": "workload_audience",
+    "SUTURA_BQ_PRINCIPAL_A_EMAIL": "principal_a_email",
+    "SUTURA_BQ_PRINCIPAL_B_EMAIL": "principal_b_email",
 }
+# Which of those stack outputs is a key document: pulumi `-j` base64-encodes a `secret` output, so
+# those three decode to a JSON document and the other three are plain strings pushed as they are.
+KEY_DOCS = {"ci_key", "principal_a_key", "principal_b_key"}
 need(*SECRETS.values())
 paths = {}
 for gh_name, out in SECRETS.items():
-    f = f"{tmp}/k-{gh_name}.json"
-    doc = base64.b64decode(d[out]).decode("utf-8")
-    json.loads(doc)  # must be a service-account key document; refuse anything else
+    f = f"{tmp}/gh-{gh_name}"
+    if out in KEY_DOCS:
+        doc = base64.b64decode(d[out]).decode("utf-8")
+        json.loads(doc)  # must be a service-account key document; refuse anything else
+    else:
+        doc = str(d[out])
     open(f, "w", encoding="utf-8").write(doc)
     paths[gh_name] = f
 
@@ -67,9 +80,6 @@ for gh_name, f in paths.items():
 VARS = {
     "SUTURA_BQ_DATASET": "ci_dataset",
     "SUTURA_BQ_TABLE": "ci_table",
-    "SUTURA_BQ_WORKLOAD_AUDIENCE": "workload_audience",
-    "SUTURA_BQ_PRINCIPAL_A_EMAIL": "principal_a_email",
-    "SUTURA_BQ_PRINCIPAL_B_EMAIL": "principal_b_email",
     # The five the two-principal cell has to be pointed at: the policied dataset and table, the
     # column the two row access policies filter on, and the grouping value each policy grants. Vars
     # rather than secrets: none of them is credential material, and the cell's own workflow step

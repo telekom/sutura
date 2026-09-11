@@ -1,0 +1,237 @@
+# WHICH INPUTS EACH PINNED THIRD-PARTY ACTION DECLARES. Held by `cargo xtask check-workflows`
+# (xtask/src/workflows/with_keys.rs).
+#
+# WHY THIS FILE EXISTS. A `with:` key an action does not declare is not an error on the runner. It
+# is `##[warning]Unexpected input(s) '<key>', valid inputs are [...]` and then the action's own
+# DEFAULT for the input the author meant - so the step is green, the log carries the only witness,
+# and the entry looks configured. `.github/actions/causality-target-cache` passed `path:` to
+# `nix-community/cache-nix-action`, whose input is `paths:`, for 21 runs: the action took its
+# default path list and cached a second copy of the Nix store instead of the target directory the
+# key named. Nothing in this repository read that warning, and nothing could.
+#
+# WHY A RECORD RATHER THAN A LOOKUP. The gate runs inside a nix derivation with no network, so it
+# cannot fetch an action's manifest. It also does not need to: an input list is a property of a
+# COMMIT, and every `uses:` here is pinned to a full sha. So an entry cannot rot while its pin
+# holds - and when a pin moves, the sha below stops matching and the gate fails closed until
+# somebody re-reads the new manifest. That refresh is the review moment this record buys.
+#
+# HOW TO REFRESH ONE ENTRY. Read the top-level `inputs:` keys of `action.yml` (or `action.yaml`) at
+# the new sha - `https://raw.githubusercontent.com/<owner>/<repo>/<sha>/action.yml` answers 200 for
+# a public action with no credential - and replace that block. Nothing is derived: the names below
+# are the manifest's own keys, in the manifest's own order.
+#
+# READ ON 2026-09-10, each from the sha it is filed under.
+#
+# WHAT THIS RECORD CANNOT SAY, next to the claim:
+#
+#   * NOT that a value is right. `paths: target/causality-target` and `paths: /dev/null` are the
+#     same shape to this record. It holds the KEY set and nothing about meaning.
+#   * NOT that a required input is present. An action declares `required:` per input and this
+#     record drops that column deliberately: the runner enforces it, loudly, on the run.
+#   * NOT the local composite actions under `.github/actions`. Their inputs are declared in this
+#     repository, so a wrong key there is a diff a reviewer sees and `actionlint` already
+#     validates them from the tree. The gap this closes is the actions whose manifest is NOT here.
+#   * NOT reusable workflows (`<owner>/<repo>/.github/workflows/<file>@<ref>`). Those take `with:`
+#     against a `workflow_call` input block, a different oracle, and this repository calls none.
+#   * NOT whether `actionlint` would have caught it. It ships a metadata set for the popular
+#     actions and validates local ones; it knew nothing about the action that shipped the defect,
+#     which is the whole reason this record is committed rather than assumed.
+#
+# FORMAT: a line at column zero is `<owner>/<repo>@<sha>`; the indented lines under it are that
+# sha's declared input names. Blank lines and `#` comments are ignored.
+
+DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+  use-gha-cache
+  listen
+  upstream-cache
+  diagnostic-endpoint
+  use-flakehub
+  flakehub-cache-server
+  flakehub-api-server
+  flakehub-flake-name
+  startup-notification-port
+  diff-store
+  source-binary
+  source-branch
+  source-pr
+  source-revision
+  source-tag
+  source-url
+  _internal-strict-mode
+
+actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+  subject-path
+  subject-digest
+  subject-name
+  subject-checksums
+  predicate-type
+  predicate
+  predicate-path
+  push-to-registry
+  create-storage-record
+  show-summary
+  github-token
+
+actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+  repository
+  ref
+  token
+  ssh-key
+  ssh-known-hosts
+  ssh-strict
+  ssh-user
+  persist-credentials
+  path
+  clean
+  filter
+  sparse-checkout
+  sparse-checkout-cone-mode
+  fetch-depth
+  fetch-tags
+  show-progress
+  lfs
+  submodules
+  set-safe-directory
+  github-server-url
+  allow-unsafe-pr-checkout
+
+actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+  client-id
+  app-id
+  private-key
+  owner
+  repositories
+  enterprise
+  skip-token-revoke
+  github-api-url
+  permission-actions
+  permission-administration
+  permission-artifact-metadata
+  permission-attestations
+  permission-checks
+  permission-codespaces
+  permission-contents
+  permission-custom-properties-for-organizations
+  permission-dependabot-secrets
+  permission-deployments
+  permission-discussions
+  permission-email-addresses
+  permission-enterprise-custom-properties-for-organizations
+  permission-environments
+  permission-followers
+  permission-git-ssh-keys
+  permission-gpg-keys
+  permission-interaction-limits
+  permission-issues
+  permission-members
+  permission-merge-queues
+  permission-metadata
+  permission-organization-administration
+  permission-organization-announcement-banners
+  permission-organization-copilot-seat-management
+  permission-organization-custom-org-roles
+  permission-organization-custom-properties
+  permission-organization-custom-roles
+  permission-organization-events
+  permission-organization-hooks
+  permission-organization-packages
+  permission-organization-personal-access-token-requests
+  permission-organization-personal-access-tokens
+  permission-organization-plan
+  permission-organization-projects
+  permission-organization-secrets
+  permission-organization-self-hosted-runners
+  permission-organization-user-blocking
+  permission-packages
+  permission-pages
+  permission-profile
+  permission-pull-requests
+  permission-repository-custom-properties
+  permission-repository-hooks
+  permission-repository-projects
+  permission-secret-scanning-alerts
+  permission-secrets
+  permission-security-events
+  permission-single-file
+  permission-starring
+  permission-statuses
+  permission-team-discussions
+  permission-vulnerability-alerts
+  permission-workflows
+
+actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+  name
+  artifact-ids
+  path
+  pattern
+  merge-multiple
+  github-token
+  repository
+  run-id
+  skip-decompress
+  digest-mismatch
+
+actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+  name
+  path
+  if-no-files-found
+  retention-days
+  compression-level
+  overwrite
+  include-hidden-files
+  archive
+
+cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866
+  name
+  extraPullNames
+  authToken
+  signingKey
+  skipPush
+  useDaemon
+  pathsToPush
+  pushFilter
+  skipAddingSubstituter
+  cachixArgs
+  cachixBin
+  installCommand
+
+cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+  extra_nix_config
+  github_access_token
+  install_url
+  install_options
+  nix_path
+  enable_kvm
+  set_as_trusted_user
+
+nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569
+  primary-key
+  restore-prefixes-first-match
+  restore-prefixes-all-matches
+  lookup-only
+  fail-on
+  nix
+  save
+  paths
+  paths-macos
+  paths-linux
+  backend
+  gc-max-store-size
+  gc-max-store-size-macos
+  gc-max-store-size-linux
+  purge
+  purge-primary-key
+  purge-prefixes
+  purge-last-accessed
+  purge-created
+  upload-chunk-size
+  token
+
+ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc
+  results_file
+  results_format
+  repo_token
+  publish_results
+  file_mode
+  internal_publish_base_url
+  internal_default_token

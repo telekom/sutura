@@ -337,8 +337,15 @@ runs:
           # WITHOUT THE TAG. `subject-name` is what `gh attestation verify oci://...` looks the
           # attestation up by, and a name carrying `:0.2.0-serve` would attest a tag rather than
           # a repository - so the reference is stripped at the `@` and then at the tag's `:`.
-          # `%:*` is the shortest suffix from the LAST colon, which leaves a `host:port` prefix
-          # intact.
+          # `%:*` is the shortest suffix from the LAST colon. MEASURED, because the claim that
+          # used to stand here - that it leaves a `host:port` prefix intact - is true only when a
+          # tag is present: over `ghcr.io:5000/telekom/sutura:0.5.1` it yields
+          # `ghcr.io:5000/telekom/sutura`, and over the UNTAGGED shape the release actually writes,
+          # `ghcr.io:5000/telekom/sutura`, it yields `ghcr.io`. So the strip is safe for the one
+          # reference this step ever sees - an unported registry, no tag - and a ported registry
+          # would over-strip here while `release_provenance`'s reader would not. That disagreement
+          # is caught, not silent: the collector compares this name against the attested subject
+          # set exactly, and a mismatch is a refusal. It fires on a tag, which is the limit.
           repo="${ref%@*}"
           repo="${repo%:*}"
           key="$(printf '%s' "$variant" | tr '-' '_')"

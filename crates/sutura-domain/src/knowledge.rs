@@ -200,9 +200,9 @@ fn collapse_spacing(raw: &str) -> String {
 /// sections apart, about what a reader sees as one word. So the authored spelling is kept as the
 /// value everywhere, and this is what the index is keyed on.
 ///
-/// A free function rather than a method, for the reason [`super::bundle::identifier_shape`] gives:
-/// the only legitimate use of the result is to notice that two documents disagree, and a phrase
-/// should not offer to fold its own case for anybody else.
+/// A free function rather than a method, for the reason [`bundle::identifier_shape`] gives: the
+/// only legitimate use of the result is to notice that two documents disagree, and a phrase should
+/// not offer to fold its own case for anybody else.
 pub(super) fn phrase_identity(phrase: &Phrase) -> String {
     collapse_spacing(&phrase.as_str().to_lowercase())
 }

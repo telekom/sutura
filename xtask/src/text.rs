@@ -220,73 +220,114 @@ pub(crate) fn fixed(path: &str, text: &str) -> String {
 /// One file and everything wrong with it.
 type Offender = (String, Vec<Finding>);
 
+/// A symlink stored as a pointer file has no trailing newline, because a symlink target does not.
+///
+/// Where git is available these never reach the walk; where it is not, this is what stops it
+/// failing them. See [`repo::INDEX_SYMLINKS`]. A [`repo::Scope`], so it is a bare `fn` with
+/// nothing captured - it cannot count its subjects and it is not handed the content.
+fn not_an_index_symlink(rel: &str) -> bool {
+    !repo::is_index_symlink(rel)
+}
+
 /// `xtask text-hygiene [--fix]` - the hook and formatter entry point.
 pub(crate) fn run(args: &[String]) -> Verdict {
     let fix = args.iter().any(|a| a == "--fix");
 
-    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::TextHygiene)) {
-        Ok(listing) => listing,
+    // `Census::inspect` RATHER THAN `into_listing`, WHICH IS `github.com/telekom/sutura#412`
+    // ITSELF. What stood here was:
+    //
+    //     if repo::is_text_file(&path) && let Ok(text) = std::fs::read_to_string(&path)
+    //
+    // and `repo::is_text_file` OPENS THE FILE, so a file this gate is meant to read and cannot
+    // fails the FIRST test: it recorded no finding, `checked` never incremented, and the verdict
+    // printed `ok - N text file(s) checked` with N one lower than the tree. The only tell was a
+    // number nothing compared - and it could not be that tell, because `checked` was incremented
+    // by the very loop the drop happened in. `chmod 000 devenv.nix` left `ok - 1150 text file(s)`
+    // at exit 0, measured in #402.
+    //
+    // **The read is the census's now, and it is the same migration `crate::line_endings` already
+    // took** - deliberately the same rather than a second pattern, since these two gates read one
+    // listing and a second answer to *is this file readable* is how the two could disagree. A
+    // subject in scope is one `inspect` opened, so an unreadable file is a `Refusal::Unreachable`
+    // this gate has no arm to downgrade, and textness is decided from the bytes already in hand
+    // rather than by re-opening the file to ask.
+    let census = match repo::all_files() {
+        Ok(census) => census,
         Err(why) => {
             eprintln!("xtask text-hygiene: FAILED - {}", why.describe());
             return Verdict::Fail;
         }
+    };
+    let Some(root) = repo::root() else {
+        eprintln!("xtask text-hygiene: FAILED - no repository root");
+        return Verdict::Fail;
     };
 
     let mut offenders: Vec<Offender> = Vec::new();
     let mut fixed_count = 0_usize;
     let mut checked = 0_usize;
 
-    for rel in files {
-        // A symlink stored as a pointer file has no trailing newline, because a symlink
-        // target does not. Where git is available these never reach here; where it is not,
-        // this is what stops the walk from failing them. See repo::INDEX_SYMLINKS.
-        if repo::is_index_symlink(&rel) {
-            continue;
-        }
-        let path = root.join(&rel);
-
-        // The size check applies to every file, text or not: a 40 MB binary in git is the
-        // problem this catches.
+    let scope: repo::Scope = not_an_index_symlink;
+    let anchored = census.inspect(&["flake.nix"], scope, |rel, bytes| {
+        // The size check applies to every file, text or not: a 40 MB binary in git is the problem
+        // it catches. Taken from the bytes the census already read rather than from a second
+        // `metadata` call - one read, one answer, and no window in which the two disagree.
         let mut findings = Vec::new();
-        if let Ok(meta) = std::fs::metadata(&path)
-            && meta.len() > MAX_BYTES
-        {
-            findings.push(Finding::TooLarge(meta.len()));
+        let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        if size > MAX_BYTES {
+            findings.push(Finding::TooLarge(size));
         }
 
-        if repo::is_text_file(&path)
-            && let Ok(text) = std::fs::read_to_string(&path)
-        {
-            {
-                checked += 1;
-                findings.extend(inspect(&rel, &text));
+        // Textness from the bytes in hand. `looks_like_text` cannot conflate *not text* with
+        // *could not look*, which `is_text_file` did by construction - and a binary file is still
+        // out of this half's scope, which is the trap #412 names: `check-shipped-binaries`
+        // reddened a correct tree because a PNG is out of scope rather than unreadable.
+        if repo::looks_like_text(bytes) {
+            // Lossy rather than a UTF-8 read: a file the census opened is one this gate judges,
+            // and turning a decode failure back into an unread file rebuilds the drop.
+            let text = String::from_utf8_lossy(bytes);
+            checked = checked.saturating_add(1);
+            findings.extend(inspect(rel, &text));
 
-                if fix && findings.iter().any(Finding::fixable) {
-                    let repaired = fixed(&rel, &text);
-                    if repaired != text {
-                        match std::fs::write(&path, repaired.as_bytes()) {
-                            Ok(()) => {
-                                fixed_count += 1;
-                                findings.retain(|f| !f.fixable());
-                            }
-                            Err(e) => eprintln!("xtask text-hygiene: could not write {rel}: {e}"),
+            if fix && findings.iter().any(Finding::fixable) {
+                let repaired = fixed(rel, &text);
+                if repaired != text {
+                    match std::fs::write(root.join(rel), repaired.as_bytes()) {
+                        Ok(()) => {
+                            fixed_count = fixed_count.saturating_add(1);
+                            findings.retain(|f| !f.fixable());
                         }
+                        Err(e) => eprintln!("xtask text-hygiene: could not write {rel}: {e}"),
                     }
                 }
             }
         }
 
         if !findings.is_empty() {
-            offenders.push((rel, findings));
+            offenders.push((String::from(rel), findings));
         }
-    }
+    });
+    let counted = match anchored {
+        Ok(counted) => counted,
+        Err(why) => {
+            eprintln!("xtask text-hygiene: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
 
     if fix && fixed_count > 0 {
         println!("xtask text-hygiene: repaired {fixed_count} file(s)");
     }
 
     if offenders.is_empty() {
-        println!("xtask text-hygiene: ok - {checked} text file(s) checked");
+        // The census's own witness beside this gate's count, which is `#414`'s half: `checked` is
+        // this closure's tally of files it judged as text, and `counted.verdict()` is the census's
+        // tally of subjects it OFFERED, taken by a different predicate on the other side of the
+        // walk. A narrowing that moved one cannot move both.
+        println!(
+            "xtask text-hygiene: ok - {checked} text file(s) checked; {}",
+            counted.verdict()
+        );
         return Verdict::Pass;
     }
 

@@ -142,12 +142,19 @@ gh attestation verify sutura-x86_64-unknown-linux-gnu.tar.gz \
   --bundle sutura-provenance.intoto.jsonl \
   --custom-trusted-root "$TRUSTED_ROOT" \
   --repo telekom/sutura \
-  --signer-workflow telekom/sutura/.github/workflows/release.yml \
   --source-ref "refs/tags/$TAG" --source-digest "$SOURCE_COMMIT" \
   --cert-identity "https://github.com/telekom/sutura/.github/workflows/release.yml@refs/tags/$TAG" \
   --cert-oidc-issuer https://token.actions.githubusercontent.com \
   --predicate-type https://slsa.dev/provenance/v1
 ```
+
+`--cert-identity` and `--signer-workflow` are **mutually exclusive** - `gh` puts
+`cert-identity`, `cert-identity-regex`, `signer-repo` and `signer-workflow` in one flag group and
+refuses more than one of them before it verifies anything. This command used to print both and
+therefore could not run; `--cert-identity` is the one kept, because it pins the workflow *and* the
+tag in a single value. Measured against `gh` 2.98.0, and no gate in this tree holds it: the
+`documented` suite spawns the `sutura` binary over the pages' own commands, so a `gh` invocation on
+a published release is checked by running it and by nothing else.
 
 The [verifier's bundle mode](https://cli.github.com/manual/gh_attestation_verify) accepts JSONL
 without fetching attestations from the forge. Test the command with network access disabled to
@@ -156,11 +163,15 @@ reference can still require registry access; this file example does not prove of
 retrieval or verification.
 
 **Venue limit:** PR CI can exercise fake bundle output and refusal paths, not the tagged job's
-OIDC signing, real bundle export or release upload. After merge, the first intended tagged release
-must demonstrate the five-record asset, successful verification of the mirrored original bytes
-under the policy above, and rejection of altered bytes and a wrong source ref. Until that tagged
-run and mirror-only check are recorded, those outcomes remain unproven; older releases need not
-contain the export. No tag or release is created merely to make a PR check green.
+OIDC signing, real bundle export or release upload. Those were unproven until a tag ran, and
+`v0.5.1` is that tag: the release carries `sutura-provenance.intoto.jsonl` as a five-record asset,
+and over bytes downloaded from the release page the command above exits 0 against the tag's own
+source commit, exits non-zero on a byte appended to the tarball (`verifying with issuer
+"sigstore.dev"`), and exits non-zero against a wrong source ref (`expected SourceRepositoryRef to
+be refs/tags/v0.4.1, got refs/tags/v0.5.1`). **What is still unproven is the OFFLINE half** - that
+run had network reach, so it establishes verification from mirrored bytes and a locally supplied
+trusted root, not that the verifier fetches nothing. Older releases need not contain the export. No
+tag or release is created merely to make a PR check green.
 
 ## Verifying an image
 
@@ -233,7 +244,7 @@ The release carries the workspace-wide attribution document beside the per-binar
 
 | Asset | What it is | Generated from |
 | --- | --- | --- |
-| `sutura-attribution.md` | every third-party crate this workspace resolves, with the SPDX expression its manifest declares | `cargo metadata`, committed as `ATTRIBUTION.md` and copied into the release |
+| `sutura-attribution.md` | every third-party crate this workspace resolves, with the SPDX expression its manifest declares | `cargo metadata`, generated in the release run from the tagged tree's own `Cargo.lock`. **There is no committed copy** |
 
 It is signed and carries provenance, so it verifies exactly like a binary tarball:
 
@@ -253,12 +264,27 @@ ship costs you one line to read, while omitting one that did ship is the failure
 to prevent. So it names every crate the workspace resolves at all features, which is more than
 `sutura-cli` links.
 
-**Why it is committed rather than generated at release time.** It has an owner and two gates:
-`just attribution` writes it, `cargo xtask check-attribution` fails when its crate set falls behind
-`Cargo.lock`, and `cargo xtask check-attribution-current` byte-compares it against a fresh generation
-so a licence value cannot be edited or drift unnoticed. The release copies it and asserts it names at
-least a hundred crates, which catches the silent case - a generator that still writes a well formed
-document naming nothing.
+**Why it is generated at release time rather than committed.** It was committed once, with two
+gates over it, and the arrangement had a cost that was not theoretical: a derived file falls behind
+`Cargo.lock` the moment a dependency moves, Dependabot runs with a read-only token and cannot
+regenerate it, so **every bot dependency bump was red on arrival** and none could go green without
+a human pushing to the bot's branch. The artefact was never the problem; its committed form was.
+
+So the generator is the only owner, and the chain is shorter than it was: the release generates the
+document from the `Cargo.lock` of the tag it is publishing, rather than copying a file from `main`
+that a gate had to keep honest. Three mechanisms hold it:
+
+| Mechanism | What it holds |
+| --- | --- |
+| `cargo xtask check-attribution` | a generation names every third-party package in `Cargo.lock` and carries a **declared licence for each one** - a crate declaring none is a refusal, where the old generator wrote `NOT DECLARED` and passed |
+| `cargo xtask check-attribution-owner` | no committed `ATTRIBUTION.md` comes back, and `release.yml` still generates the asset rather than copying one |
+| the release's own count floor | the generated bytes name at least a hundred crates, asserted against the file that will be signed - which catches a generator that writes a well formed document naming nothing |
+
+**What this arrangement lost, stated plainly.** A new dependency's declared licence no longer shows
+up in a pull-request diff. Nothing here restores that. `cargo deny check` still *refuses* a licence
+that is not on the allowlist, and the first gate above refuses one that is absent entirely, so the
+policy floor did not move - but a human reading a diff is no longer among the things that would
+notice a licence *changing* from one permitted value to another.
 
 **It names vendored code too.** The two crates under `vendor/mimalloc_rust` are declared as path
 dependencies rather than pulled from a registry, and `sutura-cli` links the allocator on Linux - so

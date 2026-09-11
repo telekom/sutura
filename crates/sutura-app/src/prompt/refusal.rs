@@ -24,9 +24,10 @@ use super::wrap;
 /// every entry either says what to change or says outright that there is nothing to change and the
 /// answer is to stop.
 pub(super) struct Guide {
-    /// The reason as the tool surface names it, which is the domain variant's own name. The HTTP body
-    /// carries the same reason as its `code`, in lower case with underscores, and [`REFUSAL_INTRO`]
-    /// tells the agent so rather than leaving it to guess that `metric_unknown` is this.
+    /// The reason as the tool surface names it: the domain's own machine code for this variant,
+    /// which is [`RefusalReason::code`] itself. Every transport writes the same `&'static str`, so
+    /// the guide's proof of WHICH variant fired is the domain's canonical name and cannot drift
+    /// from the HTTP body's `code` or the agent surface's.
     pub(super) reason: &'static str,
     /// What happened, in the caller's terms.
     pub(super) meaning: &'static str,
@@ -35,7 +36,7 @@ pub(super) struct Guide {
 }
 
 const METRIC_UNKNOWN: Guide = Guide {
-    reason: "MetricUnknown",
+    reason: "metric_unknown",
     meaning: "no metric of that name is defined here",
     remedy: "Use a name from the metric list below, exactly as spelled. Do not try a variant \
              spelling, a plural, or a name you remember from another deployment: the list is the \
@@ -43,7 +44,7 @@ const METRIC_UNKNOWN: Guide = Guide {
 };
 
 const GRAIN_NOT_SUPPORTED: Guide = Guide {
-    reason: "GrainNotSupported",
+    reason: "grain_not_supported",
     meaning: "the metric exists and does not declare that time resolution",
     remedy: "Ask at a grain the metric lists. A finer grain is not a narrower version of the same \
              question here - it is a number nobody certified, which is why it is refused rather \
@@ -51,14 +52,14 @@ const GRAIN_NOT_SUPPORTED: Guide = Guide {
 };
 
 const DIMENSION_NOT_PERMITTED: Guide = Guide {
-    reason: "DimensionNotPermitted",
+    reason: "dimension_not_permitted",
     meaning: "the metric does not declare that dimension",
     remedy: "Use one of the dimensions listed under that metric. There is no way to reach an \
              attribute a metric did not declare, so do not substitute a similar-sounding name.",
 };
 
 const DIMENSION_NOT_FILTERABLE: Guide = Guide {
-    reason: "DimensionNotFilterable",
+    reason: "dimension_not_filterable",
     meaning: "the dimension can be grouped by and not filtered, because the definitions declare no \
               set of values for it",
     remedy: "Drop the filter, group by the dimension instead, and read the row you wanted out of \
@@ -66,7 +67,7 @@ const DIMENSION_NOT_FILTERABLE: Guide = Guide {
 };
 
 const DIMENSION_VALUE_NOT_ALLOWED: Guide = Guide {
-    reason: "DimensionValueNotAllowed",
+    reason: "dimension_value_not_allowed",
     meaning: "the dimension is filterable and the value is not one the definitions declare",
     remedy: "Use a value from that dimension's list below. The refusal does not repeat your value \
              back to you, on purpose, so compare against the list rather than expecting a \
@@ -74,14 +75,14 @@ const DIMENSION_VALUE_NOT_ALLOWED: Guide = Guide {
 };
 
 const DUPLICATE_DIMENSION: Guide = Guide {
-    reason: "DuplicateDimension",
+    reason: "duplicate_dimension",
     meaning: "the same dimension was sent twice in one question",
     remedy: "Send it once. It is refused rather than de-duplicated because a caller who sent it \
              twice believed something about the result that is not true.",
 };
 
 const TOO_MANY_DIMENSIONS: Guide = Guide {
-    reason: "TooManyDimensions",
+    reason: "too_many_dimensions",
     meaning: "more group-by keys than one question may carry",
     remedy: "Ask a narrower question, or ask two questions. Do not resend the same list.",
 };
@@ -92,7 +93,7 @@ const TOO_MANY_DIMENSIONS: Guide = Guide {
 // those are the same for both - too much data, ask a narrower question. A second guide would put a
 // second entry under one variant name and give an agent two paragraphs saying one thing.
 const RESULT_TOO_LARGE: Guide = Guide {
-    reason: "ResultTooLarge",
+    reason: "result_too_large",
     meaning: "the answer was too much data to certify - more rows than the cap, or more than the \
               data system would return at once - and it was refused rather than cut short",
     remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Nothing partial \
@@ -104,14 +105,14 @@ const RESULT_TOO_LARGE: Guide = Guide {
 };
 
 const TIME_RANGE_TOO_LONG: Guide = Guide {
-    reason: "TimeRangeTooLong",
+    reason: "time_range_too_long",
     meaning: "the period asked about is longer than one question may span",
     remedy: "Split it into consecutive shorter periods and ask about each. The refusal carries both \
              day counts, so the split can be computed rather than guessed.",
 };
 
 const RESOURCES_EXHAUSTED: Guide = Guide {
-    reason: "ResourcesExhausted",
+    reason: "resources_exhausted",
     meaning: "answering would have needed more working memory than this deployment allows, so it was \
               refused rather than allowed to exhaust the process",
     remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same \
@@ -120,7 +121,7 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
 };
 
 const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
-    reason: "PlanSpansTooManySources",
+    reason: "plan_spans_too_many_sources",
     meaning: "answering would need to read from more data systems than this deployment serves (two at \
               most)",
     remedy: "Nothing you can change. Report it to a person: it is a fact about how the metric is \
@@ -129,7 +130,7 @@ const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
 };
 
 const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
-    reason: "PlanTablesShareAnIdentifier",
+    reason: "plan_tables_share_an_identifier",
     meaning: "answering would read two different tables that carry the same name, and one statement \
               cannot tell them apart",
     remedy: "Try a dimension that does not need that join - it is the join that puts both tables in \
@@ -139,7 +140,7 @@ const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
 };
 
 const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
-    reason: "FederationNotExecutable",
+    reason: "federation_not_executable",
     meaning: "this deployment has no adapter that can execute one half of a question spanning two data \
               systems, so the question cannot be answered yet",
     remedy: "Nothing you can change by re-asking, and do not retry it as if it were an outage: this is \
@@ -148,7 +149,7 @@ const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
 };
 
 const FEDERATION_LINK_AMBIGUOUS: Guide = Guide {
-    reason: "FederationLinkAmbiguous",
+    reason: "federation_link_ambiguous",
     meaning: "the question's dimensions on the second data system join the metric through more than \
               one relationship, and the two legs link on a single column",
     remedy: "Nothing you can change about the question. Report it to a person: it is a fact about how \
@@ -156,7 +157,7 @@ const FEDERATION_LINK_AMBIGUOUS: Guide = Guide {
 };
 
 const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
-    reason: "MeasureDoesNotFederate",
+    reason: "measure_does_not_federate",
     meaning: "across two data systems this measure cannot be computed and recombined - its aggregate \
               (a distinct count) is not additive the way a sum or an average is",
     remedy: "Nothing you can change about the question. Ask the same metric without the dimension that \
@@ -164,7 +165,7 @@ const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
 };
 
 const LEGS_DECIDE_IDENTITY_DIFFERENTLY: Guide = Guide {
-    reason: "LegsDecideIdentityDifferently",
+    reason: "legs_decide_identity_differently",
     meaning: "the question spans two data systems that decide who is asking differently, so one \
               answer would add rows read under one identity to rows read under another - a total \
               neither identity is entitled to",
@@ -175,7 +176,7 @@ const LEGS_DECIDE_IDENTITY_DIFFERENTLY: Guide = Guide {
 };
 
 const SOURCE_UNAVAILABLE: Guide = Guide {
-    reason: "SourceUnavailable",
+    reason: "source_unavailable",
     meaning: "the data system that metric lives in is not one this deployment opened",
     remedy: "Nothing you can change. Report it to a person. This is the one refusal that looks like \
              an outage and is still not one to retry: the answer will not become available by \
@@ -183,7 +184,7 @@ const SOURCE_UNAVAILABLE: Guide = Guide {
 };
 
 const CREDENTIAL_UNAVAILABLE: Guide = Guide {
-    reason: "CredentialUnavailable",
+    reason: "credential_unavailable",
     meaning: "the person you are acting for has no access to the data system that metric lives in, \
               and this deployment will not read it under its own identity instead",
     remedy: "Nothing you can change, and this is the one refusal where that matters most: a \
@@ -192,12 +193,22 @@ const CREDENTIAL_UNAVAILABLE: Guide = Guide {
              it, and you cannot.",
 };
 
+const SOURCE_REFUSED: Guide = Guide {
+    reason: "source_refused",
+    meaning: "the data system itself refused the question because the identity it would run as is \
+              not permitted to ask it - an authorization decision made there, not an outage",
+    remedy: "Nothing you can change in the question, and retrying it will be refused again at the \
+             same place: this is not a data system being down and it is not waiting out. Report it \
+             to the person you are acting for, and say that access to that data system is what \
+             would be needed.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
 /// reader who stops early should have read the actionable ones.
 ///
-/// The exhaustiveness mechanism is in [`super::tests`]: a function there maps every
+/// The exhaustiveness mechanism is in `prompt::tests`: a function there maps every
 /// `RefusalReason` variant to its entry with a total match,
 /// so a variant added to the domain does not compile until somebody opens this file. *What that does
 /// not force is the corpus in that test gaining a member, so the set equality it asserts is a second
@@ -230,6 +241,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     // unchanged.
     &PLAN_TABLES_SHARE_AN_IDENTIFIER,
     &SOURCE_UNAVAILABLE,
+    &SOURCE_REFUSED,
     &CREDENTIAL_UNAVAILABLE,
 ];
 
@@ -239,7 +251,7 @@ pub(super) const GUIDES: &[&Guide] = &[
 /// [`RefusalReason`] is a compile error here until somebody writes the guidance for it - which is
 /// what makes the refusal section unable to fall silently behind the domain.
 ///
-/// It used to live in [`super::tests`] under `#[cfg(test)]`, on the reasoning that nothing in the rendered
+/// It used to live in `prompt::tests` under `#[cfg(test)]`, on the reasoning that nothing in the rendered
 /// output needs an instance of a refusal. That stopped being true when a composition root needed the
 /// same two sentences to print a refused question with: a second match in the binary would have been
 /// a second table to keep in step, and a third copy of prose that already exists here and on the HTTP
@@ -262,6 +274,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
+        RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
         RefusalReason::LegsDecideIdentityDifferently { .. } => &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
     }
@@ -307,8 +320,8 @@ change. It is not a timeout, not an outage, and not a malformed request.
 
 **Over HTTP a refusal arrives with an error status rather than a success one**, which is not a
 transport problem and not a reason to try again. The reason is what to act on: the body repeats it
-as a machine-readable `code`, the name below in lower case with underscores, so `MetricUnknown` is
-`metric_unknown`. The status only says which class of no it is.
+as a machine-readable `code`, and the name below is that same `code` - lower case, with
+underscores. The status only says which class of no it is.
 
 **Do not retry a refused question unchanged.** Repeating the same question will not change the
 answer, and a loop that keeps asking is a loop that consumes the deployment's budget to learn

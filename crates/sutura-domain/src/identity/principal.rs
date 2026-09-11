@@ -46,8 +46,8 @@ const MAX_PRINCIPAL_LEN: usize = 256;
 
 /// Why an identifier naming a principal was rejected.
 ///
-/// One error for all three newtypes below, because they are one parse. The variants carry the
-/// offending input as typed fields; the `#[error]` text is a convenience for a human.
+/// One error for all three newtypes below, because they are one parse. The variants carry only the
+/// shape of the rejected input; the principal itself is personal data and this error reaches logs.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidPrincipalId {
     /// Empty or whitespace-only. An unnamed principal must not be able to claim it is one - the
@@ -58,8 +58,8 @@ pub enum InvalidPrincipalId {
     /// Holds a control character. This is the one that matters: the record a call is written to is
     /// one line, so a newline here appends a record nobody wrote - a forged attribution, in the one
     /// artifact whose entire job is attribution.
-    #[error("a principal identifier must not contain control characters: {value:?}")]
-    ControlCharacter { value: String },
+    #[error("a principal identifier must not contain the control character {code:#06x}")]
+    ControlCharacter { code: u32 },
     /// Holds an invisible or direction-changing code point. The second half of the reason the
     /// variant above exists: `char::is_control` is false for every one of these - general category
     /// `Cf`, not `Cc` - so the check that refuses a newline cannot see a right-to-left override.
@@ -72,13 +72,13 @@ pub enum InvalidPrincipalId {
     /// would print as though it were correct.
     #[error("a principal identifier must not contain the invisible or direction-changing character {code:#06x}")]
     InvisibleCharacter { code: u32 },
-    #[error("a principal identifier may be at most {limit} characters, {value:?} has {len}")]
-    TooLong { value: String, len: usize, limit: usize },
+    #[error("a principal identifier may be at most {limit} characters, found {len}")]
+    TooLong { len: usize, limit: usize },
 }
 
 /// Parses one principal identifier, rejecting anything that is not one.
 ///
-/// `pub(crate)` and shared by every newtype below through [`principal_newtype`], because three
+/// `pub(crate)` and shared by every newtype below through `principal_newtype!`, because three
 /// hand-written copies of this parser is three things to keep in step - and the identifiers are
 /// carried in one record beside each other, so a rule that held for one and not another would be a
 /// hole with a matching pair right next to it.
@@ -92,9 +92,20 @@ pub(crate) fn parse_principal_id(raw: &str) -> Result<String, InvalidPrincipalId
     if trimmed.is_empty() {
         return Err(InvalidPrincipalId::Empty);
     }
-    if trimmed.chars().any(char::is_control) {
+    // Bound the size before either character scan, so an oversized identifier costs one walk to
+    // refuse rather than two: the length ceiling is the availability half, and the character classes
+    // are the forging half. Ordering the bound first also means a value that is both too long and
+    // control-bearing reports its size, which is what its source needs to hear.
+    let len = trimmed.chars().count();
+    if len > MAX_PRINCIPAL_LEN {
+        return Err(InvalidPrincipalId::TooLong {
+            len,
+            limit: MAX_PRINCIPAL_LEN,
+        });
+    }
+    if let Some(offending) = trimmed.chars().find(|character| character.is_control()) {
         return Err(InvalidPrincipalId::ControlCharacter {
-            value: String::from(trimmed),
+            code: u32::from(offending),
         });
     }
     // Beside the control-character check rather than folded into it, because it is a second
@@ -103,13 +114,6 @@ pub(crate) fn parse_principal_id(raw: &str) -> Result<String, InvalidPrincipalId
     if let Some(offending) = first_invisible(trimmed) {
         return Err(InvalidPrincipalId::InvisibleCharacter {
             code: u32::from(offending),
-        });
-    }
-    if trimmed.chars().count() > MAX_PRINCIPAL_LEN {
-        return Err(InvalidPrincipalId::TooLong {
-            value: String::from(trimmed),
-            len: trimmed.chars().count(),
-            limit: MAX_PRINCIPAL_LEN,
         });
     }
     Ok(String::from(trimmed))
@@ -124,17 +128,29 @@ macro_rules! principal_newtype {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         ///
-        /// Construct it with `parse`. There is no other way in: the field is private, there is no
-        /// `Deserialize`, and `TryFrom<String>` delegates to the same constructor.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        /// The wrapped value is the **masked** form: [`Self::parse`] consumes the raw identifier and
+        /// stores only its stable masked rendering, so no field of this type ever holds plaintext and
+        /// no rendering surface (`Debug`, `Display`, [`Self::as_str`]) can emit it. Masking happens
+        /// at the boundary that turns a wire value into this type, not at print time. There is no
+        /// other way in: the field is private, there is no `Deserialize`, and `TryFrom<String>`
+        /// delegates to the same constructor.
+        #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(String);
 
         impl $name {
-            /// Parses an identifier, rejecting anything that is not one.
+            /// Parses an identifier, rejecting anything that is not one, masking it at the boundary.
+            ///
+            /// The raw value is validated, reduced to its stable masked form, and dropped: the raw
+            /// is never retained, so an intermediate state cannot leak it and there is nothing to
+            /// reach at render time.
             pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidPrincipalId> {
-                parse_principal_id(raw.as_ref()).map(Self)
+                let validated = parse_principal_id(raw.as_ref())?;
+                let mut masked = String::with_capacity(validated.len());
+                mask_principal_into(&validated, &mut masked);
+                Ok(Self(masked))
             }
 
+            /// The stable masked form. There is no raw access - the raw was consumed by [`Self::parse`].
             #[inline]
             pub fn as_str(&self) -> &str {
                 &self.0
@@ -155,7 +171,34 @@ macro_rules! principal_newtype {
                 f.write_str(&self.0)
             }
         }
+
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
     };
+}
+
+/// Writes a stable masked form of a principal identifier into `out`.
+///
+/// Each local segment (split on `.` and `@`) is reduced to its first character plus three stars, and
+/// only that is ever retained, so two subjects an operator needs to tell apart stay distinct while
+/// neither's full value survives. The raw value reaches this only straight out of
+/// [`parse_principal_id`], the one place a plaintext principal exists, and is dropped once the mask
+/// is written.
+fn mask_principal_into(raw: &str, out: &mut String) {
+    let mut segment_start = true;
+    for character in raw.chars() {
+        if matches!(character, '.' | '@') {
+            out.push(character);
+            segment_start = true;
+        } else if segment_start {
+            out.push(character);
+            out.push_str("***");
+            segment_start = false;
+        }
+    }
 }
 
 principal_newtype! {
@@ -574,8 +617,11 @@ mod tests {
         let chain = ActorChain::of(actor("orchestrator"))
             .acting_through(actor("planner"))
             .acting_through(actor("query_agent"));
+        // `as_str` is the stored MASKED form - the raw identifiers were consumed at parse - and the
+        // masks of distinct names stay distinct, so the order is still provable from what the type
+        // holds.
         let names: Vec<&str> = chain.iter().map(Actor::as_str).collect();
-        assert_eq!(names, vec!["orchestrator", "planner", "query_agent"]);
+        assert_eq!(names, vec!["o***", "p***", "q***"]);
         assert_eq!(
             chain.immediate(),
             &actor("query_agent"),
@@ -588,7 +634,7 @@ mod tests {
         );
         assert_eq!(chain.count(), 3);
         // The rendering an audit record carries, in the same order.
-        assert_eq!(chain.to_string(), "orchestrator > planner > query_agent");
+        assert_eq!(chain.to_string(), "o*** > p*** > q***");
     }
 
     #[test]
@@ -598,7 +644,7 @@ mod tests {
         let chain = ActorChain::of(actor("query_agent"));
         assert_eq!(chain.outermost(), chain.immediate());
         assert_eq!(chain.count(), 1);
-        assert_eq!(chain.to_string(), "query_agent");
+        assert_eq!(chain.to_string(), "q***");
     }
 
     #[test]
@@ -652,9 +698,7 @@ mod tests {
         // The refusal that matters most: the record is one line, so a newline is a second record.
         assert_eq!(
             SubjectId::parse("someone@example.com\nsubject=admin"),
-            Err(InvalidPrincipalId::ControlCharacter {
-                value: String::from("someone@example.com\nsubject=admin"),
-            })
+            Err(InvalidPrincipalId::ControlCharacter { code: 0x0A })
         );
         // And the class a control-character check provably cannot see.
         assert_eq!(
@@ -666,14 +710,24 @@ mod tests {
         let long = "a".repeat(257);
         assert_eq!(
             TaskId::parse(&long),
-            Err(InvalidPrincipalId::TooLong {
-                value: long,
-                len: 257,
-                limit: 256,
-            })
+            Err(InvalidPrincipalId::TooLong { len: 257, limit: 256 })
         );
         // Exactly the limit is fine, so the bound is the bound and not one off it.
         drop(TaskId::parse("a".repeat(256)).expect("exactly the limit parses"));
+    }
+
+    #[test]
+    fn an_oversized_identifier_is_refused_for_its_size_before_its_characters() {
+        // The length ceiling is checked before the character classes, so a value that is both too
+        // long and control-bearing reports its size rather than the character: the bound is the
+        // availability defence, and ordering it first is what makes an oversized input cost one
+        // walk to refuse instead of two. Reverting the order reports `ControlCharacter` here and
+        // reddens this test.
+        let oversized_and_control = format!("{}\u{0007}", "a".repeat(300));
+        assert_eq!(
+            SubjectId::parse(&oversized_and_control),
+            Err(InvalidPrincipalId::TooLong { len: 301, limit: 256 })
+        );
     }
 
     #[test]
@@ -684,12 +738,51 @@ mod tests {
         let parsed = SubjectId::parse("  someone@example.com  ").expect("a test subject is a subject");
         let converted = SubjectId::try_from(String::from("  someone@example.com  ")).expect("the same value converts");
         assert_eq!(parsed, converted);
-        assert_eq!(parsed.as_str(), "someone@example.com");
+        // `as_str` is the stored masked form, not the raw: the raw never survives the parse.
+        assert_eq!(parsed.as_str(), "s***@e***.c***");
         assert_eq!(
             SubjectId::try_from(String::from("bad\u{0007}")),
-            Err(InvalidPrincipalId::ControlCharacter {
-                value: String::from("bad\u{0007}")
-            })
+            Err(InvalidPrincipalId::ControlCharacter { code: 0x07 })
         );
+    }
+
+    #[test]
+    fn the_masked_type_holds_no_plaintext() {
+        // The whole point of masking at the parse boundary: the type stores ONLY the masked form, so
+        // a render path reading its state cannot emit the raw. This is the mutation-first guard - a
+        // regression that seats the raw in the field and masks at render instead makes every one of
+        // these assertions red, because `as_str`, `Display` and `Debug` would then reach the raw.
+        let raws = [
+            "firstname.lastname@company.com",
+            "somename@company.com",
+            "service.bot@company.com",
+            "nightly-reconciliation",
+        ];
+        let checked = |surface: &str| {
+            assert!(
+                raws.iter().all(|raw| !surface.contains(raw)),
+                "a render surface emitted plaintext: {surface}"
+            );
+        };
+
+        let id = SubjectId::parse("firstname.lastname@company.com").expect("a test subject is a subject");
+        checked(&id.to_string());
+        checked(&format!("{id:?}"));
+        checked(id.as_str());
+        assert_eq!(id.to_string(), "f***.l***@c***.c***");
+        assert_eq!(format!("{id:?}"), "f***.l***@c***.c***");
+        assert_eq!(id.as_str(), "f***.l***@c***.c***");
+
+        let actor = Actor::parse("somename@company.com").expect("a test actor is an actor");
+        checked(&actor.to_string());
+        checked(&format!("{actor:?}"));
+        checked(actor.as_str());
+        assert_eq!(actor.to_string(), "s***@c***.c***");
+
+        let task = TaskId::parse("nightly-reconciliation").expect("a test task is a task");
+        checked(&task.to_string());
+        checked(&format!("{task:?}"));
+        checked(task.as_str());
+        assert_eq!(task.to_string(), "n***");
     }
 }

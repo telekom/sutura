@@ -908,7 +908,7 @@ economise.
    AND matched `ci.yml`'s leading `**`, so an ADR-only pull request that added a nav entry started BOTH
    workflows - the "exactly one workflow starts" claim in `docs.yml`'s header was false and had never
    been checked. `ci.yml` now excludes `docs/**` and `mkdocs.yml` by name, so a prose-only change no
-   longer starts the 120-minute chain. Neither path can affect what cargo produces.
+   longer starts the full `ci` chain. Neither path can affect what cargo produces.
 
    **The gate-skip half was PAUSED and is now RESTORED, with the check that answers the objection to
    it.** One path exclusion that rode along with it stays reverted outright. `docs.yml`'s
@@ -980,11 +980,13 @@ economise.
    | `check-boundaries` | the domain crate's manifest and the Rust under `crates/` |
    | `check-jscpd` | the Rust under `crates/` and `xtask/`, plus `devco/dup-ignore`, for copied blocks (#474) |
    | `check-pins` | `flake.nix` and `pixi.toml` |
+   | `check-nix-platform` | every `.nix` file this repository tracks, for a platform predicate read off the deprecated `stdenv` alias |
    | `check-warm-start` | `xtask/src/causality.rs`, `nix/purge-baked-out-dirs.sh`, every `.nix` file |
    | `unused-deps` | every member manifest and that member's own Rust |
+   | `check-unreachable-public-modules` | every member crate's Rust, and every first-party crate's Rust, for which `pub` module has no cross-first-party reference (#131) |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
    | `check-shared-client` | `Cargo.lock` |
-   | `check-attribution` | `Cargo.lock`, the root manifest, `ATTRIBUTION.md` |
+   | `check-attribution-owner` | the ABSENCE of `ATTRIBUTION.md` at the repo root, and `.github/workflows/release.yml` for whether the release still generates the attribution asset |
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |

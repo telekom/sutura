@@ -286,6 +286,53 @@ pub enum ExpressionError {
     },
     #[error("the {tag} fragment uses {construct}, which is refused: {}", construct.why())]
     Refused { tag: DialectTag, construct: Construct },
+    /// A character the pinned dialect layer's generator cannot survive.
+    ///
+    /// **The dialect layer panics, it does not refuse.** Measured with the fuzz harness: the
+    /// pinned `polyglot-sql` 0.9.2 generator byte-slices a string without respecting character
+    /// boundaries, so any fragment carrying a multi-byte UTF-8 character - `é`, a full-width
+    /// identifier, or the replacement character `\u{fffd}` a lossy decode produces - reaches a
+    /// `&s[..]` cut through that byte and panics with *"start byte index N is not a char
+    /// boundary"*. There is no third-party error to map: it aborts, which under
+    /// `panic = "abort"` is the process dying. So this crate refuses non-ASCII text before it is
+    /// handed over, and the bound is the chunk this build renders for: the aggregation subset and
+    /// its identifiers are ASCII by construction, and a Unicode string literal is refused rather
+    /// than trusted to a generator that slices it by byte. If a future pin fixes the slicing, the
+    /// bound can widen; stated as a limit now because this is a control over what the dependency
+    /// can carry, not a judgement that authored SQL is ASCII.
+    #[error(
+        "the {tag} fragment contains {text:?}, a non-ASCII character (U+{code:04X}), which the dialect \
+         layer's generator cannot render without aborting; write the expression in ASCII"
+    )]
+    NonAscii { tag: DialectTag, code: u32, text: char },
+    /// A parenthesis the fragment opens and never closes.
+    ///
+    /// **The pinned dialect layer's parser does not error on this - it does not return.** Found by
+    /// the `sql_expression` fuzz target and reduced to six characters, `a.:S1(`: `.:` is a JSON-cast
+    /// operator, so an unknown word after it is read as a custom data type, and the argument loop in
+    /// `Parser::parse_data_type` breaks only on `check(TokenType::RParen)`. That answers `false` at
+    /// the end of the token stream, and `advance()` past the end returns the last token WITHOUT
+    /// moving the cursor - so the loop cannot terminate, and every turn of it does
+    /// `*last = format!("{} {}", last, token.text)`.
+    ///
+    /// One upstream defect, two report shapes: it reads as a **timeout** while that string is being
+    /// copied and as an **out-of-memory** once the string is large. There is no third-party error to
+    /// map and nothing to catch either - under `panic = "abort"` unbounded work on a fragment is the
+    /// process not coming back, which on the query surface is a denial of service rather than a slow
+    /// load. So what is refused is the enabling condition every such loop needs, a parenthesis with
+    /// no closer, and it is refused before the text is handed over.
+    ///
+    /// `column` is 1-based **in the author's own fragment**: the bound reads the fragment's own
+    /// tokens rather than the wrapped statement's, so unlike [`Self::Unparsable`] there is no
+    /// wrapper offset to subtract. See `super::unclosed_parenthesis` for why the question is asked
+    /// of the TOKENS and not of the text. **The defect is upstream and this does not fix it** - it
+    /// is a control over what the dependency can be handed, not a judgement that an author cannot
+    /// count brackets.
+    #[error(
+        "the {tag} fragment opens a parenthesis at character {column} and never closes it, and the \
+         dialect layer's parser does not return on that input"
+    )]
+    UnclosedParenthesis { tag: DialectTag, column: usize },
     #[error("the {tag} fragment reads column {column:?}, which model table {table} does not declare")]
     UnknownColumn {
         tag: DialectTag,

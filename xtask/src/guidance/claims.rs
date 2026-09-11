@@ -391,6 +391,35 @@ mod tests {
         }
     }
 
+    /// The sentence `#603` is about has to be WRITABLE: five refusals really do map to `422`.
+    ///
+    /// RED AGAINST BASE by construction, which is the point of writing it this way round. The row
+    /// deleted for that issue forbade `"five of the codes above land"` and prescribed four, while
+    /// `crates/sutura-http/src/wire/refusal.rs` sends five variants to `UNPROCESSABLE_ENTITY` - so
+    /// the gate refused a true sentence and recommended a false one. Reverting
+    /// `claims/contradicted.rs` alone turns this red.
+    ///
+    /// **The limit.** It restates the matcher's question for ONE line instead of calling
+    /// [`contradicted_claims`], which needs a file on disk. [`flatten`] over a single line is that
+    /// line, so for this sentence the two ask the same thing - but a wording that matches only
+    /// across a wrap would escape here while the gate still catches it. It also says nothing about
+    /// the COUNT: that five is right is prose in the other file, held by review.
+    #[test]
+    fn no_live_rule_forbids_the_true_count_of_422_refusals() {
+        let root = crate::repo::root().expect("the repo root");
+        let truth = "five of the codes above land on `422`";
+        let refusing: Vec<&str> = CONTRADICTED
+            .iter()
+            .filter(|rule| rule.is_live(&root))
+            .flat_map(|rule| rule.wordings.iter().copied())
+            .filter(|wording| truth.contains(wording))
+            .collect();
+        assert!(
+            refusing.is_empty(),
+            "a live rule forbids a sentence this repo can now write: {refusing:?}"
+        );
+    }
+
     #[test]
     fn a_page_a_rule_exempts_holds_a_wording_that_rule_forbids() {
         // `except` is for the record that quotes the wrong sentence in order to CORRECT it - and it

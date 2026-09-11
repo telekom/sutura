@@ -68,23 +68,87 @@ backend, a sampling rate and an egress path, and none of those has been made. Ad
 dependency now to satisfy the word "observability" would be the shape of the thing without the
 thing.
 
-## `use None`
+## `use Admission`
 
-## `use None`
+The bound on how many questions execute at once, and the bound on waiting for a turn.
 
-## `use None`
+Cloneable and cheap: every clone shares one permit set, which is the property that makes this a
+bound at all. A per-request or per-connection copy would be a number that reads like a limit and
+bounds nothing.
 
-## `use None`
+## `use AtCapacity`
 
-## `use None`
+Nothing was free inside the admission timeout.
 
-## `use None`
+Carries both numbers because the answer to it differs by which one is wrong: a bound that is too
+small for the machine is a configuration change, and a wait that expires under normal load is a
+deployment that needs another replica.
 
-## `use None`
+## `use Slot`
 
-## `use None`
+## `use TracingAuditSink`
 
-## `use None`
+Writes each record as one structured event on the process subscriber.
+
+There is nothing to configure, and a `new` that took a level or a target would be two ways to
+write the same record. The subscriber decides where the event goes, which is the one decision a
+deployment already makes.
+
+A private marker field rather than a unit struct, for two reasons and the first is the honest
+one: `cargo xtask check-boundaries` reads a file line by line, and a unit `pub struct` leaves its
+scan waiting for a body - so the next braced block in the file is read as this struct's field
+list and a `pub fn` in it is reported as a `pub` field. That is a defect in the gate rather than
+in this type, and it is written down here rather than worked around silently. The second reason
+stands on its own: a field, even an empty one, means `Self::new` is the only way in from
+outside this crate, where a unit struct is its own literal.
+
+## `use spawn_carrying_span`
+
+Spawns `work` on the blocking pool, entered in the caller's current span.
+
+The span is captured *here*, on the caller's thread, and entered inside the closure - which is
+the only order that works: reading the current span from the blocking thread would read that
+thread's span, which is none.
+
+Everything the closure does is inside the span, its own `Drop`s included. That matters where a
+permit or a guard is released at the end of the closure: the release happens inside the span
+too, so a diagnostic emitted while dropping is still attributable to the request.
+
+# Example
+
+```
+# async fn call() -> Result<u8, tokio::task::JoinError> {
+// A synchronous port call. Anything traced inside belongs to the caller's request.
+sutura_runtime::spawn_carrying_span(|| 7_u8).await
+# }
+```
+
+## `use install_panic_hook`
+
+Makes every subsequent panic emit a `tracing` error before the default hook runs.
+
+Call it before the first thread is spawned and after the subscriber is installed. Before the
+subscriber it would still work - `tracing` drops events with no subscriber rather than failing -
+but the panic it was installed for would be the one that is lost.
+
+Idempotent: the second and later calls do nothing.
+
+## `use Shutdown`
+
+A shared "stop now" flag that remembers why.
+
+Cloneable and cheap, so the server, the signal listener and anything else that has to wind down
+all hold the same one. Built on a `watch` channel rather than a cancellation token from a
+utility crate: the channel is in `tokio` already, and carrying the *reason* in the value is
+what makes the log line at the end say something.
+
+## `use ShutdownReason`
+
+Why the process is stopping.
+
+## `use TelemetryNotInstalled`
+
+Why the log could not be set up.
 
 ## Module `admission`
 

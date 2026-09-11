@@ -14,18 +14,19 @@
 //!
 //! # Why there is no status here
 //!
-//! MCP has none. The HTTP surface decides a status *and* a code *and* a sentence in one match,
-//! because on that transport the status is what a monitor counts. Here the code is the whole
-//! machine-readable contract, so this module decides two things instead of three.
+//! MCP has none. The HTTP surface decides a status and a sentence for a refusal, because on that
+//! transport the status is what a monitor counts. Here there is only the code and the sentence.
 //!
-//! # The codes are the HTTP surface's codes, and that is checkable
+//! # The code comes from the domain, not from this transport
 //!
-//! Not by comparing the two modules - this crate cannot see that one - but by both following one
-//! derivation: **the code is the `snake_case` spelling of the variant's own name.**
-//! `the_code_is_the_variant_name_in_snake_case` below asserts it for every variant, reading the name out of the
-//! domain type's own `Serialize` rather than from a list typed beside it. A hand-written code that
-//! drifted from the variant would fail that test, and a hand-written code that drifted from the
-//! other transport's would have to drift from the variant first.
+//! [`RefusalReason::code`] is the single place the code is decided, and both transports read it -
+//! this one and the HTTP surface's - so a code cannot drift between them without first drifting
+//! from the variant. The domain holds that derivation with its own test: the code is the
+//! `snake_case` spelling of the variant's own name, read off the domain type's own `Serialize`
+//! rather than from a list typed beside it. A hand-written code that drifted from the variant would
+//! fail that test, and a hand-written code that drifted from the other transport's would have to
+//! drift from the variant first. `the_code_is_the_variant_name_in_snake_case` below holds this
+//! transport's own output to the same derivation, against a reintroduced literal here.
 //!
 //! What is NOT guaranteed is that the two transports' *sentences* agree. They are written for
 //! different readers - one for a client's error surface, one for a model's context - and nothing
@@ -35,47 +36,40 @@ use sutura_domain::query::{RefusalReason, ResultBound};
 
 /// The code and the sentence for one refusal.
 ///
-/// The match is exhaustive with no wildcard arm, and it decides both at once rather than in two
-/// matches that could drift apart.
+/// The code is the domain's ([`RefusalReason::code`]); the match below is exhaustive with no
+/// wildcard arm and decides the sentence, so the two cannot drift apart from each other.
 pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
-    match *reason {
+    // The code is the domain's, read once - this transport spells no `code` of its own, so it
+    // cannot drift from the HTTP surface. The match below decides the sentence only.
+    let code = reason.code();
+    let detail = match *reason {
         RefusalReason::MetricUnknown { ref metric } => {
-            ("metric_unknown", format!("this catalog defines no metric called `{metric}`"))
+            format!("this catalog defines no metric called `{metric}`")
         }
         RefusalReason::GrainNotSupported { ref metric, grain } => {
-            ("grain_not_supported", format!("`{metric}` is not defined at `{grain}` grain"))
+            format!("`{metric}` is not defined at `{grain}` grain")
         }
         RefusalReason::DimensionNotPermitted {
             ref metric,
             ref dimension,
-        } => (
-            "dimension_not_permitted",
-            format!("`{metric}` does not declare a dimension called `{dimension}`"),
-        ),
+        } => format!("`{metric}` does not declare a dimension called `{dimension}`"),
         RefusalReason::DimensionNotFilterable {
             ref metric,
             ref dimension,
-        } => (
-            "dimension_not_filterable",
-            format!("`{dimension}` can be grouped by on `{metric}` but not filtered on"),
-        ),
+        } => format!("`{dimension}` can be grouped by on `{metric}` but not filtered on"),
         // The value is deliberately absent. `RefusalReason` does not carry it, for the reason
         // `crate::wire::RefusalContent` restates: caller text that reaches a model's context is
         // caller text that becomes somebody else's input.
         RefusalReason::DimensionValueNotAllowed {
             ref metric,
             ref dimension,
-        } => (
-            "dimension_value_not_allowed",
-            format!("the value given for `{dimension}` is not one `{metric}` declares"),
-        ),
+        } => format!("the value given for `{dimension}` is not one `{metric}` declares"),
         RefusalReason::DuplicateDimension { ref dimension } => {
-            ("duplicate_dimension", format!("`{dimension}` is listed more than once"))
+            format!("`{dimension}` is listed more than once")
         }
-        RefusalReason::TooManyDimensions { requested, limit } => (
-            "too_many_dimensions",
-            format!("{requested} dimensions were asked for; at most {limit} are allowed"),
-        ),
+        RefusalReason::TooManyDimensions { requested, limit } => {
+            format!("{requested} dimensions were asked for; at most {limit} are allowed")
+        }
         // The one refusal that is decided AFTER a data system has answered, which is why it names a
         // bound rather than a field: nothing about the question was wrong, and the same question over
         // a narrower range or with fewer dimensions is answerable.
@@ -83,106 +77,90 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         // One code for both bounds - the remedy an agent has to carry out is the same narrowing - and
         // a nested exhaustive match for the sentence, so a bound with no number cannot be described
         // using the other one's.
-        RefusalReason::ResultTooLarge { bound } => (
-            "result_too_large",
-            match bound {
-                ResultBound::Rows { limit } => {
-                    format!("the answer would have been more than {limit} rows; ask a narrower question")
-                }
-                // No figure: the bound is the data system's and this deployment is not told it, so
-                // there is nothing to divide a range by. What an agent needs instead is that the
-                // remedy is still narrowing and that a retry is not one - see `ResultBound::Volume`.
-                ResultBound::Volume => String::from(
-                    "the answer was more data than the data system would return at once; nothing was \
-                     cut down to fit and retrying will not help. Ask a narrower question - a shorter \
-                     period, or fewer dimensions.",
-                ),
-            },
-        ),
-        RefusalReason::TimeRangeTooLong { days, limit } => (
-            "time_range_too_long",
-            format!("the period asked about is {days} days; at most {limit} are allowed"),
-        ),
-        RefusalReason::PlanSpansTooManySources { sources, limit } => (
-            "plan_spans_too_many_sources",
-            format!("this question would read from {sources} data systems, and one answer reads from {limit} at most"),
-        ),
-        RefusalReason::FederationNotExecutable => (
-            "federation_not_executable",
-            String::from(
-                "this deployment has no adapter that can execute one half of a question spanning two \
-                 data systems. Nothing you can change in the question helps and this is not an outage \
-                 to retry; ask without the dimension on the second data system, or report it.",
+        RefusalReason::ResultTooLarge { bound } => match bound {
+            ResultBound::Rows { limit } => {
+                format!("the answer would have been more than {limit} rows; ask a narrower question")
+            }
+            // No figure: the bound is the data system's and this deployment is not told it, so
+            // there is nothing to divide a range by. What an agent needs instead is that the
+            // remedy is still narrowing and that a retry is not one - see `ResultBound::Volume`.
+            ResultBound::Volume => String::from(
+                "the answer was more data than the data system would return at once; nothing was \
+                 cut down to fit and retrying will not help. Ask a narrower question - a shorter \
+                 period, or fewer dimensions.",
             ),
+        },
+        RefusalReason::TimeRangeTooLong { days, limit } => {
+            format!("the period asked about is {days} days; at most {limit} are allowed")
+        }
+        RefusalReason::PlanSpansTooManySources { sources, limit } => {
+            format!("this question would read from {sources} data systems, and one answer reads from {limit} at most")
+        }
+        RefusalReason::FederationNotExecutable => String::from(
+            "this deployment has no adapter that can execute one half of a question spanning two \
+             data systems. Nothing you can change in the question helps and this is not an outage \
+             to retry; ask without the dimension on the second data system, or report it.",
         ),
-        RefusalReason::FederationLinkAmbiguous { ref source } => (
-            "federation_link_ambiguous",
-            format!(
-                "the dimensions on `{source}` join through more than one relationship, and the two \
-                 legs link on a single column"
-            ),
+        RefusalReason::FederationLinkAmbiguous { ref source } => format!(
+            "the dimensions on `{source}` join through more than one relationship, and the two \
+             legs link on a single column"
         ),
-        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => (
-            "measure_does_not_federate",
-            format!(
-                "`{metric}` cannot be computed across two data systems because its {aggregate} \
-                 aggregate is not additive; ask it without the dimension that sits on the second \
-                 data system"
-            ),
+        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => format!(
+            "`{metric}` cannot be computed across two data systems because its {aggregate} \
+             aggregate is not additive; ask it without the dimension that sits on the second \
+             data system"
         ),
         // Written for an agent, so it says which of the two moves is available rather than only that
         // this one failed: unlike the two-source refusal there usually is another question, because a
         // dimension that needs no join is still answered.
-        RefusalReason::PlanTablesShareAnIdentifier { ref table } => (
-            "plan_tables_share_an_identifier",
-            format!(
-                "answering this would read two different tables both called `{table}`, and one \
-                 statement cannot tell them apart. Try a dimension that needs no join; if every \
-                 useful one does, say so to the person you are acting for."
-            ),
+        RefusalReason::PlanTablesShareAnIdentifier { ref table } => format!(
+            "answering this would read two different tables both called `{table}`, and one \
+             statement cannot tell them apart. Try a dimension that needs no join; if every \
+             useful one does, say so to the person you are acting for."
         ),
-        RefusalReason::SourceUnavailable { ref source } => (
-            "source_unavailable",
-            format!("the data system `{source}` is not one this process opened"),
-        ),
-        RefusalReason::ResourcesExhausted { ceiling_bytes } => (
-            "resources_exhausted",
-            format!(
-                "answering this needed more working memory than this deployment allows \
-                 ({ceiling_bytes} bytes) and was refused rather than allowed to exhaust the \
-                 process. Asking again unchanged will be refused again: narrow the period, ask \
-                 for fewer dimensions, or add a filter."
-            ),
+        RefusalReason::SourceUnavailable { ref source } => {
+            format!("the data system `{source}` is not one this process opened")
+        }
+        RefusalReason::ResourcesExhausted { ceiling_bytes } => format!(
+            "answering this needed more working memory than this deployment allows \
+             ({ceiling_bytes} bytes) and was refused rather than allowed to exhaust the \
+             process. Asking again unchanged will be refused again: narrow the period, ask \
+             for fewer dimensions, or add a filter."
         ),
         // Written for an agent, which is a different reader from the HTTP surface's: what an agent
         // needs is to stop, not to adapt. There is no narrower question that helps and no retry that
         // succeeds, so the sentence says both and tells it what to do instead - report it to the
         // person it is acting for, who can ask for access.
-        RefusalReason::CredentialUnavailable { ref source } => (
-            "credential_unavailable",
-            format!(
-                "the person you are acting for has no access to the data system `{source}`, and \
-                 this deployment will not read it under its own identity instead. Nothing you can \
-                 change in the question helps and retrying will not either. Say so, and say that \
-                 access to `{source}` is what would be needed."
-            ),
+        RefusalReason::CredentialUnavailable { ref source } => format!(
+            "the person you are acting for has no access to the data system `{source}`, and \
+             this deployment will not read it under its own identity instead. Nothing you can \
+             change in the question helps and retrying will not either. Say so, and say that \
+             access to `{source}` is what would be needed."
+        ),
+        // Written for an agent: this is the data system itself saying no about WHO asked, not a
+        // credential the caller is missing. There is no retry that succeeds and no narrower
+        // question that helps, so the sentence says stop and names the fix - a grant at that data
+        // system, which only the person the agent is acting for can ask for.
+        RefusalReason::SourceRefused { ref source } => format!(
+            "the data system `{source}` refused this question: the identity it would run as is \
+             not permitted to ask it. This is an authorization decision made there, not an \
+             outage and not something asking again will change. Say so, and say that access to \
+             `{source}` is what would be needed."
         ),
         // Written for an agent: there is a narrower question, and it is a specific one - drop the
         // dimension that pulls in the second data system. The sentence names the posture labels and
         // never a `SourcePosture`, whose shared variant carries the operator's own acknowledgement
         // prose; this reader is an agent's context, which is the last place that belongs.
-        RefusalReason::LegsDecideIdentityDifferently { ref postures } => (
-            "legs_decide_identity_differently",
-            format!(
-                "this question spans two data systems that decide who is asking differently ({}), \
-                 so one answer would add rows read under one identity to rows read under another - \
-                 a total neither is entitled to. Retrying will not help. Ask the same metric \
-                 without the dimension on the second data system, or say so to the person you are \
-                 acting for.",
-                postures.iter().copied().collect::<Vec<&str>>().join(" and ")
-            ),
+        RefusalReason::LegsDecideIdentityDifferently { ref postures } => format!(
+            "this question spans two data systems that decide who is asking differently ({}), \
+             so one answer would add rows read under one identity to rows read under another - \
+             a total neither is entitled to. Retrying will not help. Ask the same metric \
+             without the dimension on the second data system, or say so to the person you are \
+             acting for.",
+            postures.iter().copied().collect::<Vec<&str>>().join(" and ")
         ),
-    }
+    };
+    (code, detail)
 }
 
 #[cfg(test)]
@@ -244,6 +222,9 @@ mod tests {
             },
             RefusalReason::SourceUnavailable {
                 source: SourceName::parse("elsewhere").expect("a test source is a source"),
+            },
+            RefusalReason::SourceRefused {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::CredentialUnavailable {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),

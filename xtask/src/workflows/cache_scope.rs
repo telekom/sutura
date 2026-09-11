@@ -49,6 +49,10 @@ use super::reach::Closure;
 // counts, gates or anchors a cache write - and its own file because the unexemptable 1000-line cap
 // forced the split when its flag-form refusal landed. It reads this module's step reader, so
 // it reaches `key_of` and `steps` as a child, which needs no widening of either.
+/// The writer-EFFECTIVENESS rule for the daemon-mode cache publisher (issue #560): a
+/// `cachix/cachix-action` step whose job realises nothing after it publishes nothing. Its own file
+/// for the same 1000-line reason.
+mod realise;
 mod retired;
 
 /// The main-push condition, token for token.
@@ -58,7 +62,7 @@ mod retired;
 /// accepted, because `A && B && C` is strictly narrower than `A && B` for any `C` (`!cancelled()`
 /// is the plausible one), and a `||` anywhere in the remainder is refused because it can widen.
 /// The conjunct that USED to be here - `vars.NIX_CACHE_NAME != ''` on the retired populate step -
-/// is now refused a layer up by [`UNOBSERVABLE`]: narrower is not the same as observable.
+/// is now refused a layer up by `retired::UNOBSERVABLE`: narrower is not the same as observable.
 const MAIN_PUSH: &str = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 
 /// Actions that write a cache, and are therefore only allowed behind [`MAIN_PUSH`].
@@ -74,7 +78,7 @@ const WRITERS: [&str; 2] = ["nix-community/cache-nix-action", "actions/cache"];
 /// correctly, and inert while unprovisioned - satisfied it on their own. Deleting the store cache
 /// outright then left the gate GREEN, which is the shape this tree calls a floor counted off the
 /// same derivation as its own loop. Measured by provocation, not reasoned. Those two steps are
-/// deleted now and [`HOSTED`] refuses their return, so the tree can no longer show it either -
+/// deleted now and `retired::HOSTED` refuses their return, so the tree can no longer show it either -
 /// which is why `a_gated_writer_that_is_not_the_store_cache_does_not_satisfy_the_anchor` holds it
 /// on `actions/cache` in a fixture instead.
 const STORE_CACHE: &str = "nix-community/cache-nix-action";
@@ -488,6 +492,60 @@ pub(super) mod tests {
         let store = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}"));
         let clean = super::judge(&[("ci.yml", &format!("{caller}{store}"))]);
         assert!(clean.is_empty(), "{clean:#?}");
+    }
+
+    /// #551's claim is 'a cachix-push-pr job WITHOUT the PR gate is REFUSED'. That gate is the
+    /// JOB's own `if:` (a sibling of its `environment:`/`steps:` keys), not a step-level `if:`
+    /// buried under a step marker - so deleting just the job gate while a step `if:` remains must
+    /// re-open the refusal on a merged-main push.
+    #[test]
+    fn the_pr_write_jobs_gate_is_the_job_level_if_not_a_buried_step_one() {
+        // Shape of `.github/workflows/ci.yml`'s `pr-cache` job: the job name sits at two spaces, its
+        // `if:` at the job-scope column (four), a cachix-action step's `if:` deeper (eight).
+        // The realised step after cachix-action keeps the partner rule (#560) green on this
+        // permitted shape, exactly as the live `pr-cache` job is shaped after that fix lands.
+        let pr = "  pr-cache:\n    needs: [ci]\n    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n    steps:\n      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n        if: github.event_name == 'pull_request'\n        with:\n          name: sutura-prs\n      - name: Realise this PR's shared closure\n        run: nix build .#checks.x86_64-linux.nextest\n";
+        let marker = |text: &str| {
+            text.lines()
+                .position(|l| l.contains("cachix/cachix-action@"))
+                .map_or(0, |i| i + 1)
+        };
+        assert!(
+            super::retired::in_pr_publish_job(pr, marker(pr)),
+            "the gated PR job is the write half"
+        );
+        assert!(
+            super::retired::retired(&[("ci.yml".into(), pr.to_owned())]).is_empty(),
+            "the clean PR write job is the permitted shape"
+        );
+
+        // Deleting ONLY the job-level `if:` (leaving the step `if:`) drops the gate.
+        let no_job_gate = pr.replace(
+            "    if: github.event_name == 'pull_request'\n    environment: cachix-push-pr\n",
+            "    environment: cachix-push-pr\n",
+        );
+        assert!(
+            !super::retired::in_pr_publish_job(&no_job_gate, marker(&no_job_gate)),
+            "a buried step `if:` is not the job gate"
+        );
+        assert!(
+            !super::retired::retired(&[("ci.yml".into(), no_job_gate.clone())]).is_empty(),
+            "job gate deleted, step `if:` left = the step is refused"
+        );
+
+        // Deleting both job and step `if:` stays refused.
+        let no_gate = no_job_gate.replace(
+            "        if: github.event_name == 'pull_request'\n        with:\n",
+            "        with:\n",
+        );
+        assert!(
+            !super::retired::in_pr_publish_job(&no_gate, marker(&no_gate)),
+            "no gate at all is refused"
+        );
+        assert!(
+            !super::retired::retired(&[("ci.yml".into(), no_gate)]).is_empty(),
+            "both job and step gates deleted = the step is refused"
+        );
     }
 
     #[test]

@@ -124,8 +124,17 @@ jobs:
           # absent: with it, a pull request could add a substituter and a trusted key and have
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
           # goes here, where the workflow diff shows it.
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # Carries /nix/store between runs. The same action at the same commit as ci.yml, copied
       # rather than written, so the two paths cannot drift into caching differently.
@@ -173,6 +182,61 @@ jobs:
           # embedded dependency list. `nix/shipped.nix` decides it; this is what asserts it.
           nix build .#checks.x86_64-linux.shipped-features -L
 
+      # THE ATTRIBUTION ASSET, GENERATED HERE AND COMMITTED NOWHERE. It used to be a `cp` of a
+      # committed `ATTRIBUTION.md` in a job of its own, on the argument that the tagged tree
+      # already carried a current one and generating here would be a second owner. The premise
+      # was what cost: a committed derived file falls behind `Cargo.lock` on every dependency
+      # bump, Dependabot cannot regenerate it under a read-only token, and so every bot bump was
+      # RED ON ARRIVAL - `github.com/telekom/sutura#431`. `#462` established that the artefact
+      # discharges a real obligation and that its committed form is the part to drop, so the
+      # generator is now the single owner and this is where it runs. `cargo xtask
+      # check-attribution-owner` refuses a committed copy coming back.
+      #
+      # In `gates` rather than in a job of its own because generation needs what this job already
+      # has - nix, the pinned toolchain and a resolvable registry - and the separate
+      # `ubuntu-latest` job existed only because copying a file needs none of that.
+      #
+      # Deliberately WIDER than any one binary - every crate the workspace resolves - because for
+      # attribution the safe error is naming a crate that did not ship, not omitting one that did.
+      #
+      # The count is a FLOOR, for the reason the SBOM assertion in `build` gives: pinning it would
+      # make a dependency bump fail on a correct tree. What it catches is the silent case, a
+      # generator that still writes a well formed document naming nothing - and it is asserted
+      # against the BYTES that will be signed, not against the generator's own exit code.
+      - name: Generate the attribution document
+        run: |
+          set -eu
+          mkdir -p dist
+          nix run .#xtask -- attribution dist/sutura-attribution.md
+          if [ ! -s dist/sutura-attribution.md ]; then
+            echo "::error::the generator wrote no attribution document"
+            exit 1
+          fi
+          ( cd dist && sha256sum sutura-attribution.md > sutura-attribution.md.sha256 )
+          named="$(grep -c '^| `' dist/sutura-attribution.md || true)"
+          if [ "$named" -lt 100 ]; then
+            echo "::error::sutura-attribution.md names ${named} package(s); a workspace this size resolves hundreds"
+            exit 1
+          fi
+          printf 'attribution: %s packages\n' "$named"
+
+      # NOT `release-*`, deliberately, and this is the one thing about the handover worth reading.
+      # `upload-artifact` roots an artifact at the least common ancestor of what it matched, so a
+      # single `path: dist/` produces an artifact whose entries are BARE FILE NAMES - where the
+      # matrix, matching three directories, produces one whose entries are `dist/...`. Merged into
+      # `publish` under the `release-*` pattern this would have unpacked to the workspace root and
+      # the arrival check would have reported both documents missing. So it is named out of that
+      # pattern and `publish` downloads it in its own step, into `dist`, where its bare names land
+      # correctly.
+      - name: Hand the licence statement to publish
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: licence-statement
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
   # `release`, not `release-performance`: the default shipped profile is the cheap one.
   # release-performance.yml builds the other, on request.
   #
@@ -218,8 +282,17 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # As in `gates`: settings that matter are written here, not read out of flake.nix.
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # The same cache as `gates`, for the reason spelled out there. Within one run this also
       # picks up what `gates` just built, since both jobs read and write the same ref's scope.
@@ -256,67 +329,6 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-  # The committed attribution document is copied into the release beside the per-binary SBOMs.
-  # `needs: [gates]` lets this run beside the four cross builds; `publish` signs the result.
-  licence:
-    needs: [gates]
-    # `ubuntu-latest`: checkout, `cp` and `sha256sum` over a COMMITTED document, per the step
-    # below - nothing is generated and nothing is built. `publish` signs the result and keeps the
-    # Rust runner.
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # THE COMMITTED DOCUMENT, copied rather than generated: `just attribution` writes it from
-      # `cargo metadata` and `cargo xtask check-attribution` fails when it falls behind
-      # `Cargo.lock`, so the tagged tree already carries a current one and generating a second
-      # copy here would be a second owner for one artefact. Deliberately WIDER than any one
-      # binary - every crate the workspace resolves - because for attribution the safe error is
-      # naming a crate that did not ship, not omitting one that did.
-      #
-      # The count is a FLOOR, for the reason the SBOM assertion in `build` gives: pinning it would
-      # make a dependency bump fail on a correct tree. What it catches is the silent case, a
-      # generator that still writes a well formed document naming nothing.
-      - name: The attribution document travels with the report
-        run: |
-          set -eu
-          mkdir -p dist
-          if [ ! -s ATTRIBUTION.md ]; then
-            echo "::error::ATTRIBUTION.md is missing from the checkout; 'just attribution' writes it"
-            exit 1
-          fi
-          cp ATTRIBUTION.md dist/sutura-attribution.md
-          ( cd dist && sha256sum sutura-attribution.md > sutura-attribution.md.sha256 )
-          named="$(grep -c '^| `' dist/sutura-attribution.md || true)"
-          if [ "$named" -lt 100 ]; then
-            echo "::error::sutura-attribution.md names ${named} package(s); a workspace this size resolves hundreds"
-            exit 1
-          fi
-          printf 'attribution: %s packages\n' "$named"
-
-      # NOT `release-*`, deliberately, and this is the one thing about the handover worth reading.
-      # `upload-artifact` roots an artifact at the least common ancestor of what it matched, so a
-      # single `path: dist/` produces an artifact whose entries are BARE FILE NAMES - where the
-      # matrix, matching three directories, produces one whose entries are `dist/...`. Merged into
-      # `publish` under the `release-*` pattern this would have unpacked to the workspace root and
-      # the arrival check would have reported both documents missing. So it is named out of that
-      # pattern and `publish` downloads it in its own step, into `dist`, where its bare names land
-      # correctly.
-      #
-      - name: Hand the report to publish
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: licence-statement
-          path: dist/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
-
   # The only job that can write anything, and the only one that builds nothing.
   #
   # Gated at the JOB level rather than per step, so on a branch dispatch the job holding the
@@ -324,7 +336,7 @@ jobs:
   # not redundant: `startsWith(github.ref, 'refs/tags/v')` accepts `v-nonsense`, and only a
   # `vN.N.N` tag may move `:latest`, which is what consumers pull.
   publish:
-    needs: [build, licence]
+    needs: [build, gates]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: rust-mcp-32core
     timeout-minutes: 60
@@ -354,8 +366,17 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # As in `gates`: settings that matter are written here, not read out of flake.nix.
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # No shared build-cache action in this publishing job. Its Nix tools may be substituted
       # or built on a cache miss, including xtask for provenance collection; that does not give
@@ -827,7 +848,7 @@ jobs:
             echo
             echo "| Document | Covers |"
             echo "| --- | --- |"
-            printf "| [\`sutura-attribution.md\`](%s/sutura-attribution.md) | every third-party crate this workspace resolves and the licence it declares; committed, generated from \`cargo metadata\` |\n" "$base"
+            printf "| [\`sutura-attribution.md\`](%s/sutura-attribution.md) | every third-party crate this workspace resolves and the licence it declares; generated by \`cargo metadata\` from the \`Cargo.lock\` of this tag, never committed |\n" "$base"
           } >> notes.md
 
           {

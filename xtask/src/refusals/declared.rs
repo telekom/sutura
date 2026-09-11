@@ -8,16 +8,34 @@
 //! agree. A `.take(n)` on the walk is therefore a failure and not a smaller `ok`.
 //!
 //! [`Declared`]'s field is private and [`Declared::read`] is its only production constructor, so no
-//! caller can mint a variant list or shorten one, and [`Declared::count`] is the length of what the
-//! walk read rather than a number a caller states. **The limit is that this is closed over
-//! PRODUCTION code only**: the `#[cfg(test)]` fixture below builds a list from names, which is what
-//! lets the decision function be driven over shapes a real tree has not got.
+//! caller can mint a variant list, and [`Declared::count`] is the length of what the walk read
+//! rather than a number a caller states. **It does NOT stop a caller shortening the sequence it
+//! iterates**: [`Declared::names`] hands out a slice, exactly the return shape
+//! `check-newtype-leaks` refuses for a sealed witness type, so this type is deliberately not one.
+//! What catches a narrowed adjudication loop is the reconciliation floor in `super::problems`,
+//! which is what `names`' own doc says. **And this is closed over PRODUCTION code only**: the
+//! `#[cfg(test)]` fixture below builds a list from names, which is what lets the decision function
+//! be driven over shapes a real tree has not got.
 //!
 //! An enrolment of ZERO variants is a compile error rather than a runtime refusal: [`variants`] is a
 //! `const fn` whose zero arm panics, and a `const` item that evaluates it does not build.
+//!
+//! # The set, and reaching every member of it
+//!
+//! [`Enrolled`] is the other half, and it exists because the count `super::over` used to keep was
+//! **minted before the work it attested to**: the loop incremented a counter and then called the
+//! per-subject check, so one `continue` between the two removed a subject from the gate's work
+//! while the floor still reconciled - measured `just hygiene` exit 0 with `NotValidated` absent
+//! from the output entirely, whole suite green. `xtask/src/repo/accounting.rs` records the class.
+//! So the loop lives in [`Enrolled::each`], the witness is one verdict PUSHED PER RETURN, and the
+//! closure's return type is [`crate::Verdict`] rather than `()` - there is no arm in which a
+//! visitor can decline. [`Enrolled::declared`] names `super::ENROLLED` itself and the field is
+//! private to this module, so `super::run` has no argument to narrow either.
 
 use std::num::NonZeroUsize;
 use std::path::Path;
+
+use crate::Verdict;
 
 /// One enrolled enum: where it is declared, how many variants it declares, and its own exception
 /// namespace.
@@ -117,6 +135,72 @@ impl Declared {
         Self {
             names: names.iter().map(|name| String::from(*name)).collect(),
         }
+    }
+}
+
+/// The enrolled subjects, and the reach of the loop over them - as a witness, not a slice.
+///
+/// The field is private to this module and there is no accessor, so `super::run` cannot hand
+/// `super::over` a shorter set and `super::over` cannot write the loop. That is
+/// `crate::repo::accounting::Offered`'s argument at the scale of this gate's own subject list;
+/// this type is separate only because a subject here is a `&Subject` rather than a path.
+pub(super) struct Enrolled<'a> {
+    /// The subjects, in the order the gate will check them.
+    subjects: &'a [&'a Subject],
+}
+
+impl Enrolled<'static> {
+    /// The production set. It NAMES the enrolment rather than accepting one, which is the whole
+    /// point: a narrowed argument has nowhere to be written at the call site.
+    pub(super) const fn declared() -> Self {
+        Self {
+            subjects: &super::ENROLLED,
+        }
+    }
+}
+
+/// A fixture set, so the gate can be driven over subjects a real tree has not got.
+#[cfg(test)]
+impl<'a> Enrolled<'a> {
+    pub(super) const fn of(subjects: &'a [&'a Subject]) -> Self {
+        Self { subjects }
+    }
+}
+
+impl Enrolled<'_> {
+    /// Check every enrolled subject, and refuse unless every one of them was reached.
+    ///
+    /// **The witness is the length of what the loop PUSHED**, and a verdict is pushed only when
+    /// `check` has returned one - so a `continue` written in this loop is a refusal rather than a
+    /// shorter `ok`. The visitor returns a [`Verdict`] rather than `()`, so it has no arm in which
+    /// to decline a subject and let the push happen anyway.
+    ///
+    /// The caller never receives the sequence: this folds and returns ONE verdict, so a
+    /// `.take(n)` on the fold has nowhere to be written either.
+    ///
+    /// ONE refusal with two disjuncts, for the reason `super::over`'s call site records: an empty
+    /// enrolment, which every other check here reads as trivially covered, and a loop that did not
+    /// reach every subject. The first has a provocation (`of(&[])`); the second is arrangeable only
+    /// by a diff, and the gate refuses when that diff exists - which is what changed. They are one
+    /// condition so that neutralising the refusal reddens the empty-set test rather than nothing.
+    pub(super) fn each(self, mut check: impl FnMut(&Subject) -> Verdict) -> Result<Verdict, String> {
+        let mut verdicts: Vec<Verdict> = Vec::with_capacity(self.subjects.len());
+        for subject in self.subjects {
+            verdicts.push(check(subject));
+        }
+        if verdicts.is_empty() || verdicts.len() != self.subjects.len() {
+            return Err(format!(
+                "{} of {} enrolled enum(s) were checked - an empty enrolment, or a loop that did \
+                 not reach every subject",
+                verdicts.len(),
+                self.subjects.len()
+            ));
+        }
+        Ok(if verdicts.iter().all(|verdict| *verdict == Verdict::Pass) {
+            Verdict::Pass
+        } else {
+            Verdict::Fail
+        })
     }
 }
 

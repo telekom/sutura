@@ -1,7 +1,7 @@
 name: cachix-push
 
-# Publish this repository's own store paths to the OSS binary cache, so a later run substitutes them
-# instead of rebuilding. READS need nothing from here - every job's installer already names the
+# Publish this repository's own store paths to the OSS binary caches, so a later run substitutes them
+# instead of rebuilding. READS need nothing from here - every job's installer already names each
 # substituter and its public key, committed in the clear. This workflow is only the WRITE half.
 #
 # **Why a workflow of its own rather than a step in `ci`.** An `environment:` is declared per JOB, and
@@ -55,8 +55,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # The same scope the `ci` job wrote moments ago, so realising the checks below is a restore
       # rather than a rebuild. A miss here costs a build and publishes the same paths regardless.
@@ -74,10 +74,173 @@ jobs:
 
       # Realise the closure the cache is FOR: the dependency artifacts every check shares. Naming the
       # checks rather than the whole flake keeps the publish to what a later run actually restores.
+      # Publish `.#xtask` too (#562): it is the binary several ci steps `nix run` (classify,
+      # check-attribution, crap-delta) and is BUILT afresh in 5/5 observed runs (~25 s) because it
+      # sits in no nitro push list. Realising it into the shared `sutura` cache lets those steps
+      # substitute instead of rebuild. It is a package output, not a release binary - the reference
+      # gate ignores non-`checks` packages by design.
+      #
+      # **`hygiene` IS REALISED FIRST AND ALONE, AND THAT IS A RACE, NOT A TIDYING (#600).** The
+      # daemon's post-build hook publishes each path AS IT IS BUILT, so what decides whether a
+      # consumer substitutes this derivation or builds its own copy is the wall-clock moment it
+      # lands. `docs.yml` has two `publish` legs that realise the same `hygiene` derivation, and at
+      # v0.5.1 the main leg started building its own copy at 08:39:02 - 18 s BEFORE this hook
+      # published it at 08:39:20 - which is why those two legs measured 246 s and 70 s for one
+      # identical derivation. In a merged graph nix decides when `hygiene` finishes; in its own
+      # invocation it finishes as early as it can. The tag leg is out of reach either way (it
+      # evaluated at 08:34:03, 34 s before this step started), so the prize is three realises of
+      # that derivation per release becoming two, not one.
+      #
+      # The cost is real and is paid in the right place: `hygiene` no longer overlaps the other
+      # roots, so this step's own wall clock can rise by most of that derivation. This workflow
+      # reports no status-check context and can gate no merge (see the job comment above), so
+      # runner time here is the cheapest kind in the repository.
+      #
+      # A CACHE HIT ON THIS OUTPUT IS PROOF THE GATE PASSED ON THAT TREE, which is why publishing it
+      # earlier needs no `if:`, no extra permission and no soundness argument: the derivation IS the
+      # check. Whether it changes any wall clock is a HYPOTHESIS until a release shows it - the two
+      # docs legs share one concurrency group, so they are serialized and no figure is promised.
       - name: Realise and publish the shared closure
         run: |
           set -eu
+          nix build --print-build-logs .#checks.x86_64-linux.hygiene
           nix build --print-build-logs \
             .#checks.x86_64-linux.nextest \
             .#checks.x86_64-linux.clippy \
-            .#checks.x86_64-linux.hygiene
+            .#xtask
+
+  # PER-CONSUMER PUBLISH. Each consumer's closure goes to its OWN cache
+  # (`sutura-cross-build` / `sutura-connectors`), each with its own 5 GB bucket, so one consumer's
+  # publish never crowds another's or the shared `sutura` cache. Each job restores ONLY its
+  # consumer's scope(s), then cachix-action pushes that consumer's closure to that consumer's cache
+  # with that consumer's token.
+  #
+  # THE MECHANISM, STATED BECAUSE IT IS THE WHOLE GAME: cachix-action (useDaemon) publishes ONLY
+  # paths nix BUILDS while its daemon is alive, via the post-build hook - it does NOT push the store
+  # it finds restored, and a substituted/restored path never fires the hook. So every consumer job
+  # ends with a `nix build` realise that genuinely RE-COMPILES its closure into fresh store paths,
+  # exactly like the `push` job does for the shared cache. The cross legs do it per triple; the
+  # connectors job does it via `checks.nextest`. cachix-action pushes every BUILT path matching
+  # `pushFilter`, so a job whose realise pulled another consumer's closure would dump it in too -
+  # the separate jobs are what keeps each cache to its own consumer.
+  #
+  # THE TOKENS LIVE IN ENV `cachix-push-mixed`: each job declares it and spends exactly its own
+  # secret. The `push` job above keeps the shared closure and its token in env `cachix-push`
+  # untouched. The runner is the same big one `push` uses, because realising these closures (the
+  # cross build most of all) is the disc-heavy half of a publish.
+  #
+  # EVERY CACHE HERE IS ALSO READ, AND IN TEXT. The per-consumer public keys are committed in
+  # `xtask/src/workflows/cache_scope/retired.rs::ALLOWED` and named in every installer's
+  # `extra_nix_config`, this workflow's included - so a reviewer sees the trusted set in the diff and
+  # the gate compares against it. `extraPullNames` would configure the same substituters at RUNTIME,
+  # where no reviewer and no text rule can see them, which is why the list is committed instead.
+
+  cross-build:
+    name: push the cross-build closure
+    runs-on: rust-mcp-32core
+    environment: cachix-push-mixed
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # THE SAME REDUCED SET `cross-link.yml` BUILDS, and it has to be the same list: this job
+        # exists to fill `sutura-cross-build` with the closures those legs substitute, so a triple
+        # published here that no leg builds puts paths nothing reads into a 5 GB bucket, and a
+        # triple built there and not published here is a leg with no second carrier at all.
+        # `cargo xtask check-workflows` refuses either drift.
+        #
+        # `release.yml`'s `build` still builds all four and this reduction costs it nothing it was
+        # getting: it names no substituter beyond the installer's default, and it builds the
+        # RELEASE-profile packages, which are different derivations from the `-ci` ones realised
+        # below. Read from that file rather than assumed.
+        target:
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+    steps:
+      # Same skeleton as the `push` job: the store is what fills, so `reclaim-disk` first.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      # Restore ONLY this leg's scope - the same per-triple entry `cross-link.yml` writes. A shared
+      # key would have the four legs overwrite each other.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ${{ matrix.target }}
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura-cross-build
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN_CROSS_BUILD }}
+          pushFilter: "(-source$|nixpkgs)"
+      # `cross` is the largest closure - four triples x two shipped binaries - so it is the one to
+      # watch first against its 5 GB bucket.
+      - name: Realise and publish this triple's cross-build closure
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          # The two shipped binaries, the exact set `cross-link.yml` realises on `main`.
+          for bin in sutura sutura-serve; do
+            nix build --print-build-logs ".#${bin}-${TARGET}-ci"
+          done
+
+  connectors:
+    name: push the connectors closure
+    runs-on: rust-mcp-32core
+    environment: cachix-push-mixed
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      # NO `scope: bq` RESTORE ANY MORE, because nothing writes that scope. `ci.yml`'s
+      # `bigquery-acceptance` job was its only writer and lost its store-cache step for the
+      # ceiling arithmetic recorded there; a restore of a scope with no writer is a lookup of an
+      # entry that cannot exist, which is exactly what the deleted `fuzz` scope was. The warm start
+      # comes from the stores the installer above names instead - `sutura` holds the same
+      # `checks.nextest` closure this job realises, published by the `push` job on the previous
+      # main push.
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura-connectors
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN_CONNECTORS }}
+          pushFilter: "(-source$|nixpkgs)"
+      # Realise the closure THIS cache is for and publish it. cachix-action's daemon publishes
+      # only what nix builds after it starts, so this step must genuinely RE-COMPILE, not re-derive
+      # a closure that is already present (which realises instantly and still fires the hook
+      # nothing). Building `checks.nextest` does that for the same reason the main `push` job's
+      # publish works: the cache key is lockfile-based but the source is not, so on every push to
+      # `main` the workspace crates - `sutura-exec-bigquery`'s acceptance target included - are
+      # recompiled into fresh store paths, the hook fires, and they land in `sutura-connectors`
+      # for the next `bigquery-acceptance` run to substitute.
+      - name: Realise and publish the acceptance closure
+        run: |
+          set -eu
+          nix build --print-build-logs .#checks.x86_64-linux.nextest
+
+  # NO `fuzz` JOB, AND THAT IS THE HONEST RESOLUTION, NOT AN OMISSION. The `sutura-fuzzing` cache
+  # has nothing unique store-worthy to publish. The fuzz harness is a RUNTIME cargo build into
+  # `target/fuzz` (see `fuzz.yml`) and is never a nix store path, so it cannot be pushed. The only
+  # store paths `.#fuzz` needs - the pinned nightly, cargo-fuzz, the C toolchain - come from
+  # nixpkgs, are substitutable from the public cache on install, and are NOT excluded by this
+  # workflow's `pushFilter` (they carry no `nixpkgs` substring and do not end `-source`): forcing a
+  # realise of them would push COPIES of public paths into a second cache that a later run
+  # substitutes from the public cache anyway, buying nothing for a store and, at worst, crowding
+  # the 5 GB bucket. So there is no realise that fills `sutura-fuzzing` with anything a later run
+  # would not already have. The provisioning (the cache, its token in env `cachix-push-mixed`) is
+  # left untouched here; the job that spent the runner re-realising an empty store is gone.

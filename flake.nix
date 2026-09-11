@@ -143,6 +143,7 @@
             || (builtins.match "vendor(/.*)?" rel != null)
             || (builtins.match "crates/[^/]+/tests(/.*)?" rel != null)
             || (builtins.match "crates/[^/]+/src(/.*)?" rel != null)
+            || (builtins.match "crates/[^/]+/corpus(/.*)?" rel != null)
             || (builtins.match "examples(/.*)?" rel != null)
             # `xtask` is a repo-inspection tool, so its tests read repo files by design - and it
             # is `checks.nextest` that runs them, on `wholeTree`, so this arm is not what carries
@@ -223,6 +224,9 @@
 
         # The copy/paste detector (issue #474); body in nix/jscpd.nix.
         jscpd = import ./nix/jscpd.nix { inherit pkgs craneLib inheritedArtifacts; src = jscpd-src; };
+
+        # The workflow parser, including hash-pinned upstream support for `concurrency.queue`.
+        actionlint = import ./nix/actionlint.nix { inherit pkgs; };
 
         # The data system the local Warehouse adapter links against, resolved by the SAME file
         # devenv.nix imports so the dev shell and CI cannot link two different libduckdbs. It also
@@ -729,30 +733,13 @@
           '');
         };
 
-        # `nix run .#bigquery-acceptance` - the one leg that talks to a real cloud service.
-        #
-        # **An app and NOT a check, and that is the whole design.** `checks.*` run in the nix
-        # sandbox, which has no network at all, so this could not be a check even with a
-        # credential. An app runs outside it and therefore can reach the endpoint - which also
-        # means nothing about it is hermetic and it is not part of `just validate`.
-        #
-        # It supplies the pinned cargo and `cargo-nextest` for the reason `apps.deny` gives at
-        # length: `nix run` puts only the named program on PATH, so a run that shelled out to an
-        # unpinned host cargo would be a second toolchain.
-        #
-        # **What it needs from its environment, and it fails loudly without any of it:**
-        # `GOOGLE_APPLICATION_CREDENTIALS` at a credential file, plus `SUTURA_BQ_DATASET` and
-        # `SUTURA_BQ_TABLE`. The billing project comes from a service-account key's own
-        # `project_id`, so CI configures no project variable. `--run-ignored only` is what reaches
-        # the `#[ignore]`d tests - every one in the targets this app runs, not a listed set, so a
-        # test added there is reached without editing this comment; every other task skips them.
-        #
-        # **The `two_principals` binary is filtered OUT here and run by its own app below.** The
-        # filter is on the BINARY and not on a test list, so the property the paragraph above
-        # states survives: a test added to either target is still reached without editing this
-        # comment. What it buys is that the two acceptance legs stay runnable by whoever holds one
-        # credential - the two-principal cell needs five more values and two more key documents,
-        # and one app demanding all of them would make the legs somebody CAN run unreachable.
+        # `nix run .#bigquery-acceptance` - the one leg that talks to a real cloud service, and an app rather than a check
+        # because `checks.*` run in the nix sandbox, which has no network: nothing here is hermetic and none of it is in
+        # `just validate`. It carries the pinned cargo and `cargo-nextest` for `apps.deny`'s reason - `nix run` puts only the
+        # named program on PATH, so shelling out to a host cargo would be a second toolchain. It fails loudly without
+        # `GOOGLE_APPLICATION_CREDENTIALS`, `SUTURA_BQ_DATASET` or `SUTURA_BQ_TABLE`; the billing project comes from the key's
+        # own `project_id`, so CI configures none. `--run-ignored only` reaches every `#[ignore]`d test in the targets it runs
+        # rather than a listed set - which is why the identity and cross-resource legs are excluded by BINARY, not by a list.
         apps.bigquery-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-acceptance" ''
@@ -761,20 +748,14 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'not binary(two_principals) and not binary(exchanged_identity)' "$@"
+              --run-ignored only -E 'not binary(two_principals) and not binary(exchanged_identity) and not binary(cross_resource)' "$@"
           '');
         };
-        # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth
-        # amendment and issue #123.
-        #
-        # Its own app for the reason the filter above gives, and everything the app beside it says
-        # about being an app rather than a check applies unchanged: the sandbox has no network.
-        #
-        # **What it needs beyond that app's environment:** `SUTURA_BQ_RLS_DATASET`,
-        # `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`, `SUTURA_BQ_PRINCIPAL_A_ROWS`,
-        # `SUTURA_BQ_PRINCIPAL_B_ROWS`, and a key document per principal at
-        # `SUTURA_BQ_PRINCIPAL_A_KEY` / `SUTURA_BQ_PRINCIPAL_B_KEY`. It fails loudly without any of
-        # them - `tests/two_principals.rs` carries what each names.
+        # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth amendment and issue #123. Its
+        # own app for the filter reason above, and everything that app says about being an app rather than a check holds here.
+        # Beyond that app's environment it needs `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`,
+        # `SUTURA_BQ_PRINCIPAL_A_ROWS`, `SUTURA_BQ_PRINCIPAL_B_ROWS` and a key document per principal at
+        # `SUTURA_BQ_PRINCIPAL_A_KEY` / `SUTURA_BQ_PRINCIPAL_B_KEY`, failing loudly without any; `tests/two_principals.rs` names each.
         apps.bigquery-two-principals = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-two-principals" ''
@@ -798,6 +779,29 @@
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
               --run-ignored only -E 'binary(exchanged_identity)' "$@"
+          '');
+        };
+        # `nix run .#bigquery-cross-dataset` / `.#bigquery-cross-project` - issue #118's two cross-resource venues: writable
+        # per-run fixtures across two datasets, read-only preprovisioned mirrors across two projects. Two apps because each
+        # needs inputs the other does not, and one demanding both would strand the runnable leg. **No workflow invokes either.**
+        apps.bigquery-cross-dataset = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-cross-dataset" ''
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
+              --run-ignored only -E 'binary(cross_resource) and test(join_across_datasets_)' "$@"
+          '');
+        };
+        apps.bigquery-cross-project = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-cross-project" ''
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
+              --run-ignored only -E 'binary(cross_resource) and test(join_across_projects_)' "$@"
           '');
         };
 
@@ -886,7 +890,7 @@
         };
         apps.actionlint = {
           type = "app";
-          program = "${pkgs.actionlint}/bin/actionlint";
+          program = "${actionlint}/bin/actionlint";
         };
         apps.shellcheck = {
           type = "app";

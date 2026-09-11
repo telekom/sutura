@@ -90,7 +90,7 @@ decides the fields.
 
 **Rendering and parse-checking. Not acceptance.** In CI, for this dialect:
 
-- the 21 questions render, and their statements and parameters are pinned as goldens reviewed as a
+- the questions render, and their statements and parameters are pinned as goldens reviewed as a
   diff;
 - every statement is parsed with the BigQuery target;
 - no value from a question reaches a statement as text, and every identifier is quoted - both
@@ -240,6 +240,19 @@ three before the leg runs: the project id read out of the key, and the dataset a
 environment's variables. `::add-mask::` is the right mechanism because it does not care where a value
 appears - it redacts every later log line in the job, a panicking test's own message included.
 
+**Corrected: two of the three are masked from their SECOND occurrence, not their first, and that is a
+property of the runner rather than of this job.** The runner prints a step's resolved `env:` block into
+that step's own `Run` group before it executes the body, so the dataset and the table - which reach the
+masking step through its `env:` - are in the log once, in cleartext, before the `::add-mask::` lines
+run. The project id is not, and the difference is the lesson: it never becomes an expression, because
+only the key's *path* goes through `env:` and `python3` reads the value out of the file. This cannot be
+repaired by masking earlier: the printed dictionary is assembled from the `env` context, which carries
+job-level and workflow-level entries too, so hoisting the values prints them in every step's group; and
+an expression read inside a `run:` body is echoed with the expression already resolved. **The one thing
+that closes it is making those two environment secrets rather than variables** - the runner adds every
+secret to its masker before the first step runs. That is a forge change, no file in this repository can
+make it, and no gate in this repository can see whether it has been made.
+
 **The cost is stated rather than hidden:** in CI the diagnostic that made carrying the message worth
 while is redacted away. A maintainer who needs the unredacted text runs the leg locally, where the log
 is theirs. That is the correct direction for a public repository and it is a real loss.
@@ -311,9 +324,12 @@ hand-built `SUM` over a two-column table a developer supplies. It contains no jo
 `COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF` ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and
 `ISOWEEK` and `DATE_TRUNC`'s argument order are exactly the two things this page MEASURED the parse
 check to be blind about, so they are what a live run is worth most for. **The leg this page specifies
-is #78's importer shape pointed at a dataset - load the fixtures, run the 21 questions, compare rows
-with the engine - and it is not built.** `docs/adr/0018` records that gap, and the smoke leg's own
-header opens with it.
+is #78's importer shape pointed at a dataset - load the fixtures, run the corpus's questions, compare
+rows with the engine - and it is now built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`.
+**Corrected: this sentence said *it is not built*, and the third amendment below already quotes it as
+the sentence that stopped being true** - so this record contradicted itself while `docs/adr/0018` and
+`docs/architecture.md` both cite it as their authority for the opposite. The quotation in that
+amendment keeps the original wording, count included, because a quote that is edited is not a quote.
 
 **This record said the change adding the wire would be the change that could first run it against a
 project. It was not** - the machine it was written on had no `gcloud`, no application-default
@@ -1465,3 +1481,38 @@ does not spell the secret's name - a `cp` of the key file, a `base64 -d` of it -
 or other shell-built path, and a removal whose condition never fires. The second limit that
 amendment names, the two nextest filters, is
 untouched and is telekom/sutura#430.
+
+## Thirteenth amendment, 2026-09-10: the cross matrix is reduced, and this record's probe claim narrows with it
+
+**Status of the amendment: accepted; it withdraws a claim this record makes about a venue, and
+carries no new run.**
+
+The eighth amendment says that a feature named in `probeFeatures` gets a package per release triple
+*"and the four `cross` jobs build them beside the shipped set on every pull request"*, and prices
+having the probe at *"62-85s on each of four `cross` jobs, per pull request"*. The eighth
+amendment's cell list also states that *"the musl link has been exercised green on every pull
+request and never red"*. None of the three survives unqualified, and the first two had already
+stopped being true before this change: the pull-request leg was reduced to the two aarch64 triples
+earlier, so *four, on every pull request* was describing a venue that had stopped running.
+
+**What runs now.** `cross-link.yml` builds ONE reduced set on every event it is called for -
+`aarch64-unknown-linux-gnu` for the architecture axis and `x86_64-unknown-linux-musl` for the
+static-allocator C axis, one cell each so a red leg says which axis broke - and the full four
+survive only in `release.yml`'s `build`, whose `publish` job asserts that exactly four artefacts
+arrived. `cargo xtask check-workflows` holds all three literals, the release four included; that
+last one is what makes the reduction a later signal rather than an absent one.
+
+**What it costs this record's claim, stated rather than smoothed over.** The
+`feature-probes-<triple>` step rides that matrix and NOTHING else runs it - the release path runs
+neither it nor the embedded-dependency-list assertion - so the `--features bigquery` link is proven
+on two triples and in no venue at all for `x86_64-unknown-linux-gnu` and
+`aarch64-unknown-linux-musl`. `nix/shipped.nix`'s `probeFeatures` declarations are untouched and
+`cargo xtask check-shipped-binaries` still reconciles them against the documented builds, so the
+DECLARATION is intact; what shrank is how many triples exercise it.
+
+**And the half that improves, because it is the reason the pair is this pair.**
+`x86_64-unknown-linux-musl` is back on the pull-request leg, where it had not run since that leg
+became the aarch64 pair - so the musl-link sentence above is true again for the host architecture on
+every pull request, and false for `aarch64-unknown-linux-musl` in ordinary CI. Priced against what
+it replaces: the reduction runs two cells on a pull request where four ran before this record's
+period and two ran after it, and two on `main` where four ran.

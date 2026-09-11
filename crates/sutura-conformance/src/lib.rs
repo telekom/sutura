@@ -107,6 +107,14 @@ pub mod corpus;
 pub mod execute;
 pub mod venue;
 
+// The compile packs live behind a default-off `compile` feature: they need `sutura-semantic` and
+// `sutura-sql`, and a data adapter binding the execute packs must link neither (`corpus` states the
+// portability contract `docs/adr/0012` and `xtask/src/boundaries/harness.rs` pins the shape).
+// `just test`/`just lint` pass `--all-features`, so this module is built and run on the feature-on
+// path; the feature-off path is what every execute binding compiles.
+#[cfg(feature = "compile")]
+pub mod compile;
+
 // Re-exported at the crate root, so the split is an implementation detail rather than a rename:
 // `execute_packs!` expands `$crate::Fixture` at every binding, and a path that moved would be a
 // breaking change bought for nothing. `clippy::pub_use` is allowed here for exactly this shape.
@@ -172,7 +180,7 @@ impl Behaviour {
     /// lose its element - that was the first correction. `EVERY` was still a THIRD list tied to
     /// neither, and a review measured what that costs: delete `Self::Content` from it AND its entry
     /// from [`execute_packs`]'s `@behaviours` list, and all three bindings print
-    /// *5 behaviour(s) over 2 case(s)*, `21 tests run` becomes `18 tests run: 18 passed`, and
+    /// *5 behaviour(s)* over the corpus's cases, `21 tests run` becomes `18 tests run: 18 passed`, and
     /// `-D warnings` says nothing - `execute::content_agrees_with_the_reference` stays alive because
     /// `tests/bound.rs`'s fault half calls it. What `execute`'s own header calls *the* conformance
     /// claim left the pack on a green run, in every binding.
@@ -559,7 +567,7 @@ pub fn conduct<W, E>(
 ///    were actually emitted rather than a constant beside it;
 /// 5. **a venue where the fixture did not stand up prints NO coverage line at all.** It takes the
 ///    `open` path rather than a [`Spent`] for exactly this: a census that printed *6 behaviour(s)
-///    over 2 case(s)* beside six cells that each reported `NOT RUN` is the skip that reads as
+///    over the corpus's cases* beside six cells that each reported `NOT RUN` is the skip that reads as
 ///    coverage, which is the failure mode the packs were built against. What it prints instead
 ///    names the count as one that asserted nothing, and carries the provisioner's diagnostic. The
 ///    two assertions above it still run, because what a binding emitted and whether the corpus has

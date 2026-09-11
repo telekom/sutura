@@ -45,8 +45,8 @@ change. It is not a timeout, not an outage, and not a malformed request.
 
 **Over HTTP a refusal arrives with an error status rather than a success one**, which is not a
 transport problem and not a reason to try again. The reason is what to act on: the body repeats it
-as a machine-readable `code`, the name below in lower case with underscores, so `MetricUnknown` is
-`metric_unknown`. The status only says which class of no it is.
+as a machine-readable `code`, and the name below is that same `code` - lower case, with
+underscores. The status only says which class of no it is.
 
 **Do not retry a refused question unchanged.** Repeating the same question will not change the
 answer, and a loop that keeps asking is a loop that consumes the deployment's budget to learn
@@ -59,75 +59,80 @@ there, so treat the lists in this document as the authority on what a value may 
 
 Every reason you can be given, and what to do about each:
 
-- **MetricUnknown** - no metric of that name is defined here.
+- **metric_unknown** - no metric of that name is defined here.
   Use a name from the metric list below, exactly as spelled. Do not try a variant spelling, a
   plural, or a name you remember from another deployment: the list is the whole of what exists.
-- **GrainNotSupported** - the metric exists and does not declare that time resolution.
+- **grain_not_supported** - the metric exists and does not declare that time resolution.
   Ask at a grain the metric lists. A finer grain is not a narrower version of the same question here
   - it is a number nobody certified, which is why it is refused rather than approximated.
-- **DimensionNotPermitted** - the metric does not declare that dimension.
+- **dimension_not_permitted** - the metric does not declare that dimension.
   Use one of the dimensions listed under that metric. There is no way to reach an attribute a metric
   did not declare, so do not substitute a similar-sounding name.
-- **DimensionNotFilterable** - the dimension can be grouped by and not filtered, because the
+- **dimension_not_filterable** - the dimension can be grouped by and not filtered, because the
   definitions declare no set of values for it.
   Drop the filter, group by the dimension instead, and read the row you wanted out of the result.
-- **DimensionValueNotAllowed** - the dimension is filterable and the value is not one the
+- **dimension_value_not_allowed** - the dimension is filterable and the value is not one the
   definitions declare.
   Use a value from that dimension's list below. The refusal does not repeat your value back to you,
   on purpose, so compare against the list rather than expecting a correction.
-- **DuplicateDimension** - the same dimension was sent twice in one question.
+- **duplicate_dimension** - the same dimension was sent twice in one question.
   Send it once. It is refused rather than de-duplicated because a caller who sent it twice believed
   something about the result that is not true.
-- **TooManyDimensions** - more group-by keys than one question may carry.
+- **too_many_dimensions** - more group-by keys than one question may carry.
   Ask a narrower question, or ask two questions. Do not resend the same list.
-- **ResultTooLarge** - the answer was too much data to certify - more rows than the cap, or more
+- **result_too_large** - the answer was too much data to certify - more rows than the cap, or more
   than the data system would return at once - and it was refused rather than cut short.
   Narrow the period, drop a dimension, or add a filter, and ask again. Nothing partial is returned
   and nothing will be: a total over some of the groups is a different number wearing the same name.
   Retrying the same question returns the same refusal. The refusal names the row cap where the cap
   is what fired; where the data system's own bound is, there is no number to read, so narrow by a
   visible step rather than computing one.
-- **TimeRangeTooLong** - the period asked about is longer than one question may span.
+- **time_range_too_long** - the period asked about is longer than one question may span.
   Split it into consecutive shorter periods and ask about each. The refusal carries both day counts,
   so the split can be computed rather than guessed.
-- **ResourcesExhausted** - answering would have needed more working memory than this deployment
+- **resources_exhausted** - answering would have needed more working memory than this deployment
   allows, so it was refused rather than allowed to exhaust the process.
   Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same question
   returns the same refusal: the ceiling is a configured number, not a passing condition, so this is
   not an outage to wait out.
-- **PlanSpansTooManySources** - answering would need to read from more data systems than this
+- **plan_spans_too_many_sources** - answering would need to read from more data systems than this
   deployment serves (two at most).
   Nothing you can change. Report it to a person: it is a fact about how the metric is defined, not
   about how you asked. Do not retry and do not try a different dimension in the hope of avoiding it.
-- **FederationNotExecutable** - this deployment has no adapter that can execute one half of a
+- **federation_not_executable** - this deployment has no adapter that can execute one half of a
   question spanning two data systems, so the question cannot be answered yet.
   Nothing you can change by re-asking, and do not retry it as if it were an outage: this is not a
   data system being down. Ask the same metric without the dimension on the second data system, or
   report it to a person.
-- **FederationLinkAmbiguous** - the question's dimensions on the second data system join the metric
-  through more than one relationship, and the two legs link on a single column.
+- **federation_link_ambiguous** - the question's dimensions on the second data system join the
+  metric through more than one relationship, and the two legs link on a single column.
   Nothing you can change about the question. Report it to a person: it is a fact about how the
   metric is defined.
-- **MeasureDoesNotFederate** - across two data systems this measure cannot be computed and
+- **measure_does_not_federate** - across two data systems this measure cannot be computed and
   recombined - its aggregate (a distinct count) is not additive the way a sum or an average is.
   Nothing you can change about the question. Ask the same metric without the dimension that sits on
   the second data system, or report it to a person.
-- **LegsDecideIdentityDifferently** - the question spans two data systems that decide who is asking
-  differently, so one answer would add rows read under one identity to rows read under another - a
-  total neither identity is entitled to.
+- **legs_decide_identity_differently** - the question spans two data systems that decide who is
+  asking differently, so one answer would add rows read under one identity to rows read under
+  another - a total neither identity is entitled to.
   Ask the same metric without the dimension that sits on the second data system, and the mono-source
   question on each is still answered. Retrying changes nothing, and this is not an outage: it is a
   fact about how the two data systems are declared. If every dimension you need crosses them, say so
   to the person you are acting for.
-- **PlanTablesShareAnIdentifier** - answering would read two different tables that carry the same
-  name, and one statement cannot tell them apart.
+- **plan_tables_share_an_identifier** - answering would read two different tables that carry the
+  same name, and one statement cannot tell them apart.
   Try a dimension that does not need that join - it is the join that puts both tables in one
   statement, so a question without it is still answered. If every dimension you need goes through
   it, report it to a person: it is a fact about where the tables live, not about how you asked.
-- **SourceUnavailable** - the data system that metric lives in is not one this deployment opened.
+- **source_unavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.
-- **CredentialUnavailable** - the person you are acting for has no access to the data system that
+- **source_refused** - the data system itself refused the question because the identity it would run
+  as is not permitted to ask it - an authorization decision made there, not an outage.
+  Nothing you can change in the question, and retrying it will be refused again at the same place:
+  this is not a data system being down and it is not waiting out. Report it to the person you are
+  acting for, and say that access to that data system is what would be needed.
+- **credential_unavailable** - the person you are acting for has no access to the data system that
   metric lives in, and this deployment will not read it under its own identity instead.
   Nothing you can change, and this is the one refusal where that matters most: a narrower question,
   a different grain and a shorter period all return it again. Say so, and say that access to that

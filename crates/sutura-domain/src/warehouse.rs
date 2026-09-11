@@ -748,6 +748,21 @@ pub trait Warehouse {
         false
     }
 
+    /// Was this [`execute`](Warehouse::execute) failure the DATA SYSTEM refusing the statement at the
+    /// identity/authorization level, rather than failing to answer? The query-time sibling of
+    /// [`preflight_was_refused`](Warehouse::preflight_was_refused). A
+    /// statement can be refused because the identity it ran as may not read what it asks for; that
+    /// refusal returns forever until a grant changes, unlike a dead data system or a dropped
+    /// connection where a retry may answer. `true` selects the class a retry meets with the same
+    /// refusal. A caller told `true` receives
+    /// [`RefusalReason::SourceRefused`](crate::query::RefusalReason::SourceRefused), not the `503`
+    /// a data system being down produces - a refusal is never silently retried as if transient. A
+    /// predicate rather than a conversion, for [`result_did_not_fit`](Warehouse::result_did_not_fit)'s
+    /// reasons; which permission or identity is the data system's to say. Defaulted to `false`.
+    fn source_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
     /// Does this data system hold the tables the bundle names?
     ///
     /// **Asked once, at boot, before a listener is bound**, and it exists to close an asymmetry

@@ -1273,25 +1273,216 @@ pub const fn time_column(&self) -> &ColumnName
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
-### `use None`
+### `use AnchorValue`
 
-### `use None`
+The number a metric is expected to produce, as the text that number is compared as.
 
-### `use None`
+**The last authored scalar that entered this crate unparsed.** An
+`Anchor`'s value was a `String` behind `pub const fn new`, written by both
+catalog adapters and read back by `sutura-cli`'s `catalog` command and by
+`NotValidated::AnchorMismatch` - a line an
+operator reads to decide whether a bundle still means what it claimed. So it is the same channel
+`DimensionValue` closed for a declared value and a definitional filter, arriving at a fourth
+field: a right-to-left override or a no-break space inside the certified number made the printed
+line and the compared text two different things, with nothing downstream able to tell.
 
-### `use None`
+**Held to `DimensionValue`'s rule by calling it, not by restating it**, and that includes the
+length: the cap is `MAX_DIMENSION_VALUE_CHARS` rather than a number of this type's own, for the
+reason `MAX_DESCRIPTION_BYTES` gives about two constants derived from one measurement. 64
+characters is three times the longest decimal an `i64` can render, so no number a data system can
+return is refused by the length alone. **A long enough STRING scalar would be** - the type does
+not require the text to read as a number, see below - and 64 characters is where an anchor over
+prose stops being certifiable. That bound is the declared value's and is deliberately not
+widened for this caller.
 
-### `use None`
+**The refusal is `InvalidDimensionValue` and not a type of its own**, because it would be a
+second name for the same five faults and would say nothing the shared rule does not. The *anchor*
+framing belongs to whoever names the field - `sutura_catalog_local`'s
+`InvalidMetricDocument::AnchorValue` names the metric and carries this as its `source`, which is
+the arrangement `NotValidated::AnchorNotExecuted` already uses.
 
-### `use None`
+**What it is deliberately NOT:** a number. The value is text because it is compared against the
+canonical rendering of what the data system returned, and a float would make the comparison
+depend on how two languages happen to print the same bits - the argument
+`Anchor` already carried and this type does not weaken. Nothing here checks that
+the text reads as a number, and a check that did would be this type refusing an anchor over a
+string measure.
 
-### `use None`
+### `use Description`
 
-### `use None`
+The prose that travels with a definition: what a model, a metric or a dimension means.
 
-### `use None`
+**The channel this type was added for was the last one whose rendering could differ from its
+content.** A metric description is quoted into the agent-facing prompt by
+`sutura_app::prompt::quote`, and the rule in this repository is *refuse at load, never alter at
+render*, because a render that quietly removed a character would make the document differ from the
+text the definition digest certifies, and would do so with nothing downstream able to tell. Every
+other body reaching that renderer is a `crate::knowledge::NoteBody`, which refuses at parse.
+This one was a `String` built with `String::from` from a markdown document, with no character
+check, no length check and no emptiness check anywhere on the path - so a description reading
+`status = 'active'` in every terminal and every diff, saying something else, was reachable.
+CVE-2021-42574 with the fragment replaced by a paragraph.
 
-### `use None`
+**The rule cuts both ways, which is what the first version of this type got half right.** It
+refused the code points `crate::text::is_invisible` names, which the renderer keeps, and said
+nothing about the control characters the renderer DROPS - so `refuse at load, never alter at
+render` held in one direction here and not the other, and the alteration in the other direction
+was reachable from a CRLF working tree. Both sets are refused now:
+`InvalidDescription::ControlCharacter` names the renderer's set, minus the newline and the tab it
+keeps, and `InvalidDescription::InvisibleCharacter` names `crate::text`'s. The renderer's own
+filter stays where it is, because a `crate::knowledge::NoteBody` still reaches it and still
+permits a control character mid-prose.
+
+**Empty is legal, and that is the current shape rather than a concession.** A definition document
+with no prose under its frontmatter is a definition with no description; `sutura_app::prompt`
+renders no quoted block for one and `sutura-cli`'s `metric` command prints no paragraph. Making
+emptiness a refusal would fail catalogs that load today, for a field whose absence is already
+handled at every reader. That is the one place this differs from
+`crate::knowledge::NoteBody`, where a body is the reason a note exists at all and nothing is a
+heading over blank space.
+
+Multi-line, also unlike a `crate::knowledge::Phrase`: a description is a markdown block and its
+paragraph breaks are the author's, so the caps are bytes and lines the way a note body's are.
+Leading and trailing whitespace is trimmed, because a document body arrives with the newline that
+followed its frontmatter and the one before end of file, and neither is content.
+
+### `use DimensionValue`
+
+One value a dimension declares, and one value a caller may filter on.
+
+**The same type on both sides, deliberately, and that is a decision worth arguing rather than
+assuming.** A caller sends a value and a catalog declares one, and the two are compared for
+equality: a caller-sent value that could not have been declared can never match an allowlist, so
+parsing it at the boundary refuses nothing a request could have got an answer for. The precedent
+is already in this crate and predates this type - a caller's `metric` and `dimension` arrive as
+text and are parsed by `crate::model::MetricName` and
+`crate::model::DimensionName`, the same types the catalog loader uses. A second, laxer type for
+the request side would be a second character rule that nothing compares against the first.
+
+What it refuses is what makes a value unusable as one:
+
+* nothing at all - a filter on the empty string is a filter nobody wrote;
+* a control character, a newline included - a value is one line, and the prompt renders it inline
+  inside a comma-separated list, so a newline in one writes a line of that document;
+* an invisible or direction-changing code point, the set `crate::text::is_invisible` names -
+  this is the same refusal `crate::expression::SqlFragment` and
+  `crate::knowledge::NoteBody` make, at a channel that did not have it;
+* spacing a reader cannot see: whitespace at either end, whitespace that is not a plain space,
+  and a run of two or more spaces. Two values that read as one word must not both be declarable,
+  which is `crate::knowledge::Phrase`'s argument - and the cost is stated rather than hidden: a
+  column whose values genuinely carry a tab, a no-break space or a double space cannot be
+  filtered on here;
+* more than `MAX_DIMENSION_VALUE_CHARS` characters.
+
+**It normalises nothing**, and that is the difference from `crate::knowledge::Phrase`, which
+collapses runs of whitespace and drops the invisible code points. A phrase is a key a reader
+types; a value is compared byte for byte against what a data system holds and is bound as a
+parameter, so a stored value that differed from the authored text would make the digest certify
+something other than what the statement compares against. Where a phrase folds, this refuses.
+
+### `use InvalidDescription`
+
+Why a description was rejected.
+
+**No `Empty` variant**, for the reason `Description` gives: a definition with no prose is a
+definition this repository already ships and every reader already handles.
+
+The lengths are reported without the offending text, which is `InvalidNoteBody`'s decision and
+its argument applies unchanged: four kilobytes of prose named in an error message is not a
+message. The invisible-character variant reports the code alone for the same reason - the path
+and the code are what a `grep` needs, and `sutura_catalog_local` supplies the path.
+
+`InvalidNoteBody`: crate::knowledge::InvalidNoteBody
+
+### `use InvalidDimensionValue`
+
+Why a value was rejected.
+
+**The refusal of the shared `authored_scalar` rule, so it is also `AnchorValue`'s.** It keeps this name
+because the rule is this type's rule and every adapter that matches on it already spells it;
+renaming it for the second caller would be churn across the workspace for a word. Whoever names
+the field says which field - the anchor value's own callers carry this as a `source`.
+
+Every variant carries the offending text, unlike `InvalidDescription`, and the asymmetry is the
+one `crate::knowledge::InvalidPhrase` and `crate::knowledge::InvalidNoteBody` already make: a
+value is at most `MAX_DIMENSION_VALUE_CHARS` characters, so naming it is what sends an author to
+the line in the file, while naming four kilobytes of prose would not.
+
+**Nothing on the request path may render one of these.** `sutura_http::wire` parses a caller's
+filter value and reports the field and the index without the cause, for the reason
+`crate::query::RefusalReason` gives: reflecting a caller's text into a message that reaches a
+log, a UI and an agent's context is how a rejected value becomes somebody else's input. The text
+is here for the author of a catalog, which is read by a person and loaded by an operator.
+
+### `use MAX_DESCRIPTION_BYTES`
+
+The longest description, in bytes.
+
+**The same number as `crate::knowledge::MAX_NOTE_BODY_BYTES`, because it is the same
+measurement.** The longest prose body in this repository's example catalog is 3513 bytes over 51
+lines, and that document is a metric description - `revenue_per_churned_subscription.md` - so the
+note-body cap was already chosen against the longest description anybody here has written. Two
+numbers derived from one measurement would be two numbers that drift, and `crate::text` exists
+because exactly that happened once already to a load-bearing refusal.
+
+They are two constants rather than one because `crate::knowledge` depends on `super` and not
+the other way round: a description is part of what a catalog DEFINES, and the knowledge layer is
+checked against it. So the check that they agree is a test rather than a comment asking the next
+author to update both - `super::tests` asserts the equality, and it fails whichever is edited
+alone.
+
+### `use MAX_DESCRIPTION_LINES`
+
+The most lines one description may have.
+
+Beside the byte cap rather than instead of it, for the reason
+`crate::knowledge::MAX_NOTE_LINES` gives: four thousand newlines are four thousand lines of a
+rendered prompt and well inside the byte budget. 200 is about four times the 51 lines of the
+longest description written here.
+
+### `use MAX_DIMENSION_VALUE_CHARS`
+
+The longest declared dimension value, in characters.
+
+**Measured before it was chosen.** The longest value anywhere in this repository's example catalog
+is `fixed_internet`, at 14 characters, and every other one is a single word: `business`,
+`wholesale`, `convergent`, `north`. So 64 is four and a half times the longest thing authored here
+and still covers the shapes real columns hold - a UUID is 36 characters, an ISO-8601 timestamp is
+25, a product name like `Tariff L Business` is 17.
+
+**The number that matters is the product of this and `super::MAX_VALUES_PER_DIMENSION`**, not
+either alone, because the rendered prompt lists every declared value of a dimension on one line:
+64 values of 64 characters is 4 KiB, which is the same order as
+`crate::knowledge::MAX_NOTE_BODY_BYTES` - one dimension's value list is bounded by about what
+one note body is. Choosing the two together is the whole point of bounding either.
+
+Counted in characters rather than bytes, for the reason
+`crate::knowledge`'s phrase limit gives: a value may be German or Greek text, and a limit in
+bytes would make one value legal in one language and not in another.
+
+### `use Definitions`
+
+Everything a catalog said, with its cross-references checked.
+
+`BTreeMap` throughout rather than `HashMap`, and that is load-bearing: the digest is taken over
+the serialized form of this value, and an unordered map serializes in whatever order its hasher
+chose this run. A digest that moves without the content moving is a digest nobody trusts, and
+then the pinning is decoration.
+
+### `use InconsistentDefinitions`
+
+Why a set of definitions does not hold together.
+
+Most variants are a dangling reference of some kind, and the rest are two declarations that
+cannot both stand. Catching them here, once, is what lets the resolver assume that a metric's
+model exists and that a dimension's column is real: without it each of those becomes a runtime
+branch on the query path, and the failure surfaces as a data system error rather than as a
+refusal.
+
+**Two variants are raised by `Metric::new` and not by `Definitions::assemble`** -
+`Self::DuplicateDimension` and `Self::TwoDimensionsOneLabel`, both about a pair the
+constructor is the last place that can see. They are in this enum anyway, so an adapter maps one
+type from both seams.
 
 ### `constant TIME_BUCKET_LABEL`
 
@@ -2311,49 +2502,433 @@ secret comes into existence.
 
 `Clone`, `Debug`
 
-### `use None`
+### `use Agreed`
 
-### `use None`
+What a broker answered, checked against the request it was asked about.
 
-### `use None`
+**One guard rather than three, and the reason is that the three defects it closes were one
+defect.** A review of this port found a grant minted for another subject, a deadline nothing
+read, and a refusal naming a source nobody asked about - three findings, each with an obvious
+local fix, and three local fixes are three places the fourth case gets forgotten. All three are
+the same question: **does the broker's answer agree with the request it was made for?**
+`Minted::agreeing_with` asks it once, and a value of this type is what an affirmative looks
+like.
 
-### `use None`
+**The check is not skippable by placement**, which is the difference between this and a rule.
+`BoundToTheRequest` is the only type in this module that hands out a `Presented`, its field
+is private, and `Minted::agreeing_with` is the only thing that builds one - so the path from a
+broker's answer to a value an adapter can execute with runs through the comparison. `Minted` is
+still an enum whose variants a caller may match on; what it can get out of the granted one is a
+`LegCredentials` with no accessor that yields a leg.
 
-### `use None`
+### `use AssertionDigest`
 
-### `use None`
+A stable, non-reversible fingerprint of a caller's assertion, for correlation.
 
-### `use None`
+**One constructor, no re-exposed field, no `Deref`/`Borrow`, and no `Deserialize`** -
+`crate::identity`'s standing rule that a wire document cannot mint a credential or an
+identity: a caller-supplied body cannot become a fingerprint it chose, the way it cannot become
+a `Secret` or a `RequestContext`.
 
-### `use None`
+## `==` stays absent on `Secret`, so the digest is the only comparable shape
 
-### `use None`
+`Secret` has no `PartialEq` and neither does this type's source matter: comparing the token
+itself is the timing oracle the identity skill forbids. What `==` means HERE is digest equality
+- the two fingerprints are equal exactly when the two assertions hash the same.
 
-### `use None`
+```compile_fail
+let a = sutura_domain::identity::Secret::new("hunter2");
+let b = sutura_domain::identity::Secret::new("hunter2");
+assert!(a == b, "a `Secret` still has no `PartialEq` to call");
+```
 
-### `use None`
+The compiling twin, comparing the digest shape instead - the only comparable form:
 
-### `use None`
+```
+use sutura_domain::identity::{AssertionDigest, Secret};
+let digest = AssertionDigest::of(&Secret::new("hunter2"));
+let again = AssertionDigest::of(&Secret::new("hunter2"));
+assert_eq!(digest, again);
+```
 
-### `use None`
+### `use BoundToTheRequest`
 
-### `use None`
+A grant that has been checked against the request it came back for.
 
-### `use None`
+The wrapper is the mechanism rather than the documentation: the field is private, there is no
+constructor beside `Minted::agreeing_with`, and `LegCredentials` itself has no accessor that
+yields a `Presented`. So a leg reaching `crate::warehouse::Warehouse::execute` came out of a
+grant that was compared with the asker, the source set and the deadline - or it was fabricated
+by its caller, which is the limit this type does not close and the adapters' own
+`Presented::agrees_with` partly does.
 
-### `use None`
+### `use CredentialBroker`
 
-### `use None`
+Mints the credentials one answer needs, all as one subject.
 
-### `use None`
+The domain declaring what it needs: an adapter outside the hexagon talks to whatever issues
+credentials - an authorization server, or a settings tree - and conforms to this. The module
+header carries the four properties of the signature that are decisions rather than convenience,
+and what it cannot express yet.
 
-### `use None`
+### `use CredentialsDoNotCoverThePlan`
 
-### `use None`
+A broker returned credentials that do not match the sources it was asked about.
 
-### `use None`
+**A wiring defect between a broker and the plan, so it is an error rather than a refusal** -
+nothing about the question was wrong. It is refused HERE, at construction, rather than
+discovered by whoever looks a leg up: a value of `LegCredentials` that exists covers exactly
+the set it was minted for, so a caller reading one leg out of it does not need a fallback for a
+leg the broker forgot.
 
-### `use None`
+### `use CredentialsDoNotFitTheRequest`
+
+The broker's answer does not fit the request it was made for.
+
+**An `Err` and not a refusal, for every variant, and the argument is the same one each time.** A
+refusal is a governance outcome the caller could act on - "this subject has no credential at that
+source" is one, and asking a different question will not change it. None of these is that. A
+broker that answers about another subject, about another source, or with a credential that was
+already dead when it arrived is not answering this request: either it is misconfigured or the
+plan is, and the half that is wrong may be either one. Offering any of it as
+`crate::query::RefusalReason::CredentialUnavailable` would tell a caller they lack access to
+data they may be entitled to, and would let a client library retry a wiring defect forever.
+
+**What the `#[error]` sentences carry, and what they deliberately do not.** A `SurfaceFailure` is
+logged by the transport and never returned to a caller, so these sentences are written for
+whoever is paged. They name the subject the way a record does - what established it, and the
+identifier where there is one, which is what makes a bad broker mapping findable - and they carry
+no credential material, because none of these variants holds any.
+
+### `use Expiry`
+
+When everything one answer holds stops being usable.
+
+**Two variants and no `Option`, because "nothing here expires" is a real answer rather than a
+missing one.** A static credential an operator wrote in a file does not expire, and the
+alternatives are both worse: an `Option<Expiry>` makes every reader decide what an absence
+permits, and a sentinel instant makes "never" a number somebody can accidentally compare
+against. `docs/adr/0008` part 7 is where the same argument keeps the expiry off `Secret` - an
+expiring token is not a secret with a date on it, and a pre-shared bearer token has no date at
+all.
+
+**The domain reads no clock and it does compare this value**, and the distinction is the whole of
+why `Self::passed_by` takes an argument. The instant arrives from a caller that has a clock, the
+way `crate::calendar::TimeRange` carries dates a caller resolved; what lives here is the
+direction of the comparison, once, in the type that owns the deadline.
+
+**That is a correction rather than a refinement.** This paragraph used to say nothing in the
+domain compares this to a clock and nothing here can, and it was true - which was the defect a
+review found: a deadline computed correctly by `Self::earliest`, carried through the port, and
+read by nobody. A broker could mint a credential that had already expired and the question was
+answered with it. `sutura_app::answer` reads the clock and `Minted::agreeing_with` makes the
+comparison, before anything reaches an adapter.
+
+`docs/adr/0008` part 6 still puts the FLOOR - is there enough life left for what this query may
+take - in the broker adapter, which is the only component holding both a clock and the configured
+query timeout. That is a different question from this one: the floor is a judgement about a query
+that has not run, and `Self::passed_by` is a fact about a credential that is about to be
+presented.
+**No `Ord`, and its absence is the fix for a defect a review found.** This used to derive
+`PartialOrd` and `Ord`, and a derived ordering on an enum is DECLARATION ORDER - so
+`Self::NothingExpires` was the minimum, and `.min()` over a set holding one static credential
+and one expiring token answered "nothing expires". That is the wrong direction, silently, in the
+one operation this type's own documentation tells a minter to perform. The test that existed
+pinned the inverted order and warned a reader not to read it as instants; a type should not need
+the warning. `Self::earliest` is the operation, written out, and there is no comparison operator
+left for a call site to reach for instead.
+
+### `use LegCredentials`
+
+Everything one answer executes with: one asker, one deadline, N legs.
+
+**The hoist is the mechanism, and it is worth being precise about what it makes true.** The
+obvious shape is a credential per leg, each carrying its own subject, and a check that they all
+match. That is a check: it can be moved, skipped, or written in one of two places and not the
+other. This shape lifts every property that has to agree across legs out of the legs, and leaves
+what genuinely differs per leg as a `Presented` variant rather than a field somebody reads.
+
+Two claims are true of a value of this type:
+
+1. **One asker per answer.** There is one `Self::asked_by` field, `by_source` is private with no
+   `insert`, and `Self::minted` is the only constructor and takes one `Subject`. Two askers
+   in one answer would need two of these values, and answering takes one. Nothing is compared to
+   establish it; there is no second place for a disagreement to live.
+2. **No leg runs as a third identity, and the value says which of the two it ran as.**
+   `Presented` has three variants and no fourth: two mean "the source evaluates this as the
+   asker" and one means "the deployment's own identity for this source, acknowledged".
+
+**What is NOT true, said in the direction that costs us:** a
+`Presented::SharedServiceUser` leg does not execute as the asker, deliberately, so an answer
+that reads one is not an answer every part of which the asker's own permissions filtered. This
+type makes the LABELS on the legs agree with what executed; it does not make the effective
+identities identical, because in a mixed deployment they are deliberately not. The field is
+called `asked_by` rather than `subject` for exactly that reason - it is the identity the question
+arrived under, and it is not a claim about every leg.
+
+# A second leg cannot carry a second asker
+
+There is no constructor taking a per-leg subject and no way to add a leg to a value that exists,
+so the attempt does not compile:
+
+```compile_fail
+use std::collections::BTreeMap;
+use sutura_domain::identity::{Expiry, LegCredentials, Presented, Subject};
+use sutura_domain::model::SourceName;
+
+fn _two_askers(second: Presented, source: SourceName) -> LegCredentials {
+    LegCredentials {
+        asked_by: Subject::TheDeploymentItself,
+        not_after: Expiry::NothingExpires,
+        by_source: BTreeMap::from([(source, second)]),
+    }
+}
+```
+
+**A struct literal rather than a method call, and a review is why.** The block used to write
+`credentials.and(source, second, Subject::TheDeploymentItself)`, which fails because no method
+named `and` exists on this type - so what it proved was the absence of one name, and adding an
+`and` for any purpose would have made it pass while the property it is named for stayed broken.
+The literal above fails on the three private fields, which is the property: `minted` is the only
+way to a value of this type, and it takes one `Subject`.
+
+The compiling twin, so a rename cannot make the block above pass vacuously - and it is out of
+crate, which is what pins `Self::minted` as `pub`: a broker adapter lives in another crate and
+this is its only way to return a value.
+
+```
+use std::collections::BTreeMap;
+use sutura_domain::identity::{Expiry, LegCredentials, Presented, SourceSet, Subject};
+use sutura_domain::model::SourceName;
+use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
+
+let source = SourceName::parse("local")?;
+let declared = SharedIdentityDeclared::of(AcknowledgementReason::parse("one process, one identity")?);
+let mut presented = BTreeMap::new();
+presented.insert(source.clone(), Presented::SharedServiceUser { declared });
+
+let credentials = LegCredentials::minted(
+    Subject::TheDeploymentItself,
+    Expiry::NothingExpires,
+    &SourceSet::of(source),
+    presented,
+)?;
+assert_eq!(credentials.count(), 1);
+# Ok::<(), Box<dyn core::error::Error>>(())
+```
+
+### `use Minted`
+
+What minting produced: credentials, or a refusal.
+
+**The same two-outcome shape a compiled question has**, and for the same reason: a refusal is a
+result. `docs/adr/0008` part 6 splits the cases - "this subject may not reach that source" is a
+governance outcome the caller can act on, and an authorization server that answered a `502` is an
+`Err` from the port.
+
+**`Self::Refused` names a source and nothing else, which is narrower than the record it comes
+from.** `docs/adr/0008` gave the variant a whole `RefusalReason`; a broker holding one could
+answer that a metric is unknown, which is not a thing a credential broker knows. So the port
+carries the one fact a broker has - which source it could not mint for - and the application
+turns it into `crate::query::RefusalReason::CredentialUnavailable`. One refusal, one place it is
+spelled.
+
+### `use Presented`
+
+What an adapter presents, for one leg.
+
+**Three shapes, because there are three postures and the third one is not the absence of the
+other two.** The engine that ships cannot impersonate anybody - one process, one
+operating-system identity - so under a two-variant shape it would receive a value it ignores,
+and "the service-identity fallback was removed" would mean the fallback came back as a variant
+nobody looked at. Under three there is nothing to ignore: the shared leg's value holds no
+credential material, so an adapter cannot mistake it for one, and a reader of this enum can see
+that a third posture exists without reading an adapter.
+
+An adapter matches exhaustively on what it received and returns its own typed error for a shape
+it is not configured for. `docs/adr/0008` part 4 states both directions and says which is the
+dangerous one: an adapter that quietly *accepted* subject material it cannot use would report a
+leg as impersonated that ran shared.
+
+### `use PresentedDisagreesWithPosture`
+
+What a broker presented does not agree with how the source it is for was declared.
+
+**An `Err` on the adapter that found it and never a refusal**, for the reason a wiring defect
+always is one here: nothing about the question was wrong, and offering it as a refusal would
+invite a client to retry a deployment bug until something works.
+
+### `use PrincipalName`
+
+A name a data system knows a principal by, for the posture where a session is switched to it.
+
+**Not a `Secret`, and that is a statement rather than an omission.** A role or service-account
+name is not secret: the trust on that leg belongs to the connection the deployment
+authenticated, and the name is what the data system evaluates its policies against. A type that
+redacted it would hide the one value an operator has to be able to read back in a log.
+
+Parsed by the same parser every principal identifier in this module goes through, so a name that
+could forge a line in the record a call is written to does not exist. Construct it with
+`parse`: the field is private, there is no `Deserialize`, and `TryFrom<String>`
+delegates to the same constructor.
+
+### `use SourceSet`
+
+The sources one answer reads. Non-empty by construction.
+
+**A set rather than a list, and one call rather than N.** The port takes this whole value because
+N audience-restricted tokens come out of ONE decision about who is asking - see the module
+header. Non-empty because `Self::of` is the only way in: an answer that read no source is not
+an answer, and a broker asked for nothing would have nothing to be complete about.
+
+### `use Actor`
+
+The identifier of something that acted for the subject: an agent, or an agent's agent.
+
+ One link of the second position. Never on its own - an actor exists inside an `ActorChain`,
+ which exists inside a `PrincipalChain` whose subject says who it was acting for.
+
+The wrapped value is the **masked** form: `Self::parse` consumes the raw identifier and
+stores only its stable masked rendering, so no field of this type ever holds plaintext and
+no rendering surface (`Debug`, `Display`, `Self::as_str`) can emit it. Masking happens
+at the boundary that turns a wire value into this type, not at print time. There is no
+other way in: the field is private, there is no `Deserialize`, and `TryFrom<String>`
+delegates to the same constructor.
+
+### `use ActorChain`
+
+One or more actors, ordered, innermost last.
+
+**Non-emptiness is structural rather than checked.** The innermost link lives in its own field, so
+there is no state of this type that means "no actors" - which is what lets `Self::immediate` be
+infallible and what stops `Attribution::ActingFor` from being a claim about nobody. A `Vec` with
+a length check would be the same rule in a form that can be skipped.
+
+**The order, precisely.** Iteration yields the actor nearest the subject first and the one that
+called this deployment last. That is the shape a token exchange maps onto rather than being
+translated into: each exchange adds a link on the inside, and nothing has to reverse a list.
+
+### `use ActorsInOrder`
+
+The iterator `ActorChain` hands out, named so it can be a return type.
+
+### `use Attribution`
+
+Who to attribute a call to: the subject, and whether anything acted for them.
+
+**The one accessor that gets a reader at the actors, and it is why there is no other.** An
+`Option<&ActorChain>` alone would have been the same information in a form that reads as an
+absence to be handled rather than a case to name, and the case is the whole point: a call by a
+person and a call by an agent for that person are two different events, and a reader that cannot
+tell them apart is the failure this module exists to prevent.
+
+### `use InvalidPrincipalId`
+
+Why an identifier naming a principal was rejected.
+
+One error for all three newtypes below, because they are one parse. The variants carry only the
+shape of the rejected input; the principal itself is personal data and this error reaches logs.
+
+### `use PrincipalChain`
+
+Human, then agent, then task - ordered, and with both tail positions absent today.
+
+This is what a call is recorded under, and what a budget would be keyed on **if a budget
+existed**. There is no budget port in this workspace; the chain is the key and nothing consumes it
+as one yet. `Eq` and `Hash` are derived so that it can be one when something does.
+
+No `Ord`. A derived `Ord` on a struct is declaration order, and an ordering over principals has no
+meaning anybody would agree on - so the absence is the answer rather than an arbitrary comparison
+that a `BTreeMap` somewhere would then depend on.
+
+# A caller cannot state its own chain
+
+There is no `Deserialize`, so caller-supplied bytes cannot become one of these:
+
+```compile_fail
+// A transport that tried to read the chain off the wire does not compile.
+let chain: sutura_domain::identity::PrincipalChain = serde_json::from_str(r#"{"subject":"someone"}"#).expect("no");
+drop(chain);
+```
+
+The compiling twin, so the failure above cannot be passing for a typo - a chain is constructed
+from what the transport established:
+
+```
+use sutura_domain::identity::{PrincipalChain, Subject};
+
+let chain = PrincipalChain::of(Subject::TheDeploymentItself);
+assert!(chain.actors().is_none(), "nothing established an actor");
+```
+
+### `use RequestContext`
+
+What a request carries besides the question.
+
+Two fields: who the call is attributed to, and - where the transport established one - the
+caller's own credential assertion. The second is what lets a `crate::identity::CredentialBroker`
+that exchanges a token have the caller's token to exchange: `docs/adr/0008` part 2 sketched a
+`Caller { subject, assertion }` for exactly this, and `docs/adr/0014`'s open Decision 3 is why the
+assertion field was absent until a broker existed that performs an exchange. It is an `Option`
+because the two shapes that reach this value are genuinely different: a deployment's own identity,
+which has no credential, and a verified caller, whose transport retained the token it verified.
+`None` is "there is no per-caller credential to exchange", not an oversight.
+
+Everything a question is answered *for* rather than *about* belongs here, so the credential an
+execution leg will need and the deadline it will carry have a place to arrive that is not a
+widened `crate::query::Query`. The tool surface stays a question and nothing else.
+
+**Here rather than in `sutura-app`.** The application is where a context enters the service, but
+the domain is what names it: a `CredentialBroker` port declared here takes the caller, and a port
+in the interior cannot speak in a type owned by an adapter or by the service above it.
+
+Not `Deserialize`, for the reason the chain is not: a request context assembled from the request
+body is the confused deputy this whole module refuses.
+
+**Not `PartialEq`/`Eq`, and the `Secret` is why.** This type now holds credential material, and
+`crate::identity::Secret` implements no comparison, because `==` on credential material is a
+timing oracle; a derived equality would have compared the two secrets byte-wise. `Debug` and
+`Clone` survive because `Secret` implements both (redacting and value-preserving respectively).
+
+### `use Subject`
+
+Who a question is attributed to, and what established it.
+
+**Two variants and not one string, because the difference is the one that must never be guessable
+from a record.** Today's transport authenticates the *deployment* and not the caller - the bearer
+gate is a shared token - so there is no verified caller identity to put here, and the honest
+answer is a named variant rather than an invented identifier. A `Subject::Verified` whose id
+happened to be `"sutura"` would be indistinguishable from the deployment case if this were a
+string; as an enum it cannot be, and a reader gets the distinction from a match it cannot skip.
+
+### `use SubjectId`
+
+The identifier of the human a question is asked on behalf of.
+
+ The head of the chain, and the only position that is never absent - though what established
+ it is a question `Subject` answers and this type does not.
+
+The wrapped value is the **masked** form: `Self::parse` consumes the raw identifier and
+stores only its stable masked rendering, so no field of this type ever holds plaintext and
+no rendering surface (`Debug`, `Display`, `Self::as_str`) can emit it. Masking happens
+at the boundary that turns a wire value into this type, not at print time. There is no
+other way in: the field is private, there is no `Deserialize`, and `TryFrom<String>`
+delegates to the same constructor.
+
+### `use TaskId`
+
+The identifier of the unit of work a question belongs to.
+
+ The third position, and the one that answers "which job was this part of" rather than "who".
+ It exists from day one because a task id assigned later cannot be attached to calls already
+ recorded, which is the same argument the whole chain rests on.
+
+The wrapped value is the **masked** form: `Self::parse` consumes the raw identifier and
+stores only its stable masked rendering, so no field of this type ever holds plaintext and
+no rendering surface (`Debug`, `Display`, `Self::as_str`) can emit it. Masking happens
+at the boundary that turns a wire value into this type, not at print time. There is no
+other way in: the field is private, there is no `Deserialize`, and `TryFrom<String>`
+delegates to the same constructor.
 
 ## Module `knowledge`
 
@@ -2860,19 +3435,88 @@ The capabilities a provider says it has.
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
-### `use None`
+### `use InconsistentKnowledge`
 
-### `use None`
+Why a set of notes does not hold together with the definitions it is about.
 
-### `use None`
+**The checks live here, once, and that is the argument `Definitions::assemble` already makes.** A
+glossary check inside the markdown adapter is a check a metadata-service adapter would not have,
+and the failure it misses is not cosmetic: an entry saying "business customers means segment
+business" while the bundle's allowlist says `b2b` makes every agent that reads it produce a
+question refused as `DimensionValueNotAllowed`, for a reason the agent cannot see.
 
-### `use None`
+Every variant has a test that provokes it. A check nobody has seen fire is a check nobody knows
+works, and `docs/crap.md`'s gate scores this crate, so that discipline is paid for where it is
+measured.
 
-### `use None`
+### `use Knowledge`
 
-### `use None`
+Everything a catalog said about what it defines, checked against the definitions it is about.
 
-### `use None`
+`BTreeMap` throughout, for the same reason `crate::catalog::Definitions` uses them: the digest is taken over the
+serialized form of the bundle this sits in, and an unordered map serializes in whatever order its
+hasher chose this run.
+
+`declares` comes FIRST, and not for reading order: it is what the four collections mean. An empty
+glossary beside a declaration of one is "nothing recorded yet"; the same empty glossary beside no
+declaration is "this provider has no glossary", and only the first licenses the prompt to say
+anything about it. The module documentation argues it at length, and `sutura_app::prompt` is where
+the difference becomes a sentence an agent reads.
+
+### `use KnowledgeInput`
+
+What one adapter read, before it is checked.
+
+Vectors rather than maps, for the reason `crate::catalog::Definitions::assemble` gives: a caller that built a map
+first has already silently dropped one of a duplicated pair, and a directory of documents is
+exactly where two files claim one name.
+
+**The declaration is a separate argument from the content**, so an adapter says what it supports
+rather than having it inferred from what it happened to find. Content for an undeclared capability
+is refused by `Knowledge::assemble` rather than tolerated: it is an adapter bug, and the load is
+where it is cheap to notice.
+
+### `use Absence`
+
+A term people ask about that this catalog deliberately does NOT define.
+
+The half of a certified-metrics document that the pinned bundle cannot render for itself. A metric
+list says what exists; it cannot say "customer lifetime value was considered and has no agreed
+definition here", which is the sentence that stops an agent computing one out of the parts.
+
+**It rots into a lie the moment somebody defines the thing**, which is why
+`super::InconsistentKnowledge::AbsenceNamesADefinedMetric` exists: the load fails rather than the
+prompt telling an agent to decline a question the bundle would now answer.
+
+### `use Caveat`
+
+Something a reader has to know before trusting a number: a grain trap, a base that is not what it
+sounds like, a value that means less than it appears to.
+
+**Scoped, and a caveat about nothing does not load.** That check -
+`super::InconsistentKnowledge::CaveatAboutNothing` - is what stops this kind from becoming the unscoped
+text channel the module documentation refuses. The prompt renders each caveat inside the block of
+the metric it is about rather than as a preamble, so it is read by whoever is about to ask that
+question rather than by whoever is skimming the top of the document.
+
+### `use Example`
+
+A question somebody asked, and the `Query` that answers it.
+
+**`question` is a real `Query` and not a rendering of one**, which is the most useful move in
+this module. `Query` carries `deny_unknown_fields` and has no field for SQL, so an author who
+pastes a `sql:` line out of a reference implementation's verified-query file gets an error naming
+the field - and `sutura_catalog_local`'s existing test that a document carrying SQL is refused by
+name extends to this kind without a line being written for it. It also means an example cannot
+drift from what the surface accepts: the thing in the document is the thing you send.
+
+### `use GlossaryEntry`
+
+One entry of the business glossary: the words people use, and the one thing they mean.
+
+`means` is a `Referent` and not prose, which is what lets the glossary be rendered from the
+STRUCTURE rather than from the body: every token of the rendered line is a phrase this type
+parsed or a name the bundle already declares.
 
 ### `constant MAX_NOTE_BODY_BYTES`
 
@@ -3640,17 +4284,86 @@ decides a refusal rather than a plan detail.
 
 `Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `PartialEq`, `Serialize`
 
-### `use None`
+### `use DatasetName`
 
-### `use None`
+The name of a dataset, or of a schema - the qualifier immediately above a table.
 
-### `use None`
+ One type for both words because it is one position in a path. `dataset` is what `BigQuery`
+ calls it and `schema` is what the standard calls it; a dataset id is letters, digits and
+ underscore, which is exactly what every other name in this module accepts, so there is nothing
+ to parameterise.
 
-### `use None`
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
 
-### `use None`
+### `use InvalidQualifiedTable`
 
-### `use None`
+Why a table path was not one.
+
+One variant per position, each carrying the whole path it came from and the position's own parse
+failure on the `#[source]` chain - so a refusal says *which part* of
+`analytics_prod.sales.orders` was wrong as well as why. A single `Part { index }` variant was the
+alternative and it makes every reader count dots.
+
+### `use ProjectName`
+
+The name of a project, or of a catalog - the topmost qualifier a table path may carry.
+
+**Hand-written rather than a seventh `identifier_newtype`, and the hyphen is the whole reason.**
+A `BigQuery` project id is `[a-z][a-z0-9-]{4,28}[a-z0-9]`, so a hyphen is not an edge case there,
+it is the norm - and `parse_identifier` rejects one as an `InvalidIdentifier::IllegalCharacter`.
+It still routes through one body: `parse_name` under `Hyphens::Allowed`.
+
+**Not named `CatalogName`, deliberately.** `catalog` is the standard's word for this position and
+it is also this workspace's word for the *metadata* catalog - `crate::catalog`, `SemanticCatalog`,
+a catalog document. A type called `CatalogName` next to those would be read wrongly by every
+reader once.
+
+**What it accepts is a union rather than one target's rules, and the reason is stated so nobody
+reads it as sloppiness.** This one position stands for a `BigQuery` project and for a standard
+catalog, whose names are ordinary identifiers with uppercase and underscore. Refusing what either
+target accepts would make a model unauthorable for the other. What a *particular* data system
+then does with a name it does not recognise is refuse the query by name, loudly, which is the
+failure this module is not trying to pre-empt. What is NOT a union is the character set: a quote,
+a dot, a colon and whitespace are refused here, and that is the property the golden stripping
+rests on.
+
+### `use Qualification`
+
+How much of a path sits above a table.
+
+Read two ways, and one type rather than two so the two can be **compared**: a
+`QualifiedTable` reports how deep it is, `sutura_sql::Dialect::qualification` declares how deep
+a data system resolves, and rendering refuses when the first is deeper than the second. Two types
+would have made that comparison a hand-written match somebody has to keep in step.
+
+**The variant order is load-bearing and is asserted rather than assumed.** The derived `Ord` on
+an enum is declaration order, so `TableOnly < Dataset < ProjectAndDataset` is what makes
+`name.qualification() <= dialect.qualification()` mean *shallow enough*. Reordering the
+declaration would invert every such comparison silently, which is why
+`deeper_is_greater_because_the_comparison_is_what_decides_a_refusal` exists.
+
+### `use QualifiedTable`
+
+A table, and where it lives when that is more than the default.
+
+**A model that names only a table keeps working, byte for byte**, and that is the compatibility
+property rather than a hope: `Self::parse` of a bare name yields no qualifier,
+`Display` writes the bare name back, and `serde::Serialize` writes that
+same text - so a catalog document, a serialized plan and a definition digest over an unqualified
+model are unchanged by this type existing.
+
+See this module's header for why it is a composition and not a string.
+
+### `use TableQualifier`
+
+What sits above a table: a dataset, and optionally a project above that.
+
+**`dataset` is not optional, and that is the shape doing the work.** `project..table` is not a
+thing any data system names, so a project without a dataset is *unrepresentable* here rather than
+refused by a check somebody has to remember to run. There is no constructor that takes a project
+alone and no field a caller could leave out.
 
 ## Module `pinned`
 
@@ -4257,11 +4970,31 @@ assert!(
 );
 ```
 
-### `use None`
+### `use Contribution`
 
-### `use None`
+One metadata source's record in the manifest.
 
-### `use None`
+### `use ContributionManifest`
+
+Which metadata sources composed a bundle, keyed by each source's declared name.
+
+**A `BTreeMap`, so collection order is content order** - the same determinism requirement
+`crate::catalog::Definitions` and `crate::knowledge::Knowledge` carry, for the same reason:
+the digest is taken over the serialized form, and an unordered map serializes in whatever order
+its hasher chose this run.
+
+**A single-source deployment carries a one-entry manifest** rather than none, because a shape
+that differed between one source and N would put the interesting case on the untested path.
+
+### `use RequiredOrOptional`
+
+Whether a contributor is required for this deployment to serve, or may be absent.
+
+**Every value this code can produce is `Self::Required`** - no settings shape declares an
+optional source yet, so a bundle exists only when every configured source loaded. The variant is
+carried because the availability rule `docs/adr/0011` decided lands on top of it: a deployment
+that can declare `optional` is the diff that first writes `Self::Optional`, and the digest's
+job is to make that run look different from the one that included the source.
 
 ### Module `manifest`
 
@@ -5008,31 +5741,506 @@ A required filter as a plan predicate, binding a parameter when it needs one.
 was stored at. Passing the binding in rather than returning a value keeps the parameter list in
 one place: the caller owns the order, which is what the placeholder-position contract depends on.
 
-### `use None`
+### `use AnswerKey`
 
-### `use None`
+One group-by key of the answer: which leg owns it, and the label it carries in that leg's result.
 
-### `use None`
+### `use FederatedFailure`
 
-### `use None`
+Why a federated answer could not be assembled.
 
-### `use None`
+The shape failures are defects in this workspace's own wiring - a leg result missing a column
+`labels` named, or a row narrower than its result's own columns. The `NonFinite`
+variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
+value for.
 
-### `use None`
+### `use FederatedPlan`
 
-### `use None`
+The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
+another, linked by a single column.
 
-### `use None`
+**Two legs, as two named fields.** A match over `LegPlan` is exhaustive, so the fact leg *is*
+the `Fact` variant and the lookup leg the `Lookup` one, and
+a plan that had anything other than exactly these two is a type that does not exist rather than a
+count a caller checks. The shape is deliberately the one `crate::plan::leg` pins in its goldens:
+the metric's own rows (and any same-source dimension) form the fact leg, and a dimension on a
+second data system forms the lookup leg. The final answer groups by the answer's keys - each
+named by which leg's result it is read from, in question order - bucketed and measured under the
+metric's own name.
 
-### `use None`
+**The `serde::Serialize` derive exists for the CLI's plan dump and nothing else.** A plan is
+serialized to be printed; nothing in the workspace gains `serde::Deserialize`, so a plan cannot
+be reconstructed from its serialized form and no field here is a request a caller writes.
 
-### `use None`
+### `use FederatedPlanError`
 
-### `use None`
+Why a federated plan could not be built.
 
-### `use None`
+### `use InternalLabel`
 
-### `use None`
+A column label the splitter and the combiner agree on, in a namespace no question can name.
+
+**Why a type rather than a convention.** A federated fact leg's result carries public dimension
+labels beside internal ones - the column the legs are joined on, and one per carried leaf of the
+measure. The splitter spelled the first with the physical remote join COLUMN's text and the
+second as `metric__{n}`, and both of those are legal identifiers: a metric with a legal dimension
+named `customer_key`, backed by a different column, projected two fact columns under one label
+and the combiner refused the answer it could not disambiguate. A dimension is free to be named
+anything `DimensionName` accepts, so the internal labels are what
+has to move - keeping a legal question legal is the constraint, not a naming rule for authors.
+
+**What makes the two namespaces disjoint, and it is one character.** Every rendering here starts
+with a digit, which `crate::model`'s identifier parser refuses as a FIRST character - a leading
+digit is legal in some dialects and not others, so it was already refused for portability. No
+`DimensionName`, `MetricName`, `ColumnName` or `TableName` can therefore spell one of these, for
+any spelling and any length. `federated/tests.rs` asserts that by parsing every constructible
+label as each of those names and requiring the refusal, rather than leaving it to this paragraph.
+
+**The disjointness has a second half, and it is the one a parse check cannot answer: every target
+has to ACCEPT the label as a quoted alias.** The character this scheme is built on is the one
+`BadFirstCharacter` refuses because it is
+*"legal in some dialects and not others, so accepting it would make a model portable by luck"* -
+so the same sentence that justifies the namespace is the reason to doubt it. Two different
+questions live under it: whether a target accepts a digit-leading string as an **identifier**,
+which is what that refusal is about and where the targets do differ, and whether it accepts one
+as a **quoted select alias**, which is the only position this scheme puts it in.
+`sutura_sql::generate`'s `aliased` quotes every alias or refuses to render, and `GROUP BY` and
+`ORDER BY` carry the EXPRESSION rather than the alias, so a leg's statement spells an internal
+label in exactly one place.
+
+What is established, and by what:
+
+| Claim | Venue | Mechanism |
+| --- | --- | --- |
+| the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
+| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+
+`BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
+whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
+2026-09-05, as a dry run and as a real job each time: bare aliases
+(``SELECT 1 AS `0_link`, 2 AS `0_leaf_0`, 3 AS `0_leaf_26` ``), and then a statement in the shape
+the generator actually emits - a `CAST(DATE_TRUNC(..) AS DATE)` bucket and a `sum(..)` measure
+aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over the expressions.
+Both are accepted and both come back with the field names the statement asked for. So the
+documented restriction is on a **declared column** and not on a quoted alias.
+
+**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
+Neither has an execution venue for a LEG - each leaves `EXECUTES_LEGS` at its default `false` -
+so what stands for them is a quoted-identifier argument rather than a run. Read the row above
+for what each one is worth.
+
+**The reason that sentence changed rather than the claim:** it used to say *the whole federated
+path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle
+sets*, which stopped being true when the engine declared the constant and a published build
+began answering two sources. The limit for these two dialects is unaffected - it never rested on
+the path being gated, only on neither having a venue.
+
+**Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
+range is a wiring defect the combiner reports as a missing column, not a label this type could
+have refused - which is why the variants carry their data in the open and no constructor is
+fallible. What the type buys is that the TEXT can only come from here.
+
+**The other half of the namespace is held elsewhere, and this is the whole of it in one place.**
+The labels a result carries besides these are public: the answer's dimension labels, the time
+bucket's `TIME_BUCKET_LABEL` and the measure's metric name.
+Those are held against each other at load by
+`Definitions::assemble` -
+`DimensionShadowsTimeBucket`, `DimensionShadowsMeasure`, `TwoDimensionsOneLabel` and
+`LabelShadowsTable`, each case-folded to the coarsest dialect rule. So a public label collides
+with another public label at load, and cannot collide with an internal one at all. **The limit:**
+nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
+is the property the test asserts, and the thing to re-establish if this spelling ever changes.
+
+**Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
+`InternalLabel`; the public half is `ResultLabel`, whose only
+constructors take a `DimensionName`, a `MetricName`, `InternalLabel` or nothing at all - so a
+computed string is not a label a plan can carry, and the derivation
+`sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
+instead. What that changes about the paragraph above: the two namespaces are still disjoint
+*because* of the leading digit, and what the types add is that no producer can put a value in
+both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
+something already parsed, never WHICH of the four constructors produced it - so a value built by
+`ResultLabel::internal` is accepted anywhere a label is
+taken, the bucket's position included. Nothing here reads the provenance back, because nothing
+needs to: the disjointness is the leading digit.
+
+**Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
+is 63 characters because that is the tightest among the data systems targeted, and it is a
+*silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
+columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
+scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
+`usize` can index is 27 characters.
+
+### `use LegSide`
+
+Which leg's result an answer key is read from.
+
+### `use labels`
+
+The one definition of what a carried leaf is projected under.
+
+The splitter and the combiner both call this, so the column the combiner reads a leaf from and
+the label the splitter projected it under cannot disagree - there is no second copy of the rule.
+
+**Position, and nothing else.** A ratio of two sums - `sum(a) / sum(b)` - is one aggregating
+function twice, so naming by aggregate would give both leaves one label and a combine that
+divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
+metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
+under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+### `use ResultLabel`
+
+The label one column of a result carries, which can only be built out of something already
+parsed.
+
+**The half of the labelling scheme that used to be held by review.** A federated leg's result
+carries two kinds of label in one namespace. The internal kind is
+`InternalLabel`, a type: every rendering starts with a digit, and
+`crate::model`'s identifier parser refuses a leading digit as a FIRST character, so no
+`DimensionName`, `MetricName`, `ColumnName` or `TableName` can spell one. The public kind was
+a `String` on `PlanKey` and `LegTerm`, and what
+kept a public label out of the internal namespace was that `sutura_semantic::plan` happened to
+derive every one of them from a dimension name, a metric name or
+`TIME_BUCKET_LABEL` - a derivation held by review, and by no
+test. `telekom/sutura#337` is the report.
+
+This type is the other half. There is no constructor taking text, so the four functions below are
+the whole of what a label can come from, and a computed string is not one of them. That turns
+*nothing compares the two halves* into *nothing can put a value in both*, which is the stronger
+version of the same argument and the one the leading digit was chosen to support.
+
+**Why a newtype over the rendering rather than the four-variant enum the report sketched.** An
+enum would have to hand out its text, and `Internal(InternalLabel::Leaf(n))` has no `&'static
+str` rendering to hand out - the position is formatted - so `label()` would return a
+`Cow` and the five alias call sites in `sutura_sql::generate` would change
+with it. Measured, not assumed: `aliased(inner: Expr, label: &str)` is called five times there,
+once per projected column shape. So the rendering is stored and the four constructors are the
+gate. **The limit, next to the claim:** which of the four a label came from is not recoverable
+from the value, because nothing reads it back - what the type buys is that the TEXT can only come
+from one of them.
+
+A computed string is not a label, and that is a compile error rather than a review finding:
+
+```compile_fail
+use sutura_domain::model::{ColumnName, TableName};
+use sutura_domain::plan::{PlanColumn, PlanKey};
+
+// The failure `telekom/sutura#325`'s F2 reproduced: a public key labelled with a computed
+// string that lands in the internal namespace.
+fn _computed(table: TableName, column: ColumnName, leaf: usize) -> PlanKey {
+    PlanKey::new(format!("0_leaf_{leaf}"), PlanColumn::new(table, column))
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::model::{ColumnName, DimensionName, TableName};
+use sutura_domain::plan::{PlanColumn, PlanKey, ResultLabel};
+
+fn _parsed(table: TableName, column: ColumnName, dimension: &DimensionName) -> PlanKey {
+    PlanKey::new(ResultLabel::dimension(dimension), PlanColumn::new(table, column))
+}
+```
+
+**The two blocks above hold a CARRIER's signature, and that is not the same as this type being
+closed.** They say `PlanKey::new` will not take a `String`; they say nothing about whether a
+`String` can become a `ResultLabel` first, and
+`PlanKey::new(ResultLabel::from(format!("0_leaf_{n}")), column)` is `telekom/sutura#325`'s F2 one
+conversion further out. Measured rather than reasoned: adding `impl From<String> for ResultLabel`
+and touching no carrier left `just test` at exit 0 with 2658 tests passing and BOTH carrier pairs
+green. So the closure is stated over the type, on the bound every carrier is really reached
+through:
+
+```compile_fail
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+// Text does not become a label, by any route.
+fn _computed(leaf: usize) -> ResultLabel {
+    _labelled(format!("0_leaf_{leaf}"))
+}
+```
+
+And the twin over the same bound, so a rename cannot make that block pass vacuously:
+
+```
+use sutura_domain::plan::ResultLabel;
+
+fn _labelled<L: Into<ResultLabel>>(label: L) -> ResultLabel {
+    label.into()
+}
+
+fn _parsed() -> ResultLabel {
+    _labelled(ResultLabel::bucket())
+}
+```
+
+**And it does not deserialize, which no gate in this tree holds.**
+`cargo xtask check-serde-parse` is the gate for a derived `Deserialize` writing past a parse, and
+what makes a type its subject is a FALLIBLE constructor - a `-> Result<Self, _>`. The four above
+cannot fail, because nothing is left to reject once the argument is a certified name, so this
+type is outside the gate for being parsed too well. Measured: `#[derive(serde::Deserialize)]`
+here reports `check-serde-parse: ok - 649 struct(s) in 388 file(s), serde routed through parse`
+and `hygiene: ok - 34 gate(s)`. `telekom/sutura#446` carries the general case, which is the
+gate's design question rather than this type's; the pair below is what holds this one:
+
+```compile_fail
+fn _needs<T: serde::de::DeserializeOwned>() {}
+
+// A label read off the wire would be a label nothing parsed.
+fn _off_the_wire() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+And the twin over the same shape, with the serde bound this type does satisfy:
+
+```
+fn _needs<T: serde::Serialize>() {}
+
+fn _into_a_snapshot() {
+    _needs::<sutura_domain::plan::ResultLabel>();
+}
+```
+
+**It serializes as the bare string it renders**, so the plan goldens are unchanged by this type
+existing: a plan's serialized form is what a snapshot pins, and a wrapper visible in it would be
+a diff about a Rust type rather than about what we decided to execute.
+
+### `use Executable`
+
+What the execution port can be handed.
+
+**One method rather than two, and the exhaustive match is the reason.** A second port method for
+legs is a smaller diff and worse where it matters: a second method invites a default body, a
+default that errors lets an adapter be silently non-federating, and *adding a data system is a
+registration* then stops being true in the one direction nobody would notice. With one method
+taking this enum, a third leg shape cannot be added without every adapter stating what it does
+with it.
+
+**It borrows.** A plan is built once and executed once, and the federated path multiplies the
+working set against a memory bound that refuses - so a copy per leg would be a correctness
+question rather than a style one.
+
+An adapter that does not answer for every shape does not compile:
+
+```compile_fail
+use sutura_domain::plan::Executable;
+
+fn _dispatch(executable: Executable<'_>) -> &'static str {
+    match executable {
+        Executable::Query(_) => "a whole answer",
+    }
+}
+```
+
+```
+use sutura_domain::plan::Executable;
+
+fn _dispatch(executable: Executable<'_>) -> &'static str {
+    match executable {
+        Executable::Query(_) => "a whole answer",
+        Executable::Leg(_) => "one source's share of one",
+    }
+}
+```
+
+### `use LegPlan`
+
+One source's share of a federated question.
+
+An enum rather than a struct with four `Option`s, which is this repository's *prefer
+unrepresentable to checked* applied to the one place it buys the most: there are exactly two
+legal shapes, and the illegal combinations - a measure with no bucket, a time range on a table
+with no time column - are not constructible.
+
+A third shape cannot arrive without a rendering arm, because a match over this enum is
+exhaustive:
+
+```compile_fail
+use sutura_domain::plan::LegPlan;
+
+// Non-exhaustive: `Lookup` renders differently and has to say so.
+fn _render(leg: &LegPlan) -> &str {
+    match *leg {
+        LegPlan::Fact { .. } => "fact",
+    }
+}
+```
+
+```
+use sutura_domain::plan::LegPlan;
+
+fn _render(leg: &LegPlan) -> &str {
+    match *leg {
+        LegPlan::Fact { .. } => "fact",
+        LegPlan::Lookup { .. } => "lookup",
+    }
+}
+```
+
+A lookup leg has no bucket, no terms, no range and no metric, and that is the type rather than a
+check somebody runs:
+
+```compile_fail
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::model::{QualifiedTable, SourceName};
+use sutura_domain::plan::LegPlan;
+
+fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
+    LegPlan::Lookup {
+        source,
+        table,
+        keys: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range,
+    }
+}
+```
+
+```
+use sutura_domain::model::{QualifiedTable, SourceName};
+use sutura_domain::plan::LegPlan;
+
+fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
+    LegPlan::Lookup {
+        source,
+        table,
+        keys: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+    }
+}
+```
+
+A fact leg's tables arrive as a checked set, so a producer cannot state a table beside a vector
+of joins and skip the ambiguity guard - which is exactly what the first producer of a leg did:
+
+```compile_fail
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin};
+
+fn _unchecked(
+    source: SourceName,
+    metric: MetricName,
+    table: QualifiedTable,
+    joins: Vec<PlanJoin>,
+    bucket: PlanBucket,
+    range: TimeRange,
+) -> LegPlan {
+    LegPlan::Fact {
+        source,
+        metric,
+        table,
+        joins,
+        bucket,
+        keys: Vec::new(),
+        terms: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range,
+    }
+}
+```
+
+```
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin, StatementTables};
+
+fn _checked(
+    source: SourceName,
+    metric: MetricName,
+    table: QualifiedTable,
+    joins: Vec<PlanJoin>,
+    bucket: PlanBucket,
+    range: TimeRange,
+) -> Result<LegPlan, sutura_domain::plan::AmbiguousTables> {
+    Ok(LegPlan::Fact {
+        source,
+        metric,
+        tables: StatementTables::parse(table, joins)?,
+        bucket,
+        keys: Vec::new(),
+        terms: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range,
+    })
+}
+```
+
+### `use LegTerm`
+
+One number a leg computes, and the label it is projected under.
+
+**A `PlanTerm` and not a `PlanMeasure`, and that is a type rather
+than a convention.** There is no shape here that divides, so a leg's statement cannot carry a
+`NULLIF` guard and a per-leg quotient is unrepresentable rather than discouraged. The bug that
+closes is specific: applied *inside* a leg, `ZeroDenominator::Null` turns a subgroup with a zero
+denominator into a null, the re-aggregating `SUM` above skips nulls, and that subgroup's
+numerator is silently dropped from the answer instead of nulling it.
+
+A leg's terms come off `crate::federation::Federation::carried`, which is built purely from the
+term level for the same reason.
+
+The division a leg cannot express does not compile:
+
+```compile_fail
+use sutura_domain::measure::ZeroDenominator;
+use sutura_domain::plan::{InternalLabel, LegTerm, PlanMeasure, PlanTerm, ResultLabel};
+
+// `LegTerm::new` takes a term, and a ratio is not one.
+fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDenominator) -> LegTerm {
+    LegTerm::new(
+        PlanMeasure::Ratio {
+            numerator,
+            denominator,
+            zero_denominator,
+        },
+        ResultLabel::internal(InternalLabel::Leaf(0)),
+    )
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously: the two halves travel as two
+terms, and the division happens above every leg.
+
+```
+use sutura_domain::plan::{InternalLabel, LegTerm, PlanTerm, ResultLabel};
+
+fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
+    vec![
+        LegTerm::new(numerator, ResultLabel::internal(InternalLabel::Leaf(0))),
+        LegTerm::new(denominator, ResultLabel::internal(InternalLabel::Leaf(1))),
+    ]
+}
+```
+
+### `use AmbiguousTables`
+
+Why the tables one statement reads could not be told apart inside it.
+
+One variant today, and an enum rather than a struct because a second way for a statement's tables
+to be indistinguishable - a target that folds more than ASCII case, an alias this workspace starts
+emitting - is a variant a caller can branch on rather than a change to a message.
+
+### `use StatementTables`
+
+The tables one statement reads: the `FROM` table, and one per join.
+
+**If an instance of this type exists, every table in it is distinguishable from every other one
+inside the statement** - which is the whole return on the newtype, and what lets
+`QueryPlan::new` stay infallible while the plan it builds cannot be
+the ambiguous one. See this module's header for what the ambiguity does and why it is refused
+rather than aliased around.
 
 ### `constant MAX_ROWS`
 
@@ -5298,9 +6506,114 @@ value for.
 
 `Clone`, `Debug`, `Display`, `Error`, `PartialEq`
 
-#### `use None`
+#### `use InternalLabel`
 
-#### `use None`
+A column label the splitter and the combiner agree on, in a namespace no question can name.
+
+**Why a type rather than a convention.** A federated fact leg's result carries public dimension
+labels beside internal ones - the column the legs are joined on, and one per carried leaf of the
+measure. The splitter spelled the first with the physical remote join COLUMN's text and the
+second as `metric__{n}`, and both of those are legal identifiers: a metric with a legal dimension
+named `customer_key`, backed by a different column, projected two fact columns under one label
+and the combiner refused the answer it could not disambiguate. A dimension is free to be named
+anything `DimensionName` accepts, so the internal labels are what
+has to move - keeping a legal question legal is the constraint, not a naming rule for authors.
+
+**What makes the two namespaces disjoint, and it is one character.** Every rendering here starts
+with a digit, which `crate::model`'s identifier parser refuses as a FIRST character - a leading
+digit is legal in some dialects and not others, so it was already refused for portability. No
+`DimensionName`, `MetricName`, `ColumnName` or `TableName` can therefore spell one of these, for
+any spelling and any length. `federated/tests.rs` asserts that by parsing every constructible
+label as each of those names and requiring the refusal, rather than leaving it to this paragraph.
+
+**The disjointness has a second half, and it is the one a parse check cannot answer: every target
+has to ACCEPT the label as a quoted alias.** The character this scheme is built on is the one
+`BadFirstCharacter` refuses because it is
+*"legal in some dialects and not others, so accepting it would make a model portable by luck"* -
+so the same sentence that justifies the namespace is the reason to doubt it. Two different
+questions live under it: whether a target accepts a digit-leading string as an **identifier**,
+which is what that refusal is about and where the targets do differ, and whether it accepts one
+as a **quoted select alias**, which is the only position this scheme puts it in.
+`sutura_sql::generate`'s `aliased` quotes every alias or refuses to render, and `GROUP BY` and
+`ORDER BY` carry the EXPRESSION rather than the alias, so a leg's statement spells an internal
+label in exactly one place.
+
+What is established, and by what:
+
+| Claim | Venue | Mechanism |
+| --- | --- | --- |
+| the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
+| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+
+`BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
+whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
+2026-09-05, as a dry run and as a real job each time: bare aliases
+(``SELECT 1 AS `0_link`, 2 AS `0_leaf_0`, 3 AS `0_leaf_26` ``), and then a statement in the shape
+the generator actually emits - a `CAST(DATE_TRUNC(..) AS DATE)` bucket and a `sum(..)` measure
+aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over the expressions.
+Both are accepted and both come back with the field names the statement asked for. So the
+documented restriction is on a **declared column** and not on a quoted alias.
+
+**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
+Neither has an execution venue for a LEG - each leaves `EXECUTES_LEGS` at its default `false` -
+so what stands for them is a quoted-identifier argument rather than a run. Read the row above
+for what each one is worth.
+
+**The reason that sentence changed rather than the claim:** it used to say *the whole federated
+path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle
+sets*, which stopped being true when the engine declared the constant and a published build
+began answering two sources. The limit for these two dialects is unaffected - it never rested on
+the path being gated, only on neither having a venue.
+
+**Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
+range is a wiring defect the combiner reports as a missing column, not a label this type could
+have refused - which is why the variants carry their data in the open and no constructor is
+fallible. What the type buys is that the TEXT can only come from here.
+
+**The other half of the namespace is held elsewhere, and this is the whole of it in one place.**
+The labels a result carries besides these are public: the answer's dimension labels, the time
+bucket's `TIME_BUCKET_LABEL` and the measure's metric name.
+Those are held against each other at load by
+`Definitions::assemble` -
+`DimensionShadowsTimeBucket`, `DimensionShadowsMeasure`, `TwoDimensionsOneLabel` and
+`LabelShadowsTable`, each case-folded to the coarsest dialect rule. So a public label collides
+with another public label at load, and cannot collide with an internal one at all. **The limit:**
+nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
+is the property the test asserts, and the thing to re-establish if this spelling ever changes.
+
+**Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
+`InternalLabel`; the public half is `ResultLabel`, whose only
+constructors take a `DimensionName`, a `MetricName`, `InternalLabel` or nothing at all - so a
+computed string is not a label a plan can carry, and the derivation
+`sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
+instead. What that changes about the paragraph above: the two namespaces are still disjoint
+*because* of the leading digit, and what the types add is that no producer can put a value in
+both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
+something already parsed, never WHICH of the four constructors produced it - so a value built by
+`ResultLabel::internal` is accepted anywhere a label is
+taken, the bucket's position included. Nothing here reads the provenance back, because nothing
+needs to: the disjointness is the leading digit.
+
+**Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
+is 63 characters because that is the tightest among the data systems targeted, and it is a
+*silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
+columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
+scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
+`usize` can index is 27 characters.
+
+#### `use labels`
+
+The one definition of what a carried leaf is projected under.
+
+The splitter and the combiner both call this, so the column the combiner reads a leaf from and
+the label the splitter projected it under cannot disagree - there is no second copy of the rule.
+
+**Position, and nothing else.** A ratio of two sums - `sum(a) / sum(b)` - is one aggregating
+function twice, so naming by aggregate would give both leaves one label and a combine that
+divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
+metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
+under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
 
 #### Module `label`
 
@@ -6323,7 +7636,29 @@ somebody else's input.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
+- `SourceRefused` - The data system refused the executed statement because the identity it ran it as may not ask it.
 - `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
+
+#### Methods
+
+```rust
+pub const fn code(&self) -> &'static str
+```
+
+The machine-readable `code` a client or an agent branches on, shared by every transport.
+
+**The one place this is decided.** The HTTP and agent surfaces used to spell their own
+tables and nothing compared them, so a code could drift until the two transports disagreed
+about what a refusal was. Both now read `RefusalReason::code` and neither writes its own
+list, so there is one spelling for the whole surface.
+
+Being exhaustive with no wildcard arm, a variant added here either gets its code in the same
+edit or does not compile. The derivation is fixed by
+`the_code_is_the_variant_name_in_snake_case`: each code is the `snake_case` spelling
+of the variant's own name, read off this type's own `Serialize` rather than a list typed
+beside it - so a hand-written code that drifted from the variant fails that test, and the two
+transports, both reading this one method, cannot drift from each other without first drifting
+from the variant.
 
 #### Implements
 

@@ -47,12 +47,12 @@ name: ci
 # gate a catalog edit has to get past.
 #
 # `!docs/**` is LAST deliberately, and it is the one push exclusion that must win outright: a page
-# under docs/ has its own workflow and must not start this 120-minute one after merge, even if
+# under docs/ has its own workflow and must not start this whole `ci` chain after merge, even if
 # somebody writes `docs/.../catalog/x.md`.
 #
 # `!mkdocs.yml` sits beside it so the two push filters remain complements. They were
 # not: `mkdocs.yml` is in docs.yml's filter AND matched the leading `**` here, so an ADR-only pull
-# request that added a nav entry started BOTH, paying this 120-minute chain and the docs job's own
+# request that added a nav entry started BOTH, paying the full `ci` chain and the docs job's own
 # gates for a prose change. It cannot affect what cargo produces: `mkdocs.yml` is read by mkdocs
 # and by `check-docs`, which docs.yml runs. Measured on the pull request that found this,
 # `docs/adr/**` plus `mkdocs.yml` was the whole diff bar one line.
@@ -162,15 +162,26 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  # Never cancel a run on the default branch. The next push's base is the previous push, so a
-  # cancelled run's commits get classified out of the following range and are never validated
-  # by any completed run - the same "green while actually red" shape as using the wrong base.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+# #561: the concurrency group MOVED from the workflow level to the `ci` JOB (below), so a run's
+# validation is not held up by an unrelated predecessor's downstream tail. The correctness of the
+# default-branch base no longer depends on `cancel-in-progress: false` either - the base is read
+# from a durable marker, so an evicted run's commits stay covered regardless of cancellation.
 jobs:
   ci:
+    # THE VALIDATION CONCURRENCY GROUP (#561), at the `ci` JOB level rather than the workflow
+    # level. A workflow-level `concurrency:` makes every job of run N+1 - pr-cache,
+    # bigquery-acceptance, ci-aggregate included - wait for every job of run N, so the next run's
+    # ci sits behind an unrelated predecessor's cross tail (median 79 s, max 1040 s of queue lag
+    # measured in #561). Scoping the group to the job that VALIDATES stops that: a later run's ci
+    # waits only for the prior run's ci, not its tail; the downstream legs are each own-serialized
+    # (bigquery-acceptance has its own group) or idempotent.
+    #
+    # Never cancel a run on the default branch, and the correctness that used to rest on that
+    # comment is now on the durable marker (#561): the default-branch base is the last fully
+    # validated commit, so even an EVICTED pending run's commits are covered by the next run.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-ci
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # SKIPPED ON THE RELEASE COMMIT, and the three jobs below `needs: [ci]` so they skip with it.
     # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
     # token, because the `main` ruleset requires a pull request and GITHUB_TOKEN cannot be given
@@ -187,14 +198,44 @@ jobs:
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
     # promotion PR whose tip happens to be a release commit is still gated.
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
-    runs-on: rust-mcp-32core
-    # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
-    # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
-    # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
-    # the store cache has anything to restore - spends most of an hour compiling before a
-    # single test runs, and 60 killed exactly that run mid-`Tests`. Warm runs are far quicker;
-    # the cap has to survive the cold one that fills the cache for the rest.
-    timeout-minutes: 120
+    runs-on: rust-mcp-16core
+    # 75, AND THE CEILING IS THE MERGE QUEUE RATHER THAN THE SLOWEST RUN. `ci` is the only
+    # REQUIRED check, so the queue's check-response timeout - 90 minutes - is the point past which
+    # a verdict cannot be consumed by anything. The 120 this replaces sat 30 minutes beyond it: a
+    # runaway was ejected from the queue at 90 and then went on burning a paid runner for half
+    # an hour producing an answer nothing could read.
+    #
+    # WHY NOT 120. It was set when the cold cost was an ESTIMATE. The engine brought DataFusion and
+    # Arrow in, a cap of 60 had killed one cold run mid-`Tests`, and "most of an hour compiling"
+    # was the guess that replaced it. The number now exists, taken over the last 300 runs of this
+    # workflow (2026-09-09 to 2026-09-11; 170 `pull_request`, 70 `merge_group`, 60 `push`), of
+    # which 266 `ci` jobs actually executed:
+    #
+    #   whole window   n=266   median  708 s   p90 959 s   p99 1107 s   max 1296 s (21.6 min)
+    #   since #586     n= 55   median  586 s   p90 882 s   p99 1057 s   max 1065 s (17.8 min)
+    #
+    # Exactly one job in the window exceeded 1200 s. Both COLD classes are inside that spread: a
+    # full Actions-cache MISS with warm cachix stores ran 1041 s, and a pull request that ADDS a
+    # crate, so the deps derivation is rebuilt from source, ran 992 s. Neither came near an hour.
+    #
+    # WHY NOT 60. That is the value that killed the cold run, and the estimate it lost to is the
+    # only record of what that run needed - so it is the one number the evidence cannot clear. 75
+    # is 3.5x the worst job ever seen in the window, 4.2x the worst since #586, and at least 4.3x
+    # either cold class; and, the property that actually matters, it is below 90.
+    #
+    # **THE LIMIT, STATED NEXT TO THE CLAIM - TWO THINGS THIS NUMBER DOES NOT DO.**
+    #
+    # It is NOT HELD BY A GATE. Nothing in this repository reads this key, and nothing can read the
+    # 90 either: that is a repository ruleset setting and `check-workflows` runs inside a derivation
+    # with no network. The pairing is text, so drift back above 90 would be green - the same shape
+    # of limit the store-cache action records about a credential's scope.
+    #
+    # AND IT DOES NOT BOUND A JOB THAT NEVER STARTED. The two longest `ci` walls in that window
+    # were 7794 s and 3653 s, and both are `cancelled` with ZERO steps, no runner name and no
+    # runner group - queued against an environment policy that never released them, which is an
+    # open gap and not compute. `timeout-minutes` begins when a runner picks the job up, so it
+    # would not have fired on either one. This cap is not protection against that.
+    timeout-minutes: 75
     # SCOPED TO THIS JOB, and it restates `contents: read` because a job-level block REPLACES the
     # workflow-level one rather than adding to it - omitting the line would take away the read
     # this job's checkout needs.
@@ -217,6 +258,17 @@ jobs:
       # A job output rather than a second lookup there: that job holds a write scope and
       # must stay as small as possible, so it is told what to do rather than deciding.
       crap_delta: ${{ steps.crap_delta.outputs.available }}
+      # The category axis, published once so the category-gated legs and `ci-aggregate` read the
+      # same classification rather than recomputing it. Each value is `core || selected` from the
+      # `classify` step, so a `core` diff (a shared or unmapped path) flips every one true.
+      core: ${{ steps.classify.outputs.core }}
+      identity: ${{ steps.classify.outputs.identity }}
+      data_source_datafusion: ${{ steps.classify.outputs.data_source_datafusion }}
+      data_source_duckdb: ${{ steps.classify.outputs.data_source_duckdb }}
+      data_source_postgres: ${{ steps.classify.outputs.data_source_postgres }}
+      data_source_bigquery: ${{ steps.classify.outputs.data_source_bigquery }}
+      catalog_local: ${{ steps.classify.outputs.catalog_local }}
+      catalog_datahub: ${{ steps.classify.outputs.catalog_datahub }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -243,21 +295,47 @@ jobs:
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
           # goes HERE, where the workflow diff shows it - never read from flake.nix.
           #
-          # ONE store outside this repository is trusted, and both halves are COMMITTED rather than
-          # held in a secret or a variable: a committed value is one a reviewer sees and one
-          # `cargo xtask check-workflows` can compare against, while a variable swaps with no diff
-          # and nothing notices. The gate permits exactly this pair in exactly this spelling - an
-          # added store, a different key, that key on another host, or this store passed as
-          # `--extra-substituters` are all still refused. Nix's signature check bounds the trust.
-          # The WRITE credential is the only secret; it is an *environment* secret and it lives in
-          # `cachix-push.yml`, so no job on this path can reach it. Residual limit: a value
-          # assembled from pieces, or one arriving via another action's input, passes unseen.
+          # THE STORES THIS REPOSITORY PUBLISHES ARE THE ONES IT READS - every bucket
+          # `cachix-push.yml` writes is named here, since one it fills and never reads is spend with
+          # no return. Both halves are COMMITTED rather than held in a secret or a variable: a
+          # committed value is one a reviewer sees and one `cargo xtask check-workflows` compares
+          # against, while a variable swaps with no diff. The gate permits exactly this list in
+          # exactly this spelling - a store added or dropped, a different key, a key on another host,
+          # or any of them passed as `--extra-substituters` are all still refused. Nix's signature
+          # check bounds the trust. What bounds the POISON risk is narrower: every WRITE credential
+          # is an *environment* secret reachable only from a push to the default branch, so these
+          # stores hold what this repository's own CI built and nothing else - content-addressing
+          # alone would not. Residual limit: a value assembled from pieces, or one arriving via
+          # another action's input, passes unseen.
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # HALF (a): the pull-request path also trusts the PR's OWN additive cache, on top of the
+      # published set above. That list is SELF-CONTAINED on purpose: a second install must not depend
+      # on the first config surviving, so whichever nix.conf wins, a PR run ends trusting all of
+      # them. It is gated to exactly `pull_request`, so a merged main run and a merge-queue entry
+      # read only the published set. Removing or fuzzing this `if:` reopens main = the gate reddens.
+      # A PR still restores the published closures AND reads its own branch cache: nix verifies a
+      # signature against the intersection of signer and trusted keys, so every key must be named.
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
       - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      # The writable `target/causality-target` the tail apps recompile into, carried on the SAME
+      # digest the store cache uses so a lockfile/manifest change invalidates it and restores the
+      # previous generation's recompile otherwise. Restored here (before the apps run) and saved
+      # from main; `save:` inside the action owns the write, so this caller carries no `if:`.
+      - uses: ./.github/actions/causality-target-cache
         with:
           scope: ci
 
@@ -279,14 +357,39 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           BEFORE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           if [ "$EVENT" = "pull_request" ]; then
             # The merge base, not the base tip: it is the whole PR even if the target moved.
             base="$(git merge-base "$PR_BASE" HEAD || true)"
           elif [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
-            # On the default branch, what is newly ON it is exactly the right scope.
+            # THE DEFAULT-BRANCH BASE IS A DURABLE MARKER, NOT `github.event.before` (#561).
+            # The per-ref concurrency group keeps only ONE pending run, so a third push EVICTS the
+            # second before it starts a job; an evicted run validates nothing, and if the next run
+            # classified from `before` (= the evicted run's head) the evicted run's commits would
+            # fall out of every completed run's range - nine `main` commits went unvalidated that
+            # way. So the base here is the durable marker of the last commit a GREEN ci job fully
+            # validated, published as artifact `last-validated` at the end of this job. A run that
+            # never starts never advances it, so the evicted run's commits sit between the marker
+            # and HEAD and ARE covered by this run - which is exactly the property #561 demands,
+            # proven as a unit test in xtask `validated_base`. Read it over the Actions API (the
+            # CRAP-baseline read's pattern) and prefer it when it is an ancestor of HEAD; `before`
+            # stays the fallback for the first push or when no marker is readable.
             base="$BEFORE"
+            marker="$(
+              gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=last-validated&per_page=100" 2>/dev/null |
+                jq -r --arg branch "$DEFAULT_BRANCH" '
+                  .artifacts[]
+                  | select(.expired == false)
+                  | select(.workflow_run.head_branch == $branch)
+                  | .workflow_run.head_sha
+                ' | head -n 1
+            )" || marker=""
+            if [ -n "$marker" ] && git merge-base --is-ancestor "$marker" HEAD 2>/dev/null; then
+              base="$marker"
+              echo "classifying against the last fully-validated commit $marker (evicted-run commits stay covered)"
+            fi
           else
             # A push to a topic branch: judge the branch, not the push.
             base="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD || true)"
@@ -334,27 +437,43 @@ jobs:
       # fails immediately afterwards with its own attributed output. `--keep-going` is what makes
       # that true - without it the first failure would abandon the other eight and this step would
       # slow the job it exists to speed up.
+      #
+      # `api-docs` is the long root (#562) and is GATED ON THE `api` CLASSIFICATION, so a run that
+      # did not select `api` does not waste the graph on it - the authoritative `API reference
+      # pages` step below was already `api`-gated, so this only removes a prefetch that warmed
+      # nothing. When `api` IS selected the root stays in the SAME graph (an array, appended
+      # conditionally), so it still overlaps the other roots instead of serialising after them -
+      # the choice that does not depend on any host-utilisation figure, all of which were the
+      # mislabelled number #564 withdrew. `check-workflows` still sees `api-docs` referenced by
+      # the literal `API reference pages` step.
       - name: Realise all checks in one graph and report host utilisation
         continue-on-error: true
         # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
-        # across the merged graph and writes cpus/memory/model + the nix max-jobs/cores pair in
-        # force + mean/peak CPU-busy to the job summary, so a later analysis can see whether the
-        # host was saturated or idle while the checks ran. ~0 cost side effect.
+        # across the merged graph and reports cpus/memory/model + the nix max-jobs/cores pair in
+        # force + mean/peak CPU-busy, so a later analysis can see whether the host was saturated
+        # or idle while the checks ran. `busy` is TRUE busy since #564 (idle+iowait as not-busy),
+        # sampled by the shared nix/cpu-busy.sh. ~0 cost side effect. It lands in the job summary
+        # AND as a `measure-host(<label>):` line in this job's log - grep that prefix, since the
+        # summary is served to a browser and to nothing a script can read.
         uses: ./.github/actions/measure-host
+        env:
+          API: ${{ steps.classify.outputs.api }}
         with:
-          label: merged check graph (9 roots)
+          label: merged check graph
           run: |-
             set -eu
-            nix build -L --keep-going \
-              .#checks.x86_64-linux.hygiene \
-              .#checks.x86_64-linux.reuse \
-              .#checks.x86_64-linux.fmt \
-              .#checks.x86_64-linux.clippy \
-              .#checks.x86_64-linux.nextest \
-              .#checks.x86_64-linux.keycloak-tier \
-              .#checks.x86_64-linux.postgres-tier \
-              .#checks.x86_64-linux.doctest \
-              .#checks.x86_64-linux.api-docs
+            checks=(
+              .#checks.x86_64-linux.hygiene
+              .#checks.x86_64-linux.reuse
+              .#checks.x86_64-linux.fmt
+              .#checks.x86_64-linux.clippy
+              .#checks.x86_64-linux.nextest
+              .#checks.x86_64-linux.keycloak-tier
+              .#checks.x86_64-linux.postgres-tier
+              .#checks.x86_64-linux.doctest
+            )
+            if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
+            nix build -L --keep-going "${checks[@]}"
 
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
@@ -387,11 +506,12 @@ jobs:
       - name: Secrets
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
-      # NOT gated on classification: a licence value can move without `Cargo.lock` moving, and a
-      # hand edit to the document is not a dependency change at all. The hygiene half reads the lock
-      # and can only see that a licence cell is non-empty; this needs a resolvable registry.
-      - name: The attribution document is current
-        run: nix run .#xtask -- check-attribution-current
+      # NOT gated on classification: a licence value can move without `Cargo.lock` moving. The
+      # document is generated and not committed, so there is nothing to byte-compare - this
+      # generates one and refuses an incomplete result, which needs a resolvable registry. The
+      # hygiene half holds the ABSENCE of a committed copy and needs nothing.
+      - name: The attribution document generates completely
+        run: nix run .#xtask -- check-attribution
 
       # `nix/lint-workflows.sh` rather than inline, because the composite-action pass below it had
       # TWO callers and was written twice - here and in the justfile - and two copies of a gate are
@@ -417,7 +537,7 @@ jobs:
       # declines for the same server. `nix/**` fails open to `run_all`, and `flake.nix`/`flake.lock`
       # are the `nix` area, so between them the two conditions cover every file the tier reads.
       - name: Identity tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
+        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.identity == 'true'
         run: nix build .#checks.x86_64-linux.keycloak-tier -L
 
       # The Postgres tier's state machine, which the `Tests` step above cannot report on: it starts
@@ -429,7 +549,7 @@ jobs:
       # Gated like the identity tier and for its reason: nothing compiled here changes what the
       # tier script does, and the two conditions between them cover every file it reads.
       - name: Postgres tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true'
+        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true'
         run: nix build .#checks.x86_64-linux.postgres-tier -L
 
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
@@ -447,7 +567,7 @@ jobs:
       # step above just cached. Measured in the dev container on 16 cores, `--workspace` coverage
       # spent over 80 CPU-minutes and 6m18 wall recompiling DataFusion, Arrow and DuckDB and never
       # reached a single test. On this runner's four vCPUs that is twenty minutes and up, added to
-      # a job whose timeout was already raised from 60 to 120 because the tests alone killed it.
+      # a job whose timeout has already had to be raised once because the tests alone killed it.
       # That belongs nowhere in CI, let alone here.
       #
       # What runs instead is scoped to `sutura-domain`, whose dependency set is serde and
@@ -742,20 +862,179 @@ jobs:
       # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
       #
       # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
-      # so the four `cross` jobs stay the authority on a musl LINK - and nothing here reaches a
+      # so the `cross` legs stay the authority on a musl LINK - and nothing here reaches a
       # feature no shipped binary enables, which is what the `--all-features` gates are for.
+      #
+      # BOTH WRAPPED IN `measure-host` (#562): the post-graph cargo tail (~300-450 s) had NO
+      # utilisation telemetry at all - `measure-host` covered only the graph step - so nobody could
+      # say whether it was CPU-bound or waiting. Sampling it (true busy since #564) is cheap and
+      # answers that next question. The `run:` is the same command, `nix run .#default-features`;
+      # only the wrapper is added.
       - name: The shipped feature set compiles and lints
         if: steps.classify.outputs.rust == 'true'
-        run: nix run .#default-features
+        uses: ./.github/actions/measure-host
+        with:
+          label: shipped feature set compiles and lints
+          run: |-
+            set -eu
+            nix run .#default-features
 
       # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
       # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
       - name: The shipped feature set runs its tests
         if: steps.classify.outputs.rust == 'true'
-        run: nix run .#default-feature-tests
+        uses: ./.github/actions/measure-host
+        with:
+          label: shipped feature set runs its tests
+          run: |-
+            set -eu
+            nix run .#default-feature-tests
 
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
+
+      # DURABLE VALIDATED-COMMIT MARKER (#561). Advance "the last commit a completed run fully
+      # validated" to THIS run's head, ONLY on a green push to the default branch. The base step
+      # reads it; this is the write half. An EVICTED run never reaches here (it never starts a
+      # job), so the marker only moves on runs that actually ran to a green conclusion - which is
+      # exactly what keeps an evicted run's commits inside the NEXT run's classification range.
+      # `success()` keeps a RED run from advancing it, so a commit that failed is re-classified by
+      # the next run rather than silently marked done. The value a later run reads is the
+      # artifact's OWN `workflow_run.head_sha` (= this push's head), so the file below is for a
+      # human reading the artifact, not for the reader above.
+      - name: Publish the last-validated-commit marker
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          printf '%s' "$SHA" > last-validated
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: last-validated
+          path: last-validated
+          if-no-files-found: error
+          retention-days: 30
+
+  # HALF (a): publish this pull request's OWN store paths to `sutura-prs`, the PR's additive cache.
+  # Runs ONLY on a pull request and only after `ci` has warmed the closure (`needs`), mirroring
+  # `cachix-push.yml`'s own push job.
+  #
+  # **WHAT SELECTS THE PULL-REQUEST CREDENTIAL IS THE `environment:` DECLARATION, and that is the
+  # whole of the mechanism.** This job declares `environment: cachix-push-pr`, which is how it reads
+  # that environment's secret rather than the main one, and `cache_scope`'s PR-writer pairing PINS
+  # that declaration - deleting it turns the gate red, verified by mutation rather than assumed.
+  #
+  # **AND THIS COMMENT USED TO OVERSTATE IT.** It said the credential carries "Write on sutura-prs,
+  # no Write on `sutura`". It does not. The credential for the main store is the narrow one - one
+  # store, default branch only - while the pull-request and mixed credentials are restricted on
+  # neither store nor branch. So the separation between the two write paths is convention and
+  # configuration, NOT capability. That posture is an accepted decision and is recorded here rather
+  # than implied, because an overstated control is itself the defect: a reader who saw "no Write on
+  # `sutura`" stopped looking for the thing that would have made it true.
+  #
+  # **THE LIMIT, STATED NEXT TO THE CLAIM: a gate cannot read a credential's scope and cannot read a
+  # branch policy.** Nothing in this repository can verify any of the paragraph above -
+  # `check-workflows` runs inside a derivation with no network. What it CAN do is what it does: pin
+  # the environment name and the pull_request gating, and pair them.
+  #
+  # The READ side is the half that IS held in text, and it is unchanged: the default branch never
+  # lists the pull-request store's public key, so no merged-main resolve substitutes from it. That
+  # is what stops an in-repository pull-request author reaching main, and `docs/adr/0027` records it.
+  pr-cache:
+    needs: [ci]
+    # `!cancelled()` RATHER THAN NOTHING, AND IT IS THE WHOLE REASON THIS CACHE READ AS UNUSED.
+    # With a bare `needs: [ci]` GitHub skips this job whenever `ci` FAILS, so the store filled only
+    # after a green run - precisely when nobody needs it - and every red push, which is when you
+    # iterate and when the expensive closure gets rebuilt, contributed nothing. Measured on #597
+    # push 3, a branch that ADDS a crate so main's stores cannot hold its closure: `ci` substituted
+    # 129 paths, every one from `cache.nixos.org` and ZERO from `sutura-prs`, while this job on the
+    # two earlier pushes was SKIPPED because `ci` failed on both. It then published 7 paths
+    # (`sutura-deps-0.1.0` among them) that no fourth push existed to read.
+    #
+    # PUBLISHING AFTER A FAILURE IS SAFE, and the argument is nix's: a derivation that failed has no
+    # store path to push. A red `ci` means some check's derivation failed; its successful
+    # sub-derivations - `sutura-deps` above all - are valid store paths either way. So this pushes
+    # exactly what genuinely built.
+    #
+    # `!cancelled()` and not `always()`, because this job takes a paid runner: `always()` would
+    # start it after somebody pressed cancel and publish whatever partial store the runner held.
+    # `ci` being SKIPPED is not a live case - that skip is for `chore(release):` commits, which are
+    # not `pull_request` events.
+    #
+    # THE TOKEN ORDER IS LOAD-BEARING: `cache_scope`'s PR-writer pairing reads this job's `if:`
+    # with `github.event_name == 'pull_request'` as a pinned PREFIX and refuses the reversed
+    # spelling and a `${{ }}` wrapping alike.
+    if: github.event_name == 'pull_request' && !cancelled()
+    runs-on: rust-mcp-16core
+    environment: cachix-push-pr
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
+      # RESTORE-ONLY, AND THIS JOB CANNOT EVER SAVE THIS SCOPE. The action's `save:` is gated on a
+      # push to `main` and this job runs on `pull_request` alone, so it reads the scope `ci` entry
+      # that a `main` push wrote and writes nothing back - the step summary it prints says
+      # "restore-only, nothing written" on every run here. That is the DESIGNED shape and not an
+      # oversight: `cache_scope` refuses an `if:` on this step and on any caller of it, precisely so
+      # a pull request's restore survives while the write stays gated to `main`.
+      #
+      # KEPT ON EVIDENCE, because #604 deleted this exact shape twice as pure cost and it is NOT
+      # pure cost here. Measured on job `103311822910`: the restore took 42 s of a 157 s job, hit an
+      # older generation, pulled 3.65 GB, and left nix with 4 derivations to build and 4 paths -
+      # 2.7 MiB - to fetch. It supplied essentially the whole build-time closure.
+      #
+      # Deleting it moves those bytes to the cachix substituters, which is the trade #604 made for
+      # scope `bq` - and that one came out at NO MEASURABLE CHANGE: `bigquery-acceptance` ran a
+      # median of 179 s over the 143 executed jobs before that merge and 178 s over the 8 after it.
+      # (#604 claimed no after-number itself; this is that number.) So the expected saving here is
+      # nothing, and there is no census gain either, because the entry is shared rather than this
+      # job's own.
+      #
+      # IT DOES NOT DEFEAT THE PUBLISH BELOW, which was the one way it could have been load-bearing
+      # in reverse. cachix's post-build hook publishes only what nix BUILDS, and a restore carries
+      # dependencies rather than this pull request's own check outputs - the same run built and
+      # pushed 4 paths while skipping 1541.
+      #
+      # THE LIMIT: n=8 after that merge is a direction and not a distribution, and no A/B of THIS
+      # step exists - deleting it would need its own before-and-after on this job, not the `bq` one.
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: sutura-prs
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Same self-restraint the main publish uses: push what THIS run realised, not the whole store.
+          pushFilter: "(-source$|nixpkgs)"
+
+      # Realise and publish the PR's own realised paths. cachix-action's post-build hook publishes
+      # ONLY paths nix BUILDS while its daemon is alive - a job that merely restored scope `ci` and
+      # re-derived it would fire the hook nothing. Scope `ci` is keyed on the lockfiles, which are
+      # unchanged across a PR's commits, but the checks' own outputs are derived from the PR's
+      # source, so this realise RE-COMPILES the workspace crates into fresh store paths for this PR,
+      # the hook fires, and they land in `sutura-prs` for the next commit on this branch to
+      # substitute - the same three-check closure the shared `push` job publishes to `sutura`.
+      - name: Realise and publish this PR's shared closure
+        run: |
+          set -eu
+          nix build --print-build-logs \
+            .#checks.x86_64-linux.nextest \
+            .#checks.x86_64-linux.clippy \
+            .#checks.x86_64-linux.hygiene
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
@@ -886,13 +1165,19 @@ jobs:
   #
   # **A concurrency group shared across REFS - the CI belt to the per-run-table braces.** The
   # dataset (`docs/adr/0017`'s seventh amendment) is one resource and every in-repo run shares it;
-  # the group is keyed on the DATASET not the ref so two refs queue rather than interleave, with
-  # `cancel-in-progress: false`. A developer's own local run is the one concurrent writer this
-  # cannot serialise; per-run table names keep it safe anyway.
+  # the group is keyed on the DATASET not the ref so refs queue rather than interleave. `queue: max`
+  # retains up to 100 pending jobs; any beyond that are cancelled. `cancel-in-progress: false`
+  # preserves the job already using the dataset. A developer's own local run is the one concurrent
+  # writer this cannot serialise; per-run table names keep it safe anyway.
   bigquery-acceptance:
     needs: [ci]
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: rust-mcp-32core
+    # Runs only when the diff selected the BigQuery category (or fell open to `core`), AND the
+    # event can reach the `bq-test` environment secret (an in-repo pull request, or a push). A
+    # branch that touches no BigQuery adapter or dialect - or a fork, or the merge queue - pays
+    # nothing for the dataset-serialising acceptance leg. `ci-aggregate` holds that this job may be
+    # skipped ONLY when its category is not selected, or the event cannot run it, never silently.
+    if: github.event_name == 'push' && needs.ci.outputs.data_source_bigquery == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.ci.outputs.data_source_bigquery == 'true'
+    runs-on: rust-mcp-16core
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
     timeout-minutes: 60
@@ -907,6 +1192,7 @@ jobs:
     # above the job.
     concurrency:
       group: bigquery-acceptance-${{ vars.SUTURA_BQ_DATASET }}
+      queue: max
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -918,12 +1204,19 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
-            extra-substituters = https://sutura.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0=
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - uses: ./.github/actions/nix-store-cache
-        with:
-          scope: bq
+      # NO STORE CACHE HERE, AND THE REASON IS ARITHMETIC. One complete generation of this
+      # repository's Actions-cache entries is ~13 GB against a 10 GB effective ceiling, so something
+      # is always being evicted - measured 2026-09-11 at 10,309,515,473 B over 217 entries, of which
+      # the main-ref scopes are `bq` 4082 MB, `ci` 3483 MB and the musl triple 2118 MB, with
+      # `aarch64` and the causality-target entry already gone. `bq` was the largest single claim on
+      # that ceiling and it carried a closure `cachix-push.yml` already publishes, so every reader
+      # here can substitute it from the stores the installer above names. Restoring it cost 25-47 s;
+      # what the substitution costs instead is unmeasured, and this job's own run is the measurement.
+      # `cachix-push.yml`'s `connectors` job lost its `scope: bq` restore in the same change: this
+      # job was the only writer, and a restore of a scope nobody writes is the defect `fuzz` was.
 
       # **The credential reaches the runner and never the repository, a log, or a command line.**
       #
@@ -962,8 +1255,8 @@ jobs:
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
           echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, and two principal credentials beside it, outside the checkout"
 
-      # **Mask the three resource names before anything can print them, and this step exists because
-      # of a channel the rest of the job would otherwise open.**
+      # **Mask the three resource names, and this step exists because of a channel the rest of the job
+      # would otherwise open.**
       #
       # Workflow logs on a PUBLIC repository are public. The wire carries the endpoint's own `message`
       # on a refusal - bounded, deliberately, because a `400 invalidQuery` with only a reason code is
@@ -976,10 +1269,32 @@ jobs:
       # Masking the diagnostic away is the right trade in this direction - a maintainer who needs the
       # unredacted message runs the leg locally, where the log is theirs.
       #
-      # The project id is read from the key rather than configured, for the reason the fixture reads it
-      # from the key: a service-account key names its own project, and a second declaration is a second
-      # answer to *who pays*. `python3 -c` rather than a shell read, so the value never becomes a shell
-      # word that could be logged by `set -x`.
+      # **THE LIMIT, AND THIS COMMENT USED TO OVERSTATE IT (#527).** It said the names were masked
+      # "before anything can print them". For two of the three they are not. The runner prints a
+      # step's resolved `env:` block into that step's own `Run` group BEFORE it executes the body -
+      # `PrintActionDetails` in `actions/runner`'s `src/Runner.Worker/Handlers/Handler.cs` emits
+      # `env:` and every entry of the handler's environment, and `ActionRunner` calls it ahead of
+      # `RunAsync` - so `SUTURA_BQ_DATASET` and `SUTURA_BQ_TABLE` appear in cleartext ONCE, here, and
+      # are redacted from every occurrence after that. An overstated control is worse than an absent
+      # one, because a reader who believes the old sentence stops looking.
+      #
+      # **AND IT CANNOT BE FIXED BY MOVING THE MASK EARLIER**, which is why the shape below is the
+      # best available one rather than a defect left in place. That printed dictionary is built from
+      # the `env` CONTEXT, which the same runner source notes "contains job level env and action's env
+      # block" - so hoisting these to a job-level or workflow-level `env:` prints them in EVERY step's
+      # group, which is strictly worse - and a `${{ }}` read inside a `run:` body is printed too,
+      # because the script is echoed with its expressions already resolved. There is no position in a
+      # workflow from which a `vars` value can be masked ahead of its own first occurrence. The one
+      # thing that closes it is making these two environment SECRETS rather than variables: the runner
+      # adds every secret to the masker before the first step runs, so the dump would read `***`. That
+      # is a forge change no file here can make and NO GATE HERE CAN SEE.
+      #
+      # The project id, by contrast, IS masked before its first occurrence, and the difference is the
+      # lesson: it never becomes an expression at all. Only the key's PATH goes through `env:` and
+      # `python3` reads the value out of the file. It is read from the key rather than configured for
+      # the reason the fixture reads it from the key - a service-account key names its own project, and
+      # a second declaration is a second answer to *who pays*. `python3 -c` rather than a shell read,
+      # so the value never becomes a shell word that could be logged by `set -x`.
       - name: Mask the resource names
         env:
           K: ${{ runner.temp }}/bq-key.json
@@ -1057,6 +1372,83 @@ jobs:
         run: |
           set -eu
           rm -f "$RUNNER_TEMP/bq-key.json" "$RUNNER_TEMP/bq-principal-a.json" "$RUNNER_TEMP/bq-principal-b.json"
+
+  # THE CATEGORY AGGREGATOR, and the second required context beside `ci` (owner-held ruleset edit).
+  # It performs no build and no test; it reads every category-gated leg's result and fails when a
+  # leg that should have run was skipped. A required check that never RUNS stays Pending forever
+  # and wedges the merge queue - the same failure `ci`'s own event handling documents - so a leg
+  # may be green BY SKIP only when the diff did not select its category. A buggy filter that
+  # silently skips an affected adapter leaves the category selected while its leg reports skipped,
+  # and this job is what turns that green shape red.
+  #
+  # Legs and their categories: `ci` is always required; `bigquery-acceptance` is
+  # `data_source_bigquery`. `core` (a shared or unmapped path) subsumes every category because the
+  # category outputs are emitted as `core || selected`, so a `core` diff requires every leg to run
+  # and forbids every allowed skip.
+  #
+  # Two event exceptions are deliberate and match the jobs' own `if:`. A fork pull request cannot
+  # reach the `bq-test` environment secret, and the merge queue never runs `bigquery-acceptance`
+  # (its trigger excludes `merge_group`); in both the leg is skipped not by a filter bug but by the
+  # event, so the aggregator does not require it there. On every in-repo pull request and push it
+  # is held to the run-or-fail rule above.
+  #
+  # `ubuntu-latest`, WHICH IS WHAT `.github/actionlint.yaml` ALREADY DECLARES FOR A JOB LIKE THIS:
+  # a larger runner where Rust is compiled, `ubuntu-latest` where nothing is. This job checks out
+  # nothing, installs nothing, builds nothing and runs one bash step over its two `needs` results -
+  # measured at 2-5 s over the last 14 `main` runs that reached it - so a larger host was paying
+  # for a string comparison. What it can and cannot say about the LABEL: an org runner group has to
+  # serve this repository for `rust-mcp-32core` to resolve at all, which is a permission on the
+  # GitHub side that no gate here can read (`.github/actionlint.yaml` says so of its own list), and
+  # the workflows that still name it prove it is served today - so this is a cost move, not a
+  # reachability fix. The
+  # reported CONTEXT does not move: `devco/required-contexts` names it, and a context is a job's
+  # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
+  ci-aggregate:
+    runs-on: ubuntu-latest
+    needs: [ci, bigquery-acceptance]
+    # Never category-skipped and never suppressed by an upstream failure: it reads the results.
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Aggregate the category-gated legs
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          BQ_RESULT: ${{ needs.bigquery-acceptance.result }}
+          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          fail() { echo "ci-aggregate: RED - $*"; exit 1; }
+          # `ci` is normally the always-required base context. It is skipped in EXACTLY one
+          # situation: the release commit, whose `chore(release):` message skips the whole belt
+          # below `ci` (see `ci`'s own `if`, top of the file). That skip propagates to every leg
+          # that `needs: [ci]` here - bigquery-acceptance included - so a skipped `ci` means the
+          # release belt intentionally skipped together, and the aggregate is validly green.
+          # Every other non-`success` `ci` is a real failure, and the bigquery check below is
+          # untouched: a selected-but-skipped leg still fails, whatever `ci` reported.
+          if [ "$CI_RESULT" != "success" ] && [ "$CI_RESULT" != "skipped" ]; then
+            fail "ci reported '$CI_RESULT'"
+          fi
+          # Whether this event can physically run bigquery-acceptance: an in-repo PR or a push
+          # (which carries the secret); a fork PR and the merge queue cannot, so a skip there is
+          # the event, not a filter bug.
+          if [ "$EVENT" = "push" ] || { [ "$EVENT" = "pull_request" ] && [ "$PR_HEAD" = "$REPO" ]; }; then
+            can_run_bq=true
+          else
+            can_run_bq=false
+          fi
+          if [ "$BQ_SELECTED" = "true" ] && [ "$can_run_bq" = "true" ]; then
+            if [ "$BQ_RESULT" != "success" ]; then
+              fail "bigquery-acceptance must run (BigQuery category selected) but reported '$BQ_RESULT'"
+            fi
+          else
+            case "$BQ_RESULT" in
+              skipped|success) ;;
+              *) fail "bigquery-acceptance reported '$BQ_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          echo "ci-aggregate: ok - every category-gated leg green"
 
   # `needs: [ci]` keeps the file's stated order - classify, lints, tests, then build - so a
   # tree that fails clippy does not spend four runners proving it also links.

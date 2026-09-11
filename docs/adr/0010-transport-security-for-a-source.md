@@ -154,6 +154,11 @@ authenticated.
   at is, and the redaction must sit on the loaded material rather than on the setting.
 - A client trust store enters the dependency graph for the first time. That is a supply-chain change
   and belongs in the same review as the source adapter that needs it, not ahead of it.
+
+  **Corrected: it already entered, and not in the same review as this record.** `Cargo.lock` carries
+  `rustls`, `rustls-webpki` and `webpki-roots`, pulled in by `ureq` behind
+  `sutura-exec-bigquery`'s `wire` feature. So the supply-chain change this bullet schedules has
+  happened, and it happened under a different record.
 - **A connection pool that can be drained is a thing to build, and it is not part of the rotation code
   that already exists.** Rule 3 is the reason and it has two callers, so it is one primitive rather
   than a per-adapter habit. It also means the first pooled source adapter cannot treat pooling as an
@@ -163,3 +168,16 @@ authenticated.
   "TLS with verification turned off".
 - Nothing here is reachable until a network source exists. This record is written now because the
   configuration shape it implies is easier to get right before there is a source than after.
+
+  **Corrected, and this is the most consequential correction in this record - read it as a finding
+  rather than as bookkeeping.** A network source exists: `crates/sutura-serve/src/main.rs` dispatches
+  `SourceKind::BigQuery` and opens an adapter over the wire. What has NOT arrived is this record's own
+  shape - `SourceTransport`, `Plaintext`, `Verified`, `Mutual`, `TrustAnchors` and `ClientIdentity`
+  appear nowhere under `crates/`. **So rule 2 cannot fire.** *A source that asks for TLS and names no
+  anchors refuses at load* is a decided refusal with no mechanism, because the source kind that dials
+  out has no anchors field to be missing, and nothing in `sutura-config` can refuse over one. The
+  sentence corrected here is what hid that: while nothing was reachable, an unenforceable rule cost
+  nothing. #125 is where it gets fixed, and it is one pull request with #124 - the declarable
+  Postgres source - because #124 alone ships a source an operator can declare over a connection on
+  which nothing verifies a certificate. `crates/sutura-exec-postgres/src/lib.rs` connects with
+  `NoTls` unconditionally and says so on the module.

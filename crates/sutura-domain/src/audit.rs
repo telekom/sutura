@@ -300,7 +300,7 @@ mod tests {
             "the bare subject's record claims an actor: {lines:?}"
         );
         assert!(
-            lines.get(1).is_some_and(|line| line.contains("acting=query_agent")),
+            lines.get(1).is_some_and(|line| line.contains("acting=q***")),
             "the agent's record does not name it: {lines:?}"
         );
     }

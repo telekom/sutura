@@ -51,14 +51,38 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     stopped being honest* and *`wired` is not yet earned* are mechanical; *`yes` is earned* is
     review's, with the run named beside it.
 
-    **And the one that is REVIEW's alone, named rather than left to be discovered.** Nothing checks
-    that the task a `Reached by` cell names is the task that runs *this* venue. Measured: pointing
-    the two-keys row at `` `nix run .#actionlint` `` - a real, CI-invoked, entirely unrelated lint -
-    AND changing its matrix cell and section from `unrun` to `wired` passes at exit 0. Repointing
-    alone is refused by the `unrun` ratchet. What the gate holds is that a venue's state is
-    consistent with a named invocation; that the invocation belongs to this venue, and that an
-    accepted run-site token is true, remain review's. An invented run site plus an unrelated
-    invocation can still publish a false leg-2 `yes`; this change does not close that gap.
+    **A citation is ANCHORED in the tree, and the anchor is narrower than *CI invokes it*.** Two
+    rules, and the second is conditioned on the run site - which is what makes that closed
+    vocabulary do mechanical work rather than only be spell-checked. First: a venue may state
+    `yes`, `can` or `wired` only if its `Reached by` names a task that **runs this workspace's
+    tests**, because CI invokes lints, builds, docs and release jobs too. Second: a venue that runs
+    in **a GitHub environment** - *on demand* - additionally needs a job to invoke that task, since
+    a job is the only thing that can demand a run there. Measured before those rules: pointing the
+    two-keys row at `` `nix run .#actionlint` `` - a real, CI-invoked, entirely unrelated lint - and
+    moving its cell to `wired` passed at exit 0; and setting an on-demand venue's cell to `yes`
+    with no run ever performed passed at exit 0, because only `unrun` and `wired` read the
+    invocation set at all. Both are refused now.
+
+    **Why the second rule is not universal, measured rather than assumed.** Requiring an invocation
+    everywhere refused the two `in process` venues, whose claims are answered on every push: this
+    workspace's suite runs in CI as a nix **check**, and what the gate resolves is `just <task>` and
+    `nix run .#<app>` - so `just test` is genuinely run by CI and is invisible to that reader. A
+    gate that reddens correct work gets disabled, and the run-site token already states the
+    difference the rule needs.
+
+    **What that costs, rather than left to be discovered:** for an on-demand venue, a green run
+    somebody did by hand can no longer be cited as `yes`. That follows from this page's own
+    argument - nothing here can see a hand-run - so a `yes` resting on one was resting on recall.
+    The honest cell until a job demands the run is `unrun`.
+
+    **And what still gets through, so a reader does not stop looking.** For an `in process` venue
+    the anchor is the first rule alone, so what holds a `yes` there is that the suite really is the
+    venue - which its own token asserts and nothing mechanical proves. For every venue, what is
+    held is that the named task runs tests, never that it runs *this* venue's tests: repointing a
+    row at ANOTHER venue's test task still passes, and whether an accepted run-site token is true
+    is still prose. So a false leg-2 `yes` costs three edits rather than two - the run site, the
+    verdict, and a `Reached by` pointed at some other venue's test task - and the third is the one
+    review can see, because it names a task that visibly belongs to a different row.
 
     **Invocation reading has syntax limits too.** Workflow and action sources contribute their
     `run:` bodies, not ordinary YAML names or descriptions; shared shell scripts are read whole.
@@ -69,10 +93,11 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     **And *the two columns of a row are read together* buys less than it sounds like, measured.**
     `Where it runs` has no external anchor either - it is prose on this page, editable in the same
     diff as the cell it guards. Overstating the row-grant claim took three edits before that rule
-    and takes **two** after it: change a `Where it runs` cell from *nowhere yet* to *a GitHub
-    environment, on demand*, then change the verdict. `check-venues` exits 0 on the pair with a
-    byte-identical summary. The rule raises the cost of the overstatement; it does not make it
-    impossible, and only a run named beside a `yes` does that.
+    and took **two** after it: change a `Where it runs` cell from *nowhere yet* to *a GitHub
+    environment, on demand*, then change the verdict - `check-venues` exited 0 on the pair with a
+    byte-identical summary. The anchor rule above put the third edit back, because the exchange
+    venue's task is one no job invokes. The rules raise the cost of the overstatement; they do not
+    make it impossible, and only a run named beside a `yes` does that.
 
 ## The venues
 
@@ -476,6 +501,9 @@ A venue that cannot state its limit is how *verified* drifts. So:
 - A new venue arrives as a row in the table above **with its exclusions written**, in the same change.
 - A test moving from one venue to another moves its row, rather than gaining a second one.
 - `Where it runs` must use the closed vocabulary; the gate holds its meaning, not whether the
-  claimed run site is true or its named task belongs to that venue.
+  claimed run site is true.
+- A `yes`, `can` or `wired` cell needs a `Reached by` task that **runs tests** - a lint CI invokes
+  is not a venue anything is proven in - and an **on demand** venue needs a job to invoke it as
+  well. That the task runs *this* venue's tests is still review's.
 - `just validate` runs every venue that needs no network. The other three do not, and each says so where
   it is invoked.

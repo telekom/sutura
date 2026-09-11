@@ -55,13 +55,13 @@ pub(crate) struct Separable {
     pub(crate) held_back: Vec<String>,
     /// Kept at HEAD, with nothing in them to measure: everything they added is `#[cfg(test)]`
     /// code that names no test. Reverting one takes a helper the held tests call out of the base
-    /// tree, and requiring it to name a test is the refusal [`attributes`] records.
+    /// tree, and requiring it to name a test is the refusal [`super::attributes`] records.
     pub(crate) test_only: Vec<String>,
     /// Changed, and NOT reverted: a manifest, a lockfile or a cargo configuration. Reverting one
     /// changes what cargo resolves rather than what the tests measure, and would take a dependency
     /// this branch added away from a test file kept at HEAD. Carried so the output can NAME them -
     /// a diff whose only implementation change is a manifest gets no verdict from this gate, and
-    /// [`provenance::Reach::BuildInput`] is where that argument lives.
+    /// [`Reach::BuildInput`] is where that argument lives.
     pub(crate) build_inputs: Vec<String>,
 }
 
@@ -84,7 +84,7 @@ impl Separable {
 /// **A FILE CARGO DOES NOT COMPILE IS STILL AN IMPLEMENTATION**, and reading `.rs` only is what
 /// made a documentation-driven suite unprovable: the pages a test asserts on stayed at HEAD, the
 /// test was green against "base", and the gate answered *tests changed but no implementation did* -
-/// a pass, over a diff whose implementation was prose. [`provenance::Reach`] sorts a changed path
+/// a pass, over a diff whose implementation was prose. [`Reach`] sorts a changed path
 /// into what the reconstruction may do with it, so a page, a recipe or a nix file is reverted like
 /// any other implementation and a build input is held back and NAMED.
 pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {

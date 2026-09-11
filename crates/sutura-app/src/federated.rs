@@ -11,7 +11,8 @@
 //! declares that constant and is non-optional in both shipped binaries. What that does NOT make it
 //! is two-identity: every adapter a release links declares
 //! `ImpersonationCapability::NoPlaceForASubject`, so both legs of a shipped two-source answer run
-//! under one operating-system identity and [`ExecutedAs::and`] records the same shared posture
+//! under one operating-system identity and
+//! [`ExecutedAs::and`](sutura_domain::source::ExecutedAs::and) records the same shared posture
 //! twice. Single-player federation.
 
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
@@ -54,12 +55,12 @@ pub(crate) type LegResult<W, B> = Result<RowSet, LegError<<W as Warehouse>::Erro
 
 /// Executes a two-source question: one leg per data system, combined above them.
 ///
-/// Reached only from [`Compiled::Federated`]. Every data system the plan reads must be open AND be
-/// able to execute a leg (`Warehouse::EXECUTES_LEGS`), or the answer is refused as
-/// [`RefusalReason::FederationNotExecutable`]. That check here, rather than in an adapter, is what
-/// keeps a build whose adapter declares `false` refusing a two-source question cleanly instead of
-/// letting a typed leg refusal surface as a retryable 503 - which is still every build linking
-/// `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
+/// Reached only from [`Compiled::Federated`](sutura_semantic::Compiled::Federated). Every data
+/// system the plan reads must be open AND be able to execute a leg (`Warehouse::EXECUTES_LEGS`), or
+/// the answer is refused as [`RefusalReason::FederationNotExecutable`]. That check here, rather
+/// than in an adapter, is what keeps a build whose adapter declares `false` refusing a two-source
+/// question cleanly instead of letting a typed leg refusal surface as a retryable 503 - which is
+/// still every build linking `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
 ///
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH
@@ -252,6 +253,15 @@ where
             if warehouse.result_did_not_fit(&cause) {
                 return Err(LegError::Refusal(RefusalReason::ResultTooLarge {
                     bound: ResultBound::Volume,
+                }));
+            }
+            // The same guard, for the same reason: the data system refused THIS leg's statement at
+            // the identity/authorization level. It used to leave as `LegError::Failure` and reach a
+            // caller as the `503` an outage produces, so a caller was told to retry a refusal that
+            // returns the same reply.
+            if warehouse.source_refused(&cause) {
+                return Err(LegError::Refusal(RefusalReason::SourceRefused {
+                    source: warehouse.source().clone(),
                 }));
             }
             Err(LegError::Failure(ServiceError::Warehouse { cause }))
@@ -476,6 +486,47 @@ mod tests {
                 }
             ),
             "a leg the data system will not return at once must be refused as the volume bound, not {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_federated_leg_the_source_refuses_is_refused_not_a_503() {
+        // The federated half of the identity/authorization refusal, and the reason `execute_leg`
+        // is given the `source_refused` predicate. A leg the data system refuses because the
+        // identity it runs as may not ask it used to leave as `LegError::Failure` - the `503` a
+        // dead data system produces - so a caller was told to retry a refusal that returns the
+        // same reply. Both legs refuse at the identity/authorization level, and the fact leg runs
+        // first, so the answer must be refused as `SourceRefused` carrying the source.
+        let shared = shared();
+        let warehouses = Warehouses::of(crate::tests_support::RefusingLegsWarehouse::new(
+            SourceName::parse("facts").expect("a test source"),
+            shared.clone(),
+        ))
+        .and(crate::tests_support::RefusingLegsWarehouse::new(
+            SourceName::parse("geo").expect("a test source"),
+            shared,
+        ))
+        .expect("two sources, one registry");
+
+        let plan = federated_plan();
+        let outcome = answer_federated(
+            &bundle(),
+            &plan,
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            FEDERATED_BUDGET,
+        )
+        .expect("a source refusal is a refusal, not an error")
+        .into_outcome();
+        assert!(
+            matches!(
+                outcome,
+                ToolOutcome::Refusal {
+                    reason: RefusalReason::SourceRefused { .. }
+                }
+            ),
+            "a leg the data system refuses at the identity/authorization level must be refused, not {outcome:?}"
         );
     }
 

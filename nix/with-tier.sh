@@ -7,9 +7,10 @@
 # the arrangement `nix/postgres-tier.nix` documents - so there are two provisioners sharing one start
 # script, which is the rule this repository already applies to that pin.
 #
-# # Why it exists: four defects, each one a missing distinction
+# # Why it exists: five defects, each one a missing distinction
 #
-# The first three measured on 2026-09-02, in one session; the fourth on 2026-09-03.
+# The first three measured on 2026-09-02, in one session; the fourth on 2026-09-03 and the fifth on
+# 2026-09-08.
 #
 # **1. The hook and `just gates` provisioned nothing.** `just test` started the tier and
 # `checks.nextest` started the tier; the pre-commit `cargo nextest` hook and `just gates` ran the
@@ -33,11 +34,18 @@
 # cells panicked on a worktree that publishes nothing - one full `just test` discarded, and most of
 # the cost was working out that a GREEN `status` was the reason.
 #
-# The fix is not here, and that is the point: `status` is DERIVED from the endpoint file now, so
-# this file reads one record rather than a second opinion about it. What IS here is the third
-# answer that derivation makes available - a server running with nothing publishing it, which is
-# republished and deliberately not adopted. `checks.postgres-tier` drives all three arms through
-# this exact file.
+# `status` is DERIVED from the endpoint file, so the three answers it gives are about one record.
+# What IS here is the third of them - a server running with nothing publishing it, republished and
+# deliberately not adopted. `checks.postgres-tier` drives all three arms through this exact file.
+#
+# **5. And then the derivation turned out to be a property of the BINARY ON PATH, not of this
+# repository.** `github.com/telekom/sutura#335`, measured 2026-09-08: a dev shell entered before
+# `#298` landed carries a tier whose whole `status` is `pg_ctl -D "$pg" status`. Two answers, no
+# endpoint file, so exit 0 means *a postmaster* and the `3` arm below is unreachable - a `git
+# commit` on a green branch failed both fail-closed cells, and the cause was again a GREEN
+# `status`. So this file now reads that document ITSELF beside the exit code: 0 with no endpoint
+# file is the unclaimed state whatever the tier believes, which is correct against an old `status`
+# and a new one alike and needs no version handshake. The limit is stated at the line.
 #
 # So: read ONE record, start only if the suite would find nothing, arm the teardown only for a
 # server this shell actually started, and let the REQUIREMENT follow the tier rather than being
@@ -111,6 +119,28 @@ sutura_tier_up() {
     # `status`; what they mean HERE is the whole of `github.com/telekom/sutura#298`.
     local state=0
     sutura-postgres-tier status >/dev/null 2>&1 || state=$?
+    # AND THE FACT ITSELF, READ HERE RATHER THAN TRUSTED TO BE WHAT `status` ANSWERED FROM.
+    #
+    # `github.com/telekom/sutura#335`. The three arms below are written against a `status` that is
+    # DERIVED from `<root>/.sutura-dev/endpoints.json` - but which build of the tier is on PATH is
+    # not a property of this repository. A pre-`#298` tier answers from `pg_ctl` alone, so its
+    # exit 0 means *a postmaster*, not *a postmaster the suite can find*; the `3` arm becomes
+    # unreachable, and the divergence `#298` closed is open again. Measured: a `git commit` on a
+    # green branch failed both fail-closed cells because a stale dev shell's `status` said 0 over a
+    # worktree that published nothing - ten minutes, and the same GREEN `status` as `#298`.
+    #
+    # A version handshake would be a second thing to keep true. The endpoint file is the fact the
+    # HARNESS reads, so reading it here makes the decision correct against an old `status` and a
+    # new one alike: 0 with no such file is the unclaimed state, which the `3` arm republishes.
+    #
+    # **Its limit, stated rather than implied:** existence, not content. A file naming another
+    # service and no postgres entry still reads as claimed under a pre-`#298` `status`, because
+    # answering that here means parsing the document a second time - `nix/tier-endpoints.nix` is
+    # its one reader of record and `published` needs the address, which is the tier's to know.
+    # Under a CURRENT `status` that state cannot arise: 0 already means published AT that socket.
+    if [ "$state" = 0 ] && [ ! -f "$(pwd -P)/.sutura-dev/endpoints.json" ]; then
+        state=3
+    fi
     case "$state" in
         0)
             echo "with-tier: the Postgres tier is already up - leaving it to whoever started it."

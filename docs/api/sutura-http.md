@@ -97,67 +97,226 @@ serve(router(&state)?, address, Shutdown::new()).await?;
 # }
 ```
 
-## `use None`
+## `use capability_of`
 
-## `use None`
+The capability a route is, or `None` if this crate does not govern it.
 
-## `use None`
+`None` is what `crate::router::assemble` refuses over. At request time it cannot happen - the
+layer is installed on the versioned subtree only, and assembly proved every route in it has a row
+- and the layer still refuses rather than passing, because "cannot happen" is not a control.
 
-## `use None`
+## `use governed`
 
-## `use None`
+Every route this crate governs.
 
-## `use None`
+Built as a function rather than a `const` because the paths are composed from `API_V1_PREFIX`
+and `base_paths`, and composing them here is what keeps one owner for a path.
 
-## `use None`
+`pub` because `crate::router::assemble` reads it to refuse an ungoverned route, and because a test
+in `crate::openapi` compares it against the generated document's operation identifiers.
 
-## `use None`
+## `use permitted_for`
 
-## `use None`
+What this request's caller may do.
 
-## `use None`
+See the module documentation for the two cases and for why the second is not a fallback.
 
-## `use None`
+## `use require_capability`
 
-## `use None`
+Refuses a request for a capability this caller was not granted.
 
-## `use None`
+A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
+handler to forget. Installed INSIDE `crate::inbound::gate::require_verified_caller`, which is what
+makes the extension available here - see `crate::router` for the whole order.
 
-## `use None`
+## `use ClientAddress`
 
-## `use None`
+Where a bucket's key comes from, as a value the limiter layer is built with.
 
-## `use None`
+`Clone` because `KeyExtractor` requires it and the layer clones it per connection; the trusted
+list is behind an `Arc` so that clone is a pointer bump rather than a copy of every block.
 
-## `use None`
+## `use CorrelationId`
 
-## `use None`
+An identifier for one request, within one process's log.
 
-## `use None`
+If a value of this type exists it is at most `MAX_LENGTH` characters of ASCII letters, digits,
+`-` and `_`, and is not empty - so it can be written into a log line without escaping and cannot
+forge one.
+`Ord` is deliberately not derived. Generated values sort by mint order because they are
+fixed-width hex; a caller-supplied one does not, so an ordering over the type as a whole would
+mean something on half the values and nothing on the other half.
 
-## `use None`
+## `use NotACorrelationId`
 
-## `use None`
+Why a string is not a correlation identifier.
 
-## `use None`
+**No variant carries the offending text**, and that is the point of the type rather than an
+omission: the value came from a caller, the error's `Display` reaches a log, and echoing it
+there is the injection this is guarding against. A position is enough to debug a client with,
+and a position cannot forge a line.
 
-## `use None`
+## `use InboundGate`
 
-## `use None`
+Everything one deployment needs to establish who a caller is, built once at startup.
 
-## `use None`
+**Built by the composition root and not by `crate::ServiceState::new`**, because building it
+reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+or read it lazily on the first request, and both turn a refusal to start into a deployment that
+authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
+declare an inbound identity and whose state carries no gate, which is what makes forgetting to
+attach one a startup failure rather than an open door.
 
-## `use None`
+## `use InboundNotUsable`
 
-## `use None`
+The gate could not be built.
 
-## `use None`
+## `use VerifiedCaller`
 
-## `use None`
+A caller whose token this deployment verified.
 
-## `use None`
+**The only way to one of these is a signature check.** See the module documentation for the three
+properties that make that a mechanism rather than a convention.
 
-## `use None`
+# A caller cannot state its own identity
+
+There is no `Deserialize`, so caller-supplied bytes cannot become one of these:
+
+```compile_fail
+// A transport that tried to read a verified caller off the wire does not compile.
+let caller: sutura_http::inbound::VerifiedCaller =
+    serde_json::from_str(r#"{"subject":"someone"}"#).expect("no");
+drop(caller);
+```
+
+The compiling twin, so the failure above cannot be passing for a typo - what a handler can do with
+one is read the chain it carries:
+
+```
+use sutura_domain::identity::Attribution;
+
+fn read(caller: &sutura_http::inbound::VerifiedCaller) -> bool {
+    matches!(caller.chain().attribution(), Attribution::BareSubject { .. })
+}
+```
+
+## `use Failure`
+
+Why a request could not be answered.
+
+One enum rather than a status code chosen per call site: the status, the code and the sentence
+come from the variant, so two handlers cannot answer the same situation with different numbers.
+
+## `use ProblemBody`
+
+The failure body.
+
+Three fields and no more. A request identifier would belong here and there is none: nothing in
+this service mints one yet, and a field that is always absent is worse than no field.
+
+## `use Assembled`
+
+The router, and the limiter state something has to keep sweeping.
+
+**Two values because they have two owners.** The router goes to whatever serves it; the handles
+go to the sweeper. `router` wires the second half up itself, which is what makes the
+production path correct by default; `assemble` hands both back for a test that wants to
+observe the keyed store directly.
+
+## `use RouterNotBuilt`
+
+Why the router could not be assembled.
+
+## `use assemble`
+
+The same assembly, with the limiter handles handed back instead of swept.
+
+For a caller that wants to sweep on its own schedule, and for a test that wants to assert on the
+keyed store. It starts no thread, so a test suite that assembles one router per test does not
+accumulate one sweeper per test.
+
+## `use router`
+
+Builds the whole router for this state, and starts the sweeper for its keyed state.
+
+Everything the posture decides is decided here, once, from settings that were already
+refused-or-accepted at startup. A handler cannot re-decide any of it, which is the point: a
+request never arrives at a branch that could turn a control off.
+
+## `use serve_tls`
+
+The same, with the connection terminated here.
+
+The material is loaded and validated FIRST, before anything is bound. So a certificate that will
+not parse, or a key that does not belong to it, is a process that does not start - not a port
+that accepts connections and fails every handshake, and not a plaintext port. See `crate::tls`
+for the rotation this also starts, which is what keeps a renewed certificate from needing a
+restart.
+
+## `use ServeFailed`
+
+Why the server stopped, other than being asked to.
+
+## `use serve`
+
+Binds `address`, serves `router`, and returns when the shutdown has drained or the deadline
+expired.
+
+The bound address is read back from the socket rather than assumed, so a port of zero - a test
+asking the kernel to choose - is reported as the port it actually got.
+
+## `use ServiceState`
+
+The request state.
+
+## `use ErasedCause`
+
+## `use LocalService`
+
+## `use ServiceNotStarted`
+
+## `use Surface`
+
+## `use SurfaceFailure`
+
+## `use cause_chain`
+
+## `use Renewal`
+
+Keeps the presented certificate current with what is on disk.
+
+Owns the sending half of the channel the resolver reads, so this is the only thing that can
+change what a handshake is offered.
+
+## `use Renewed`
+
+What one look at the files decided.
+
+## `use Termination`
+
+A validated TLS configuration, and the means to keep it current.
+
+**Two values because they have two owners**, the way `crate::router::Assembled` is two: the
+configuration goes to the listener, and the renewal goes to whatever will poll it. `Self::prepare`
+hands both back rather than starting the poll itself, so a test can drive a rotation a step at a
+time instead of waiting on a wall clock.
+
+## `use TlsListener`
+
+A TLS listener `axum::serve` can drive.
+
+Holds no socket. The socket is owned by the task `TlsListener::wrap` spawns, and this is the
+receiving end of the connections that task has finished handshaking - see the module
+documentation for why the handshake is not done here.
+
+## `use TlsNotUsable`
+
+Why the configured certificate and key are not usable TLS material.
+
+Every variant names the path. `sutura_config::TlsMaterial` parses the *pair* - both halves or
+neither - and stops there, because that crate reads no files; everything below is a question only
+a TLS implementation can answer, and this is where they are all answered. Once, before the socket
+is bound.
 
 ## Module `capability`
 
@@ -657,49 +816,214 @@ an adapter never calls another adapter, and that rule is what keeps this module 
 shape a second transport has to bend around. Which crate this code moves to when that surface
 acquires an inbound transport is an architecture decision, not a refactor.
 
-### `use None`
+### `use InvalidScope`
 
-### `use None`
+Why a scope string is not one.
 
-### `use None`
+### `use Scopes`
 
-### `use None`
+The scopes a verified token carried.
 
-### `use None`
+A `BTreeSet` rather than a `Vec`: RFC 6749's scope is a set, an issuer may repeat a value, and the
+ordering makes a log line and a test deterministic. Duplicates collapse rather than being refused,
+because a repeated scope says the same thing twice and is not a posture.
 
-### `use None`
+### `use VerifiedCaller`
 
-### `use None`
+A caller whose token this deployment verified.
 
-### `use None`
+**The only way to one of these is a signature check.** See the module documentation for the three
+properties that make that a mechanism rather than a convention.
 
-### `use None`
+# A caller cannot state its own identity
 
-### `use None`
+There is no `Deserialize`, so caller-supplied bytes cannot become one of these:
 
-### `use None`
+```compile_fail
+// A transport that tried to read a verified caller off the wire does not compile.
+let caller: sutura_http::inbound::VerifiedCaller =
+    serde_json::from_str(r#"{"subject":"someone"}"#).expect("no");
+drop(caller);
+```
 
-### `use None`
+The compiling twin, so the failure above cannot be passing for a typo - what a handler can do with
+one is read the chain it carries:
 
-### `use None`
+```
+use sutura_domain::identity::Attribution;
 
-### `use None`
+fn read(caller: &sutura_http::inbound::VerifiedCaller) -> bool {
+    matches!(caller.chain().attribution(), Attribution::BareSubject { .. })
+}
+```
 
-### `use None`
+### `use InboundGate`
 
-### `use None`
+Everything one deployment needs to establish who a caller is, built once at startup.
 
-### `use None`
+**Built by the composition root and not by `crate::ServiceState::new`**, because building it
+reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+or read it lazily on the first request, and both turn a refusal to start into a deployment that
+authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
+declare an inbound identity and whose state carries no gate, which is what makes forgetting to
+attach one a startup failure rather than an open door.
 
-### `use None`
+### `use InboundNotUsable`
 
-### `use None`
+The gate could not be built.
 
-### `use None`
+### `use require_verified_caller`
 
-### `use None`
+Requires a verified caller, and puts one in the request extensions.
 
-### `use None`
+A `from_fn_with_state` middleware over the gate rather than over
+`crate::ServiceState`, so the state a handler is given has no way to
+reach the validator: the only thing that crosses into the handler is the *result*, as a
+`VerifiedCaller` extension that only this function inserts.
+
+**The insertion overwrites**, which matters: `axum` extensions are a map, and a request arriving
+with something already under that type - which nothing can construct, but the reasoning should not
+rest on that alone - is replaced rather than joined.
+
+### `use FileKeySet`
+
+A key set on the local filesystem.
+
+### `use InvalidKeySet`
+
+Why a document is not a usable key set.
+
+### `use KeyId`
+
+A key identifier, out of a token header or out of a key set.
+
+A newtype rather than a `String` because the value arrives from a caller and is then used as a map
+key, as the trigger for an outbound fetch, and as a log field. The field is private and
+`Self::parse` is the only way in.
+
+### `use KeySet`
+
+The verifying keys this deployment holds, by id.
+
+A `BTreeMap` rather than a `HashMap`: a key set holds a handful of entries, the ordering makes a
+log line and a test deterministic, and there is no hash-collision surface on a caller-supplied
+lookup key at all.
+
+### `use KeySetCache`
+
+The key set, cached, with a rate-limited refetch on an unknown key id and an age bound on the
+whole set.
+
+`tokio::sync::RwLock` rather than `std::sync::RwLock`, which `clippy.toml` bans: this is held
+across an `await` in an async middleware, which is exactly the deadlock that ban is for.
+
+**No read of the source happens while the write lock is held**, which review asked for: the lock
+is taken to stamp the attempt, released, the document read, and taken again to swap. The stamp
+under the first lock is what keeps two concurrent misses from becoming two reads.
+
+### `use KeySetSource`
+
+Where a key set is read from.
+
+One method, so a JWKS endpoint is a second implementor and nothing else in this file moves. See
+the module documentation for why the only implementor today reads a file.
+
+**It returns the document's BYTES rather than a parsed key set**, and that is what lets
+`KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
+comparison of parsed keys could not: the library's key type implements no equality, so the
+alternative was comparing key *ids*, which would miss a key whose material rotated under the same
+id.
+
+**Synchronous, deliberately.** The one implementor reads a small local file, at most once per
+`MAX_KEY_SET_AGE`, and making the trait `async` would either need a boxed future in the
+signature or force the file source to pretend. A URL source arrives with a real decision about
+where its I/O runs, and that decision belongs in the same change as the client.
+
+### `use KeySetUnavailable`
+
+The source could not be read, or what it returned is not a key set.
+
+### `use KeyUnavailable`
+
+Why a token could not be matched to a verifying key.
+
+Separate from the token's own refusals because the two are different facts about a deployment: a
+signature that does not verify is a bad token, and a key id nobody has heard of after a refetch is
+either a rotation this deployment has not caught up with or a caller guessing.
+
+### `use MAX_KEY_SET_AGE`
+
+How stale a cached key set may be before it is re-read whatever a caller asks for.
+
+**This is the revocation bound**, and it is the number a reviewer should argue with if they argue
+with anything here: a key removed from the set keeps verifying for at most this long. A constant
+rather than a key for the same reason the limit above is one - and unlike that limit, this one
+only ever wants to be *smaller*, so the cost is what sets it. One minute is one small read per
+minute per process, which is the same order as
+`crate::middleware::REAP_INTERVAL` and is nothing next to a signature verification.
+
+### `use MIN_REFETCH_INTERVAL`
+
+How long after one attempt to reach the source another may be made.
+
+**The rate limit `docs/adr/0014` asks for**, as a constant rather than a configuration key. It is
+not a posture decision - nothing a caller can do changes what the right answer is - and a knob
+here would only ever be set wrong, in the direction that reopens the denial-of-service primitive.
+Thirty seconds is far below any horizon at which a rotation is late and far above the cost of a
+forged key id.
+
+### `use NotAKeyId`
+
+Why a string is not a key identifier.
+
+### `use Refreshed`
+
+What one look at the source did.
+
+The same three outcomes `crate::tls::Renewed` has, and for the same reasons: an unreadable source
+is not a change, and a candidate that was examined and rejected is recorded as examined so
+identical bytes on the next tick are silent rather than logging a rejection once per interval
+forever.
+
+### `use MAX_TOKEN_BYTES`
+
+The largest token this surface will look at.
+
+**Bounded before the signature is checked, because everything before that point is work done on
+behalf of an unauthenticated caller.** Eight kibibytes is generous for an access token carrying
+groups and an actor chain, and far below the header limit the HTTP implementation would otherwise
+be the only bound at. An unbounded input is a denial-of-service primitive whatever else it is.
+
+### `use PresentedType`
+
+The `typ` a refused token presented, where it was one at all.
+
+A named type rather than an `Option<TokenType>` in the variant, so the *absent* case renders as a
+sentence rather than as `None` - and so the case where a `typ` was present but unusable is
+distinguishable from the case where there was none. Both are refusals; they are different
+diagnostics.
+
+### `use TokenRejected`
+
+Why a presented token did not establish a caller.
+
+**Every variant is "this caller is not authenticated", and none of them is a
+`sutura_domain::query::RefusalReason`.** That is the placement `docs/adr/0008` part 6 already gives
+an expired assertion: a refusal is a governance answer to a question that was understood, and a
+caller who has not proved who they are has not asked a question yet. `crate::problem::Failure` is
+where this becomes a status.
+
+**No variant carries the token, a claim value, or a key.** The `#[error]` text names what was
+wrong; the value that was wrong stays out of it, because these render into a log an operator reads
+and an error is not a place for credential material.
+
+### `use TokenValidator`
+
+One deployment's whole token check, built once at startup.
+
+Holds the built `Validation` rather than rebuilding it per request, which is not an optimisation:
+building it per request would be a per-request opportunity for one of its fields to be set
+differently, and every field on it is a control.
 
 ### Module `caller`
 
@@ -1581,7 +1905,7 @@ and an error is not a place for credential material.
 - `NoKeyId` - No `kid`.
 - `UnusableKeyId`
 - `NoKey`
-- `NotVerified` - The signature, the expiry, the issuer or the audience.
+- `NotVerified` - The signature, the expiry, the issuer, the audience - or the claims failing to deserialize.
 - `UnusableSubject` - A `sub` this workspace will not write into a record.
 - `UnusableActor`
 - `TooManyActors` - More nesting in `act` than `MAX_ACTORS` allows.
@@ -1590,6 +1914,25 @@ and an error is not a place for credential material.
 - `NoIssuedAt` - A transit proof with no `iat`.
 - `LifetimeTooLong` - A transit proof declaring a longer life than this deployment will call short-lived.
 - `IssuedInTheFuture` - An `iat` in the future by more than the leeway.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `enum NotVerified`
+
+```rust
+pub enum NotVerified
+```
+
+Why a presented token did not verify, when it did not.
+
+The split exists because one of the two halves carries a message a log must not see.
+
+##### Variants
+
+- `Crypto` - The signature, the expiry, the issuer or the audience.
+- `Json` - The claims in the presented token did not deserialize.
 
 ##### Implements
 
@@ -2417,17 +2760,17 @@ The tests below stayed with the fakes rather than with the code: `crate::testing
 port doubles they need, and they exercise the re-exported types, so what they assert about the
 erasure is unchanged.
 
-### `use None`
+### `use ErasedCause`
 
-### `use None`
+### `use LocalService`
 
-### `use None`
+### `use ServiceNotStarted`
 
-### `use None`
+### `use Surface`
 
-### `use None`
+### `use SurfaceFailure`
 
-### `use None`
+### `use cause_chain`
 
 ## Module `tls`
 
@@ -2630,7 +2973,13 @@ before a runtime exists, and this is spawned from inside `serve`.
 
 `Debug`
 
-### `use None`
+### `use TlsListener`
+
+A TLS listener `axum::serve` can drive.
+
+Holds no socket. The socket is owned by the task `TlsListener::wrap` spawns, and this is the
+receiving end of the connections that task has finished handshaking - see the module
+documentation for why the handshake is not done here.
 
 ### `constant RENEWAL_INTERVAL`
 

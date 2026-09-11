@@ -26,6 +26,11 @@
 //! here**, and no gate says so. `github.com/telekom/sutura#428` records which candidates were
 //! measured and left out, and the measurement is the argument: enrolling an enum whose variants
 //! are mostly unnamed buys a column of dated excuses rather than coverage.
+//!
+//! What the enrolment being a list no longer costs is REACH. [`declared::Enrolled`] owns the loop
+//! over it and mints one verdict per subject the check RETURNED for, so neither a narrowed
+//! argument at [`run`]'s call site nor a `continue` inside the loop can leave a subject
+//! unadjudicated at exit 0 - both were measured green before that type existed.
 
 mod declared;
 
@@ -33,7 +38,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::causality::regions;
-use crate::refusals::declared::{Declared, Subject, variants};
+use crate::refusals::declared::{Declared, Enrolled, Subject, variants};
 use crate::{Verdict, repo};
 
 /// Where the enum is declared. A constant so a move fails this gate loudly rather than making it
@@ -48,7 +53,7 @@ const QUERY: Subject = Subject {
     name: "RefusalReason",
     declared_in: DECLARED_IN,
     allow_file: ALLOW_FILE,
-    variants: variants(18),
+    variants: variants(19),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.
@@ -77,6 +82,49 @@ const VALIDATION: Subject = Subject {
 /// the direction this list does NOT hold.
 const ENROLLED: [&Subject; 3] = [&QUERY, &STARTUP, &VALIDATION];
 
+/// Two subjects sharing one allow file would share their exceptions, and
+/// `startup_exceptions_are_validated_and_do_not_cross_enum_boundaries` is the rule that forbids
+/// it - a rule nothing compared until now, and invisible today only because all three lists are
+/// empty. A `const` block, so a duplicated path fails the build rather than a run.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "const-evaluated and guarded by the loop bound: an out-of-range index here is a compile error, not a panic in a run"
+)]
+const _: () = {
+    let mut outer = 0_usize;
+    while outer < ENROLLED.len() {
+        let mut inner = outer + 1;
+        while inner < ENROLLED.len() {
+            assert!(
+                !same_path(ENROLLED[outer].allow_file, ENROLLED[inner].allow_file),
+                "two enrolled subjects share an allow file, so their exceptions would cross"
+            );
+            inner += 1;
+        }
+        outer += 1;
+    }
+};
+
+/// Byte equality on two paths, in a `const` context.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "const-evaluated and guarded by the loop bound: an out-of-range index here is a compile error, not a panic in a run"
+)]
+const fn same_path(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut at = 0_usize;
+    while at < left.len() {
+        if left[at] != right[at] {
+            return false;
+        }
+        at += 1;
+    }
+    true
+}
+
 /// One deliberate exception, as the allow file spells it.
 struct Excused {
     /// The variant's name.
@@ -100,15 +148,22 @@ struct Evidence {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    over(&ENROLLED)
+    over(Enrolled::declared())
 }
 
-/// The gate over a declared set of subjects.
+/// The gate over an enrolled set of subjects.
 ///
-/// [`run`] hands it [`ENROLLED`]; the tests hand it fixture subjects over a fixture tree, so the
-/// whole path - the file listing, the declaration walk, the evidence scan and the verdict - is
-/// driven without the fixture having to reproduce the real enums' variant counts.
-fn over(subjects: &[&Subject]) -> Verdict {
+/// [`run`] hands it [`Enrolled::declared`], which names [`ENROLLED`] itself; the tests hand it
+/// fixture subjects over a fixture tree, so the whole path - the file listing, the declaration
+/// walk, the evidence scan and the verdict - is driven without the fixture having to reproduce the
+/// real enums' variant counts.
+///
+/// **The loop is not here.** [`Enrolled::each`] owns it and pushes one verdict per RETURN, so a
+/// subject skipped between the counter and the work is a refusal instead of a smaller `ok` - the
+/// shape this gate shipped with, measured at `just hygiene` exit 0 with `NotValidated` missing
+/// from the output altogether. And because `Enrolled`'s field is private to
+/// `refusals::declared`, this function has no set to narrow and `run` has no argument to shorten.
+fn over(enrolled: Enrolled<'_>) -> Verdict {
     let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Refusals)) {
         Ok(listing) => listing,
         Err(why) => {
@@ -116,31 +171,13 @@ fn over(subjects: &[&Subject]) -> Verdict {
             return Verdict::Fail;
         }
     };
-    let mut verdict = Verdict::Pass;
-    let mut checked = 0_usize;
-    for subject in subjects {
-        checked = checked.saturating_add(1);
-        if check(subject, &root, &files) != Verdict::Pass {
-            verdict = Verdict::Fail;
+    match enrolled.each(|subject| check(subject, &root, &files)) {
+        Ok(verdict) => verdict,
+        Err(why) => {
+            eprintln!("xtask check-refusal-coverage: FAILED - {why}");
+            Verdict::Fail
         }
     }
-    // ONE refusal with two disjuncts, and only the first is provocable from outside this module:
-    // an empty subject list, which every other check here reads as trivially covered. The second
-    // is the floor over the loop - two numbers from different places, the slice's own length
-    // against a counter this loop increments - and it fires when the loop stopped early, which
-    // nothing but a diff can arrange. They are one condition so that neutralising the refusal
-    // reddens `an_empty_enrolment_is_a_refusal` rather than nothing.
-    //
-    // What neither holds is the ARGUMENT `run` passes: a narrowed slice reconciles with itself,
-    // which is why `the_enrolment_resolves_against_the_real_tree` asserts the enrolled set.
-    if subjects.is_empty() || checked != subjects.len() {
-        eprintln!(
-            "xtask check-refusal-coverage: FAILED - {checked} of {} enrolled enum(s) were checked",
-            subjects.len()
-        );
-        return Verdict::Fail;
-    }
-    verdict
 }
 
 /// Keep every evidence set and every exception list independent, using the same file listing.
@@ -427,7 +464,7 @@ fn looks_like_a_date(field: &str) -> bool {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use super::declared::{Declared, Subject, variants};
+    use super::declared::{Declared, Enrolled, Subject, variants};
     use super::{Evidence, Excused, looks_like_a_date, mentioned, names_exactly, parse_excuse, problems, report, whole_word};
     use crate::Verdict;
 
@@ -497,7 +534,7 @@ mod tests {
         }
         let original = std::env::current_dir().expect("a current directory");
         std::env::set_current_dir(&tree).expect("enter the fixture");
-        let verdict = super::over(&[&F_QUERY, &F_STARTUP]);
+        let verdict = super::over(Enrolled::of(&[&F_QUERY, &F_STARTUP]));
         std::env::set_current_dir(original).expect("restore before asserting the verdict");
         std::fs::remove_dir_all(tree).expect("remove the owned fixture");
         verdict
@@ -668,20 +705,57 @@ mod tests {
         assert!(wrong.is_empty(), "unreadable startup declarations passed: {wrong:?}");
     }
 
-    /// Nothing to check is not a pass. `run` cannot reach this - `ENROLLED` is an array type with
-    /// a length - so the refusal is driven from here, and it is the one disjunct of the loop floor
-    /// that has a provocation at all.
+    /// Nothing to check is not a pass. `run` cannot reach this - `Enrolled::declared` names the
+    /// whole table - so the refusal is driven from here, and it is the one disjunct of that
+    /// condition which has a provocation at all.
     #[test]
     fn an_empty_enrolment_is_a_refusal() {
         assert!(
             std::env::var_os("NEXTEST").is_some(),
             "sibling fixtures in this module change cwd: run under just test for one process per test"
         );
-        assert_eq!(super::over(&[]), Verdict::Fail);
+        assert_eq!(super::over(Enrolled::of(&[])), Verdict::Fail);
+    }
+
+    /// **Every enrolled subject reaches the check**, asserted from the visitor's own record.
+    ///
+    /// This is the half no floor counted off the loop could ever hold: a `continue` written in
+    /// `Enrolled::each` leaves this list short as well as tripping the length refusal, so the
+    /// skip has a PROVOCATION now rather than only a diff. Measured before the loop moved: the
+    /// same skip was `just hygiene` exit 0 with `NotValidated` absent and the suite green.
+    #[test]
+    fn every_enrolled_subject_reaches_the_check() {
+        let mut reached: Vec<&str> = Vec::new();
+        let verdict = Enrolled::declared()
+            .each(|subject| {
+                reached.push(subject.name);
+                Verdict::Pass
+            })
+            .expect("every enrolled subject reached");
+        assert_eq!(verdict, Verdict::Pass);
+        assert_eq!(reached, ["RefusalReason", "NotFitToServe", "NotValidated"]);
+    }
+
+    /// A visitor's verdict is the gate's verdict, so `each` cannot fold a refusal away.
+    #[test]
+    fn one_refused_subject_refuses_the_set() {
+        let verdict = Enrolled::declared()
+            .each(|subject| {
+                if subject.name == "NotValidated" {
+                    Verdict::Fail
+                } else {
+                    Verdict::Pass
+                }
+            })
+            .expect("every enrolled subject reached");
+        assert_eq!(verdict, Verdict::Fail);
     }
 
     /// The enrolled counts are held against the REAL enums, so a variant added to any of the three
     /// is a red test as well as a red gate - and dropping a subject from `ENROLLED` is red here too.
+    ///
+    /// Driven THROUGH `Enrolled::each` rather than over the constant, so this test sees what the
+    /// gate sees rather than what the table says.
     #[test]
     fn the_enrolment_resolves_against_the_real_tree() {
         assert!(
@@ -689,12 +763,19 @@ mod tests {
             "sibling fixtures in this module change cwd: run under just test for one process per test"
         );
         let root = crate::repo::root().expect("this repository's own root");
-        let unresolved: Vec<String> = super::ENROLLED
-            .iter()
-            .filter_map(|subject| Declared::read(subject, &root).err())
-            .collect();
+        let mut unresolved: Vec<String> = Vec::new();
+        let mut names: Vec<&str> = Vec::new();
+        let verdict = Enrolled::declared()
+            .each(|subject| {
+                names.push(subject.name);
+                if let Err(why) = Declared::read(subject, &root) {
+                    unresolved.push(why);
+                }
+                Verdict::Pass
+            })
+            .expect("every enrolled subject reached");
+        assert_eq!(verdict, Verdict::Pass);
         assert!(unresolved.is_empty(), "enrolled subjects that do not resolve: {unresolved:?}");
-        let names: Vec<&str> = super::ENROLLED.iter().map(|subject| subject.name).collect();
         assert_eq!(names, ["RefusalReason", "NotFitToServe", "NotValidated"]);
     }
 

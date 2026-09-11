@@ -8,16 +8,16 @@
 //! established, are this module's own and cannot be re-decided at a call site.
 //!
 //! **Why the two steps are one type.** [`Leaves::of`] and [`Leaves::measure`] have to agree on
-//! order: the cursor each [`Above::Total`] node is read with walks the same sequence
-//! [`Federation::carried`] collects its leaves in, and it starts at zero. That agreement used to be
-//! a sentence beside a `&mut 0` written at the call site - so the cursor is a local of
-//! [`Leaves::measure`] now, and a caller can neither start it elsewhere nor point it at a list some
-//! other call produced.
+//! order: the cursor each [`Above::Total`](crate::federation::Above::Total) node is read with walks
+//! the same sequence [`Federation::carried`] collects its leaves in, and it starts at zero. That
+//! agreement used to be a sentence beside a `&mut 0` written at the call site - so the cursor is a
+//! local of [`Leaves::measure`] now, and a caller can neither start it elsewhere nor point it at a
+//! list some other call produced.
 //!
 //! **The division cannot happen in a leg, which is why it happens here.** The divide tree carries
-//! the only [`ZeroDenominator`] in the federated path, and the guard belongs above every leg's rows
-//! rather than inside one of them - a guard applied inside a leg is the wrong number this shape
-//! exists to prevent.
+//! the only [`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path, and the
+//! guard belongs above every leg's rows rather than inside one of them - a guard applied inside a
+//! leg is the wrong number this shape exists to prevent.
 //!
 //! **What this module does not reach.** A measure that does not decompose has no re-aggregating
 //! function at all, and [`reaggregates`] is the whole statement of which do; the splitter refuses
@@ -43,28 +43,38 @@ pub(super) const fn reaggregates(aggregate: Aggregate) -> bool {
     Reduction::of(aggregate).is_some()
 }
 
-/// One re-aggregated value per carried leaf, in [`Federation::carried`] order.
+/// One re-aggregated value per carried leaf, in [`Federation::carried`] order, bound to its tree.
 ///
 /// Non-emptiness is neither claimed nor needed here. What the type does hold is the pairing - these
-/// values, this order, a cursor starting at zero - which is why [`measure`](Leaves::measure) is a
-/// method on it rather than a function taking a slice and a `&mut usize` a caller supplies.
-pub(super) struct Leaves(Vec<Value>);
+/// values, this order, this [`Above`] tree, a cursor starting at zero - which is why
+/// [`measure`](Leaves::measure) is a method rather than a function taking those parts separately.
+pub(super) struct Leaves<'a> {
+    above: &'a Above,
+    values: Vec<Value>,
+}
 
-impl Leaves {
+impl<'a> Leaves<'a> {
     /// Re-aggregates every leaf across one group's rows, one value per leaf, in carried order.
-    pub(super) fn of(federation: &Federation, leaf_rows: &[Vec<Value>], metric: &MetricName) -> Result<Self, FederatedFailure> {
-        federation
+    pub(super) fn of(
+        federation: &'a Federation,
+        leaf_rows: &[Vec<Value>],
+        metric: &MetricName,
+    ) -> Result<Self, FederatedFailure> {
+        let values = federation
             .carried()
             .iter()
             .enumerate()
             .map(|(column, leaf)| aggregate(leaf.combine(), leaf_rows.iter().filter_map(|row| row.get(column)), metric))
-            .collect::<Result<Vec<Value>, FederatedFailure>>()
-            .map(Self)
+            .collect::<Result<Vec<Value>, FederatedFailure>>()?;
+        Ok(Self {
+            above: federation.above(),
+            values,
+        })
     }
 
     /// The measure: the divide tree above these leaves, applied to them.
-    pub(super) fn measure(&self, above: &Above, metric: &MetricName) -> Result<Value, FederatedFailure> {
-        apply_above(above, &self.0, &mut 0, metric)
+    pub(super) fn measure(&self, metric: &MetricName) -> Result<Value, FederatedFailure> {
+        apply_above(self.above, &self.values, &mut 0, metric)
     }
 }
 
@@ -277,10 +287,10 @@ fn divide(
 
 /// A numeric cell as `f64`, or `None` for a cell no ratio can be taken over.
 ///
-/// [`expect`](macro@expect)-bounded: casting a wide integer to `f64` loses precision above `2^53`,
-/// which is accepted **here and only here** because a ratio over leg totals is inherently
-/// floating-point and [`divide`] is the one caller. It is not accepted for a total or a comparison -
-/// see [`FederatedFailure::MixedNumericLeaf`] for the widening this path refuses instead.
+/// `#[expect]`-bounded: casting a wide integer to `f64` loses precision above `2^53`, which is
+/// accepted **here and only here** because a ratio over leg totals is inherently floating-point and
+/// [`divide`] is the one caller. It is not accepted for a total or a comparison - see
+/// [`FederatedFailure::MixedNumericLeaf`] for the widening this path refuses instead.
 ///
 /// Every variant is named rather than left to a wildcard, so a fifth [`Value`] has to answer here.
 /// [`Value::Text`] is one of the two `None`s and is unreachable through [`apply_above`]: every value

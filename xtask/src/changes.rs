@@ -23,6 +23,15 @@ use std::io::Write as _;
 use crate::Verdict;
 use crate::repo;
 
+/// The category axis over the workspace, emitted beside the area verdict - see [`affected`]'s own
+/// header. A submodule of `changes` so `run_classify` stays the one entry point that knows the
+/// diff, and so `main.rs` does not grow a task-table line.
+///
+/// `#[path]` keeps the file a sibling of `changes.rs` (`xtask/src/affected.rs`) rather than under
+/// `changes/`: it is a peer of the classification code, not a step of it.
+#[path = "affected.rs"]
+mod affected;
+
 /// One area of the repo, and what depends on it.
 struct Area {
     /// Output name. CI gates steps on these.
@@ -353,6 +362,7 @@ pub(crate) fn run_classify(args: &[String]) -> Verdict {
                     ..Classification::default()
                 };
                 write_github_output(&result);
+                affected::finish(&[]);
                 return Verdict::Pass;
             }
         }
@@ -362,6 +372,7 @@ pub(crate) fn run_classify(args: &[String]) -> Verdict {
     let result = classify(&paths);
     print_report(&paths, &result);
     write_github_output(&result);
+    affected::finish(&paths);
     Verdict::Pass
 }
 

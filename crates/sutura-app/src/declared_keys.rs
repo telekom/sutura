@@ -65,9 +65,9 @@
 //!
 //! | Outcome | What happens |
 //! | --- | --- |
-//! | Counted, and the data contradicts the declaration | [`NotValidated::DeclaredKeyNotUnique`], naming the model, the table, the column and the two counts |
-//! | The adapter answered `Err` | [`NotValidated::DeclaredKeyNotCounted`], carrying the adapter's own message and every cause beneath it |
-//! | The adapter took the port's default | Passes. [`KeyUniqueness::NotAsked`] means *nobody counted*, and refusing on it would stop every deployment whose data system has no cheap way to ask - it is a fact about what was LINKED, not about a run |
+//! | Counted, and the data contradicts the declaration | [`NotValidated::DeclaredKeyNotUnique`](sutura_domain::pinned::NotValidated::DeclaredKeyNotUnique), naming the model, the table, the column and the two counts |
+//! | The adapter answered `Err` | [`NotValidated::DeclaredKeyNotCounted`](sutura_domain::pinned::NotValidated::DeclaredKeyNotCounted), carrying the adapter's own message and every cause beneath it |
+//! | The adapter took the port's default | Passes. [`KeyUniqueness::NotAsked`](sutura_domain::warehouse::cardinality::KeyUniqueness::NotAsked) means *nobody counted*, and refusing on it would stop every deployment whose data system has no cheap way to ask - it is a fact about what was LINKED, not about a run |
 //! | No data system is configured under the target model's source | Passes. Nothing can execute a question over that model either, so refusing here would refuse a bundle for a reason the query path already covers |
 //!
 //! **`Err` refuses, and that is the opposite of what the pre-flight does with the same shape.** The
@@ -97,10 +97,11 @@
 //! * A REGISTERED data system that stops counting reddens in CI.
 //!   `data_systems::…::whether_it_counts_a_declared_join_key_is_what_the_boot_check_can_use_it_for`
 //!   asks every entry of the golden matrix's `data_systems` registry and requires
-//!   [`KeyUniqueness::Counted`] with the fixture's own row count - so the default, an `Err`, and a
-//!   probe that resolved the wrong table are each a red cell rather than a quiet pass. That is what
-//!   stops this check from becoming absent by an edit, and it is measured: neutering the probe in
-//!   each of the three adapters reddens that adapter's cell.
+//!   [`KeyUniqueness::Counted`](sutura_domain::warehouse::cardinality::KeyUniqueness::Counted) with
+//!   the fixture's own row count - so the default, an `Err`, and a probe that resolved the wrong
+//!   table are each a red cell rather than a quiet pass. That is what stops this check from
+//!   becoming absent by an edit, and it is measured: neutering the probe in each of the three
+//!   adapters reddens that adapter's cell.
 //! * A LIVE deployment whose probe fails is no longer quiet - it does not start, and the refusal
 //!   carries the data system's own complaint.
 //! * **An adapter outside that registry is still quiet**, and there is one: `BigQuery` takes the

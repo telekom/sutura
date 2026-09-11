@@ -53,7 +53,7 @@ use std::path::PathBuf;
 /// held by nobody adding four lines. That gate's `SEALED` list names this type, so the impl is a
 /// refusal naming this file, and a method here whose signature hands out the sequence is one too.
 /// [`Census::into_listing`] is the single declared exception, and its own bound is
-/// [`UNMIGRATED_DOORS`].
+/// `UNMIGRATED_DOORS`.
 pub(crate) struct Census {
     /// Repo-relative paths with `/` separators, in discovery order.
     of: Vec<String>,
@@ -202,12 +202,12 @@ impl Refusal {
 /// `Unmigrated::Guidance` - which has six - compiled with **no diff here at all**
 /// (`cargo check -p xtask --all-features --all-targets`, exit 0, no diagnostics). The count in the
 /// other direction was held by nothing too: no test and no gate referenced this enum's size. What
-/// holds both now is [`UNMIGRATED_DOORS`], an exact call-site count checked against the live tree,
+/// holds both now is `UNMIGRATED_DOORS`, an exact call-site count checked against the live tree,
 /// so opening the door anywhere is a diff in THIS file whichever variant is named.
 ///
 /// **The limits, because the ratchet reads stronger than it is.** `dead_code` is `deny` in this
 /// workspace's `Cargo.toml` and not `forbid`, and one crate-level `#![allow(dead_code)]` makes the
-/// shrink half disappear - measured. And [`UNMIGRATED_DOORS`] is an EQUALITY, which makes the
+/// shrink half disappear - measured. And `UNMIGRATED_DOORS` is an EQUALITY, which makes the
 /// number current rather than monotone: lowering it is forced by a migration, and nothing
 /// mechanical stops a future diff raising it. Both halves are therefore strictly weaker than the
 /// properties the type system holds here - `error[E0624]` on [`Census::found`] from another
@@ -230,10 +230,9 @@ pub(crate) enum Unmigrated {
     MaxLines,
     NewtypeLeaks,
     OneBound,
+    OrphanModules,
     Refusals,
-    SerdeParse,
     ShippedBinaries,
-    TextHygiene,
     UnusedDeps,
     Venues,
     WarmStart,
@@ -264,7 +263,7 @@ pub(crate) enum Unmigrated {
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
 /// fixtures already avoid reporting their own source. **44 became 47 when the file skip went**,
 /// and all three are this module's own `#[cfg(test)]` calls - which the old rule could not see.
-pub(crate) const UNMIGRATED_DOORS: usize = 49;
+pub(crate) const UNMIGRATED_DOORS: usize = 50;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.

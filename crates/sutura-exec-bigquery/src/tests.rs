@@ -823,6 +823,38 @@ fn asking_about_no_tables_answers_not_asked_rather_than_all() {
 }
 
 #[test]
+fn a_refused_job_and_an_unreachable_job_are_not_the_same_source_outcome() {
+    // **The query-time sibling of `a_refused_listing_and_an_unreachable_one_are_not_the_same_outcome`,
+    // asked of `execute` instead of `preflight`.** Both transports below fail, both fail as
+    // `BigQueryError::Endpoint`, and the adapter cannot tell them apart - which is exactly why it
+    // asks the transport the way `preflight_was_refused` does. A `403` on the job is one IAM grant
+    // and fails identically on every retry; an endpoint that did not answer is a condition a retry
+    // may pass. `source_refused` is what carries that distinction to the domain, which names the
+    // `true` half `RefusalReason::SourceRefused` and never a `503` (the mono-path pairing is pinned
+    // in `sutura_app`'s `a_source_that_refuses_the_statement_is_refused_not_a_transport_failure`).
+    let refused = open(Refusing, shared_posture());
+    let error = refused
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
+        .expect_err("a refused job is a failure of the call");
+    assert!(
+        refused.source_refused(&error),
+        "an authorization refusal at query time has to reach the domain as a source refusal: {error:?}"
+    );
+
+    // The control, and it is what stops this being a predicate that says yes to everything: the
+    // same variant, an error the adapter cannot tell from the one above, and a transport that does
+    // not claim the refusal. Answering `false` keeps it a retryable transport failure above the port.
+    let broken = open(Broken, shared_posture());
+    let error = broken
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
+        .expect_err("an unreachable endpoint is a failure of the call");
+    assert!(
+        !broken.source_refused(&error),
+        "an outage must stay a retryable transport failure, not become a source refusal: {error:?}"
+    );
+}
+
+#[test]
 fn a_refused_listing_and_an_unreachable_one_are_not_the_same_outcome() {
     // **The predicate a review asked for**, at the adapter. Both transports below fail, both fail
     // as `BigQueryError::Endpoint`, and the adapter cannot tell them apart - which is exactly why it

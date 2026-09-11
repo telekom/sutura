@@ -76,6 +76,9 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::SourceUnavailable {
             source: SourceName::parse("elsewhere").expect("a test source is a source"),
         },
+        RefusalReason::SourceRefused {
+            source: SourceName::parse("warehouse").expect("a test source is a source"),
+        },
         RefusalReason::CredentialUnavailable {
             source: SourceName::parse("warehouse").expect("a test source is a source"),
         },
@@ -86,4 +89,60 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
             postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
         },
     ]
+}
+
+/// G4 - the witness pairing, driven by every variant in this corpus.
+///
+/// In the corpus file because these are the tests that READ it, and `prompt/tests.rs` is one line
+/// off the thousand-line ceiling. The pairing the set test in `prompt/tests.rs` deliberately does
+/// NOT make: it compares two SETS of reason strings, so swapping any two `Guide.reason` consts
+/// stays green. Asserting the pairing per variant - a guide's `reason` must be the variant's OWN
+/// machine code - reddens exactly that mutation, which is the witness G4 exists to hold.
+use super::super::refusal::guide_for;
+
+/// A guide's `reason` is the domain's canonical `code()` for the variant it was matched from.
+#[test]
+fn guide_key_carries_the_variant_it_was_matched_from() {
+    for reason in every_refusal() {
+        assert_eq!(
+            guide_for(&reason).reason,
+            reason.code(),
+            "guide_for returned another variant's key"
+        );
+    }
+}
+
+/// Every variant's key is supplied to a no-wildcard match, so none can drift.
+#[test]
+fn guide_key_carries_every_variant() {
+    for reason in every_refusal() {
+        let key = guide_for(&reason).reason;
+        // ONE arm, an or-pattern: a new `RefusalReason` variant fails to compile here until named.
+        match &reason {
+            RefusalReason::MetricUnknown { .. }
+            | RefusalReason::GrainNotSupported { .. }
+            | RefusalReason::DimensionNotPermitted { .. }
+            | RefusalReason::DimensionNotFilterable { .. }
+            | RefusalReason::DimensionValueNotAllowed { .. }
+            | RefusalReason::DuplicateDimension { .. }
+            | RefusalReason::TooManyDimensions { .. }
+            | RefusalReason::ResultTooLarge { .. }
+            | RefusalReason::TimeRangeTooLong { .. }
+            | RefusalReason::PlanSpansTooManySources { .. }
+            | RefusalReason::FederationNotExecutable
+            | RefusalReason::FederationLinkAmbiguous { .. }
+            | RefusalReason::MeasureDoesNotFederate { .. }
+            | RefusalReason::PlanTablesShareAnIdentifier { .. }
+            | RefusalReason::SourceUnavailable { .. }
+            | RefusalReason::SourceRefused { .. }
+            | RefusalReason::ResourcesExhausted { .. }
+            | RefusalReason::CredentialUnavailable { .. }
+            | RefusalReason::LegsDecideIdentityDifferently { .. } => {}
+        }
+        assert_eq!(
+            key,
+            reason.code(),
+            "the exhaustive match gave a key that is not this variant's code"
+        );
+    }
 }

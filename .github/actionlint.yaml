@@ -16,7 +16,7 @@
 # `rust-mcp-32core` and `rust-mcp-16core` beside the older `rust-mcp`, and which machine a bare
 # `runs-on: rust-mcp` lands on is not something this repository can read - so a timing taken under
 # it is a timing on an unknown host, which is what made the label unusable for a comparison. Every
-# `runs-on:` in `.github/workflows` therefore names its host: `rust-mcp-32core` where Rust is
+# `runs-on:` in `.github/workflows` therefore names its host: a larger runner where Rust is
 # compiled, `ubuntu-latest` where nothing is.
 #
 # `rust-mcp` is gone from the list below so that a drift back to it FAILS rather than lands: a
@@ -25,9 +25,10 @@
 # runs `actionlint` against this file - inside `ci`, the one required context. The refusal is
 # `label "rust-mcp" is unknown. available labels are ...`.
 #
-# `rust-mcp-16core` is absent for the same reason rather than by omission: this list is what is IN
-# USE, so adding a label here is the same decision as putting a job on it. It is added by whatever
+# `rust-mcp-16core` IS in use: the mostly-cached jobs moved to it, measured at the same median
+# wall as the 32-core label. The build-and-publish jobs stayed on 32.
 # change first measures it.
 self-hosted-runner:
   labels:
     - rust-mcp-32core
+    - rust-mcp-16core

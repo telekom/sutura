@@ -79,8 +79,14 @@ pkgs.writeShellApplication {
     for lib in $libs; do
       echo "api-docs: $lib"
       # `--profile ci`: cargo's default `dev` optimises the closure at `opt-level = 3`.
+      # `--document-private-items`: rustdoc runs NO link-resolution pass over an item it is not
+      # documenting, so `broken_intra_doc_links` - `forbid` in the root manifest - reports nothing
+      # about a private module's doc comments without it. The flag list after `--` is held equal to
+      # `checks.api-docs`' own by `xtask/src/api_docs/writer.rs`: a flag on one side only means the
+      # fix this writer IS cannot see what the gate refused. It does not change a page - the
+      # generator keeps `public` and `default` visibility only.
       cargo rustdoc -q -p "$lib" --all-features --profile ci -- \
-        -Z unstable-options --output-format json
+        -Z unstable-options --output-format json --document-private-items
       # rustdoc names its JSON after the crate's Rust identifier, so a package with a
       # hyphen becomes a file with an underscore.
       # The target directory variable, and not a literal `target/`: a developer who redirects the target

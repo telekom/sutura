@@ -187,7 +187,12 @@ Returns when the peer closes or is cancelled.
 `NotServed::Interrupted` if the task driving the session did not finish - a panic, or a runtime
 shutting down underneath it.
 
-## `use None`
+## `use AgentSurface`
+
+The agent-facing surface over one `Surface`.
+
+Holds the service behind an `Arc` because a tool call is answered on the blocking pool, so the
+port has to outlive the future that started the call.
 
 ## Module `server`
 
@@ -204,6 +209,7 @@ apart.
 | The service could not answer | a tool result with `isError: true`, and no detail | something went wrong, and the detail is a path or a table |
 | Every execution slot was taken for the whole admission window | a tool result with `isError: true`, and a sentence saying to ask again | the question was never judged, so it is not a refusal - and unlike the row above, waiting is the fix |
 | The reply outran `server.request_timeout_seconds` | a tool result with `isError: true`, and a sentence saying the question may still be running | the peer's WAIT is bounded and the question is not: see the section on the reply deadline |
+| The peer cancelled a running call | no response | rmcp suppresses it; the handler stops waiting, while the question and its slot continue |
 
 **A refusal is not an error and must not look like one.** `sutura_app::surface::Surface::answer`
 is where a transport inherits that, and its own doc comment says why: a caller must not be able to
@@ -297,24 +303,23 @@ deadline bounds the peer's wait and nothing else. That is deliberate and it is w
 the peer gets does not say *try again*: repeating the question would take a second slot while
 the first is still running. Making running work stoppable is #160's subject, on the port.
 
-**And what it still leaves unbounded, on this transport only:** a peer that sends
-`notifications/cancelled` stops nothing and observes nothing until the deadline fires. rmcp
-delivers that cancellation as `RequestContext::ct` and `call_tool` here does not read it, so a
-cancelled call goes on waiting out its deadline. Reading the token would make cancellation
-observable to the peer and would be the first place this crate depends on an rmcp behaviour its
-own documentation describes loosely - `telekom/sutura#362`, filed rather than folded in. It
-would free an async worker and never a slot, which is why it is a separate decision.
+**Peer cancellation ends this transport's wait and nothing below it.** rmcp 3.1.4 delivers
+`notifications/cancelled` through `RequestContext::ct`, and `ServerHandler::call_tool` selects
+on that token while a question is pending. The handler returns before its configured deadline;
+the pinned rmcp then suppresses its response on the wire. The blocking `Surface::answer`
+call cannot be aborted, so it keeps running and owns its execution slot until it returns. This
+is `telekom/sutura#362`; making the data work itself stoppable remains #160, on the port rather
+than on this transport.
 
 **What this transport still does not bound is the size of what it reads**, which is `#266`'s
 `H4`: `rmcp`'s stdio transport reads a line off the process's own input with no cap, and this
 change is about a different thing - how many questions execute at once.
 
-**The limit on how far the shedding is exercised, stated with it.** `rmcp` 3.1.4 answers a
-`notifications/cancelled` by cancelling a token this handler does not read, and it spawns each
-request as a detached task - so on that SDK a peer that cancels or disconnects does not drop the
-future that is waiting for the answer. The property that the permit belongs to the work rather
-than to that future is therefore asserted by dropping the future in a test, not by cancelling a
-call over the wire.
+**The limit on how far cancellation is exercised, stated with it.** The MCP test sends
+`notifications/cancelled` over an in-memory protocol connection and observes the pinned SDK's
+suppression plus this handler's captured diagnostic. It does not claim that closing a transport
+produces the same notification. The slot-retention assertion reads the held port before release:
+cancellation drops the future waiting on the blocking task, never the task or the permit it owns.
 
 # What this slice does NOT do, on purpose
 
@@ -705,13 +710,32 @@ The sentence. A test asserts it is not empty; nothing asserts its wording.
 
 `Debug`, `Serialize`
 
-### `use None`
+### `use CatalogContent`
 
-### `use None`
+What this deployment measures, as the catalog tool's structured content.
 
-### `use None`
+**A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
+the same deliberate cost `super::AskArgs` already pays.** An adapter never calls another adapter, so
+this crate cannot import that shape; what keeps the two equal is review plus the fact that both
+are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
+missing field would show up as a missing call rather than as a silent divergence.
 
-### `use None`
+Descriptive content only. `sutura_domain::pinned::SemanticCatalog::load` takes no request context
+and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
+returns: it is the *pinned* bundle, the same one every answer is computed from.
+
+### `use DescribeCatalogArgs`
+
+This tool takes no arguments. It returns the whole of what this deployment measures, and there is
+nothing to filter or select: send an empty object.
+
+### `use DimensionContent`
+
+One dimension of one metric.
+
+### `use MetricContent`
+
+One metric, as much of it as a caller needs to ask a valid question.
 
 ### Module `catalog`
 

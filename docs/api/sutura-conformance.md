@@ -367,7 +367,7 @@ Five things, and the first is the one a review had to correct:
    were actually emitted rather than a constant beside it;
 5. **a venue where the fixture did not stand up prints NO coverage line at all.** It takes the
    `open` path rather than a `Spent` for exactly this: a census that printed *6 behaviour(s)
-   over 2 case(s)* beside six cells that each reported `NOT RUN` is the skip that reads as
+   over the corpus's cases* beside six cells that each reported `NOT RUN` is the skip that reads as
    coverage, which is the failure mode the packs were built against. What it prints instead
    names the count as one that asserted nothing, and carries the provisioner's diagnostic. The
    two assertions above it still run, because what a binding emitted and whether the corpus has
@@ -378,7 +378,7 @@ unconditionally passes every census, which is what `tests/bound.rs`'s fault half
 the floor is a FLOOR: it is not the tier's cost, it says nothing about another adapter's cells,
 and no gate reads it - see `Spent` for why each of those is deliberate.
 
-## `use None`
+## `use sutura_domain`
 
 The domain, re-exported so `execute_packs` can name the port without the consuming crate
 having to depend on `sutura-domain` under that spelling.
@@ -387,21 +387,165 @@ A `macro_rules!` body resolves item paths at the EXPANSION site, so a bare `sutu
 the expansion would compile only for a consumer that happens to have that dependency under that
 name. `$crate::sutura_domain` always resolves.
 
-## `use None`
+## `use Fixture`
 
-## `use None`
+An adapter's fixture, or the reason this venue could not stand one up.
 
-## `use None`
+**The type every binding's `open` path returns, and it is the mechanism rather than a
+convention.** `crate::execute_packs` used to call `open` for a `W`, so an adapter whose data system
+may not be reachable here had exactly one option - panic in its fixture - and therefore could
+not be bound at all: `sutura-exec-postgres` was registered in the golden matrix and carried the
+one declared exemption in `cargo xtask check-conformance-bindings` for precisely that reason
+(`telekom/sutura#348`).
 
-## `use None`
+**What the return type buys, stated exactly, because the sentence that stood here read wider
+than the mechanism.** It forces a VALUE, not a question: `Fixture::standing(connect().unwrap())`
+asks nothing and PANICS, which is loud and fail-closed; `Fixture::Absent(Missing::tier(s, &".."))`
+asks nothing and is silent in the two venues named in this module's header. So what a binding
+cannot do is leave the two cases unconsidered - a fixture returning `W` does not compile - and
+what it can still do is answer either one dishonestly. That is one line, in a file whose whole
+content is a fixture and a declaration, and the diff is where it is read.
 
-## `use None`
+# Why this is not an `crate::Outcome`, which is the distinction the design turns on
 
-## `use None`
+`crate::Outcome::Declined` is a statement about the ADAPTER - *this adapter cannot do that*, carrying
+a typed `crate::Declination`. An absent tier is a statement about the ENVIRONMENT. Collapsing the two
+would make a green run over an absent Postgres indistinguishable from a green run against one,
+which is the failure mode the packs were built against. So the two are reported under different
+words (`crate::hold` prints `DECLINED`, `crate::not_here` prints `NOT RUN`) and decided at different
+levels: a declination comes out of a pack that RAN, and an absence stops the pack running.
+
+# What it does NOT establish
+
+See this module's header: nothing here can tell an absence that was DISCOVERED from one that was
+merely declared, and the reason the harness cannot is a dependency rule that has its own gate.
+
+## `use Missing`
+
+Why this venue could not stand a fixture up. **About the environment, never about the adapter.**
+
+Typed rather than a message, for the reason every refusal in this workspace is: a reader that
+matched on the text would be depending on the text. One variant today - a second arrives with
+the first adapter whose absence is not a tier, and cloud state a run cannot create is the shape
+that asks for it. It arrives WITH that adapter rather than ahead of it, because a variant
+nothing constructs is a claim nothing provokes, and this crate has paid for one of those already
+(`crate::Fault::EmptyCorpus`, which needed a seam before it was reachable at all).
+
+## `use REQUIRE_TIER`
+
+The variable a provisioner sets when it has brought a tier up, spelled here as well.
+
+**`sutura_dev::requirement::FORCE`'s name, duplicated, and the duplication is PINNED rather than
+hoped about.** This crate may not take `sutura-dev` through a normal dependency -
+`xtask/src/boundaries/harness.rs` holds it to `sutura-domain` alone - so the name and its
+truthiness are spelled twice, and two statements about one fact can disagree.
+`tests/bound.rs`'s `the_requirement_this_harness_reads_is_the_one_the_provisioner_writes` is the
+mechanism that keeps them equal: it takes `sutura-dev` as a DEV-dependency, which that gate
+permits by design (what may not happen is a pack BODY compiled against something, and a pack
+body is `src/`), and compares both halves against `FORCE` and `requirement::decide`.
+
+## `use a_tier_is_required`
+
+Whether an absent tier is a failure here, decided over the VALUE rather than the environment.
+
+Over the value for the reason `sutura_dev::requirement::decide` is: an environment read is not
+testable across a threaded runner, and this is the half a test has to be able to compare.
+
+**The falsy spellings are a COPY and the owner is `sutura_dev::requirement::NOT_REQUIRED`**,
+because that crate cannot be reached from here through a normal dependency. The copy is not
+held by the eye: `tests/bound.rs` iterates the owner's list, so a spelling added there fails
+this crate's own cell until this line agrees. Review found the version before that - a fixed
+array of eleven values chosen HERE - and named the scenario: add `"off"`, the obvious next
+spelling for a variable people set by hand, and `SUTURA_DEV_REQUIRE_TIER=off` means *optional*
+to `provisioned::here`, which skips, and *required* here, which then refuses the absence that
+skip produced.
+
+## `use absence_is_impossible`
+
+Whether a DECLARED absence is a defect here rather than a skip.
+
+**Pure, over the value, because the alternative is not available and would be wrong anyway.**
+`unsafe_code` is `forbid` across this workspace and `std::env::set_var` is `unsafe` on Rust
+2024, so a test cannot manipulate the environment here at all - and
+`sutura_dev::requirement`'s own tests refuse to do it for the second reason, which is that it
+races across a threaded runner. So the decision is a value every caller passes down from
+`declared_here`, which is what lets `tests/bound.rs` provoke the refusal end to end, message
+included, in both endings and in either direction.
+
+**An exhaustive `match` and not a `matches!`, and the difference is the whole of this claim.**
+`REQUIRE_TIER` is a statement about TIERS, so the variant that arrives for cloud state a run
+cannot create has to decide its own direction - and a `matches!` gave it one by omission:
+`false`, silently, with `cargo check --all-features` exit 0. That is this branch's own hole
+reopened one adapter later and inside the venue this crate says is closed - a fixture answering
+`Absent(Cloud)` without asking anything, in `checks.nextest`, which sets the variable. Measured
+with the refusal absent: `21 tests run: 21 passed`, the only tell printed lines nobody diffs.
+
+With the `match` a new variant does not compile until somebody writes its arm, so the fail-open
+direction cannot be chosen by not looking. **No test asserts that and none can** - a compile
+error is not an outcome libtest has - so the evidence is the mutation, re-taken on 2026-09-06:
+adding a `Missing::Cloud` variant made `just lint` fail with
+`E0004` - a pattern for the new variant not covered - at this arm, where the same mutation
+against the `matches!` version was exit 0.
+
+## `use declared_here`
+
+What this venue declared about tiers, read from the environment.
+
+**The only environment read in this crate, and everything below it takes the VALUE.** That is
+what makes the reporters testable at all, and it was measured rather than reasoned about: with
+the read inside `not_here` and `census`, `just validate` refused two of THIS crate's own cells -
+`checks.nextest` provisions the Postgres tier and sets the variable, and a fake absence in a
+fake venue is indistinguishable from a fabricated one. `unsafe_code` is `forbid` across this
+workspace and `std::env::set_var` is unsafe on Rust 2024, so no test can turn it off either. So
+the macro reads it once per cell and hands it down, which is also the shape
+`sutura_dev::requirement::decide` chose for the same reason.
 
 ## `type_alias Conformed`
 
 What one behaviour of one pack answers.
+
+## `macro compile_packs`
+
+Binds the compile pack to one catalog, as one named `#[test]` per behaviour.
+
+```ignore
+// In this crate's own binding, `tests/compile.rs`.
+use sutura_conformance::compile::{DeclaringSubject, GoldenSubject};
+
+sutura_conformance::compile_packs! {
+    adapter: golden,
+    catalog: GoldenSubject,
+    golden,
+}
+
+sutura_conformance::compile_packs! {
+    adapter: declaring,
+    catalog: DeclaringSubject,
+    declaring,
+}
+```
+
+# The `golden`/`declaring` tag
+
+`macro_rules!` cannot read `SemanticCatalog::KIND`, so the kind is written at the binding the
+way `crate::execute_packs`'s leg declaration is, and the arm's `const` assert is where the two
+are torn unless they agree: tag a catalog against its own `CatalogKind` and the binding does
+not build. The tag also selects WHICH behaviours the arm emits - a `golden` binding gets all six,
+a `declaring` one gets `CompileBehaviour::UNIVERSAL` - and both feed `compile_census` the one
+repetition's list, so either way a deleted cell reddens.
+
+**The golden-only cells are additionally bound on `GoldenCatalog`, so the tag is a second line
+of defence and not the mechanism**: a golden cell's function takes `C: GoldenCatalog`, so a
+`golden` tag handed a catalog that does not implement the marker does not compile even before the
+`KIND` assert. The split holds by the type system rather than by review, which is the whole point
+of the marker.
+
+# What a binding names
+
+- `catalog` is the under-test type, named from this crate's `compile` module. The cells load it
+  via `SemanticCatalog::load` and this crate supplies the corpus and the oracle.
+- `adapter` is an ident that names the emitted module, so a binding can hold several catalogs and
+  filter by name the way the execute pack allows.
 
 ## `macro execute_packs`
 
@@ -466,7 +610,7 @@ its position.
 
 ## Module `corpus`
 
-The corpus the execute packs run: one table, two questions, and the answer written ONCE.
+The corpus the execute packs run: one table, four questions, and the answer written ONCE.
 
 **Written once is the whole property.** Every registered adapter is asked the same plan and
 compared against the same `Case::expected` rows, so *these two data systems answer this
@@ -487,18 +631,50 @@ them as a dev-dependency without acquiring a catalog adapter, `sutura-semantic` 
 - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
   keys. Each needs a second table and a federated plan; none is here.
-- **A null in a group key.** Null placement in `ORDER BY` differs per data system and is not
-  stated by the plan, so a null key would make `crate::Behaviour::Order` a claim about the
-  source's collation. `docs/adr/0012` designed a re-sort for that and the re-sort was superseded
-  by the two-function comparison - so the packs DO assert order, and that record now says so and
-  carries the decision this corpus is deferring: a case whose order a source could legitimately
-  answer differently must be able to opt out of the order behaviour, and there is no field for
-  that yet. Avoiding the question is weaker than deciding it, which is why it is written here.
-- **A wide integer or a decimal.** The type-mapping disagreements
-  `sutura_domain::warehouse::agreement`'s header lists are all reachable only past an `i64`,
-  and nothing here goes near one.
+- **An integral total strictly PAST `i64`, which is not a gap but an undecidable row.** Read off
+  the three bound adapters: `sutura-exec-postgres` REFUSES one
+  (`numeric_cell` parses an integral `NUMERIC` into an `i64` and errors rather than rounding),
+  `sutura-exec-duckdb` answers `Value::Text` from its `HugeInt` arm, and
+  `sutura-exec-datafusion`'s `sum` over an `Int64` column has nowhere wider to go at all. Three
+  adapters, three different endings, so a corpus whose answer is written ONCE cannot hold that
+  row - `total_wide_by_day` goes to the boundary and stops there. What the boundary still
+  buys is in that case's own doc.
+- **A fixed-point measure, and so the `Value::Text` arm all three adapters keep for one.**
+  Unreachable from a CSV-backed corpus rather than omitted: no type inference on the load path
+  produces a fixed-point column from a fractional literal - `read_csv_auto` and `DataFusion`'s
+  inference both answer a 64-bit float, and `sutura-exec-postgres`'s own importer has no
+  `NUMERIC` arm to reach. The fractional CLASS is exercised, as `Value::Real`
+  (`total_rate_by_day`), and the day an inference answers a fixed-point type instead that
+  cell reddens - which is the class comparison working rather than a case somebody has to write.
 - **Files.** `docs/adr/0012`'s *the corpus is files, not code* is unbuilt: a case is a value in
   this module, so adding one is still a code change.
+
+# Null placement in a group key: decided, and what the null row does and does NOT detect
+
+**`ASC NULLS LAST`, everywhere, and it is not this corpus's choice to make.** `sutura_sql`'s
+`ordered_nulls_last` states the placement in the AST for every dialect and
+`sutura-exec-datafusion`, which renders no SQL at all, lands on the same placement because
+`LogicalPlanBuilder::sort_by` is `Expr::sort(true, false)`.
+`sutura_domain::plan::federated` calls it *the whole of the ordered-result contract*. So the
+per-case opt-out this module used to say it owed is **not** owed: there is no case here whose
+null order a conforming source may legitimately answer differently.
+
+**What the null row does NOT detect, measured rather than assumed.** It is NOT a check on our
+statement of the placement. The layer collapses `NULLS LAST` away for every target whose
+default is already nulls-last, which is all three adapters bound to these packs - so deleting
+`ordered_nulls_last`'s `nulls_first: Some(false)` leaves `DuckDB`'s and Postgres's rendered SQL
+**byte-identical**, and the only dialect whose text changes is `BigQuery`, which has no binding
+here. Their engines then order nulls last on their own. `crates/sutura-sql`'s
+`every_order_by_states_nulls_last` is what holds our statement of it, and it holds the AST
+rather than an answer.
+
+**What it DOES buy, which is two things and neither is that one.** Through
+`crate::Behaviour::Order` it pins the three engines' own default null ordering - most
+usefully `datafusion`'s, whose `sort_by` supplies `nulls_first: false` from a default that a
+version bump could change with no diff of ours - so it is a **dependency regression detector**.
+Through `crate::Behaviour::Content` it is a claim about OUR code: a null key must be a GROUP
+and not a row a join or a filter dropped, which is the failure class
+`crates/sutura-app/tests/golden/data_systems.rs` names for a fact key.
 
 ### `struct Case`
 
@@ -611,7 +787,15 @@ An adapter that compares the two witnesses fails here if a fixture opened it any
 pub const fn csv() -> &'static str
 ```
 
-The corpus, as CSV.
+The corpus, as CSV, from the committed file under `corpus/`.
+
+Served from the file rather than from a copied constant so a row edit in
+`corpus/conformance_events.csv` is a change to the data and not to this module - which is the
+whole of what "a case is a directory entry, not a function" asks. The bytes are embedded at
+compile time by `include_str!`, so this stays `&'static str` and `const`.
+
+The last row is outside every case's time range on purpose: a corpus whose filters exclude
+nothing cannot tell an adapter that applied them from one that did not.
 
 ### `fn on_disk`
 
@@ -1022,3 +1206,272 @@ truthiness are spelled twice, and two statements about one fact can disagree.
 mechanism that keeps them equal: it takes `sutura-dev` as a DEV-dependency, which that gate
 permits by design (what may not happen is a pack BODY compiled against something, and a pack
 body is `src/`), and compares both halves against `FORCE` and `requirement::decide`.
+
+## Module `compile`
+
+The compile pack: what a metadata catalog must do with a question, end to end.
+
+`crate::execute` holds a data system to the answer it gives for a plan. This pack holds a
+metadata catalog to the shape its own definitions give a question: load its
+`PinnedDefinitions`, run the question through `sutura_semantic::compile`, and hold the outcome
+to the oracle - or, for a catalog that declares it supplies part of the model, to its own
+declaration. It is the compile half of issue telekom/sutura#349's conformance rack, and it is a
+REAL module in exactly the sense `Behaviour` is one for the execute pack: a
+deleted cell must redden rather than quietly shrink a green count.
+
+# How it mirrors `crate::execute_packs`
+
+The same four mechanisms, so a reader who knows one pack knows the other:
+
+| Execute pack | This pack |
+| --- | --- |
+| `Behaviour` + `EVERY` + `index` + the const assert | `CompileBehaviour` + `EVERY` + `index` + the const assert |
+| the `#[test]`s and `census`'s `bound` are ONE repetition inside `execute_packs!` | the `#[test]`s and `compile_census`'s `bound` are ONE repetition inside `compile_packs!` |
+| `EXECUTES_LEGS` declaration, chcked by a `const` assert | `SemanticCatalog::KIND` declaration, checked by a `const` assert |
+
+And the one difference is what makes this pack a pair rather than a copy: **the GOLDEN/DECLARING
+split** `CatalogKind` and `docs/adr/0016` draw. A catalog is held to the oracle only if it
+declares itself *golden* - it can produce the whole model - which is enforced by a marker trait
+bound, not by review (see `GoldenCatalog`).
+
+# What a green run does NOT establish
+
+- **Federated rendering.** The corpus is one source, one metric, one mono plan; nothing
+  federates, so `Compiled::Federated` is a panic here rather than a case.
+- **A live source, or identity forwarding.** Issue #349's stated surviving limits: the fixture is
+  a hand-built catalog in this module, and no credential is minted for anything.
+- **Every dialect.** The corpus declares it renders `DuckDb` and `Postgres`, and what
+  `generate` produces for them is what `statement_is_the_oracles_own`
+  compares. `ClickHouse` and `BigQuery`
+  are out of scope here, which is why their renderings are not pinned.
+- **That the corpus is hard.** It is one aggregate over one metric plus four refusals - see
+  `questions` below for why none of the execute corpus's harder shapes is repeated here.
+
+### `enum CompileBehaviour`
+
+```rust
+pub enum CompileBehaviour
+```
+
+One behaviour of the compile pack: the unit a test name, a failure report and a CI filter key on.
+
+An enum rather than a string, for the reason `crate::Behaviour` is one: the pack's own list and
+the tests the macro emits are compared by the compiler at one end and by `compile_census` at
+the other.
+
+#### Variants
+
+- `Plan` - The compiled mono plan's serialized form equals the oracle's.
+- `Statement` - For each dialect this corpus declares it renders to, the statement equals the oracle's.
+- `Params` - The bind parameters equal the oracle's.
+- `Refusal` - The question this corpus expects to refuse reaches the variant it names, and not another.
+- `Fidelity` - What the catalog declared is exactly what its bundle produced.
+- `Repeat` - A second load produces the same digest.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The name a report carries.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `trait GoldenCatalog`
+
+```rust
+pub trait GoldenCatalog
+```
+
+The marker that separates a **golden** catalog from a declaring one in this pack.
+
+The analogue of `crate::tests::golden::catalogs::GoldenCatalog` in miniature: the golden-only
+cell functions are bound on this marker, so a cell that requires the whole model cannot be
+expanded for a catalog that does not implement it - the call does not typecheck. It is the
+ROUTING copy of `SemanticCatalog::KIND` (`macro_rules!` cannot read an associated constant, so
+the same fact is stated here in the form a binding can be bound on) and `compile_packs!`'
+`const` assert is where the two are torn unless they agree. The canonical declaration of the kind
+is `SemanticCatalog::KIND` in the domain.
+
+### `enum FixtureError`
+
+```rust
+pub enum FixtureError
+```
+
+A catalog that could not be read, or a fixture that could not be put together.
+
+The fixture catalogs in this module are `SemanticCatalog`s whose `Error` this fills, and the
+corpus builders return it too, so every `.parse`/`.assemble`/`.pin` in a fixture travels through
+`?` and only the pack boundary turns it into a panic.
+
+#### Variants
+
+- `Names` - A name failed to parse as an identifier.
+- `Values` - A dimension value or anchor value failed to parse.
+- `Date` - A date failed to parse or did not exist.
+- `Range` - A time range did not hold together.
+- `Version` - A version label was not a version.
+- `Definitions` - A definitions bundle was inconsistent at assembly.
+- `Digest` - The bundle would not digest.
+- `Knowledge` - The knowledge and its declaration disagreed.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct OracleCatalog`
+
+```rust
+pub struct OracleCatalog
+```
+
+The catalog several registered catalogs read, stated a second time in Rust.
+
+**The oracle, and it is deliberately a separate hand-built catalog from `GoldenSubject`**, for
+the reason `sutura-app`'s `HandWrittenCatalog` is separate from the documents it transcribes:
+two independent statements of one metric must produce the same plan, and the golden cells compare
+the subject against this one so a mutation to either half reddens rather than passing as self-
+agreement. It declares `Golden` only so its own declaration-fidelity cell holds.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `GoldenCatalog`, `SemanticCatalog`
+
+### `struct GoldenSubject`
+
+```rust
+pub struct GoldenSubject
+```
+
+The catalog under test for the golden arm of this pack.
+
+A second, independent statement of the same one-metric corpus. `plan_is_the_oracles_own` and
+its siblings compile a question through BOTH this and `OracleCatalog` and require them to
+agree, which is what makes the golden cells differential rather than a copy of the oracle against
+itself.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `GoldenCatalog`, `SemanticCatalog`
+
+### `struct DeclaringSubject`
+
+```rust
+pub struct DeclaringSubject
+```
+
+The catalog under test for the declaring arm of this pack.
+
+Supplies **part** of the model - a model and a metric with a grain and nothing else - and says
+so in its declaration, so it is measured by `fidelity_holds` against that declaration and by
+`repeat_load_is_stable`, and by no golden cell: it implements no `GoldenCatalog`, which is
+what makes the golden cells impossible to expand for it.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `SemanticCatalog`
+
+### `fn plan_is_the_oracles_own`
+
+```rust
+pub fn plan_is_the_oracles_own<C>()
+```
+
+`CompileBehaviour::Plan` - the compiled mono plan is the oracle's plan, in serialized form.
+
+BOUND on `GoldenCatalog`, so this cell cannot expand for a catalog that does not declare itself
+golden: only a golden catalog owns an oracle to be held to.
+
+### `fn statement_is_the_oracles_own`
+
+```rust
+pub fn statement_is_the_oracles_own<C>()
+```
+
+`CompileBehaviour::Statement` - for each declared dialect, the rendered statement equals the
+oracle's.
+
+BOUND on `GoldenCatalog`, for the reason `plan_is_the_oracles_own` gives.
+
+### `fn params_are_the_oracles_own`
+
+```rust
+pub fn params_are_the_oracles_own<C>()
+```
+
+`CompileBehaviour::Params` - the bind parameters equal the oracle's.
+
+BOUND on `GoldenCatalog`, for the reason `plan_is_the_oracles_own` gives. The statement and
+its parameters are folded in plan order by `sutura_sql::generate`, so the parameters are
+compared over one dialect the way the statement is, and over the same one.
+
+### `fn refusal_reaches_the_variant_the_oracle_names`
+
+```rust
+pub fn refusal_reaches_the_variant_the_oracle_names<C>()
+```
+
+`CompileBehaviour::Refusal` - a refused question reaches the variant the corpus names, not another.
+
+BOUND on `GoldenCatalog`, because "the variant the corpus names" is a statement only a
+corpus-backed adapter has an oracle for. The expected is a `Debug` prefix, so a question that
+started refusing for a different reason is caught rather than passing as *some refusal*.
+
+### `fn fidelity_holds`
+
+```rust
+pub fn fidelity_holds<C>()
+```
+
+`CompileBehaviour::Fidelity` - what the catalog declared is exactly what its bundle produced.
+
+**UNIVERSAL: both a golden and a declaring catalog owe this**, and it is the assertion a
+declaring adapter gets in place of the golden oracle - `docs/adr/0016`'s decision. It is two
+directions in one `MetadataCapabilities::checked_against` call: everything declared was
+produced, and nothing undeclared appears. A declaration widened beyond the bundle fails the
+`Unprovided` direction and reddens here.
+
+### `fn repeat_load_is_stable`
+
+```rust
+pub fn repeat_load_is_stable<C>()
+```
+
+`CompileBehaviour::Repeat` - a second load produces the same digest.
+
+**UNIVERSAL.** It loads the same bytes twice and compares the two digests, so what it can see is
+a catalog that answers differently on a second read - a hash-ordered collection, a timestamp, a
+source of randomness. It deliberately claims only determinism, because *the digest is a function
+of CONTENT* is a claim about two different inputs and a fresh load is one input read twice.
+
+### `fn compile_census`
+
+```rust
+pub fn compile_census(kind: &'static str, bound: &[CompileBehaviour])
+```
+
+Asserts a binding emitted a test for exactly the behaviours its kind selects, and that the corpus
+is not empty to be green over.
+
+Three things mirror `crate::census`'s first three, and the missing two are the venue ones it
+does not have: a compile catalog is a hand-built fixture with no socket to be absent, so there is
+no floor to measure and no `NOT RUN` to print.
+
+1. **`bound` is the array the single `#[test]`/census repetition inside
+   `compile_packs!` generated**, one element per emitted test, compared
+   against the behaviours the kind selects -
+   `CompileBehaviour::EVERY` for `"golden"`, `CompileBehaviour::UNIVERSAL` for `"declaring"`.
+   A deleted test is a deleted element and this reddens, which is the correction `crate::census`
+   narrates for the execute pack.
+2. the plan corpus is not empty, which is the state that would make `plan_is_the_oracles_own`
+   and its two siblings vacuously green.
+3. the refusal corpus is not empty, which is the state that would make
+   `refusal_reaches_the_variant_the_oracle_names` a green no-op.
+
+What it cannot do is the same thing `crate::census` cannot: know that a behaviour's BODY
+asserts anything. A pack that returned without comparing would pass here and everywhere else; the
+cells above compare, which is the evidence `tests/compile.rs` is for.

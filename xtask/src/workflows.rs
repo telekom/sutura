@@ -100,6 +100,21 @@ mod codegen;
 // holds nothing about resolution, cache writes or badges. See its header for what it cannot hold.
 mod cross_link;
 
+// IS A `with:` KEY AN INPUT THE ACTION DECLARES? A key an action does not declare is a log
+// warning and then the action's DEFAULT - `path:` to an action whose input is `paths:` cached
+// `/nix` on twenty-one runs with every gate green. Its own file for `sast`'s reason, and the seam
+// is the question: this one holds a step's KEYS against a committed record of each pinned sha's
+// declared inputs, `devco/action-inputs`. See its header for what it cannot hold.
+mod with_keys;
+
+// DOES A READER OF `image-digests.txt` ANCHOR ON THE RECORD KIND? Six readers re-implemented that
+// file's grammar across `grep`, `awk` and Rust; five skipped its `#` header as a side effect of
+// anchoring and the sixth did not, refused on line 1, and cost a release. Its own file because the
+// seam is the question: every rule above asks whether a step RESOLVES or is ALLOWED, this one asks
+// whether a step reads a signed FORMAT the way that format is written. Its header carries both
+// limits - what it cannot prove about a shell parse, and the half of the grammar it does not hold.
+mod image_records;
+
 // READING A NAMED BLOCK OUT OF `flake.nix`, in its own file because this one reached the
 // 1000-line cap the moment two changes registered a rule module in the same window. The seam is
 // the question, not the line count: that module answers *which attributes does this block
@@ -229,7 +244,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             walked.len(),
             walked.join(", ")
@@ -382,6 +397,48 @@ fn check_gates(
         eprintln!("and a push to `main` builds all four; that split lives in one inline ternary in");
         eprintln!("cross-link.yml. A gate that holds it keeps `cannot silently run 4 on a PR` true");
         eprintln!("instead of merely written beside it - see xtask/src/workflows/cross_link.rs.");
+        return Some(Verdict::Fail);
+    }
+
+    // DOES EVERY READER OF THE IMAGE-RECORD FILE ANCHOR ON THE RECORD KIND? Beside the rules
+    // above because it is the same class - what a step is ALLOWED to do - and a different subject:
+    // those read a workflow's references and permissions, this reads whether a step parses a
+    // SIGNED format the way the producer writes it. `image-digests.txt` carries a `#` header inside
+    // the signed asset, six readers re-derived the grammar, and the one that iterated every line
+    // refused on line 1 and cost a release. Nothing related the six before this.
+    let records = image_records::problems(root);
+    if !records.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} image-record reader rule(s) broken\n",
+            records.len()
+        );
+        for problem in &records {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("`image-digests.txt` has a grammar: a `#` comment header, then three fields whose");
+        eprintln!("first is `leaf` or `list`. Five readers skipped the header only as a side effect of");
+        eprintln!("anchoring on that kind, and the sixth did not - it refused on line 1 and cost a");
+        eprintln!("release. Anchor the read, or declare a use that takes no field; see");
+        eprintln!("xtask/src/workflows/image_records.rs for both limits.");
+        return Some(Verdict::Fail);
+    }
+
+    // IS EVERY `with:` KEY REAL? The runner does not fail on a key an action does not declare - it
+    // warns once and uses the default, so the step reads as configured while the value a reviewer
+    // wrote is discarded. Held against `devco/action-inputs`, fail-closed on an action the record
+    // does not name and on a ref that is not a sha.
+    let keys = with_keys::problems(root);
+    if !keys.is_empty() {
+        eprintln!("xtask check-workflows: FAILED - {} `with:` key rule(s) broken\n", keys.len());
+        for problem in &keys {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A `with:` key an action does not declare is a warning on the runner and then that");
+        eprintln!("action's default - green step, green job, discarded value. Record each pinned sha's");
+        eprintln!("declared inputs in devco/action-inputs (its header carries the refresh procedure),");
+        eprintln!("or fix the key - see xtask/src/workflows/with_keys.rs.");
         return Some(Verdict::Fail);
     }
     None
@@ -634,7 +691,7 @@ pub(crate) fn code_lines(text: &str) -> Vec<CodeLine> {
 
 /// The code half of a Nix file, one `String` per line, comments and string interiors blanked.
 ///
-/// `pub(crate)` for the reason [`block_attributes`] gives one screen down: `crate::warm_start`
+/// `pub(crate)` for the reason [`declared_block`] gives: `crate::warm_start`
 /// asks a different question of the same files - which of them bind `cargoArtifacts`, and which
 /// bind `preBuild` - and a second Nix reader for it would be a second reader to get wrong, three
 /// times over, since this one's own doc comment lists the three shapes that fooled the brace

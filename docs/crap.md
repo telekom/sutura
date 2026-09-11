@@ -79,7 +79,7 @@ profile. This is the part that varies with the scope, which is why it is the par
 The workspace row is a lower bound: that run never reached a test. Coverage instrumentation is a
 separate profile, so DataFusion, Arrow and DuckDB are all recompiled and none of the cached
 artifacts help. On a four-vCPU runner that is twenty minutes and up, added to a `ci` job whose
-timeout was already raised from 60 to 120 minutes because the tests alone were killing it.
+timeout is 75 minutes, and which a cap of 60 once killed mid-`Tests`.
 
 **Where the tests live.** Coverage scoped to one package sees only that package's tests. For
 `sutura-domain` that is the whole truth - its unit tests are its real test suite and they

@@ -98,6 +98,7 @@ rec {
       pkgs.keycloak
       pkgs.curl
       pkgs.coreutils
+      pkgs.jq
       endpoints.script
     ];
     text = ''
@@ -109,15 +110,24 @@ rec {
       client=${client}
       subjects="${builtins.concatStringsSep " " subjects}"
 
-      # The server's own directory. In the sandbox `$NIX_BUILD_TOP` is per-build and goes away with
-      # it; in a dev shell it is keyed by a hash of the worktree so two worktrees cannot share an
-      # embedded store - the fixture nobody can debug.
-      if [ -n "''${NIX_BUILD_TOP:-}" ]; then
-        home="$NIX_BUILD_TOP/sutura-keycloak"
-      else
-        key="$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
-        home="''${TMPDIR:-/tmp}/sutura-keycloak-$key"
-      fi
+      # The server's own directory, UNDER THE WORKTREE - where the tree is the key and there is
+      # nothing to derive, which is `github.com/telekom/sutura#405`'s first answer and was this
+      # tier's second.
+      #
+      # **The dev-shell arm it replaces put the CALLER'S ENVIRONMENT in the tier's identity.**
+      # `''${TMPDIR:-/tmp}/sutura-keycloak-$key` keys the home, and the pidfile is inside it, so
+      # `running` - `start`'s guard - is keyed by `$TMPDIR` too. Measured for
+      # `github.com/telekom/sutura#528` against a live JVM: same root, a different `TMPDIR`, and
+      # `running` answers false over a server that is up. `start` then takes its cold path, `rm
+      # -rf`s a home nothing is using, and leaves TWO JVMs on two OS-chosen ports sharing one realm
+      # file - the outcome that guard exists to prevent, reached by a route nobody had stated.
+      #
+      # Keycloak needs no short path: it listens on TCP, and a unix socket's ~100-byte cap is the
+      # whole reason `nix/postgres-tier.nix` still takes a machine-shared root. The sandbox arm goes
+      # with it rather than being kept as a second spelling - `$NIX_BUILD_TOP/worktree` IS the root
+      # there, so both venues now run one derivation and the venue that can be tested is the one a
+      # developer gets. Nothing in this script reads `$TMPDIR` or `$NIX_BUILD_TOP` any more.
+      home="$state/keycloak"
       pidfile="$home/tier.pid"
       log="$home/server.log"
       admincfg="$home/kcadm.json"
@@ -135,32 +145,57 @@ rec {
         head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9'
       }
 
-      # Is the server up? The answer is the exit code and nothing is changed, so a wrapper can tear
-      # down only what it brought up - `nix/postgres-tier.nix` explains why that distinction exists.
-      #
-      # **Answered from the PROCESS on purpose, which is the opposite of what that file now
-      # argues**, so the reason is here rather than left for the next reader to reconstruct. There,
-      # answering *am I up* from `pg_ctl` while the suite answered from `endpoints.json` IS
-      # `github.com/telekom/sutura#298`, and `status` is derived from the file now.
-      #
-      # It does not transfer, because `start`'s guard goes THROUGH this function and `start` is not
-      # idempotent over a live server: on the not-running path it `rm -rf`s the home. Derive this
-      # answer from the endpoint file and a running JVM whose entry something else dropped reads as
-      # DOWN - the guard goes false, the home is deleted under the live server, and the outcome is
-      # two JVMs on two OS-chosen ports sharing one realm file, where postgres gets a republished
-      # entry. Two servers is a worse state than the one being fixed.
-      #
-      # The shape does transfer after the split postgres made - a process-only guard for `start`,
-      # and `status` free to derive - and that is a change to the start path, not to this function:
-      # `github.com/telekom/sutura#324`. What it costs meanwhile is that `start` is not the remedy
-      # for a dropped entry either - it returns 0 here, having published nothing.
-      status() {
+      # Is a JVM of OURS running? THE PROCESS AND NOTHING DERIVED, and that is the whole point of
+      # this function existing separately: it is `start`'s guard, and `start`'s cold path `rm -rf`s
+      # the home. A guard that read `endpoints.json` would go false over a live server whose entry
+      # something dropped, the home would be deleted under it, and the outcome is two JVMs on two
+      # OS-chosen ports sharing one realm file. `nix/postgres-tier.nix` keeps `pg_ctl` for the same
+      # reason and says so at its own `status`.
+      running() {
         [ -f "$pidfile" ] || return 1
         kill -0 -- "-$(cat "$pidfile")" 2>/dev/null
       }
 
-      # The port the operating system chose, out of the server's own log.
+      # Is the tier up, and up in the way A READER will see it? Nothing is changed and the answer
+      # is the exit code, so a caller can tear down only what it brought up.
+      #
+      # THREE answers, `nix/postgres-tier.nix`'s three. Splitting them off `start`'s guard is what
+      # made deriving this possible at all - `github.com/telekom/sutura#324` - because until then
+      # this function WAS the guard and could not answer about a document without the guard
+      # answering about it too:
+      #
+      #   0  a JVM is running AND both records `start` writes still stand - a reader will find it
+      #   3  a JVM is running and those records do not stand: unclaimed. `start` republishes what
+      #      it can, and this server is NOT the caller's to tear down
+      #   1  nothing is running here
+      #
+      # A boolean caller (`if ... status`) reads 3 as down, which is the honest answer to the
+      # question it asked: there is nothing usable published here.
+      #
+      # **BOTH records, which is where this differs from postgres, and the difference is that this
+      # tier writes two.** `endpoints.json` carries the address, and the realm file carries the
+      # client secret, the admin password and the subject passwords - generated per `start` and
+      # written nowhere else. `stop` withdraws both, so *does the claim I made still stand* is both
+      # of them. Answering 0 on the address alone would put `start` straight back on its no-op
+      # branch over a tier nothing can authenticate against, which is the defect #324 was filed for
+      # wearing a different hat.
+      #
+      # What it does NOT answer: whether the realm file DESCRIBES this server. The run that owns
+      # this home is what wrote it and `stop` is what removes it, so the two travel together
+      # through every state this script can reach; a file put there by hand is not one of them.
+      status() {
+        running || return 1
+        port="$(published_port)" || return 3
+        [ -n "$port" ] || return 3
+        [ -f "$realmfile" ] || return 3
+        sutura-tier-endpoint published "$root" keycloak 127.0.0.1 "$port" || return 3
+      }
+
+      # The port the operating system chose, out of the server's own log. Silent rather than noisy
+      # when there is no log yet: `status` asks this of a tier that may never have started, and
+      # under `pipefail` a `sed` on a missing file is a failed pipeline rather than an answer.
       published_port() {
+        [ -f "$log" ] || return 0
         sed -n 's|.*Listening on: http://127\.0\.0\.1:\([0-9]*\).*|\1|p' "$log" | tail -1
       }
 
@@ -248,9 +283,73 @@ rec {
         printf '%s-%s' "$1" "$password_seed"
       }
 
+      # The heal for a live server this worktree has stopped claiming. Both writers of
+      # `endpoints.json` merge per ENTRY now (`github.com/telekom/sutura#317`), so a `dev-up` no
+      # longer takes this tier's entry with it - but the state is still reachable without anybody
+      # having done anything wrong: a `start` that dies between the bind and its publish, a
+      # hand-removed file, a `stop` that failed. The JVM survives, its entry does not.
+      #
+      # The entry that goes back is THE SAME ENTRY - the port is the one the server itself printed
+      # into its log, and nothing here re-provisions or re-generates. That is the point of healing
+      # rather than restarting: a cold start over this server would first `rm -rf` the home under a
+      # live JVM, and even done politely it mints a new realm, a new client secret and a new
+      # OS-chosen port, so everything holding the old realm file has to re-read it.
+      republish() {
+        port="$(published_port)"
+        if [ -z "$port" ]; then
+          echo "keycloak tier: a server is running here and its own log names no port, so there" >&2
+          echo "               is nothing to republish. Tear it down with" >&2
+          echo "               \`just keycloak-tier stop\` and start again." >&2
+          exit 1
+        fi
+        endpointsfile="$state/endpoints.json"
+        if [ -f "$endpointsfile" ] && ! jq --exit-status \
+          '.services.keycloak == null or .services.keycloak.provisioner == "nix"' \
+          "$endpointsfile" >/dev/null 2>&1; then
+          echo "keycloak tier: refusing to replace a keycloak entry that this nix tier does" >&2
+          echo "               not own. Stop its provisioner or remove its stale claim first." >&2
+          exit 1
+        fi
+        # The credentials are NOT RECOVERABLE and this is the one arm that cannot heal. Every
+        # secret this tier has was generated at its `start` and written to the realm file alone -
+        # not to the server, which only ever saw the hashes, and not to `endpoints.json`, which
+        # holds addresses by design. So a republished entry would name a live server nothing can
+        # authenticate against. Refuse, name the remedy, and leave the killing to a person: a token
+        # something else obtained from this realm is still valid until the JVM goes.
+        if [ ! -f "$realmfile" ]; then
+          echo "keycloak tier: a server is running here and $realmfile is gone with the client" >&2
+          echo "               secret, the admin password and the subject passwords in it. They" >&2
+          echo "               are generated per start and written nowhere else, so no entry" >&2
+          echo "               republished over this server would be usable. Tear it down with" >&2
+          echo "               \`just keycloak-tier stop\` and start again for a fresh realm." >&2
+          exit 1
+        fi
+        # PROVE THE REALM BEFORE CLAIMING IT AGAIN. The entry is a claim that a PROVISIONED realm
+        # is at this address - the cold path states that by publishing last - and a republish is
+        # the same claim made from a log line and a file rather than from a provisioning that just
+        # ran. Keycloak answers 404 at this path for a realm it does not have, so this separates
+        # *the port answers* from *the realm these records name is what is behind it*.
+        if ! curl -sSf --max-time 20 \
+          "http://127.0.0.1:$port/realms/$realm/.well-known/openid-configuration" >/dev/null; then
+          echo "keycloak tier: $realm did not answer at 127.0.0.1:$port, so nothing is claimed" >&2
+          echo "               for it. Tear the server down with \`just keycloak-tier stop\`" >&2
+          echo "               and start again." >&2
+          exit 1
+        fi
+        echo "keycloak tier: republishing the entry for the server already running here."
+        sutura-tier-endpoint publish "$root" keycloak 127.0.0.1 "$port"
+      }
+
       start() {
-        if status; then
-          echo "keycloak tier: already up - leaving it to whoever started it."
+        # THE GUARD IS THE PROCESS, and what the records say about it is a second question asked
+        # after it. Both were one question until `github.com/telekom/sutura#324`, which is why a
+        # dropped entry used to print *already up* and return 0 having published nothing.
+        if running; then
+          if status; then
+            echo "keycloak tier: already up - leaving it to whoever started it."
+            return 0
+          fi
+          republish
           return 0
         fi
         # Not running, so whatever is in the home is from a previous run: an embedded store that no
@@ -282,7 +381,10 @@ rec {
         for _ in $(seq 1 90); do
           port="$(published_port)"
           [ -n "$port" ] && break
-          if ! status; then
+          # `running`, not `status`: nothing is published yet at this point in a cold start, so
+          # the derived answer is 3 here by construction and the question being asked is whether
+          # the JVM is still alive.
+          if ! running; then
             echo "keycloak tier: the server exited before it published a port" >&2
             tail -20 "$log" >&2
             exit 1
@@ -318,6 +420,11 @@ rec {
         # credentials for a realm that is gone.
         sutura-tier-endpoint withdraw "$root" keycloak
         rm -f "$realmfile"
+        # AND THE SERVER'S OWN DIRECTORY, which lives under the worktree now: an embedded store is
+        # provisioned on demand, nothing in it is meant to outlive a teardown, and `start`'s cold
+        # path would `rm -rf` it on the way up anyway. `nix/postgres-tier.nix`'s `stop` takes its
+        # data directory for the same reason, measured there at 40 MB a run left behind.
+        rm -rf "''${home:?the tier home is unset}"
       }
 
       case "''${1:-}" in
@@ -342,6 +449,16 @@ rec {
   # the port the operating system chose, the realm file names both subjects, and `stop`
   # withdraws both claims.
   #
+  # **And it drives the three states `status` answers, which no other venue can see.** A
+  # green run elsewhere says a server came up; it says nothing about a server whose entry
+  # something else dropped, and that state is reachable without anybody having done anything
+  # wrong - a `start` that dies between the bind and its publish, a hand-removed file, a
+  # `stop` that failed. So the unclaimed arm
+  # is made here on purpose: withdraw the entry over the live JVM, assert 3 rather than 0,
+  # and assert that `start` heals it with THE SAME PID and THE SAME CLIENT SECRET. The pid is
+  # the load-bearing half - a heal and a second JVM on a second OS-chosen port are both
+  # "published again" to every other assertion in this file.
+  #
   # **Its own check rather than `nextest`'s `preCheck`, and the reason is what reads it.**
   # Postgres is provisioned there because Rust cells connect to it in that pass. Nothing in
   # this repository can carry a per-subject credential yet, so no cell reads this tier -
@@ -360,8 +477,61 @@ rec {
       mkdir -p "$tree"
       cd "$tree"
 
+      # The tier derives this itself; the check needs it to reach the JVM's own pid file, which is
+      # the only thing that can tell a heal from a second server. Under the worktree, and the
+      # sandbox reads the SAME derivation a dev shell does now - `github.com/telekom/sutura#528`
+      # records that the `$TMPDIR` arm this replaces went unexercised here for exactly that reason.
+      kc_home="$tree/.sutura-dev/keycloak"
+
+      # `status` answers by EXIT CODE and its middle answer is 3, so a bare `if` cannot see it: an
+      # `if ... status` over 3 is false, exactly as a boolean caller should read it, which makes an
+      # assertion written that way silently unable to fail for the reason it is here.
+      tier_state() {
+        state=0
+        sutura-keycloak-tier status || state=$?
+        printf '%s' "$state"
+      }
+
+      expect_state() {
+        got="$(tier_state)"
+        if [ "$got" != "$1" ]; then
+          echo "status answered $got, expected $1 - $2" >&2
+          exit 1
+        fi
+      }
+
+      usage_state=0
+      sutura-keycloak-tier >/dev/null 2>&1 || usage_state=$?
+      if [ "$usage_state" != 2 ]; then
+        echo "usage answered $usage_state, expected 2" >&2
+        exit 1
+      fi
+
       sutura-keycloak-tier start
-      sutura-keycloak-tier status
+      expect_state 0 "a server that is running, published and provisioned"
+
+      chmod u-r "$kc_home/server.log"
+      unreadable_state="$(tier_state)"
+      chmod u+r "$kc_home/server.log"
+      if [ "$unreadable_state" != 3 ]; then
+        echo "status answered $unreadable_state, expected 3 - an unreadable live server log is unclaimed, not usage" >&2
+        exit 1
+      fi
+      expect_state 0 "the readable live server returns to the published state"
+
+      # --- THE TIER'S IDENTITY IS THE WORKTREE, AND NOT THE CALLER'S ENVIRONMENT ---
+      # `github.com/telekom/sutura#528`. The home was `''${TMPDIR:-/tmp}/sutura-keycloak-$key` in a
+      # dev shell, so a caller whose `TMPDIR` differed looked for the pidfile elsewhere, `running`
+      # answered false over this live JVM, and `start`'s cold path left two servers sharing one
+      # realm file. `NIX_BUILD_TOP` is unset in here as well as `TMPDIR` being moved, and both are
+      # load-bearing: with it set, the arm this replaced took the sandbox branch and the assertion
+      # could not fail for the reason it is written.
+      ( elsewhere="$NIX_BUILD_TOP/another-tmpdir"
+        mkdir -p "$elsewhere"
+        unset NIX_BUILD_TOP
+        export TMPDIR="$elsewhere"
+        expect_state 0 "a live tier is found by a caller whose TMPDIR and NIX_BUILD_TOP are not the ones that started it"
+      )
 
       # The discovery contract: a harness learns the port from this file and nowhere else,
       # so a tier that started and published nothing is a tier no test can reach.
@@ -380,6 +550,79 @@ rec {
       realm=.sutura-dev/keycloak-realm.json
       test "$(jq -r '.subjects | length' "$realm")" = 2
       test "$(jq -r '.issuer' "$realm")" = "http://127.0.0.1:$port/realms/${realm}"
+
+      # --- a live server whose entry was dropped HEALS IN PLACE ---
+      # `github.com/telekom/sutura#324`. The state is any publish this tier's entry did not
+      # survive - a `start` that died between the bind and its publish, a hand-removed file, a
+      # `stop` that failed: the JVM survives and its entry does not.
+      # Two wrong answers are possible here and this tier gave the first one for as long as
+      # `start`'s guard WAS `status` - print *already up* and return 0 having published nothing.
+      # The second is what an endpoint-derived guard alone would have given: a cold start that
+      # `rm -rf`s the home under a live JVM and leaves two servers on two OS-chosen ports sharing
+      # one realm file. So the arm asserts the heal AND that nothing was restarted to get it.
+      pid_before="$(cat "$kc_home/tier.pid")"
+      secret_before="$(jq -r '.client.secret' "$realm")"
+      sutura-tier-endpoint withdraw "$tree" keycloak
+      expect_state 3 "a running server nothing publishes is unclaimed, not up"
+
+      sutura-keycloak-tier start
+      expect_state 0 "start republished the entry for the server that was already running"
+      test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$port"
+      # THE SAME JVM. A cold start writes a new pid here, so this is the assertion that separates
+      # a heal from the two-server outcome; the port above would be new with it.
+      test "$(cat "$kc_home/tier.pid")" = "$pid_before"
+      # AND NOTHING RE-PROVISIONED. The client secret is generated per `start`, so an unchanged one
+      # is what says anything holding the old realm file does not have to re-read it.
+      test "$(jq -r '.client.secret' "$realm")" = "$secret_before"
+
+      # A mismatched entry from ANOTHER provisioner is not this tier's stale claim to heal. The
+      # service key is shared with the docker identity profile, so replacing that entry crosses
+      # the provisioner boundary and makes a later docker teardown leave this JVM published.
+      foreign_port=$((port + 1))
+      jq --argjson port "$foreign_port" \
+        '.services.keycloak = { host: "127.0.0.1", port: $port, provisioner: "docker" }' \
+        "$endpoints" > "$endpoints.new"
+      mv "$endpoints.new" "$endpoints"
+      expect_state 3 "another provisioner's entry does not describe this tier"
+
+      echo "--- the foreign-claim refusal below is expected, its message included ---"
+      refused=0
+      sutura-keycloak-tier start || refused=$?
+      if [ "$refused" = 0 ]; then
+        echo "start replaced another provisioner's keycloak entry" >&2
+        exit 1
+      fi
+      test "$(jq -r '.services.keycloak.provisioner' "$endpoints")" = docker
+      test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$foreign_port"
+
+      # Restore this tier's own claim so the remaining state transitions still start from the
+      # live JVM and the records it created.
+      sutura-tier-endpoint publish "$tree" keycloak 127.0.0.1 "$port"
+      expect_state 0 "the tier reads as reachable after its own claim is restored"
+
+      # --- and the arm that CANNOT heal refuses, rather than reporting success ---
+      # Every secret this tier has is generated at `start` and written to the realm file alone -
+      # the server holds hashes and `endpoints.json` holds addresses by design. So with that file
+      # gone there is no way back to a usable tier over THIS server, and an entry republished
+      # anyway would name a live server nothing can authenticate against: the same shape of lie as
+      # the no-op success above. Moved aside rather than deleted, because what follows still needs
+      # a provisioned tier and a second cold start costs a JVM boot to assert nothing new.
+      aside="$NIX_BUILD_TOP/realm-file-aside"
+      mv "$realm" "$aside"
+      expect_state 3 "a running server whose credentials are gone is not reachable either"
+      echo "--- the refusal below is expected, its message included ---"
+      refused=0
+      sutura-keycloak-tier start || refused=$?
+      if [ "$refused" = 0 ]; then
+        echo "start reported success over a server whose realm file it cannot recover" >&2
+        exit 1
+      fi
+      test ! -f "$realm"
+      # It refused rather than taking the decision: killing the JVM invalidates every token
+      # anything else obtained from this realm, and that is a person's call and not this script's.
+      test "$(cat "$kc_home/tier.pid")" = "$pid_before"
+      mv "$aside" "$realm"
+      expect_state 0 "the tier reads as reachable again once its own credentials are back"
 
       # A SECOND TIER IN THE SAME FILE, which is the property `nix/tier-endpoints.nix`
       # exists for and which no other check can see: `checks.nextest` provisions Postgres
@@ -401,13 +644,15 @@ rec {
       # clobbering above, in the other direction.
       sutura-keycloak-tier stop
       test ! -f "$realm"
+      # AND THE HOME GOES WITH THE SERVER. It sits under the worktree now, so a home left behind is
+      # an embedded store accumulating in a developer's checkout rather than in a directory the
+      # operating system eventually reclaims - `nix/postgres-tier.nix` measured that at nine
+      # directories of 40 MB from four separate days.
+      test ! -e "$kc_home"
       test -f "$endpoints"
       test "$(jq -r '.services | has("keycloak")' "$endpoints")" = false
       test "$(jq -r '.services.postgres.port' "$endpoints")" = 5432
-      if sutura-keycloak-tier status; then
-        echo "the tier reports itself up after stop" >&2
-        exit 1
-      fi
+      expect_state 1 "a stopped tier: nothing is running here"
 
       # The last service out takes the file with it, because its EXISTENCE is what
       # discovery reads as "something is provisioned here".

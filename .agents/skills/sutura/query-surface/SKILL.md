@@ -37,13 +37,16 @@ visible in the code; these rules are not:
   are written for different readers.
 - **The OpenAPI document is built at startup and served**, not dumped, so a missing path attribute
   fails to compile rather than producing a page with a gap.
-- **`ATTRIBUTION.md` is deliberately WIDER than any one binary**, which is the opposite of an
+- **The attribution document is deliberately WIDER than any one binary**, which is the opposite of an
   SBOM's rule and for a stated reason: an SBOM overstating what is in an artefact is a false claim
   about it, while an attribution document naming a crate that did not ship discharges an obligation
   nobody had. What selects a row is **not being a workspace member**, never the presence of a
   `source` line - `source` means registry-or-git, which omitted the vendored path dependencies while
-  a shipped binary links one of them. **Limit:** it carries no Apache-2.0 `NOTICE` text, and
-  **there is no `NOTICE` check** - "inspired by" is not a licence position.
+  a shipped binary links one of them. It is **generated and never committed** - a committed derived
+  file went stale on every dependency bump and made each bot bump red on arrival - so
+  `check-attribution` refuses an incomplete generation and `check-attribution-owner` refuses a
+  committed copy. **Limit:** it carries no Apache-2.0 `NOTICE` text, and **there is no `NOTICE`
+  check** - "inspired by" is not a licence position.
 - Two attribution gates, split by the input each needs: one reads the lock and holds the crate SET;
   the other regenerates and byte-compares, holding the CONTENT, and needs a resolvable registry.
   Without the second, changing any row's licence to arbitrary text passed.
@@ -181,7 +184,10 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   `Endpoints` - one document-level field could only ever be the last writer's opinion about somebody
   else's service. Held by `dev/src/discovery.rs`'s own cells over a foreign entry this crate did not
   mint, and by `xtask::compose`'s `a_failing_provision_leaves_no_claim_of_its_own...`, which drives
-  `with_endpoints_forgotten`. **The limit:** nothing compares the Rust writer with
+  `with_endpoints_forgotten`. A dropped entry is survivable either way: both nix tiers derive
+  `status` from the records and keep a process-only guard for `start`, so the next `start`
+  republishes over the server already running - held by `checks.postgres-tier` and
+  `checks.keycloak-tier`. **The limit:** nothing compares the Rust writer with
   `nix/tier-endpoints.nix`'s `jq` - the two agree on a shape by review, and a THIRD writer would
   be held by neither.
 - **The BigQuery adapter is a whole adapter in this state, and has been leaving a piece at a time.**

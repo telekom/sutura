@@ -5,8 +5,10 @@ description: Why a refused question now comes back with an explicit HTTP status 
 
 # A refusal carries a status
 
-Status: **accepted, and amended once.** It changes what the HTTP transport says about a refusal. It
-supersedes nothing and changes no domain type: `ToolOutcome::Refusal` is still a *result* and not an
+Status: **accepted, and amended in place more than once - each amendment is written where the sentence
+it acts on is, rather than appended, and the status table below carries the rows they added.** It
+changes what the HTTP transport says about a refusal. It supersedes nothing and changes no domain
+type: `ToolOutcome::Refusal` is still a *result* and not an
 `Err`, which is the invariant [the tool surface](../architecture.md) is built on and which this record
 does not touch.
 
@@ -41,9 +43,18 @@ checked against the current documentation of four:
 | Go `net/http` | The `Client`, `Transport` and `RoundTripper` reference documents no status-driven retry at all |
 
 Nothing mainstream retries a `4xx` by default. The two statuses retried by convention are `429` and
-`408`, and no refusal maps to either. `422`, where four of the eleven refusal codes now land, is
-documented the other way round from the premise: clients receiving a `422` "should expect that
-repeating the request without modification will fail with the same error".
+`408`, and no refusal maps to either. `422`, where the refusals that ask a caller to narrow the
+question land - `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`,
+`duplicate_dimension` and `resources_exhausted` - is documented the other way round from the premise:
+clients receiving a `422` "should expect that repeating the request without modification will fail
+with the same error".
+
+**Corrected:** this said *"four of the eleven refusal codes"*. Both numbers had gone stale - the
+codes are named rather than counted now, because nothing in this repository derives either number
+and a count nobody derives is a count that goes stale again. `crates/sutura-http/src/wire/refusal.rs`
+still carries the same stale figure in two of its own comments; correcting them is held against the
+entry in `check-guidance`'s contradicted-claims table that currently keys on one of them, so the two
+have to move in the same change as that table and did not move here.
 
 **And the `200` cost something the argument never priced.** A governance refusal answered `200` is
 indistinguishable from an answer to everything that reads a status and not a body:
@@ -93,6 +104,17 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.
 | `ResultTooLarge` | `413` | The answer did not fit the certifiable cap. Narrowing helps and repeating does not. **Amended after this record was accepted:** the variant now carries a `ResultBound` and covers a second bound - a data system that will not hand the result back in one piece - at the same status and the same code, because *too much data* is one answer and one remedy to a caller. Only the sentence differs, from a nested exhaustive match, and the second bound's carries no number: the bound belongs to the data system and is not reported to us. The widening exists because that case used to arrive as `503`, which this record calls *the one refusal where retrying is reasonable* - and a retry returned the same reply |
 | `SourceUnavailable` | `503` | The one refusal where retrying is reasonable |
 | `CredentialUnavailable` | `403` | **Added by [0008](0008-a-credential-per-leg-for-the-calling-subject.md), and it is the row that amends the note below.** The asking subject has no credential at the data system the plan reads, and this deployment will not read it under its own identity instead. `403` rather than `401`: re-authenticating to *this* service changes nothing, because the missing grant is at the data system. The sentence says so in as many words and a test asserts it does, precisely so a client cannot read the status as "authenticate harder" and retry forever |
+| `ResourcesExhausted` | `422` | **Added after this record was accepted, with the engine's memory pool.** Answering would have needed more working memory than the deployment's configured ceiling, so it was refused rather than allowed to exhaust the process. `422` under this record's own rule - narrowing helps and repeating does not - and deliberately not `413`, which this route already uses for a body over the limit and for `result_too_large`, nor `507`, which is a `5xx` and reads as the server's fault to any client branching on the class. The sentence names the ceiling, which is a configured number, and nothing about what the question demanded |
+| `SourceRefused` | `403` | **Added after this record was accepted, when a data-source refusal became a class of its own, distinct from a transient failure.** The data system itself refused the statement, which is neither this deployment declining to answer nor the data system being down. `403` rather than `503`: retrying changes nothing, because the decision was made at the far end |
+| `LegsDecideIdentityDifferently` | `409` | **Added after this record was accepted, with the rule that one answer's legs must decide identity the same way.** Two legs of one answer would run under different identity postures, so the answer is refused rather than combined and disclosed. The same grouping as the `409`s above and for the same reason: answerable in principle, and this deployment will not express it as one answer |
+
+**Corrected:** the three rows above were missing while the exhaustive match in
+`sutura_http::wire::refusal` already decided all three, which made the claim above this table - *one
+exhaustive match, no wildcard arm* - true of the code and false of the table itself. The compile error that
+mechanism buys is real and it does not reach a markdown table, so nothing here was red while the table
+was short. Nothing derives this table, which is the limit to read it with: it is checked in review
+against `every_reason()` in that file, and a variant added without a row here is a gap review has to
+catch.
 
 Three groupings are deliberate rather than a shortage of numbers. The status is what a monitor counts
 and the `code` is what a client branches on, so variants are grouped by **what the caller should do**:
@@ -197,17 +219,23 @@ bodies near-identical in what they carry.
   recorded is closed that way, and the reasoning is worth keeping: a transcript nobody runs goes
   stale in exactly this manner and says nothing while it does. What replaced it is
   `crates/sutura-http/src/wire/refusal.rs`, and it is the strongest of the three: `every_reason()`
-  lists all eighteen `RefusalReason` variants with the status and `code` each is given,
+  lists every `RefusalReason` variant with the status and `code` each is given,
   `every_refusal_carries_a_status_a_code_and_a_sentence` drives that list, and the exhaustive match
   with no wildcard arm makes a new variant a COMPILE error rather than an untested one - which is
   the property a transcript could never have. `crates/sutura-serve/tests/served.rs` asserts a
   refusal's status against the same directory over a real port, and
-  `crates/sutura-http/src/harness.rs` asserts the envelope per status in process for **ten** of the
-  eighteen reasons, the eight it does not reach being `DimensionNotFilterable`,
+  `crates/sutura-http/src/harness.rs` asserts the envelope per status in process for the subset the
+  default fixture pair can produce. The reasons it does not reach are `DimensionNotFilterable`,
   `PlanSpansTooManySources`, `FederationLinkAmbiguous`, `MeasureDoesNotFederate`,
-  `PlanTablesShareAnIdentifier`, `ResourcesExhausted`, `CredentialUnavailable` and
-  `LegsDecideIdentityDifferently` - each of which needs a fixture the default pair cannot produce. So the exhaustive claim is the unit table's, not
-  the transport harness's.
+  `PlanTablesShareAnIdentifier`, `ResourcesExhausted`, `CredentialUnavailable`, `SourceRefused` and
+  `LegsDecideIdentityDifferently` - each of which needs a fixture that pair cannot produce. So the
+  exhaustive claim is the unit table's, not the transport harness's.
+
+  **Corrected:** this said `every_reason()` lists *"all eighteen"* variants and the harness reaches
+  *"ten of the eighteen"*. Both numbers were written when there were eighteen and stayed written as
+  variants were added, and `SourceRefused` was missing from the unreached list - which is what made
+  the two figures add up while being wrong. **Neither number is restated**: nothing here derives
+  either, and a count nobody derives is the thing this bullet is itself about.
 - **The agent prompt still tells an agent a refusal is a successful call.** That is true at the tool
   level, where `sutura_app::prompt` speaks; over HTTP it is no longer true of the status. Whether the
   prompt should mention a transport at all is a separate decision.
