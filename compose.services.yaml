@@ -490,6 +490,69 @@ services:
       retries: 60
       start_period: 45s
 
+  # The local chat demo: ONE container holding the sutura server and the chat client, because a
+  # single supervisor is what makes "either child exits, the demo ends" true.
+  #
+  # ## Why one container and not two
+  #
+  # A chat client and the tool server it calls are two processes, and compose cannot express "if
+  # either dies, tear the other down" - `depends_on` gates STARTUP only, so a two-service demo
+  # outlives its own server and then answers nothing. One container with one supervisor does express
+  # it, and `demo/run.sh` is that supervisor.
+  #
+  # ## What the demo packaging adds that the shipped server does not
+  #
+  # `sutura-serve` ships as ONE executable: `nix/oci.nix` builds an image with no shell and no
+  # probe, so it cannot be supervised and cannot be given a shell healthcheck. `demo/Dockerfile` is
+  # the demo-only packaging that adds a shell, a `python3` probe and the supervisor on top of the
+  # shipped server binary and the chat client's own image. None of it is a release artifact: the
+  # derived image this block names is built locally by `just demo` and by nothing else.
+  #
+  # ## Why the port is written in long syntax
+  #
+  # `the_compose_file_publishes_no_fixed_host_port` refuses a short-form `host:container` entry,
+  # because a fixed host port is the collision this whole tier exists to prevent. A browser on THIS
+  # machine must reach the chat client and nothing else must, so the port needs BOTH halves: ephemeral
+  # (no `published`) and loopback (`host_ip`). The short form has one colon and no place for an
+  # address, so this is the long form - and the gate reads it as neither a fixed port nor a bare
+  # container port.
+  demo:
+    # CI venue: compose only.
+    # Because: the demo needs a language model and a browser, and the derived image is built from the
+    #   chat client's own upstream image, which `nixpkgs` does not package. A `checks.*` derivation
+    #   has no network, no docker socket and no model, so there is nothing there for it to bring up.
+    # Converges: never, by design. This is a demonstration a person runs, not a service a gate
+    #   provisions - `docs/demo.md` states that limit beside the demo itself.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/sutura/local-chat-demo:0.11.3
+    profiles:
+      - demo
+    environment:
+      # The model the operator configured, passed THROUGH rather than written here: an API key is a
+      # credential and this file is world-readable. `demo/start.sh` refuses to reach this line with
+      # any of them missing or malformed, and never prints one.
+      - SUTURA_DEMO_MODEL_ENDPOINT
+      - SUTURA_DEMO_MODEL
+      - SUTURA_DEMO_MODEL_API_KEY
+      # The operator's own sentence for why one identity reading one example is correct, which
+      # `security.single_user_because` carries into the deployment.
+      - SUTURA_DEMO_ACKNOWLEDGE
+    ports:
+      - target: 8080
+        host_ip: 127.0.0.1
+    volumes:
+      # The chat client's own SQLite state, on a NAMED volume so compose prefixes it with the
+      # project name and two worktrees never share one. Removed by `just dev-down` like the rest.
+      - demo-webui-data:/app/backend/data
+    healthcheck:
+      # The probe BOTH halves must pass. The shipped server image has no probe, so the demo
+      # packaging supplies one: a client that is up while its tool server is not is a demo that
+      # answers nothing, and "the container is healthy" has to mean both are serving.
+      test: ["CMD", "python3", "/usr/local/bin/healthcheck.py"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+      start_period: 45s
+
 # ## Services the plan names that are NOT here, and why - stated rather than left as an omission
 #
 # The compose-tier section of `docs/implementation-plan-identity-and-services.md` names Oracle,
@@ -527,3 +590,4 @@ volumes:
   datahub-kafka-data:
   datahub-mysql-data:
   datahub-opensearch-data:
+  demo-webui-data:
