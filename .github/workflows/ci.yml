@@ -895,7 +895,29 @@ jobs:
   # which is what it does below.
   pr-cache:
     needs: [ci]
-    if: github.event_name == 'pull_request'
+    # `!cancelled()` RATHER THAN NOTHING, AND IT IS THE WHOLE REASON THIS CACHE READ AS UNUSED.
+    # With a bare `needs: [ci]` GitHub skips this job whenever `ci` FAILS, so the store filled only
+    # after a green run - precisely when nobody needs it - and every red push, which is when you
+    # iterate and when the expensive closure gets rebuilt, contributed nothing. Measured on #597
+    # push 3, a branch that ADDS a crate so main's stores cannot hold its closure: `ci` substituted
+    # 129 paths, every one from `cache.nixos.org` and ZERO from `sutura-prs`, while this job on the
+    # two earlier pushes was SKIPPED because `ci` failed on both. It then published 7 paths
+    # (`sutura-deps-0.1.0` among them) that no fourth push existed to read.
+    #
+    # PUBLISHING AFTER A FAILURE IS SAFE, and the argument is nix's: a derivation that failed has no
+    # store path to push. A red `ci` means some check's derivation failed; its successful
+    # sub-derivations - `sutura-deps` above all - are valid store paths either way. So this pushes
+    # exactly what genuinely built.
+    #
+    # `!cancelled()` and not `always()`, because this job takes a 32-core runner: `always()` would
+    # start it after somebody pressed cancel and publish whatever partial store the runner held.
+    # `ci` being SKIPPED is not a live case - that skip is for `chore(release):` commits, which are
+    # not `pull_request` events.
+    #
+    # THE TOKEN ORDER IS LOAD-BEARING: `cache_scope`'s PR-writer pairing reads this job's `if:`
+    # with `github.event_name == 'pull_request'` as a pinned PREFIX and refuses the reversed
+    # spelling and a `${{ }}` wrapping alike.
+    if: github.event_name == 'pull_request' && !cancelled()
     runs-on: rust-mcp-32core
     environment: cachix-push-pr
     steps:
