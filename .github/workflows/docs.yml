@@ -131,12 +131,18 @@ jobs:
           # goes here, where the workflow diff shows it.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # No shared cache here, and that is deliberate rather than an omission. `ci.yml` carries
-      # /nix/store between runs with the Actions cache; this workflow publishes, and once it has a
-      # `v*` trigger zizmor flags that step as cache poisoning - the Actions cache is writable
-      # from a pull request, and a published page must not be built from a store path a pull
-      # request could have put there. Same call `release.yml` makes, for the same reason.
+      # No ACTIONS cache here, and that is deliberate rather than an omission - it is the Actions
+      # cache this refuses, never the stores above. `ci.yml` carries /nix/store between runs with
+      # the Actions cache; this workflow publishes, and once it has a `v*` trigger zizmor flags
+      # that step as cache poisoning - the Actions cache is writable from a pull request, and a
+      # published page must not be built from a store path a pull request could have put there.
+      # Same call `release.yml` makes, for the same reason. The three cachix stores above are a
+      # different risk class and so ARE read: each is written only by a push to the default branch
+      # under an environment-scoped token, and nix verifies every path against the keys named
+      # above.
 
       # Is every changed path plainly prose? That decides whether the 15m45s step below runs.
       #
@@ -343,8 +349,10 @@ jobs:
           # goes here, where the workflow diff shows it.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # No shared cache on the publishing path. See the note in `verify`.
+      # No Actions cache on the publishing path. See the note in `verify`.
 
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
