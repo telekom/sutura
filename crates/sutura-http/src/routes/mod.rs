@@ -8,9 +8,9 @@
 //! * [`v1`] is the versioned API. It is behind the token gate when a token is configured, and
 //!   behind the wider of the two rate-limit tiers.
 //!
-//! The prefixes and the guards are applied in [`crate::router`], not here. A module that mounted
-//! itself would have to know what it is mounted under, which is the coupling that makes a second
-//! version a rewrite.
+//! The prefixes and the guards are applied in [`crate::router`](fn@crate::router), not here. A
+//! module that mounted itself would have to know what it is mounted under, which is the coupling
+//! that makes a second version a rewrite.
 
 pub(crate) mod health;
 pub(crate) mod v1;

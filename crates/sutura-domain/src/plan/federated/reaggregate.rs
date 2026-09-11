@@ -8,16 +8,16 @@
 //! established, are this module's own and cannot be re-decided at a call site.
 //!
 //! **Why the two steps are one type.** [`Leaves::of`] and [`Leaves::measure`] have to agree on
-//! order: the cursor each [`Above::Total`] node is read with walks the same sequence
-//! [`Federation::carried`] collects its leaves in, and it starts at zero. That agreement used to be
-//! a sentence beside a `&mut 0` written at the call site - so the cursor is a local of
-//! [`Leaves::measure`] now, and a caller can neither start it elsewhere nor point it at a list some
-//! other call produced.
+//! order: the cursor each [`Above::Total`](crate::federation::Above::Total) node is read with walks
+//! the same sequence [`Federation::carried`] collects its leaves in, and it starts at zero. That
+//! agreement used to be a sentence beside a `&mut 0` written at the call site - so the cursor is a
+//! local of [`Leaves::measure`] now, and a caller can neither start it elsewhere nor point it at a
+//! list some other call produced.
 //!
 //! **The division cannot happen in a leg, which is why it happens here.** The divide tree carries
-//! the only [`ZeroDenominator`] in the federated path, and the guard belongs above every leg's rows
-//! rather than inside one of them - a guard applied inside a leg is the wrong number this shape
-//! exists to prevent.
+//! the only [`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path, and the
+//! guard belongs above every leg's rows rather than inside one of them - a guard applied inside a
+//! leg is the wrong number this shape exists to prevent.
 //!
 //! **What this module does not reach.** A measure that does not decompose has no re-aggregating
 //! function at all, and [`reaggregates`] is the whole statement of which do; the splitter refuses
@@ -287,10 +287,10 @@ fn divide(
 
 /// A numeric cell as `f64`, or `None` for a cell no ratio can be taken over.
 ///
-/// [`expect`](macro@expect)-bounded: casting a wide integer to `f64` loses precision above `2^53`,
-/// which is accepted **here and only here** because a ratio over leg totals is inherently
-/// floating-point and [`divide`] is the one caller. It is not accepted for a total or a comparison -
-/// see [`FederatedFailure::MixedNumericLeaf`] for the widening this path refuses instead.
+/// `#[expect]`-bounded: casting a wide integer to `f64` loses precision above `2^53`, which is
+/// accepted **here and only here** because a ratio over leg totals is inherently floating-point and
+/// [`divide`] is the one caller. It is not accepted for a total or a comparison - see
+/// [`FederatedFailure::MixedNumericLeaf`] for the widening this path refuses instead.
 ///
 /// Every variant is named rather than left to a wildcard, so a fifth [`Value`] has to answer here.
 /// [`Value::Text`] is one of the two `None`s and is unreachable through [`apply_above`]: every value

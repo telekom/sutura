@@ -53,7 +53,8 @@ pub(super) struct QueryBody<'job> {
     /// The most this job may be billed for scanning, as text.
     ///
     /// A job that would exceed it fails and is not charged - which is why this is the bound rather
-    /// than a client-side comparison against a dry run's estimate. See [`BytesBilledCeiling`].
+    /// than a client-side comparison against a dry run's estimate. See
+    /// [`BytesBilledCeiling`](crate::wire::BytesBilledCeiling).
     maximum_bytes_billed: String,
     /// `false`. See the module header: an anchor that reproduces from a cache has reproduced the
     /// cache.
