@@ -1,0 +1,3014 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.5.1/api/sutura-runtime/">
+      
+      
+        <link rel="prev" href="../sutura-config/">
+      
+      
+        <link rel="next" href="../sutura-http/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>sutura-runtime - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sutura-runtime" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              sutura-runtime
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Serve it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the agent surface learns who is asking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Three OSS-readiness scans, and what each discloses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a Scorecard zero says about this repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0026-no-third-party-binary-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An OSS binary cache for this repository's own paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-runtime">sutura-runtime<a class="headerlink" href="#sutura-runtime" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-runtime</code>, rendered from rustdoc JSON.</p>
+<p>Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
+the banner, the bound on how much executes at once, and the audit sink a deployment gets for
+free.</p>
+<p>The sink is here for the same reason everything else is: it writes onto the process subscriber
+this crate installs, so it is a <em>use</em> of a process-global rather than a second installation of
+one. It is the first implementor of <code>sutura_domain::audit::AuditSink</code>, which is what keeps that
+port from being a guess at a signature - see <code>audit</code>.</p>
+<h1 id="why-this-is-its-own-crate">Why this is its own crate<a class="headerlink" href="#why-this-is-its-own-crate" title="Permanent link">&para;</a></h1>
+<p>Everything here is process-<em>global</em>. Installing a subscriber, replacing the panic hook and
+registering signal handlers are one-per-process operations that a library must not perform as a
+side effect of being used - so they belong somewhere a composition root calls deliberately,
+rather than inside a transport crate that a test also links.</p>
+<p>It also means the transport crates do not have to agree on any of it. <code>sutura-http</code> takes a
+shutdown as an argument and emits <code>tracing</code> events like any other library; nothing in it
+installs anything. A second surface - an MCP transport, say - gets the same treatment for free.</p>
+<h1 id="the-order-the-composition-root-uses-it-in">The order the composition root uses it in<a class="headerlink" href="#the-order-the-composition-root-uses-it-in" title="Permanent link">&para;</a></h1>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>use sutura_config::{Settings, Sources, environment_from_process};
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>use sutura_runtime::{Admission, banner, shutdown::Shutdown, telemetry};
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a># fn main() -&gt; Result&lt;(), Box&lt;dyn core::error::Error&gt;&gt; {
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>// 1. The environment, first: it decides the log format and which file is layered.
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>let environment = environment_from_process()?;
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>// 2. The banner, to standard output, before any subscriber exists.
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>banner::print(env!("CARGO_PKG_VERSION"), environment);
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>// 3. The configuration. A refusal here is a process that does not start.
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>let settings = Settings::load(&amp;Sources::from_process_environment(environment, None))?;
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>// 4. The log, then the panic hook - in that order, so a panic during setup is not the one
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>//    that gets lost.
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>telemetry::install(settings.telemetry())?;
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>sutura_runtime::install_panic_hook();
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>// 5. What was resolved, including the line about what this service does not do.
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>banner::announce(&amp;settings);
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>// 6. The shutdown, shared with the server and with the signal listener. Built with the
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>//    configured grace period, so the number an operator wrote is the number that bounds
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>//    stopping.
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>let shutdown = Shutdown::with_grace(settings.runtime().shutdown_grace().duration());
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>tokio::spawn(sutura_runtime::shutdown::listen(shutdown.clone()));
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>// 7. The bound on how many questions execute at once, shared with every transport. One per
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>//    process: two independently sized ones would each report a limit the other can exceed. No
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>//    transport can build one - `Admission::new` is private to this crate - and
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>//    `cargo xtask check-one-bound` fails a root that calls this twice.
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>let admission = Admission::from_settings(settings.runtime());
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a># Ok(())
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a># }
+</span></code></pre></div>
+<h1 id="what-is-deliberately-not-here">What is deliberately not here<a class="headerlink" href="#what-is-deliberately-not-here" title="Permanent link">&para;</a></h1>
+<p>No metrics and no traces-to-a-collector. A span per request exists and is rendered into the log,
+which is what makes one request's lines findable; exporting it anywhere is a decision about a
+backend, a sampling rate and an egress path, and none of those has been made. Adding a
+dependency now to satisfy the word "observability" would be the shape of the thing without the
+thing.</p>
+<h2 id="use-admission"><code>use Admission</code><a class="headerlink" href="#use-admission" title="Permanent link">&para;</a></h2>
+<p>The bound on how many questions execute at once, and the bound on waiting for a turn.</p>
+<p>Cloneable and cheap: every clone shares one permit set, which is the property that makes this a
+bound at all. A per-request or per-connection copy would be a number that reads like a limit and
+bounds nothing.</p>
+<h2 id="use-atcapacity"><code>use AtCapacity</code><a class="headerlink" href="#use-atcapacity" title="Permanent link">&para;</a></h2>
+<p>Nothing was free inside the admission timeout.</p>
+<p>Carries both numbers because the answer to it differs by which one is wrong: a bound that is too
+small for the machine is a configuration change, and a wait that expires under normal load is a
+deployment that needs another replica.</p>
+<h2 id="use-slot"><code>use Slot</code><a class="headerlink" href="#use-slot" title="Permanent link">&para;</a></h2>
+<h2 id="use-tracingauditsink"><code>use TracingAuditSink</code><a class="headerlink" href="#use-tracingauditsink" title="Permanent link">&para;</a></h2>
+<p>Writes each record as one structured event on the process subscriber.</p>
+<p>There is nothing to configure, and a <code>new</code> that took a level or a target would be two ways to
+write the same record. The subscriber decides where the event goes, which is the one decision a
+deployment already makes.</p>
+<p>A private marker field rather than a unit struct, for two reasons and the first is the honest
+one: <code>cargo xtask check-boundaries</code> reads a file line by line, and a unit <code>pub struct</code> leaves its
+scan waiting for a body - so the next braced block in the file is read as this struct's field
+list and a <code>pub fn</code> in it is reported as a <code>pub</code> field. That is a defect in the gate rather than
+in this type, and it is written down here rather than worked around silently. The second reason
+stands on its own: a field, even an empty one, means <code>Self::new</code> is the only way in from
+outside this crate, where a unit struct is its own literal.</p>
+<h2 id="use-spawn_carrying_span"><code>use spawn_carrying_span</code><a class="headerlink" href="#use-spawn_carrying_span" title="Permanent link">&para;</a></h2>
+<p>Spawns <code>work</code> on the blocking pool, entered in the caller's current span.</p>
+<p>The span is captured <em>here</em>, on the caller's thread, and entered inside the closure - which is
+the only order that works: reading the current span from the blocking thread would read that
+thread's span, which is none.</p>
+<p>Everything the closure does is inside the span, its own <code>Drop</code>s included. That matters where a
+permit or a guard is released at the end of the closure: the release happens inside the span
+too, so a diagnostic emitted while dropping is still attributable to the request.</p>
+<h1 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h1>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a># async fn call() -&gt; Result&lt;u8, tokio::task::JoinError&gt; {
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>// A synchronous port call. Anything traced inside belongs to the caller's request.
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>sutura_runtime::spawn_carrying_span(|| 7_u8).await
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a># }
+</span></code></pre></div>
+<h2 id="use-install_panic_hook"><code>use install_panic_hook</code><a class="headerlink" href="#use-install_panic_hook" title="Permanent link">&para;</a></h2>
+<p>Makes every subsequent panic emit a <code>tracing</code> error before the default hook runs.</p>
+<p>Call it before the first thread is spawned and after the subscriber is installed. Before the
+subscriber it would still work - <code>tracing</code> drops events with no subscriber rather than failing -
+but the panic it was installed for would be the one that is lost.</p>
+<p>Idempotent: the second and later calls do nothing.</p>
+<h2 id="use-shutdown"><code>use Shutdown</code><a class="headerlink" href="#use-shutdown" title="Permanent link">&para;</a></h2>
+<p>A shared "stop now" flag that remembers why.</p>
+<p>Cloneable and cheap, so the server, the signal listener and anything else that has to wind down
+all hold the same one. Built on a <code>watch</code> channel rather than a cancellation token from a
+utility crate: the channel is in <code>tokio</code> already, and carrying the <em>reason</em> in the value is
+what makes the log line at the end say something.</p>
+<h2 id="use-shutdownreason"><code>use ShutdownReason</code><a class="headerlink" href="#use-shutdownreason" title="Permanent link">&para;</a></h2>
+<p>Why the process is stopping.</p>
+<h2 id="use-telemetrynotinstalled"><code>use TelemetryNotInstalled</code><a class="headerlink" href="#use-telemetrynotinstalled" title="Permanent link">&para;</a></h2>
+<p>Why the log could not be set up.</p>
+<h2 id="module-admission">Module <code>admission</code><a class="headerlink" href="#module-admission" title="Permanent link">&para;</a></h2>
+<p>How many questions may be executing at once, and how long a caller waits for a turn.</p>
+<h1 id="why-this-is-a-bound-on-the-work-and-not-a-bound-on-the-reply">Why this is a bound on the work and not a bound on the reply<a class="headerlink" href="#why-this-is-a-bound-on-the-work-and-not-a-bound-on-the-reply" title="Permanent link">&para;</a></h1>
+<p><code>server.request_timeout_seconds</code> is a deadline on the <strong>reply</strong>. When it expires the caller is
+answered <code>408</code> and the handler future is dropped - and a started <code>tokio::task::spawn_blocking</code>
+task cannot be aborted, so the question keeps running. Without something else in the picture a
+caller asking questions that cost more than the timeout gets a fast turnaround while the
+deployment keeps the whole cost, and in-flight work accumulates at the rate limit with nothing
+shedding it. The blocking pool defaults to 512 threads with an unbounded queue, so that backlog
+is bounded by memory.</p>
+<p><code>Admission</code> is the bound. It is the number of questions that may be <em>executing</em>, and the slot
+is meant to be held by the blocking task rather than by the handler future - so a timed-out
+request does not hand its slot back until the work it started actually finishes.</p>
+<h1 id="what-it-does-not-do-stated-first-because-it-is-the-part-that-gets-assumed">What it does not do, stated first because it is the part that gets assumed<a class="headerlink" href="#what-it-does-not-do-stated-first-because-it-is-the-part-that-gets-assumed" title="Permanent link">&para;</a></h1>
+<p><strong>It does not cancel anything.</strong> The <code>Warehouse</code> port is synchronous and has no cancellation
+token, so a question already handed to the blocking pool runs to completion whatever the caller
+is told. A timed-out request therefore still holds its slot until the data system answers it -
+which is exactly why the slot matters: the backlog becomes a number somebody chose instead of
+memory.</p>
+<p><strong>It is not a per-caller budget.</strong> It bounds the deployment, not a principal. One caller filling
+every slot sheds every other caller, and nothing here can tell the two apart - that needs an
+identity, which this service does not have. <code>sutura_config::RateLimitSettings</code> is what bounds a
+single address's rate, and it counts requests rather than execution.</p>
+<p><strong>It is not a queue.</strong> Waiting is bounded by the admission timeout and a waiter that runs out of
+it is shed. A refused waiter costs a dropped future rather than a thread, which is what stops
+the queue in front of the bound from being a second unbounded thing.</p>
+<h1 id="why-it-lives-here-rather-than-in-the-transport">Why it lives here rather than in the transport<a class="headerlink" href="#why-it-lives-here-rather-than-in-the-transport" title="Permanent link">&para;</a></h1>
+<p>The resource it bounds is the <em>process</em>: a blocking-pool thread holding a data system. A second
+transport - an MCP surface, say - would need the same bound over the same pool, and two
+independently sized semaphores would be two controls each reporting a limit that the other can
+exceed. So the composition root builds one, exactly as it builds one <code>crate::Shutdown</code>.</p>
+<h1 id="what-holds-the-one-and-what-it-does-not-reach">What holds the "one", and what it does not reach<a class="headerlink" href="#what-holds-the-one-and-what-it-does-not-reach" title="Permanent link">&para;</a></h1>
+<p>That paragraph used to end there, and <code>telekom/sutura#340</code> is what it cost: <strong>nothing held the
+word <em>one</em>.</strong> Two things hold it now, and neither of them is the sentence above.</p>
+<ul>
+<li><strong>A transport cannot build one.</strong> <code>Admission::new</code> is <code>pub(crate)</code>, so the only public door
+  is <code>Admission::from_settings</code> - the group the two keys live in - and both transports'
+  constructors <em>take</em> the value. <code>sutura_http</code>'s request state DERIVED its own until #340, which
+  made a second <code>ServiceState</code> a second permit set; that edge is gone, so every permit set in a
+  process is built by a composition root and handed down.</li>
+<li><strong>A composition root builds at most one, and a serving root builds exactly one.</strong>
+  <code>cargo xtask check-one-bound</code>, in <code>just hygiene</code>, counts the construction sites: at most one
+  per crate, only in a crate that has a <code>src/main.rs</code>, and one in every such crate that composes
+  a transport. Its own header states the ways it fails closed and what a text scan cannot see.</li>
+</ul>
+<p><strong>The limit, stated with the claim: the gate counts SITES, and a site is not a permit set.</strong> A
+root calling the door once inside a loop builds one bound per iteration and reads as one site,
+and no text scan can see a bound obtained through a function pointer or a re-export. What
+nothing here reaches at all is two <em>processes</em>: this bound is per process by construction, so
+two replicas admit twice the number - which is what a replica is for.</p>
+<h3 id="struct-atcapacity"><code>struct AtCapacity</code><a class="headerlink" href="#struct-atcapacity" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AtCapacity</span>
+</span></code></pre></div>
+<p>Nothing was free inside the admission timeout.</p>
+<p>Carries both numbers because the answer to it differs by which one is wrong: a bound that is too
+small for the machine is a configuration change, and a wait that expires under normal load is a
+deployment that needs another replica.</p>
+<h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bound</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many slots there are in total.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">waited</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>How long the caller waited before being shed.</p>
+<h4 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-admission"><code>struct Admission</code><a class="headerlink" href="#struct-admission" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Admission</span>
+</span></code></pre></div>
+<p>The bound on how many questions execute at once, and the bound on waiting for a turn.</p>
+<p>Cloneable and cheap: every clone shares one permit set, which is the property that makes this a
+bound at all. A per-request or per-connection copy would be a number that reads like a limit and
+bounds nothing.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">admit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Slot</span><span class="p">,</span><span class="w"> </span><span class="n">AtCapacity</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Waits for a slot, for at most the admission timeout.</p>
+<p>The returned <code>Slot</code> must be moved into whatever does the work rather than held by the
+awaiting future, or the bound becomes a bound on <em>starting</em> work instead of on running it -
+see the module documentation.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bound</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many questions may execute at once.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">free</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many slots are free right now.</p>
+<p>For a log line and for a test. Not for a decision: it is true when it is read and can be
+false by the time it is acted on, which is what <code>Self::admit</code> exists to avoid.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_settings</span><span class="p">(</span><span class="n">runtime</span><span class="p">:</span><span class="w"> </span><span class="nc">RuntimeSettings</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The bound this process's settings describe.</p>
+<p><strong>The only public door</strong>, so the two values cannot be taken from different places and cannot
+be numbers a caller chose. What a composition root calls, and <code>cargo xtask check-one-bound</code>
+is what holds <em>once per root</em> - a transport that called this would be a second permit set,
+which is the shape the module documentation calls not-a-bound.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">wait</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>How long a question may wait for a slot.</p>
+<h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="type_alias-slot"><code>type_alias Slot</code><a class="headerlink" href="#type_alias-slot" title="Permanent link">&para;</a></h3>
+<p>The right to execute one question, held for as long as the question runs.</p>
+<p>An alias for <code>tokio</code>'s owned permit rather than a newtype around it, because the type's whole
+contract is its <code>Drop</code>: the slot comes back when the value is dropped, and a wrapper would only
+add a way to get that wrong. Owned rather than borrowed so it can be moved into the blocking
+task, which is the whole point - see the module documentation.</p>
+<h2 id="module-audit">Module <code>audit</code><a class="headerlink" href="#module-audit" title="Permanent link">&para;</a></h2>
+<p>The one implementor of <code>AuditSink</code> that needs nothing from anybody.</p>
+<p>A structured writer over the tracing subscriber this crate already composes. It is here rather
+than in a transport for the reason everything in this crate is here: the subscriber is
+process-global, and the sink is a use of it rather than a second installation.</p>
+<h1 id="why-this-is-the-first-implementor-rather-than-a-fake">Why this is the first implementor rather than a fake<a class="headerlink" href="#why-this-is-the-first-implementor-rather-than-a-fake" title="Permanent link">&para;</a></h1>
+<p><code>AGENTS.md</code> says a port trait arrives with its first implementor, because a trait with no
+implementor is a guess at a signature. This is the sink a deployment that attaches nothing else
+gets: it writes into the log pipeline the deployment already runs, so there is no configuration,
+no credential and no second egress path to decide about. <strong>Whether that pipeline keeps anything
+is the deployment's answer, not ours</strong> - which is the limit <code>sutura_domain::audit</code> states, and
+this type is where it is most visible.</p>
+<h1 id="it-replaces-a-log-line-rather-than-adding-a-channel-beside-one">It replaces a log line rather than adding a channel beside one<a class="headerlink" href="#it-replaces-a-log-line-rather-than-adding-a-channel-beside-one" title="Permanent link">&para;</a></h1>
+<p>Before this existed, <code>sutura_http</code>'s query handler wrote one <code>tracing::info!</code> per outcome, and
+its own doc comment said there was no audit sink and nothing recorded a principal chain. The
+fields that line carried - the row count, the definition version, the refusal variant - are
+carried here, so an operator's existing filters keep working while the line gains the thing it
+was missing. What that line also carried, and this does not, is the HTTP status: the status is
+the transport's and the application cannot see it. Nothing is lost, because <code>tower_http</code>'s
+response line already carries it inside the same request span, configured at <code>info</code> in
+<code>sutura_http::router</code> - which is where a status belongs.</p>
+<h3 id="struct-tracingauditsink"><code>struct TracingAuditSink</code><a class="headerlink" href="#struct-tracingauditsink" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TracingAuditSink</span>
+</span></code></pre></div>
+<p>Writes each record as one structured event on the process subscriber.</p>
+<p>There is nothing to configure, and a <code>new</code> that took a level or a target would be two ways to
+write the same record. The subscriber decides where the event goes, which is the one decision a
+deployment already makes.</p>
+<p>A private marker field rather than a unit struct, for two reasons and the first is the honest
+one: <code>cargo xtask check-boundaries</code> reads a file line by line, and a unit <code>pub struct</code> leaves its
+scan waiting for a body - so the next braced block in the file is read as this struct's field
+list and a <code>pub fn</code> in it is reported as a <code>pub</code> field. That is a defect in the gate rather than
+in this type, and it is written down here rather than worked around silently. The second reason
+stands on its own: a field, even an empty one, means <code>Self::new</code> is the only way in from
+outside this crate, where a unit struct is its own literal.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>AuditSink</code>, <code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code></p>
+<h2 id="module-banner">Module <code>banner</code><a class="headerlink" href="#module-banner" title="Permanent link">&para;</a></h2>
+<p>What the process says about itself on the way up.</p>
+<p>Two things, and they go to different places on purpose.</p>
+<p>The banner is <code>println!</code>, before any subscriber exists. It is for a person watching a terminal
+or scrolling to the top of a container log, and it answers "what is this and which build is it"
+without needing the log format to be readable yet.</p>
+<p>The configuration report is <code>tracing</code>, after the subscriber is installed, so it lands in
+whatever a collector is ingesting. It is for an operator, and the lines that matter most are
+the ones about what this service does <em>not</em> do.</p>
+<h3 id="fn-print"><code>fn print</code><a class="headerlink" href="#fn-print" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">print</span><span class="p">(</span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Environment</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Prints the banner and the build line to standard output.</p>
+<p>Before the subscriber, deliberately. <code>version</code> is the caller's <code>CARGO_PKG_VERSION</code>: taking it
+as an argument rather than reading this crate's own means the number printed is the binary's,
+which is the one somebody is trying to identify.</p>
+<h3 id="fn-announce"><code>fn announce</code><a class="headerlink" href="#fn-announce" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">announce</span><span class="p">(</span><span class="n">settings</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Settings</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Writes the resolved configuration to the log.</p>
+<p><strong>Every value comes from the loaded <code>Settings</code>, not from a file.</strong> The environment layer is
+applied last, so a report built from a file could describe a deployment the process is not
+running as - which is the same reason the refusals in <code>sutura-config</code> read the loaded value.</p>
+<p>The whole tree goes out as one <code>Debug</code> field. That is safe because the only credential-shaped
+value in it is held in a type whose <code>Debug</code> redacts, and <code>sutura-config</code> has a test asserting
+that at the outermost struct - not because this function was careful.</p>
+<h2 id="module-blocking">Module <code>blocking</code><a class="headerlink" href="#module-blocking" title="Permanent link">&para;</a></h2>
+<p>Handing synchronous work to the blocking pool without losing the request it belongs to.</p>
+<h1 id="why-a-helper-rather-than-a-convention">Why a helper rather than a convention<a class="headerlink" href="#why-a-helper-rather-than-a-convention" title="Permanent link">&para;</a></h1>
+<p><code>tokio::task::spawn_blocking</code> runs its closure on a thread that has no idea which request it is
+serving. <code>tracing</code>'s current span is a thread-local, so every line the closure emits lands
+outside the span the transport opened - which is exactly the context an operator filters on. The
+fix is three lines and it was already written correctly at the one call site that existed.
+Nothing made the <em>next</em> one write it, and a missing span is invisible: the code compiles, the
+work runs, the answer is right, and one request's lines are simply not findable together.</p>
+<p>So the three lines live here and <code>tokio::task::spawn_blocking</code> is on the <code>disallowed-methods</code>
+list in <code>clippy.toml</code>, with this module's own call carrying the one <code>#[expect]</code> for it. That
+turns "remember to carry the span" into a lint, which is what the <em>Agent Operating Contract</em>
+asks for: a rule with no mechanism is a wish.</p>
+<h1 id="why-it-lives-in-this-crate">Why it lives in this crate<a class="headerlink" href="#why-it-lives-in-this-crate" title="Permanent link">&para;</a></h1>
+<p>The same reason <code>crate::admission</code> does: <strong>the resource is the process.</strong> The blocking pool is
+one pool per runtime, shared by every transport, and a second transport would need the same
+span-carrying spawn over the same pool. A copy per transport is two conventions that can differ.</p>
+<h1 id="what-it-does-not-do-stated-because-the-name-invites-the-assumption">What it does not do, stated because the name invites the assumption<a class="headerlink" href="#what-it-does-not-do-stated-because-the-name-invites-the-assumption" title="Permanent link">&para;</a></h1>
+<p>It does not bound anything and it does not cancel anything. <code>tokio</code> documents that a started
+blocking task cannot be aborted and that runtime shutdown waits for one, so a caller who has
+given up does not stop the work. <code>crate::Admission</code> is what bounds how many of these run at
+once; this only decides which span they are attributed to.</p>
+<h1 id="the-one-thing-that-has-to-be-true-of-the-deployment">The one thing that has to be true of the deployment<a class="headerlink" href="#the-one-thing-that-has-to-be-true-of-the-deployment" title="Permanent link">&para;</a></h1>
+<p>Carrying the span works because the span's own <code>Dispatch</code> and the pool thread's default
+dispatcher are the <em>same</em> subscriber - the process-global one that
+<code>crate::telemetry::install</code> sets. Entering the span registers it on the pool thread inside
+that subscriber; the event then finds it there. Under a subscriber scoped to one thread with
+<code>tracing::subscriber::with_default</code> the two are different, and the pool thread's line goes to
+whatever global default exists instead. That is why the test for this is an integration test
+that installs a global subscriber, and not a unit test in this file.</p>
+<h3 id="fn-spawn_carrying_span"><code>fn spawn_carrying_span</code><a class="headerlink" href="#fn-spawn_carrying_span" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">spawn_carrying_span</span><span class="o">&lt;</span><span class="n">Work</span><span class="p">,</span><span class="w"> </span><span class="n">Answer</span><span class="o">&gt;</span><span class="p">(</span><span class="n">work</span><span class="p">:</span><span class="w"> </span><span class="nc">Work</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio</span><span class="p">::</span><span class="n">task</span><span class="p">::</span><span class="n">JoinHandle</span><span class="o">&lt;</span><span class="n">Answer</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Spawns <code>work</code> on the blocking pool, entered in the caller's current span.</p>
+<p>The span is captured <em>here</em>, on the caller's thread, and entered inside the closure - which is
+the only order that works: reading the current span from the blocking thread would read that
+thread's span, which is none.</p>
+<p>Everything the closure does is inside the span, its own <code>Drop</code>s included. That matters where a
+permit or a guard is released at the end of the closure: the release happens inside the span
+too, so a diagnostic emitted while dropping is still attributable to the request.</p>
+<h1 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h1>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a># async fn call() -&gt; Result&lt;u8, tokio::task::JoinError&gt; {
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>// A synchronous port call. Anything traced inside belongs to the caller's request.
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>sutura_runtime::spawn_carrying_span(|| 7_u8).await
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a># }
+</span></code></pre></div>
+<h2 id="module-panics">Module <code>panics</code><a class="headerlink" href="#module-panics" title="Permanent link">&para;</a></h2>
+<p>A panic that reaches the log rather than only the terminal.</p>
+<p><strong>A hook, not a <code>catch_unwind</code>, and the shipped profiles are why.</strong> <code>panic = "abort"</code> is set on
+every profile this repository ships, so there is no unwinding to catch: the process is going to
+die. What a hook can still do is run <em>first</em>, on the panicking thread, while the payload and the
+location are in hand - so the last thing in the log says what happened and where, instead of
+the log simply stopping.</p>
+<p>That distinction is the whole value. A container that exits with a message on standard error and
+nothing in the collected log looks, from the outside, exactly like one that was evicted.</p>
+<p>The previous hook is kept and called afterwards, so the default rendering and any backtrace
+still appear. Replacing it outright would trade one loss for another.</p>
+<h3 id="fn-install_panic_hook"><code>fn install_panic_hook</code><a class="headerlink" href="#fn-install_panic_hook" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install_panic_hook</span><span class="p">()</span>
+</span></code></pre></div>
+<p>Makes every subsequent panic emit a <code>tracing</code> error before the default hook runs.</p>
+<p>Call it before the first thread is spawned and after the subscriber is installed. Before the
+subscriber it would still work - <code>tracing</code> drops events with no subscriber rather than failing -
+but the panic it was installed for would be the one that is lost.</p>
+<p>Idempotent: the second and later calls do nothing.</p>
+<h2 id="module-shutdown">Module <code>shutdown</code><a class="headerlink" href="#module-shutdown" title="Permanent link">&para;</a></h2>
+<p>Stopping on purpose, and saying why.</p>
+<p>Three things have to be true of a shutdown, and each of them is a separate part of this module:</p>
+<ul>
+<li><strong>A signal reaches the server.</strong> An orchestrator sends <code>SIGTERM</code> and then, some seconds
+  later, <code>SIGKILL</code>. A process that ignores the first is killed mid-request.</li>
+<li><strong>In-flight work drains.</strong> <code>axum</code> waits for every open connection, which is what makes a
+  rolling deployment not drop answers - and which is also how one wedged connection pins the
+  process open past the kill deadline. So the drain is <em>bounded</em>: see
+  <code>Shutdown::grace_period</code>, and <code>Shutdown::remaining_grace</code> for what is left of that budget
+  once the drain has had its turn. The two together are what make the number a bound on
+  <em>stopping</em> rather than on the connection drain alone: dropping an <code>axum</code> serve future ends the
+  drain, and the runtime then still waits for every blocking task it cannot cancel.</li>
+<li><strong>The reason is recorded.</strong> A process that vanished and a process that was asked to stop look
+  identical in a log that says nothing, and only one of them is a bug.</li>
+</ul>
+<p>The signal is translated into a <code>Shutdown</code> rather than being awaited directly by the server,
+and that is what makes this testable: a test triggers the same value a signal would, with no
+process-wide side effect and nothing to install.</p>
+<h3 id="enum-shutdownreason"><code>enum ShutdownReason</code><a class="headerlink" href="#enum-shutdownreason" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ShutdownReason</span>
+</span></code></pre></div>
+<p>Why the process is stopping.</p>
+<h4 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Interrupt</code> - An interactive interrupt. A person pressed a key.</li>
+<li><code>Terminate</code> - A termination request. An orchestrator is replacing this process, and a deadline is running.</li>
+<li><code>Requested</code> - Something in this process asked for it - a fatal error on a path that is not the server, or a test.</li>
+</ul>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-shutdown"><code>struct Shutdown</code><a class="headerlink" href="#struct-shutdown" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Shutdown</span>
+</span></code></pre></div>
+<p>A shared "stop now" flag that remembers why.</p>
+<p>Cloneable and cheap, so the server, the signal listener and anything else that has to wind down
+all hold the same one. Built on a <code>watch</code> channel rather than a cancellation token from a
+utility crate: the channel is in <code>tokio</code> already, and carrying the <em>reason</em> in the value is
+what makes the log line at the end say something.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grace_period</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>The whole budget for stopping, from the moment stopping is asked for.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A fresh, untriggered shutdown with the default grace period.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">ShutdownReason</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The reason, if shutdown has been asked for.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">remaining_grace</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>What is left of that budget.</p>
+<p><strong>The connection drain is not the whole of stopping, and this is the difference.</strong> Dropping
+an <code>axum</code> serve future ends the drain and returns; the runtime then still waits for every
+blocking task, because <code>tokio</code> documents that a started <code>spawn_blocking</code> task cannot be
+aborted and that runtime shutdown waits for one. A process that spent its whole grace period
+draining connections and then waited a full grace period again for the blocking pool would
+take twice the number an operator configured - and that number was chosen against their
+orchestrator's kill timer, so twice it is being killed mid-answer.</p>
+<p>The full grace period before stopping has been asked for, because there is nothing to count
+from yet: this is a bound on the <em>rest</em> of stopping, and stopping has not started.</p>
+<p>Saturating, so an overrun is zero rather than a wrapped duration. Zero is a legitimate
+answer and means the budget is spent: whatever waits on it should not wait at all.</p>
+<p>Measured on <code>std::time::Instant</code> and not on <code>tokio</code>'s clock, deliberately. What this number
+is racing is an orchestrator's kill timer, which is wall time, and what consumes it is
+<code>tokio::runtime::Runtime::shutdown_timeout</code>, which is also wall time. A test-controllable
+clock here would make the two disagree in exactly the deployment where it matters.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">requested</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ShutdownReason</span>
+</span></code></pre></div>
+<p>Resolves when shutdown has been asked for.</p>
+<p>Checks the current value before waiting, which is the bug this shape exists to avoid: a
+<code>watch</code> receiver created after the send marks that value as already seen, so a naive
+<code>changed().await</code> on a shutdown that has <em>already</em> happened waits for a second one that
+never comes.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">trigger</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="nc">ShutdownReason</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Asks for shutdown, and logs why.</p>
+<p><strong>The first reason wins, and a second call is a no-op.</strong> A <code>SIGINT</code> arriving while a
+<code>SIGTERM</code> drain is already running should not restart the clock or rewrite the record of
+what started it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_grace</span><span class="p">(</span><span class="n">grace</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A fresh shutdown with an explicit grace period. What a test uses.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code></p>
+<h3 id="fn-listen"><code>fn listen</code><a class="headerlink" href="#fn-listen" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">listen</span><span class="p">(</span><span class="n">shutdown</span><span class="p">:</span><span class="w"> </span><span class="nc">Shutdown</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Waits for the first operating-system shutdown signal and triggers <code>shutdown</code>.</p>
+<p>Spawned as a task by the composition root. It returns once it has triggered, so a caller can
+join it; it does not loop, because the first reason wins.</p>
+<h2 id="module-telemetry">Module <code>telemetry</code><a class="headerlink" href="#module-telemetry" title="Permanent link">&para;</a></h2>
+<p>The log: one subscriber, two renderings, and the environment decides which.</p>
+<p>In production a log line is read by a collector. It has to be one JSON object per line with the
+span context attached, or a query cannot find every line belonging to one request. On a laptop
+the same line is read by a person who is recompiling every thirty seconds, and a JSON object
+per line is unreadable there.</p>
+<p>Both are correct for their reader, so the choice is made once, from
+<code>sutura_config::LogFormat</code>, whose default follows the environment. That is the whole of the
+split - there is no second switch that could disagree with it.</p>
+<h1 id="what-overrides-what">What overrides what<a class="headerlink" href="#what-overrides-what" title="Permanent link">&para;</a></h1>
+<p><code>RUST_LOG</code>, if it is set, beats <code>telemetry.filter</code>. That is the convention every Rust operator
+already has, and the configured value is the fallback rather than the ceiling. Unlike the usual
+spelling of this, an <em>invalid</em> <code>RUST_LOG</code> is an error rather than something quietly discarded:
+a discarded filter means the process logs at some other level and nothing says so, which is the
+failure mode a filter exists to prevent.</p>
+<h3 id="enum-telemetrynotinstalled"><code>enum TelemetryNotInstalled</code><a class="headerlink" href="#enum-telemetrynotinstalled" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TelemetryNotInstalled</span>
+</span></code></pre></div>
+<p>Why the log could not be set up.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Filter</code> - A filter directive would not parse. Either the configured one or <code>RUST_LOG</code>; <code>source</code> says which, because they fail for different reasons and only one of them is in a file.</li>
+<li><code>FilterNotUnicode</code> - <code>RUST_LOG</code> held bytes that are not text.</li>
+</ul>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="fn-subscriber"><code>fn subscriber</code><a class="headerlink" href="#fn-subscriber" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">subscriber</span><span class="o">&lt;</span><span class="n">Sink</span><span class="o">&gt;</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">,</span><span class="w"> </span><span class="n">sink</span><span class="p">:</span><span class="w"> </span><span class="nc">Sink</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">BuiltSubscriber</span><span class="p">,</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Builds the subscriber for these settings, writing to <code>sink</code>.</p>
+<p>Boxed, and that is what lets the two arms be one type: a pretty formatter and a bunyan
+formatter compose different layer stacks, so there is no <code>impl Subscriber</code> they share. The box
+is paid once, at startup.</p>
+<p>Generic in the sink so a test can build both arms over a buffer and assert on the bytes. That
+is the only way to test this: installing a subscriber is process-global and happens once.</p>
+<h3 id="fn-install"><code>fn install</code><a class="headerlink" href="#fn-install" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Installs the subscriber for these settings as the process-wide one, writing to standard output.</p>
+<p>Standard output rather than standard error, for both formats: a collector reads one stream, and
+splitting the log across two means half of it is interleaved somewhere else. Diagnostics that
+have to be visible <em>before</em> this is installed - the banner, and a configuration that refused to
+load - go to their own stream and say so.</p>
+<p>Idempotent in the sense that matters: a second call is ignored rather than failing, because the
+only thing that could call twice is a test harness and a panic there would be about the harness
+rather than about the service.</p>
+<h3 id="constant-filter_variable"><code>constant FILTER_VARIABLE</code><a class="headerlink" href="#constant-filter_variable" title="Permanent link">&para;</a></h3>
+<p>The variable that overrides the configured filter.</p>
+<h3 id="type_alias-builtsubscriber"><code>type_alias BuiltSubscriber</code><a class="headerlink" href="#type_alias-builtsubscriber" title="Permanent link">&para;</a></h3>
+<p>A subscriber built for one set of settings.</p>
+<p>A named alias because the inline form is over the complexity threshold in <code>clippy.toml</code>, and
+naming it is the better half of that trade: what matters about the type is that it is <em>one</em>
+type, which is the whole reason the box is there.</p>
+<h2 id="module-testing">Module <code>testing</code><a class="headerlink" href="#module-testing" title="Permanent link">&para;</a></h2>
+<p>The log-capture writer.</p>
+<p><code>cfg(test)</code> for this crate's own suite, and behind <code>test-capture</code> for another crate's. The
+feature's comment in <code>Cargo.toml</code> says why only the writer is exposed and not the helpers
+around it.
+Reading the log back, for a test that has to assert on what was logged.</p>
+<p>It exists because everything this crate does is observable only as log output: a subscriber that
+renders the wrong format, a panic hook that emits nothing, a shutdown that does not say why -
+none of those has a return value to assert on. So the tests install a subscriber over a buffer
+and assert on the bytes.</p>
+<p>Scoped and not global for this crate's own unit tests, on purpose:
+<code>tracing::subscriber::set_global_default</code> succeeds once per process, and this crate's tests need
+several different subscribers. <code>tests/blocking_span.rs</code> is the deliberate exception, and its
+header says why a global one is the only thing that can prove what it proves.</p>
+<h1 id="two-visibilities-and-the-reason-for-the-split">Two visibilities, and the reason for the split<a class="headerlink" href="#two-visibilities-and-the-reason-for-the-split" title="Permanent link">&para;</a></h1>
+<p><code>Capture</code> is <code>pub</code> under <code>cfg(test)</code> <strong>or</strong> the <code>test-capture</code> feature, because <code>sutura-http</code>
+has the same problem and a second copy of a writer is a second thing to keep in step. The
+helpers that build a subscriber around it stay <code>cfg(test)</code>: they use <code>expect</code>, which is denied
+outside test code, so a feature that exposed them would make <code>--all-features</code> fail to lint.</p>
+<h3 id="struct-capture"><code>struct Capture</code><a class="headerlink" href="#struct-capture" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Capture</span>
+</span></code></pre></div>
+<p>A writer that keeps what was written.</p>
+<p><code>std::sync::Mutex</code> is on the workspace's disallowed list, and the reason recorded there is that
+an async task holding one across an <code>await</code> can deadlock the executor. Neither half applies
+here: <code>MakeWriter</code> and <code>io::Write</code> are synchronous traits that cannot await, the guard is taken
+and dropped inside one statement, and no runtime is involved in the tests that use this.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">contents</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>Everything written so far, as text.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>An empty buffer, teeing to standard output if <code>TEE_VARIABLE</code> is set.</p>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Default</code>, <code>MakeWriter&lt;'a&gt;</code>, <code>Write</code></p>
+<h3 id="constant-tee_variable"><code>constant TEE_VARIABLE</code><a class="headerlink" href="#constant-tee_variable" title="Permanent link">&para;</a></h3>
+<p>Set this to anything non-empty to have a captured log also reach standard output.</p>
+<p><code>cargo nextest</code> shows a failing test's output, so this is what makes the log of the request
+under test readable without making every other run louder.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,4506 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.5.1/serving/">
+      
+      
+        <link rel="prev" href="../agent-prompt/">
+      
+      
+        <link rel="next" href="../verifying-a-release/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Serving over HTTP - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../css/telekom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#serving-over-http" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Serving over HTTP
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Serve it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#read-this-part-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read this part first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-will-not-start-with" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it will not start with
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-is-asking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who is asking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Who is asking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-scope-grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a scope grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The endpoints
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The endpoints">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-refusal-carries-a-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A refusal carries a status
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Capacity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-a-bound-on-execution-exists-at-all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a bound on execution exists at all
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-does-not-bound" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it does not bound
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-engines-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The engine's width
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-bigquery-source-and-the-build-it-needs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A bigquery source, and the build it needs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#address-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Address families
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TLS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="TLS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminating-it-in-this-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminating it in this process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#certificate-renewal-without-dropping-connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Certificate renewal without dropping connections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-acme-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No ACME, and why
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stopping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stopping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-not-built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is not built
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-caller-can-still-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a caller can still do
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the agent surface learns who is asking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Three OSS-readiness scans, and what each discloses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a Scorecard zero says about this repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0026-no-third-party-binary-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An OSS binary cache for this repository's own paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#read-this-part-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read this part first
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-will-not-start-with" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it will not start with
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-is-asking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who is asking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Who is asking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-scope-grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a scope grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The endpoints
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The endpoints">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-refusal-carries-a-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A refusal carries a status
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capacity
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Capacity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-a-bound-on-execution-exists-at-all" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a bound on execution exists at all
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-does-not-bound" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it does not bound
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-engines-width" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The engine's width
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-bigquery-source-and-the-build-it-needs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A bigquery source, and the build it needs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#address-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Address families
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TLS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="TLS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminating-it-in-this-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminating it in this process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#certificate-renewal-without-dropping-connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Certificate renewal without dropping connections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-acme-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No ACME, and why
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stopping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stopping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-not-built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is not built
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-caller-can-still-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a caller can still do
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="serving-over-http">Serving over HTTP<a class="headerlink" href="#serving-over-http" title="Permanent link">&para;</a></h1>
+<p><code>sutura-serve</code> answers certified questions over HTTP. It is a <strong>second binary</strong>, separate from the
+<code>sutura</code> command-line tool, and <strong>a release publishes it</strong>: a tarball and a container image at each of
+the four shipped triples, signed and with provenance like everything else on the page.</p>
+<p>That is a change. Until then the release artifacts contained the command-line tool and nothing else,
+so the HTTP surface, the caller-token verification, the rate limiter and the generated interface
+description shipped in no artefact on any platform, and this page's only answer to "how do I run it"
+was <code>cargo run</code>. It is still a second binary rather than a subcommand: <code>sutura</code> is a tool a person
+runs and this is a service a platform schedules, and folding an async runtime, an I/O driver and a web
+framework into the former would put them in every <code>sutura compile</code>.</p>
+<p><strong>What the published server does not carry</strong> is in-process TLS and the BigQuery adapter. Both are
+default-off features, both cost an outbound rustls closure on two statically linked triples, and both
+are a <strong>startup refusal that names the feature</strong> rather than a silent degradation - so asking for
+either on a published binary stops the process rather than serving something weaker than asked for.
+A deployment that needs one builds from source; <a href="#terminating-it-in-this-process">Terminating it in this
+process</a> and the <code>bigquery</code> source notes below say which command.</p>
+<h2 id="read-this-part-first">Read this part first<a class="headerlink" href="#read-this-part-first" title="Permanent link">&para;</a></h2>
+<p><strong>A caller's identity can now be established, and it is still not per-caller access.</strong> Those are two
+different sentences and a deployment that reads them as one is the failure this section exists to
+prevent.</p>
+<p>By default there is <strong>no per-caller identity at all</strong>: no <code>security.inbound</code> block means the bearer
+token is the whole story, and presenting it proves the caller holds a secret an operator wrote down -
+it authenticates the <strong>deployment</strong>, not the caller. It cannot be scoped to a subset of the catalog,
+it cannot be revoked for one party without revoking it for all of them, and it does not reach the data
+system. That is a single-player deployment, and it is a first-class shape rather than a degraded one.</p>
+<p>A deployment that declares <code>security.inbound</code> gets leg 1: every request carries a token this service
+verifies itself - signature against a pinned asymmetric algorithm, issuer, expiry, and an audience
+matching this deployment's own resource identifier - and the request runs under a verified subject
+that every audit record then names. See <a href="#who-is-asking">who is asking</a> for the two modes and the keys.</p>
+<p><strong>Neither shape makes a data system execute as the asking subject.</strong> That is leg 2, and the part of
+it that is built is worth stating precisely, because the gap left is the one that matters. Built: a
+question cannot execute at all without a credential a broker minted for the source it reads - there is
+no signature that runs as this process - and a subject with no credential at a source is refused as
+<code>credential_unavailable</code> rather than answered under the deployment's identity. Not built: <strong>any adapter
+that can carry a per-subject credential.</strong> The engine that ships is one process reading local files
+under one operating-system identity, so what a broker can mint for it is the deployment's own identity,
+acknowledged by an operator; the shipped broker mints from configuration and performs no token
+exchange.</p>
+<p>So a deployment with leg 1 knows who asked, records the posture each leg ran under, and still reads
+every row as one identity. Believing otherwise - that authentication implies per-user access - is
+precisely the confusion the records warn about.</p>
+<p>Both sentences are printed at <code>WARN</code> on every boot, read out of the configuration types rather than
+written into the log by hand, so an operator meets them without reading this page.</p>
+<p>Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
+it, and the bucket it counts against is a network address rather than a principal.</p>
+<h2 id="what-it-will-not-start-with">What it will not start with<a class="headerlink" href="#what-it-will-not-start-with" title="Permanent link">&para;</a></h2>
+<p>Every one of these is a <strong>refusal to start</strong>, not a warning. A warning is read by whoever happens to
+be looking at the log in the format the collector was configured for; a process that does not start
+is read by everybody. Every refusal is reported at once, so a fix-and-restart loop does not surface
+them one at a time.</p>
+<table>
+<thead>
+<tr>
+<th>Configuration</th>
+<th>Why it refuses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a bind address other hosts can reach, without <code>security.tls_termination</code> declared</td>
+<td>with no per-caller identity the bind address is the whole perimeter, and the bearer token crosses whatever hop is in front. Saying which thing terminates TLS is how the cleartext segment becomes a stated fact rather than an assumption. Applies in <em>every</em> environment, including a laptop. See <a href="#tls">TLS</a> for the four answers</td>
+</tr>
+<tr>
+<td>no <code>security.access_token</code> <strong>and</strong> no <code>security.inbound</code>, in production or on a non-loopback bind</td>
+<td>the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds</td>
+</tr>
+<tr>
+<td>a <code>security.inbound</code> block with no <code>mode</code></td>
+<td>both defaults are wrong in opposite directions - <code>direct</code> makes a deployment behind a gateway reject every caller, and <code>behind-gateway</code> makes a directly exposed one accept a proof anybody can forge. See <a href="#who-is-asking">who is asking</a></td>
+</tr>
+<tr>
+<td><code>security.access_token</code> together with <code>security.inbound.mode: direct</code></td>
+<td>both are read from <code>authorization: Bearer</code>, and a request cannot carry two credentials in one header. In the direct mode the caller's own token is what authenticates the request</td>
+</tr>
+<tr>
+<td><code>security.inbound.algorithms</code> naming <code>none</code>, an <code>HS*</code> algorithm, nothing, or two key families</td>
+<td><code>none</code> is the absence of a signature; a symmetric algorithm is how algorithm confusion works; an empty list is pinning nothing; and a list spanning two key kinds verifies nothing, because one token is verified by one key</td>
+</tr>
+<tr>
+<td>a <code>security.inbound.key_set_file</code> that cannot be read or is not a usable JWK set</td>
+<td>the alternative is a process that starts and answers <code>401</code> to everybody. A key with no <code>kid</code>, a symmetric (<code>oct</code>) key, and <strong>two keys under one <code>kid</code></strong> are each refused rather than skipped - the last one because which key verifies would otherwise be decided by their order in the document</td>
+</tr>
+<tr>
+<td>a key set holding <strong>no key of the kind <code>security.inbound.algorithms</code> needs</strong></td>
+<td>an RSA key set under <code>algorithms: ["ES256"]</code> cannot verify anything, so the deployment would start and answer <code>401</code> to everybody with nothing in the log connecting the two</td>
+</tr>
+<tr>
+<td><code>security.inbound.mode: behind-gateway</code> with no <code>security.inbound.transit_token_type</code></td>
+<td>a component's <code>typ</code> is a fact only the deployment knows, and a guess either rejects every request or checks nothing</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_max_lifetime_seconds</code> outside 1..3600</td>
+<td>a zero refuses every assertion, and past an hour "short-lived" is not being used</td>
+</tr>
+<tr>
+<td>an explicit <code>rate_limit.enabled: false</code> in production</td>
+<td>one question is an aggregate over up to ten years of history, so an unbounded caller is an unbounded load on the data system</td>
+</tr>
+<tr>
+<td><code>server.port: 0</code> in production</td>
+<td>that asks the kernel for an ephemeral port, so nothing can be configured to reach the service</td>
+</tr>
+<tr>
+<td>an unknown <code>SUTURA_ENVIRONMENT</code></td>
+<td>a typo would otherwise select the permissive branch of every decision above</td>
+</tr>
+<tr>
+<td>any malformed or misspelled configuration key</td>
+<td>a key that is silently ignored is a default the operator believes they overrode</td>
+</tr>
+<tr>
+<td>a configured source and no <code>security.identity</code></td>
+<td>the mode decides where a shared source's acknowledgement has to be written, and no combination of source postures may answer it: a multi-tenant deployment whose sources are all shared is exactly the case a derived mode would exempt from the check it most needs</td>
+</tr>
+<tr>
+<td>a <code>shared-service-user</code> source in <code>multi-user</code> mode with no <code>acknowledged_because</code></td>
+<td>every caller would read that source as one identity that is not theirs. Sutura declares no data sensitivity, so it cannot tell whether that was fine - what it can do is make the posture impossible to arrive at by accident and impossible to arrive at in silence</td>
+</tr>
+<tr>
+<td>a source the catalog reads and no <code>sources.&lt;alias&gt;</code> entry declares</td>
+<td>there is no location for its files and no posture for its queries, and defaulting either would serve data under a configuration nobody wrote</td>
+</tr>
+<tr>
+<td><code>posture: impersonation-at-source</code> on a source this build's adapter cannot impersonate</td>
+<td>the alternative is a deployment that believes it impersonates and reads everything as this process. There is no fallback</td>
+</tr>
+<tr>
+<td>an anchor on a metric reading an <code>impersonation-at-source</code> source with no <code>verification_identity</code></td>
+<td>there is no identity to re-run that certified number as. Not skipped, not warned about and not treated as a passing anchor - a deployment that wants an impersonating source with no boot identity gets it by authoring no anchors on its metrics</td>
+</tr>
+</tbody>
+</table>
+<p>The checks read the <strong>loaded</strong> values, not any one file. The environment-variable layer is applied
+last, so a check against a file would be checking something the process is not running on.</p>
+<p>The last two are the <strong>composition root's</strong> rather than the settings tree's, and the split is not
+filing: whether the <em>linked adapter</em> can carry a per-subject credential at all is a property of the
+build, and whether the <em>bundle</em> declares an anchor is a property of the catalog. Neither is visible to
+a file, so neither is checked where files are parsed.</p>
+<h2 id="who-is-asking">Who is asking<a class="headerlink" href="#who-is-asking" title="Permanent link">&para;</a></h2>
+<p>Leg 1, and it is <strong>opt-in</strong>: a deployment with no <code>security.inbound</code> block has no per-caller identity
+and is unaffected by everything in this section.</p>
+<p>A deployment that wants one picks a mode, and there is deliberately no default, because both would be
+wrong in opposite directions.</p>
+<p><strong><code>direct</code> - this deployment is the resource server.</strong> It validates the caller's own token itself. The
+token arrives in <code>authorization: Bearer</code>, which is where RFC 6750 puts an access token and where an
+OAuth 2.1 client has no option to put it - so <code>security.access_token</code> cannot also be set, and the pair
+is refused at startup.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">inbound</span><span class="p">:</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">"direct"</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">resource</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">authorization_server</span><span class="p">:</span><span class="w"> </span><span class="s">"https://issuer.example.com"</span><span class="w">   </span><span class="c1"># the `iss` value, exactly</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">key_set_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/keys/jwks.json"</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">algorithms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"RS256"</span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="c1"># token_type defaults to RFC 9068's `at+jwt`. Leave it out unless your issuer uses another</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="c1"># profile - and read the class check below before writing `any`.</span>
+</span></code></pre></div>
+<p><strong><code>behind-gateway</code> - a fronting component authenticated the caller.</strong> This deployment validates a
+short-lived <strong>identity assertion that component signed</strong>, and derives the subject from that
+assertion's own claims. It arrives in a header of the component's own, so the deployment bearer token
+keeps <code>authorization</code> and both controls survive.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">inbound</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">"behind-gateway"</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">transit_header</span><span class="p">:</span><span class="w"> </span><span class="s">"x-transit-proof"</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">transit_issuer</span><span class="p">:</span><span class="w"> </span><span class="s">"https://gateway.example.com"</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">transit_audience</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">key_set_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/keys/gateway-jwks.json"</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">algorithms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"ES256"</span><span class="p p-Indicator">]</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transit_token_type</span><span class="p">:</span><span class="w"> </span><span class="s">"at+jwt"</span><span class="w">            </span><span class="c1"># required; `any` if the component sets no `typ`</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">transit_max_lifetime_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span><span class="w">       </span><span class="c1"># the longest `exp - iat` this deployment accepts</span>
+</span></code></pre></div>
+<p><strong>It is called an assertion and not a proof of transit, and the wording is the honest one.</strong> A
+signature says the component <em>issued</em> the token. It does not say this particular request carried it
+there: nothing binds an assertion to a method, a path or a body, and there is no record of which
+assertions have been seen. What is bounded is the <em>window</em> - an <code>iat</code> is required and <code>exp - iat</code> is
+capped by <code>transit_max_lifetime_seconds</code> - so an intercepted assertion replays for at most that long.
+<strong>The hop between the component and this process is therefore a trusted transport boundary</strong>, and
+<code>security.tls_termination</code> is where you say how far it reaches.</p>
+<p><strong><code>behind-gateway</code> does not mean "trust a header", and the configuration is what stops it meaning
+that.</strong> There is no key here that names the header a <em>username</em> arrives in. A component asserting an
+identity in a header is not authentication: anything that can reach the port can write that header,
+and the failure is invisible in a diff - a header named <code>x-authenticated-user</code> that means
+"authenticated" because of where it is <em>expected</em> to come from. What this validates is a token, on
+every request, and the subject is derived by this service from claims whose signature checked out.
+<strong>The limit:</strong> in this mode the component's <em>authentication of the caller</em> is trusted, because that is
+what the mode means. What is not trusted is a string.</p>
+<p>What the checks are, in both modes:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>What it is, and what it is not</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The signature</td>
+<td>Against a key from <code>key_set_file</code>, selected by the token's <code>kid</code>. A token naming no key id is refused rather than tried against every key - otherwise an unknown key and a bad signature are indistinguishable and a rotation is invisible</td>
+</tr>
+<tr>
+<td>The algorithm</td>
+<td><strong>Pinned from configuration and never read from the token.</strong> <code>none</code> and every <code>HS*</code> cannot be configured at all, and a symmetric key in the key set is refused at load - both halves have to be closed, because a token signed <code>HS256</code> with the issuer's <em>public</em> key as the secret verifies against a validator that accepts either</td>
+</tr>
+<tr>
+<td><strong><code>typ</code>, the token's class</strong></td>
+<td>Checked <strong>after</strong> the signature, on a header the issuer signed. RFC 9068's <code>at+jwt</code> by default in <code>direct</code>. Without it, <em>any</em> JWT this issuer signed for this audience verifies - and where your resource identifier is also a client id, which is the ordinary arrangement, that includes an <strong>OIDC ID token</strong>: a document minted to describe a login, establishing a caller for an API call. <code>at+jwt</code>, <code>AT+JWT</code> and <code>application/at+jwt</code> are one value; a token with <strong>no</strong> <code>typ</code> is refused, so the check cannot be satisfied by omission</td>
+</tr>
+<tr>
+<td><code>exp</code> and <code>nbf</code></td>
+<td>Both, with thirty seconds of leeway for clock skew. Not configurable: an operator who needs more has a clock problem that a wider window hides</td>
+</tr>
+<tr>
+<td><code>iat</code>, in <code>behind-gateway</code> only</td>
+<td><strong>Required</strong>, and <code>exp - iat</code> is capped by <code>transit_max_lifetime_seconds</code>. Without an <code>iat</code> there is no lifetime to bound, and an assertion whose lifetime is the component's alone is not short-lived in any sense this deployment can enforce. An <code>iat</code> dated into the future past the leeway is refused too, or a component could buy a longer window by dating forward</td>
+</tr>
+<tr>
+<td><code>iss</code></td>
+<td>Must equal the configured issuer, byte for byte. Not resolved as a URL - see the key table</td>
+</tr>
+<tr>
+<td><code>aud</code></td>
+<td>Must contain <strong>this deployment's own</strong> resource identifier, byte for byte, and the claim is <strong>required</strong> - a token carrying no audience is refused rather than passing a check with nothing to compare. A client may also ask its authorization server for a narrowly scoped token; that is welcome and it is an optimisation, and it is never what makes the token safe</td>
+</tr>
+<tr>
+<td><code>sub</code></td>
+<td>Required, and parsed: a control character or an invisible code point in it is a refusal, because the value is written into an audit record that is one line per call</td>
+</tr>
+<tr>
+<td><code>act</code></td>
+<td>RFC 8693's actor claim, if present, becomes the ordered actor chain in the record - so a call by an agent for a person is a different event from a call by that person</td>
+</tr>
+<tr>
+<td><code>scope</code></td>
+<td>Parsed, bounded, and <strong>read</strong> - it decides which of this surface's operations the caller may invoke. See <em>What a scope grants</em> below. A per-caller ceiling derived from a scope is still not built</td>
+</tr>
+</tbody>
+</table>
+<p>A refused request in the <code>direct</code> mode gets <code>401</code> with a <code>WWW-Authenticate: Bearer
+realm="&lt;your resource identifier&gt;", error="invalid_token"</code>. It deliberately does <strong>not</strong> say which
+check failed: "the signature verified and the audience did not" tells a caller which half of a forgery
+to fix. The log says, in the cause chain, where an operator can read it.</p>
+<p><strong>In <code>behind-gateway</code> there is no challenge</strong>, and that is deliberate rather than missing: the caller
+holds no bearer token for this resource, so an instruction to present one is one it cannot follow - and
+a client that followed it would start putting credentials in a header this deployment refuses to read.</p>
+<p><strong>Rotation and revocation are two questions, and they have two answers.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>What triggers a re-read</th>
+<th>The bound</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>has a key been <strong>added</strong></td>
+<td>a token naming a <code>kid</code> the cache does not hold</td>
+<td>at most one read per thirty seconds, <strong>however many requests arrive at once</strong>: the window is compared and reserved in one lock acquisition, so concurrent callers with forged key ids share the one read rather than getting one each. Without that bound a forged key id turns every request into a re-read, which is a denial-of-service primitive aimed at whatever serves the key set</td>
+</tr>
+<tr>
+<td>has a key been <strong>removed</strong></td>
+<td>age: the cached set is re-read once a minute</td>
+<td>one minute. This is the one the caller cannot influence, and it is the one that matters for revocation - a caller presenting a revoked key presents an id the cache <em>has</em>, so nothing else would ever trigger</td>
+</tr>
+</tbody>
+</table>
+<p>The age re-read happens on a timer <em>and</em> on the first request past the horizon, so a deployment gets
+the bound whether or not it is serving traffic. A candidate that will not parse, or that holds no key
+of the pinned kind, is logged at <code>error</code> and <strong>not</strong> adopted: the previous keys keep verifying, because
+adopting a broken set turns a rotation mistake into a total outage.</p>
+<h3 id="what-a-scope-grants">What a scope grants<a class="headerlink" href="#what-a-scope-grants" title="Permanent link">&para;</a></h3>
+<p><strong>Only where <code>security.inbound</code> is configured.</strong> A deployment with no block has no verified claim to
+narrow by, so every operation is available - and a filter over an unverified claim would look like a
+control and be none.</p>
+<p>Two scopes, one per operation this surface has. They are the same strings for every deployment, and
+they name a <strong>capability</strong> rather than a metric - deliberately, so that adding or renaming a metric in
+the catalog can never change what a token means:</p>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>What it grants</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sutura:catalog.read</code></td>
+<td><code>GET /v1/catalog</code></td>
+</tr>
+<tr>
+<td><code>sutura:metrics.ask</code></td>
+<td><code>POST /v1/query</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>It fails closed.</strong> A caller is granted exactly the capabilities its <code>scope</code> claim names. A token
+this deployment verified that carries no capability scope reaches <strong>nothing</strong> - which means switching
+<code>security.inbound</code> on before authoring these scopes at your authorization server switches every caller
+off. The response says so and says what to add: <code>403</code>, <code>code: insufficient_scope</code>, and the missing
+scope string in the detail. A scope this surface does not know is ignored rather than refused, so a
+token minted for other resources too is fine.</p>
+<p><strong>What it does not grant, and this is the sentence to keep.</strong> A scope decides which <em>operations</em> a
+caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
+same pinned bundle and every question executes with whatever access the service process already had:
+no adapter in this build can carry a per-subject credential, so no source executes as the asking
+subject. A caller granted <code>sutura:metrics.ask</code> gets exactly the numbers any other caller would.</p>
+<p>The agent surface offers the same two capabilities under the names <code>describe_catalog</code> and <code>ask_metric</code>,
+from the same declaration, so the two transports cannot describe different tool sets. It speaks over
+standard input and output, where there is no header a token could arrive in, so nothing narrows the set
+there today.</p>
+<p>It is served by the <code>sutura</code> binary's <code>mcp</code> command, not by this one, and that is the point of the
+split: MCP-over-stdio is a locally launched, single-player surface, so it belongs with the command-line
+tool that composes the in-process engine over a data directory rather than with the HTTP service.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sutura<span class="w"> </span>mcp<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>examples/single-player/data
+</span></code></pre></div>
+<p>An agent client launches that process and speaks the protocol on its pipes - the same two tools this
+page describes, from the same <code>sutura_app::Capability</code> declaration. The command prints at startup, on
+standard error, that it grants every capability to whoever can reach the process, how many questions
+it will answer at once, and how long a peer waits for one of them: a pipe has no header a token could
+arrive in, which is the limit stated beside the mode rather than left as a default, and the two
+numbers are <a href="#capacity"><code>runtime.max_concurrent_queries</code></a> and <code>server.request_timeout_seconds</code>, which
+bound that surface exactly as they bound this one.</p>
+<h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Method and path</th>
+<th>Token</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /health</code></td>
+<td>no</td>
+<td>Liveness. The body is exactly <code>{"status":"ok"}</code></td>
+</tr>
+<tr>
+<td><code>GET /v1/catalog</code></td>
+<td>yes, when one is configured; plus <code>sutura:catalog.read</code> where <code>security.inbound</code> is</td>
+<td>The metrics this catalog defines, with grains, dimensions and the values a filter may use</td>
+</tr>
+<tr>
+<td><code>POST /v1/query</code></td>
+<td>yes, when one is configured; plus <code>sutura:metrics.ask</code> where <code>security.inbound</code> is</td>
+<td>One certified question. <code>200</code> only when it was answered; a refusal carries its own status - see <a href="#a-refusal-carries-a-status">A refusal carries a status</a>. <code>503 at_capacity</code> when no execution slot is free - see <a href="#capacity">Capacity</a></td>
+</tr>
+<tr>
+<td><code>GET /openapi.json</code></td>
+<td>yes, when one is configured</td>
+<td>The generated interface description</td>
+</tr>
+<tr>
+<td><code>GET /docs</code></td>
+<td>yes, when one is configured</td>
+<td>A browser interface over that description</td>
+</tr>
+</tbody>
+</table>
+<p><code>/health</code> is outside the version prefix on purpose: a probe must keep working across a version bump
+without an orchestrator being reconfigured. It carries no version, no build identifier, no
+dependency list, no configuration and no catalog content, because it is the one path an
+unauthenticated caller can always reach - so every field it might have is a field handed to anybody
+who can route a packet.</p>
+<p>The interface description is served everywhere except production, where it is off by default. It
+describes the surface, which is business information even with no row of data in it.</p>
+<h3 id="a-refusal-carries-a-status">A refusal carries a status<a class="headerlink" href="#a-refusal-carries-a-status" title="Permanent link">&para;</a></h3>
+<p><code>POST /v1/query</code> answers <code>200</code> when the question was <strong>answered</strong> and nothing else. A refusal carries
+an explicit status, the stable <code>code</code> it always carried, and a sentence saying what to change - all
+three, so a caller is told the same thing whether it reads the status, the code or the prose. The
+<code>outcome</code> field is what says which envelope arrived:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"answer"</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">"provenance"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">"definition_version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local-1"</span><span class="p">,</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">"definition_digest"</span><span class="p">:</span><span class="w"> </span><span class="s2">"8042ba92eaddce5e96e055cc43a635a64161d54ec21bd4f3367e7a1f58f5b4c5"</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="nt">"columns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"period"</span><span class="p">,</span><span class="w"> </span><span class="s2">"recurring_revenue"</span><span class="p">],</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nt">"rows"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="p">[</span><span class="s2">"2026-01-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"237320"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-02-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"232822"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-03-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"216700"</span><span class="p">],</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="p">[</span><span class="s2">"2026-04-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"206160"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-05-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"202994"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-06-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"202121"</span><span class="p">]</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>The second one comes back <code>404</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refusal"</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">"reason"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"metric_unknown"</span><span class="p">,</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">404</span><span class="p">,</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"this catalog defines no metric called `customer_lifetime_value`"</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Both of those are <code>examples/single-player</code> over the wire, each captured as one line of JSON and
+reformatted here. What ASSERTS them is <code>crates/sutura-serve/tests/served.rs</code>, against that same
+directory on a kernel-chosen port, and the in-process harness in <code>crates/sutura-http/src/harness.rs</code>
+one status at a time.</p>
+<p>A refusal is still a <em>result</em> rather than an error - the caller asked something they may not have,
+and the answer is no - and that is a statement about the domain, not about the status. Which status
+depends on why:</p>
+<table>
+<thead>
+<tr>
+<th><code>code</code></th>
+<th>Status</th>
+<th>What the caller does about it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>metric_unknown</code></td>
+<td><code>404</code></td>
+<td>Ask <code>GET /v1/catalog</code> which metrics this snapshot defines</td>
+</tr>
+<tr>
+<td><code>grain_not_supported</code></td>
+<td><code>422</code></td>
+<td>The metric exists; that grain is not rendered for it. Pick one the catalog lists</td>
+</tr>
+<tr>
+<td><code>time_range_too_long</code></td>
+<td><code>422</code></td>
+<td>Narrow the period. The sentence carries the maximum</td>
+</tr>
+<tr>
+<td><code>too_many_dimensions</code></td>
+<td><code>422</code></td>
+<td>Group by fewer. The sentence carries the maximum</td>
+</tr>
+<tr>
+<td><code>duplicate_dimension</code></td>
+<td><code>422</code></td>
+<td>Send it once</td>
+</tr>
+<tr>
+<td><code>dimension_not_permitted</code></td>
+<td><code>403</code></td>
+<td>The metric declares no such dimension</td>
+</tr>
+<tr>
+<td><code>dimension_not_filterable</code></td>
+<td><code>403</code></td>
+<td>It can be grouped by and not filtered on</td>
+</tr>
+<tr>
+<td><code>dimension_value_not_allowed</code></td>
+<td><code>403</code></td>
+<td>Use a value the catalog declares. The rejected value is never echoed back</td>
+</tr>
+<tr>
+<td><code>plan_spans_too_many_sources</code></td>
+<td><code>409</code></td>
+<td>Nothing. This deployment will not read from more data systems than it serves</td>
+</tr>
+<tr>
+<td><code>federation_not_executable</code></td>
+<td><code>409</code></td>
+<td>Nothing. This build has no adapter that can execute one half of a two-source question yet</td>
+</tr>
+<tr>
+<td><code>federation_link_ambiguous</code></td>
+<td><code>409</code></td>
+<td>Nothing. The question's remote dimensions join through more than one relationship</td>
+</tr>
+<tr>
+<td><code>measure_does_not_federate</code></td>
+<td><code>409</code></td>
+<td>Nothing. The measure's aggregate cannot be recombined above two legs</td>
+</tr>
+<tr>
+<td><code>result_too_large</code></td>
+<td><code>413</code></td>
+<td>Narrow the period or group by fewer dimensions. Nothing was truncated to fit. <strong>One code for two bounds:</strong> more rows than this service's cap, or more data than the data system would return at once. The sentence says which, and names a number only for the first - the second bound belongs to the data system and is not reported to us</td>
+</tr>
+<tr>
+<td><code>resources_exhausted</code></td>
+<td><code>422</code></td>
+<td>Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it</td>
+</tr>
+<tr>
+<td><code>source_unavailable</code></td>
+<td><code>503</code></td>
+<td>The one refusal worth retrying</td>
+</tr>
+<tr>
+<td><code>credential_unavailable</code></td>
+<td><code>403</code></td>
+<td>Nothing you can send. You have no access to that data system, and this deployment will not read it as itself instead - the missing grant is at the data system</td>
+</tr>
+<tr>
+<td><code>legs_decide_identity_differently</code></td>
+<td><code>409</code></td>
+<td>Ask the same metric without the dimension on the second data system. The two data systems decide who is asking in two different ways, and a total made of rows read under two identities is a number neither is entitled to. No published build can reach it - every linked adapter serves everyone as one identity</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The refusal <code>403</code>s are not about your credential.</strong> No token and no scope widens a metric's
+dimension set; a refusal <code>403</code> is the catalog's answer to "may this be asked of this metric", and the
+sentence names the metric and the dimension so it cannot be mistaken for the other thing. A verified
+caller is a caller whose identity is known, not a caller with more permissions.</p>
+<p><strong>There are now TWO <code>403</code>s that ARE about a credential, and <code>code</code> is what tells all three apart.</strong>
+<code>insufficient_scope</code> means the credential you presented to THIS service is valid and does not carry
+the scope the <em>operation</em> requires; it carries no <code>outcome</code> field, because it is a failure rather than
+a refusal, and its detail names the scope to grant. It still says nothing about any metric - see <em>What
+a scope grants</em>.</p>
+<p><code>credential_unavailable</code> is the other one, and it is about a credential <strong>at the data system</strong> rather
+than at this service: the asking subject has no access there, and this deployment will not read that
+source under its own identity instead. It IS a refusal, so it carries <code>outcome</code>, and re-authenticating
+here changes nothing - what is missing is a grant somewhere else. It arrives with the credential port;
+what can produce it today is a deployment that declares a source <code>impersonation-at-source</code>, because
+the broker that ships mints from configuration and holds no per-subject credential.</p>
+<p><strong>And one <code>503</code> code is new on the failure side:</strong> <code>identity_unavailable</code>, for the credential broker
+not answering. It shares its status with <code>unavailable</code> and not its code, because an identity provider
+that is down and a data system that is down clear at different times and are diagnosed in different
+places.</p>
+<p><strong>Two statuses are shared with something that is not a refusal</strong>, and <code>code</code> is what separates them -
+as is the body shape, because only a refusal carries <code>outcome</code>:</p>
+<ul>
+<li><code>413</code> is <code>too_large</code> when the <strong>request body</strong> was over the limit, and <code>result_too_large</code> when the
+  <strong>answer</strong> was too much data - over the row cap, or over what the data system would return at once.</li>
+<li><code>503</code> is <code>unavailable</code> or <code>at_capacity</code> from the failure side, and <code>source_unavailable</code> from the
+  refusal side.</li>
+</ul>
+<p><strong>And <code>422</code> rather than <code>503</code> for an exhausted working set, which is a distinction worth keeping.</strong>
+RFC 9110 defines 422 as a request that "repeating ... without modification will fail with the same
+error" - exactly true of a configured bound. Exhaustion used to arrive as <code>503 unavailable</code>, which is
+what a dead data system returns, so a caller was told to retry against a bound that would fire again.
+The two are now separable by <code>code</code> as well as by status, and a test asserts the refusal is not 503.</p>
+<p>This used to be a <code>200</code> for both outcomes, on the argument that an error status invites a client
+library to retry a governance decision until it succeeds. The second half of that is right and the
+first half does not survive checking: nothing mainstream retries a <code>4xx</code> by default, and <code>422</code> - where
+four of the codes above land - is documented the other way round, as a status a client should expect
+to fail again on an unchanged request. What the <code>200</code> did cost was legibility to everything that reads
+a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose
+success branch is <code>2xx</code>. A deployment refusing every question read as perfectly healthy.
+<a href="../adr/0005-a-refusal-carries-a-status/">Decision 0005</a> is the record, and
+<a href="../qa/">Questions and answers</a> is what is refused and why.</p>
+<p>Cells are rendered as text rather than as JSON numbers. A measure over integer minor units does not
+survive a round trip through a JSON number in every client, and an anchor is compared as text - one
+rendering everywhere means the number in an answer is the number in the anchor that certified it.</p>
+<p>A body carrying <code>sql</code>, <code>table</code> or any other key the question shape does not declare is a <code>400</code>
+naming the field. Without that, the key would be dropped silently and a caller who believed they sent
+SQL would be answered as though they had asked the modelled question instead.</p>
+<p>Every other failure is one shape:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"unauthorized"</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">401</span><span class="p">,</span><span class="w"> </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"this service requires a bearer token"</span><span class="w"> </span><span class="p">}</span>
+</span></code></pre></div>
+<p>A <code>500</code> carries no detail, ever. The text of an internal error is a path, a table name, a column name
+or a driver message, and any of those handed to a caller describes the deployment.</p>
+<p>Two failures share the <code>503</code> status and differ in <code>code</code>, which is what a client branches on:
+<code>unavailable</code> is a data system that did not answer, and <code>at_capacity</code> is this service having no
+execution slot free - see <a href="#capacity">Capacity</a>. Both are worth retrying, and they are diagnosed in
+completely different places. Only <code>at_capacity</code> carries a <code>Retry-After</code>, and only because there the
+number is already known: it is the admission window the caller just spent waiting out. Nothing here
+knows when a data system will come back, so nothing invents a number for it - the refusal side
+follows the same rule.</p>
+<h2 id="capacity">Capacity<a class="headerlink" href="#capacity" title="Permanent link">&para;</a></h2>
+<p><strong>Three numbers, and they bound three different things.</strong> The one to read first is that none of them
+cancels a question that has started.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it bounds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>runtime.max_concurrent_queries</code></td>
+<td><code>8</code></td>
+<td>How many questions are <strong>executing</strong> at once. At most 512</td>
+</tr>
+<tr>
+<td><code>runtime.admission_timeout_seconds</code></td>
+<td><code>5</code></td>
+<td>How long a question waits for a slot before it is shed. At most 300</td>
+</tr>
+<tr>
+<td><code>runtime.engine_worker_threads</code></td>
+<td>as many as the machine reports</td>
+<td>How wide the in-process engine's own runtime is. At most 256</td>
+</tr>
+</tbody>
+</table>
+<h3 id="why-a-bound-on-execution-exists-at-all">Why a bound on execution exists at all<a class="headerlink" href="#why-a-bound-on-execution-exists-at-all" title="Permanent link">&para;</a></h3>
+<p><code>server.request_timeout_seconds</code> is a deadline on the <strong>reply</strong>, not on the work. When it expires the
+caller gets a <code>408</code> and the request handler is dropped - and the question keeps running, because the
+<code>Warehouse</code> port is synchronous and the task it runs on cannot be aborted. So without a bound on
+execution, a caller asking questions that cost more than the timeout gets a fast turnaround while the
+deployment keeps the whole cost, and the work accumulates at whatever rate the limiter allows. The
+only real limit was memory, and that also defeats the bounded stop below: a process cannot stop while
+it is waiting for work nobody can cancel.</p>
+<p><code>max_concurrent_queries</code> is that bound. A question holds its slot from the moment it starts until the
+data system answers it - <strong>not</strong> until the caller is answered. That is the part that makes the number
+mean something: a timed-out request does not hand its slot back early, so the backlog is a number
+somebody chose rather than however much memory there is.</p>
+<p>A question that cannot get a slot inside <code>admission_timeout_seconds</code> is answered <code>503</code> with
+<code>code: at_capacity</code> and a <code>Retry-After</code> in seconds, rather than being left in a queue. <code>503</code> and not
+<code>429</code> on purpose: a <code>429</code> says "you personally asked too often", which is a claim about the caller
+and is the one the rate limiter already makes. This one is about the deployment, and it is true
+whoever asked - a caller well inside their own rate limit can meet it.</p>
+<p>The admission window is deliberately shorter than the request timeout. A caller who has waited five
+seconds for a slot is better served by a <code>503</code> they can retry than by a <code>408</code> twenty-five seconds
+later that says the same thing less clearly. Setting it <em>above</em> the request timeout is allowed and
+does nothing: the timeout layer answers first.</p>
+<p><strong>The bound is the process's and not this endpoint's</strong>, which is why the same two keys bound the agent
+surface the <code>mcp</code> command serves - and one <code>Admission</code> per process is what makes them the process's:
+<code>sutura_runtime::Admission</code> is built by a composition root and handed to whatever serves, and
+<code>cargo xtask check-one-bound</code> counts the constructions, failing a transport that builds one or a root
+that builds two. Its own header states what a text scan cannot see.</p>
+<p><code>server.request_timeout_seconds</code> bounds the reply on that surface too, and it bounds the same thing:
+the caller's <strong>whole</strong> wait, admission included. Here that is because the timeout is an outer layer
+and the admission wait happens inside it; there it is because one deadline wraps both waits. So the
+paragraph above holds on both surfaces - a window at or above the reply deadline is allowed and does
+nothing, because the deadline answers first.</p>
+<p>What differs is how each answer comes back: there is no status code on a pipe, so a shed question and
+a question whose deadline expired are both a tool result marked as an error - the first saying to ask
+again shortly, the second saying the question may still be running and to ask for less. Neither
+carries a number: the bound, the window and the deadline are the operator's own configuration, so
+they go to the log rather than into a model's context. Everything under <em>what it does not bound</em> is
+true of that surface as well, and one thing more: a peer that sends <code>notifications/cancelled</code> stops
+nothing and learns nothing until the deadline fires, because the pinned MCP SDK delivers that
+cancellation as a token the handler does not read.</p>
+<h3 id="what-it-does-not-bound">What it does not bound<a class="headerlink" href="#what-it-does-not-bound" title="Permanent link">&para;</a></h3>
+<p>Stated plainly, because each of these has been mistaken for the thing above.</p>
+<ul>
+<li><strong>It does not cancel anything.</strong> A question that has started runs to completion, holding its slot,
+  whatever the caller was told. Cancelling it needs a cancellation token the <code>Warehouse</code> port does
+  not have, and adding one is a change to every adapter.</li>
+<li><strong>It does not bound how long one question takes.</strong> One question that runs for an hour holds its
+  slot for an hour.</li>
+<li><strong>It is not a per-caller budget.</strong> One caller can fill every slot and shed everybody else. With leg 1
+  configured two callers <em>can</em> now be told apart - and nothing does: there is no budget port to key on
+  a principal, which is one of the four things <a href="#what-is-not-built">what is not built</a> names. The
+  limiter bounds an address's <em>rate</em>; this bounds the deployment's <em>concurrency</em>.</li>
+<li><strong>It does not reach inside the engine.</strong> The in-process engine has its own blocking thread pool at
+  the runtime default, which nothing here sizes.</li>
+</ul>
+<h3 id="the-engines-width">The engine's width<a class="headerlink" href="#the-engines-width" title="Permanent link">&para;</a></h3>
+<p>The engine drives its own runtime and every request blocks on it from a pool thread, so how wide that
+runtime is decides whether concurrent questions actually run concurrently. It used to be one thread,
+which was right when the only caller was a command-line tool answering one question and is a ceiling
+for a server. Measured - twenty questions per caller over a million rows, sixteen-way host,
+throughput normalised to one caller on the old runtime:</p>
+<table>
+<thead>
+<tr>
+<th>callers</th>
+<th>one thread</th>
+<th><code>engine_worker_threads = callers</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>1.00x</td>
+<td>1.07x</td>
+</tr>
+<tr>
+<td>2</td>
+<td>1.02x</td>
+<td>2.08x</td>
+</tr>
+<tr>
+<td>4</td>
+<td>1.03x</td>
+<td>3.94x</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1.01x</td>
+<td>6.06x</td>
+</tr>
+</tbody>
+</table>
+<p>The first column is the point: it is flat. A single-threaded engine runtime does not scale with
+callers at all on this workload.</p>
+<p>An absent key means "as many threads as this machine reports", resolved to a number at load time so
+the startup log prints what is in effect rather than a policy. <strong>A container with a CPU quota should
+set it explicitly:</strong> <code>available_parallelism</code> reports what the kernel exposes, which on most container
+runtimes is the host's core count rather than the cgroup's share - so the default is usually too wide
+there, and too wide costs memory as well as scheduling. The number also pins the engine's partition
+count, so a narrow runtime does not build wide plans it then executes a few at a time.</p>
+<p>The command-line tool is unaffected: it answers one question and exits, and one thread is the right
+runtime for that.</p>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p>Four layers, later beating earlier:</p>
+<ol>
+<li>the defaults compiled into the binary - complete, so a deployment with no files is a working
+   loopback development service rather than a failure;</li>
+<li><code>&lt;dir&gt;/base.yaml</code>, if <code>SUTURA_CONFIG_DIR</code> names a directory holding one;</li>
+<li><code>&lt;dir&gt;/&lt;environment&gt;.yaml</code>;</li>
+<li>one environment variable per key: <code>SUTURA__SERVER__PORT</code> sets <code>server.port</code>.</li>
+</ol>
+<p>Every layer is checked with <code>deny_unknown_fields</code> at every depth.</p>
+<p>The environment is chosen by <code>SUTURA_ENVIRONMENT</code> and by nothing else - one of <code>development</code>, <code>test</code>
+or <code>production</code>, defaulting to <code>development</code>. It is deliberately <strong>not</strong> a configuration key: it
+selects which file is layered, so a file that could change it would be self-referential. Both
+<code>environment:</code> in a file and <code>SUTURA__ENVIRONMENT</code> in the shell are unknown-key errors.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>server.host</code></td>
+<td><code>127.0.0.1</code></td>
+<td>An IP address, never a hostname: a name resolves to whatever the resolver says today. Either family - <code>::1</code> and <code>[::1]</code> are both read. See <a href="#address-families">Address families</a></td>
+</tr>
+<tr>
+<td><code>server.port</code></td>
+<td><code>8080</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>server.request_timeout_seconds</code></td>
+<td><code>30</code></td>
+<td>At most 300. Bounds a caller's whole wait on <strong>both</strong> surfaces - the <code>408</code> here, and a tool result on the agent surface. It is also what a <code>bigquery</code> job's own deadline is divided out of</td>
+</tr>
+<tr>
+<td><code>server.max_body_bytes</code></td>
+<td><code>65536</code></td>
+<td>At most one mebibyte. A question is a few hundred bytes</td>
+</tr>
+<tr>
+<td><code>security.access_token</code></td>
+<td>absent</td>
+<td>An RFC 6750 <code>b64token</code>, at least 32 characters. Required in production and on a non-loopback bind, <strong>unless <code>security.inbound</code> is declared</strong></td>
+</tr>
+<tr>
+<td><code>security.tls_termination</code></td>
+<td><code>none</code></td>
+<td>One of <code>none</code>, <code>sidecar</code>, <code>ingress</code>, <code>in-process</code>. Must be declared for any bind other hosts can reach</td>
+</tr>
+<tr>
+<td><code>security.identity</code></td>
+<td><strong>absent, and absence is a refusal</strong></td>
+<td><code>single-user</code> or <code>multi-user</code>. Required once any source is configured. See <a href="#sources">Sources</a></td>
+</tr>
+<tr>
+<td><code>security.single_user_because</code></td>
+<td>absent</td>
+<td>The operator's reason. Required with <code>single-user</code>, refused with <code>multi-user</code></td>
+</tr>
+<tr>
+<td><code>security.inbound.mode</code></td>
+<td>absent, and <strong>no default</strong></td>
+<td><code>direct</code> or <code>behind-gateway</code>. Absent means no per-caller identity; present-but-unset does not start. See <a href="#who-is-asking">who is asking</a></td>
+</tr>
+<tr>
+<td><code>security.inbound.resource</code></td>
+<td>absent</td>
+<td><code>direct</code> only. This deployment's own resource identifier - an absolute <code>https</code> URI, no query, no fragment. What <code>aud</code> must equal, byte for byte</td>
+</tr>
+<tr>
+<td><code>security.inbound.authorization_server</code></td>
+<td>absent</td>
+<td><code>direct</code> only. <strong>The <code>iss</code> value, exactly</strong> - it is compared byte for byte against the claim, not resolved as a URL. Copy it out of the issuer's own discovery document rather than typing the console URL: Entra's v1 and v2 endpoints publish <em>different</em> <code>iss</code> values for one tenant, and that is the classic way to configure this wrongly</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_header</code></td>
+<td>absent</td>
+<td><code>behind-gateway</code> only. The header the component's <strong>signed assertion</strong> arrives in. Never a header holding a name. <code>authorization</code> is refused - it is the deployment token's</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_issuer</code></td>
+<td>absent</td>
+<td><code>behind-gateway</code> only. Who must have signed the assertion, again as the <code>iss</code> value exactly</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_audience</code></td>
+<td>absent</td>
+<td><code>behind-gateway</code> only. The audience the assertion must carry</td>
+</tr>
+<tr>
+<td><code>security.inbound.key_set_file</code></td>
+<td>absent</td>
+<td>Both modes. A JWK set on disk. <strong>There is no URL source</strong> - see <a href="#what-is-not-built">what is not built</a>. Re-read on a timer and when a token names an unknown key; it must hold at least one key of the pinned algorithms' kind, or the process refuses to start</td>
+</tr>
+<tr>
+<td><code>security.inbound.algorithms</code></td>
+<td>absent, and <strong>no default</strong></td>
+<td>Both modes. One or more of <code>RS256</code>, <code>RS384</code>, <code>RS512</code>, <code>PS256</code>, <code>PS384</code>, <code>PS512</code>, <code>ES256</code>, <code>ES384</code>, <code>EdDSA</code>. <code>none</code> and every <code>HS*</code> are refused by name, and a list spanning two key kinds is refused because one token is verified by one key</td>
+</tr>
+<tr>
+<td><code>security.inbound.token_type</code></td>
+<td><code>at+jwt</code></td>
+<td><code>direct</code> only. Which class of token, out of the <code>typ</code> header. <code>any</code> switches the check off and is printed at <code>WARN</code> on every boot. <strong>Leaving it alone is the safe reading</strong> - see <a href="#who-is-asking">who is asking</a></td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_token_type</code></td>
+<td>absent, and <strong>required</strong></td>
+<td><code>behind-gateway</code> only. The class the component emits, or <code>any</code> if it sets none. Required because a component's <code>typ</code> is a fact only the deployment knows</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_max_lifetime_seconds</code></td>
+<td><code>120</code></td>
+<td><code>behind-gateway</code> only. The longest <code>exp - iat</code> this deployment will call short-lived. Between 1 and 3600. An assertion with no <code>iat</code> is refused</td>
+</tr>
+<tr>
+<td><code>server.tls_certificate</code></td>
+<td>absent</td>
+<td>A PEM chain. Only with <code>tls_termination: in-process</code></td>
+</tr>
+<tr>
+<td><code>server.tls_key</code></td>
+<td>absent</td>
+<td>The matching PEM private key. Both halves or neither</td>
+</tr>
+<tr>
+<td><code>rate_limit.enabled</code></td>
+<td>follows the environment</td>
+<td>Off in development and test, on in production. <code>false</code> in production is refused</td>
+</tr>
+<tr>
+<td><code>rate_limit.probe_per_second</code></td>
+<td><code>2</code></td>
+<td>Liveness and the interface description</td>
+</tr>
+<tr>
+<td><code>rate_limit.probe_burst</code></td>
+<td><code>5</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rate_limit.api_per_second</code></td>
+<td><code>10</code></td>
+<td>The versioned API</td>
+</tr>
+<tr>
+<td><code>rate_limit.api_burst</code></td>
+<td><code>20</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>rate_limit.client_address</code></td>
+<td><code>peer</code></td>
+<td><code>peer</code> or <code>forwarded</code>. What a rate-limit bucket is counted against</td>
+</tr>
+<tr>
+<td><code>rate_limit.trusted_proxies</code></td>
+<td>empty</td>
+<td>The hops whose <code>X-Forwarded-For</code> is believed. <code>forwarded</code> with this empty is refused</td>
+</tr>
+<tr>
+<td><code>telemetry.service_name</code></td>
+<td><code>sutura</code></td>
+<td>What a collector groups by</td>
+</tr>
+<tr>
+<td><code>telemetry.filter</code></td>
+<td><code>info</code></td>
+<td><code>RUST_LOG</code> overrides it when set</td>
+</tr>
+<tr>
+<td><code>telemetry.format</code></td>
+<td>follows the environment</td>
+<td><code>bunyan</code> in production, <code>pretty</code> elsewhere</td>
+</tr>
+<tr>
+<td><code>api.docs</code></td>
+<td>follows the environment</td>
+<td>Off in production, on elsewhere</td>
+</tr>
+<tr>
+<td><code>catalog.dir</code></td>
+<td><code>catalog</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>catalog.data_dir</code></td>
+<td><code>data</code></td>
+<td><strong>Printed by the startup banner and read by nothing that opens a data system.</strong> A served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code>, and the <code>sutura</code> command reads that same entry or else the directory on its command line</td>
+</tr>
+<tr>
+<td><code>catalog.version</code></td>
+<td><code>unversioned</code></td>
+<td>A commit id or a build number. What identifies the snapshot</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.kind</code></td>
+<td>absent</td>
+<td><code>files</code> is the only kind this build has an adapter for. Required, with no default</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.data_dir</code></td>
+<td>absent</td>
+<td>Where that source's files are. Required, and absolute</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.posture</code></td>
+<td>absent</td>
+<td><code>shared-service-user</code> or <code>impersonation-at-source</code>. Required, with no default</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.acknowledged_because</code></td>
+<td>absent</td>
+<td>The operator's reason. Required for a shared source in <code>multi-user</code> mode</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.verification_identity</code></td>
+<td>absent</td>
+<td>The identity that re-runs that source's anchors. Only on an impersonating source</td>
+</tr>
+<tr>
+<td><code>runtime.max_concurrent_queries</code></td>
+<td><code>8</code></td>
+<td>How many questions execute at once. See <a href="#capacity">Capacity</a></td>
+</tr>
+<tr>
+<td><code>runtime.admission_timeout_seconds</code></td>
+<td><code>5</code></td>
+<td>How long one waits for a slot before it is shed <code>503</code></td>
+</tr>
+<tr>
+<td><code>runtime.engine_worker_threads</code></td>
+<td>the machine's</td>
+<td>How wide the in-process engine runs. Set it under a CPU quota</td>
+</tr>
+<tr>
+<td><code>runtime.shutdown_grace_seconds</code></td>
+<td><code>15</code></td>
+<td>The budget for the whole of stopping. See <a href="#stopping">Stopping</a></td>
+</tr>
+</tbody>
+</table>
+<p>A zero is refused wherever it would read as "no limit", and every bound has a ceiling, because a
+value nobody chose is worse than a value somebody has to argue with.</p>
+<h3 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h3>
+<p><strong>The service reads its data systems from <code>sources:</code>, one entry per data system, keyed by the alias a
+model's <code>source:</code> names.</strong> <code>catalog.data_dir</code> is no longer where a served source's files are found: it
+is the <code>sutura</code> command's data directory and stays that. A deployment that declares no source does not
+serve, because the catalog names a source with no entry and the process refuses before a listener is
+bound.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="c1"># single-user or multi-user. No default: see the refusal table above.</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="s">"single-user"</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">single_user_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">operator,</span><span class="nv"> </span><span class="s">their</span><span class="nv"> </span><span class="s">own</span><span class="nv"> </span><span class="s">files,</span><span class="nv"> </span><span class="s">their</span><span class="nv"> </span><span class="s">own</span><span class="nv"> </span><span class="s">credentials"</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="nt">local</span><span class="p">:</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="c1"># `files` or `bigquery`. Required, with no default - and which of them a given BINARY can</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="c1"># actually open is a second question, answered below.</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"files"</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">    </span><span class="c1"># Absolute. A relative path resolves against whatever working directory the supervisor chose.</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/srv/sutura/data"</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">    </span><span class="c1"># shared-service-user, or impersonation-at-source. Required, with no default.</span>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
+</span></code></pre></div>
+<h3 id="a-bigquery-source-and-the-build-it-needs">A <code>bigquery</code> source, and the build it needs<a class="headerlink" href="#a-bigquery-source-and-the-build-it-needs" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"bigquery"</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="c1"># The project the query job is billed to, and its quota project. Declared, never inferred:</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="c1"># it is a path segment of the request that submits a job, and a federated identity has no</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="c1"># project of its own.</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">billing_project</span><span class="p">:</span><span class="w"> </span><span class="s">"your-project"</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="c1"># Where an unqualified table name resolves, inside that project.</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nt">dataset</span><span class="p">:</span><span class="w"> </span><span class="s">"your_dataset"</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="c1"># The service-account key, or the file an application-default login writes. Absolute, and</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="c1"># REQUIRED: a service resolving a credential from whichever of three Google variables</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">    </span><span class="c1"># happened to be exported is running as an identity nobody declared. Read at startup, so an</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">    </span><span class="c1"># unreadable file stops the process rather than failing every question.</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">    </span><span class="nt">credential_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/bigquery.json"</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">    </span><span class="c1"># The most one query job may be billed for scanning. Required, with no default, because it</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="c1"># is the only number here that spends money: a small default refuses ordinary questions on a</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">    </span><span class="c1"># large table and a large one is indistinguishable from no bound. Enforced at the service,</span>
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="w">    </span><span class="c1"># so a job that would exceed it fails and is not charged. 1 GiB here.</span>
+</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">    </span><span class="nt">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1073741824</span>
+</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="w">    </span><span class="c1"># `shared-service-user` is the only posture this adapter can deliver - see the cross-check</span>
+</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">    </span><span class="c1"># below. One service account reaching the dataset for everybody who asks.</span>
+</span><span id="__span-7-22"><a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
+</span><span id="__span-7-23"><a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">service</span><span class="nv"> </span><span class="s">account</span><span class="nv"> </span><span class="s">reaching</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">dataset</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
+</span></code></pre></div>
+<p>The job's DEADLINE is not a key here: it is filled from <code>server.request_timeout_seconds</code>, because a
+job that outlives the request it is answering is billed for a result nobody is waiting for.</p>
+<p><strong>Three things about which builds can serve this</strong>, and the first is the one to check before writing
+the block above:</p>
+<ul>
+<li><strong><code>sutura-serve</code> opens it only when built with <code>--features bigquery</code>.</strong> A binary without the feature
+  refuses the source at startup, naming the feature. Default-off because the adapter's wire pulls an
+  outbound TLS stack, and two of the four release triples are musl - so asking for it is a build
+  decision a reviewer can see in a manifest line.</li>
+<li><strong>No published artifact opens it, and that is now a FEATURE decision rather than a packaging one.</strong>
+  A release publishes <code>sutura-serve</code>, and it publishes it with cargo's default features - so
+  <code>bigquery</code> is off in every published tarball and image. Opening a dataset means building from
+  source with <code>--features bigquery</code>.</li>
+<li><strong>One process opens one KIND of data system at a time.</strong> A catalog whose models sit on a <code>files</code>
+  source and a <code>bigquery</code> source is refused at startup, naming both entries - the registry a process
+  holds is generic in one adapter type, and the alternative is a source nothing opened.</li>
+</ul>
+<p>Two facts, declared by two different parties, and conflating them gives the mode two owners:</p>
+<ul>
+<li><strong>the deployment declares the POSTURE</strong>, per source - which identity a query is to reach that source
+  as;</li>
+<li><strong>the adapter declares its CAPABILITY</strong>, in code - whether it can carry a per-subject credential at
+  all. The in-process engine cannot: one process, one operating-system identity, and nowhere for a
+  subject to appear. <strong>Nor can the <code>BigQuery</code> adapter</strong>, for a different reason worth knowing: a
+  credential file is one service account, and per-subject execution needs a credential minted per
+  question through a token exchange that does not exist here yet. Saying so explicitly is the point of
+  the declaration.</li>
+</ul>
+<p>The boot check compares them. A source configured to impersonate on an adapter that cannot does not
+start, and there is no fallback.</p>
+<table>
+<thead>
+<tr>
+<th>Posture</th>
+<th>What it means</th>
+<th>What decides what a subject sees</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>shared-service-user</code></td>
+<td>Every query reaches the source under one identity the deployment holds</td>
+<td>that identity's grants. Every caller sees the same rows</td>
+</tr>
+<tr>
+<td><code>impersonation-at-source</code></td>
+<td>Each query reaches the source as the asking subject</td>
+<td>the SOURCE: its own authorization, its row and column policies, its own catalog</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>shared-service-user</code> is honest, not broken.</strong> It is right for a single-user deployment and right for
+a source nobody needs to see per subject. The failure is never the posture; it is a source in that
+posture being <em>believed</em> to impersonate - which is what the acknowledgement makes impossible to hold
+accidentally.</p>
+<p><strong>The mode does not make a caller identity arrive.</strong> Nothing in this service establishes one: the
+bearer token authenticates the deployment, and the startup log says so on every boot. What
+<code>security.identity</code> decides today is where a shared source's acknowledgement has to be written, which
+is what a deployment needs in place <em>before</em> a subject exists rather than after.</p>
+<p><strong>Every answer carries the posture per leg</strong>, in <code>provenance</code> on the HTTP surface and in <code>executed_as</code>
+beside it. It is read off the adapter that executed rather than off this file, so a record cannot
+report a leg as impersonated on the strength of a configuration key. Say plainly what that is worth:
+it reaches a caller <em>after</em> the rows did, so it cannot prevent a disclosure. It makes one attributable
+and it makes a misconfiguration visible to whoever reads an answer; the startup refusals above are the
+gate.</p>
+<p><strong>A catalog whose models sit on two declared sources is now servable</strong>, and an engine is opened per
+source the catalog names. A <em>question</em> whose plan spans exactly two is split by the plan stage into a
+fact leg and a lookup leg, and <code>answer</code> either executes it or refuses it as <code>federation_not_executable</code>
+while no adapter can execute a leg - so the split is never served as a partial or a half-executed
+answer. Three or more sources refuse at plan time as <code>plan_spans_too_many_sources</code>.</p>
+<p><em>The limit, because it decides what is worth configuring today:</em> the only adapter this build links is
+the in-process engine, so two configured sources are two engines over two directories. A data system
+across a network arrives with its own adapter.</p>
+<h3 id="address-families">Address families<a class="headerlink" href="#address-families" title="Permanent link">&para;</a></h3>
+<p><code>server.host</code> takes an address of either family. <code>127.0.0.1</code> and <code>::1</code> are both recognised as
+loopback, so neither of them trips the off-host refusal above, and <code>::1</code> may be written bracketed or
+bare. A rate-limit bucket is keyed on the canonical form of the address, so a client reaching a
+dual-stack listener as <code>::ffff:1.2.3.4</code> shares the bucket of the same client reaching it as
+<code>1.2.3.4</code> rather than getting a second one - and a v4 entry in <code>rate_limit.trusted_proxies</code> still
+matches a v4-mapped peer, while never matching a real v6 address.</p>
+<p><strong>Which families a listener actually accepts is the platform's default, not a decision this service
+makes, and there is no key for it.</strong> Nothing sets <code>IPV6_V6ONLY</code> either way. On Linux, whose default
+is off, binding <code>::</code> accepts v4 connections too and reports them as v4-mapped; binding <code>0.0.0.0</code>
+accepts v4 only. So an operator who wants both families gets them from a platform default rather than
+by choosing them, and an operator who wants v6 <em>only</em> has no way to say so - they would have to set
+the socket option outside this process. That is a posture nobody chose, stated here rather than left
+to be discovered; a <code>server.address_family</code> key is where it would be fixed.</p>
+<p><em>Not observed end to end: the v6 serving path is covered by the address-parsing tests and by reading
+<code>tokio::net::TcpListener::bind</code>, and by nothing that has actually accepted a v6 connection - the
+development container has no v6 address at all. A test that skipped itself on a host without v6 would
+read as coverage and is deliberately not here.</em></p>
+<h2 id="tls">TLS<a class="headerlink" href="#tls" title="Permanent link">&para;</a></h2>
+<p><strong>Normally something else terminates it, and that is the intended arrangement rather than a
+shortcut.</strong> In a cluster an ingress controller or a sidecar ends the connection and the hop from
+there to this process is plaintext on the pod network. So a non-loopback bind is <em>not</em> refused for
+being plaintext; what is refused is a non-loopback bind that has not said where TLS is terminated.
+<code>security.tls_termination</code> is that statement, and the point of writing it down is that the cleartext
+hop it implies becomes a stated fact rather than an assumption - the bearer token crosses that hop.</p>
+<table>
+<thead>
+<tr>
+<th>Declared</th>
+<th>What terminates TLS</th>
+<th>What the token crosses in cleartext</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>none</code></td>
+<td>nothing</td>
+<td>the whole path from the caller. Only sane on loopback</td>
+</tr>
+<tr>
+<td><code>sidecar</code></td>
+<td>a proxy in this pod</td>
+<td>a loopback hop inside the pod</td>
+</tr>
+<tr>
+<td><code>ingress</code></td>
+<td>an ingress controller or gateway</td>
+<td>the pod network, from that hop to this process</td>
+</tr>
+<tr>
+<td><code>in-process</code></td>
+<td>this process</td>
+<td>nothing. The connection ends here</td>
+</tr>
+</tbody>
+</table>
+<p><code>ingress</code> is therefore not a weaker <code>sidecar</code>: it is the same posture with a longer cleartext
+segment, and whether that segment is acceptable is a question about the cluster network. A mesh with
+mutual TLS between pods answers it differently from a flat one, and nothing here pretends to know.</p>
+<h3 id="terminating-it-in-this-process">Terminating it in this process<a class="headerlink" href="#terminating-it-in-this-process" title="Permanent link">&para;</a></h3>
+<p>For the deployment where nothing sits in front. It needs <strong>a build that has a TLS listener in it</strong>,
+which neither the default build nor the published binary is:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve<span class="w"> </span>--features<span class="w"> </span>tls
+</span></code></pre></div>
+<p>The feature is default-off because most deployments do not use it, and a TLS stack compiled into an
+artifact that will never present a certificate is cost with no return - a cost paid four times over
+on the shipped triples, two of which are statically linked. With the feature off the dependency is
+absent from the build rather than merely unused, and asking for <code>in-process</code> termination is a startup
+refusal that names the feature - so the two cannot disagree, and a published binary handed this
+configuration stops rather than serving cleartext.</p>
+<p>Then:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nt">server</span><span class="p">:</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
+</span></code></pre></div>
+<p>Both halves or neither. A certificate with no key is refused rather than half-configured, and a path
+set to the empty string is an error naming the key rather than TLS quietly switching itself off -
+an empty string is what an unset variable looks like in a shell.</p>
+<p>The material is read and validated <strong>before the socket is bound</strong>: the chain must parse, the key must
+parse, and the key's public half must match the certificate's. That last check is the one rustls does
+not make on your behalf - a mismatched pair builds a server configuration quite happily and then
+fails every handshake, at the client, with a signature error that names no file. So a configuration
+mistake here is a process that does not start, and there is <strong>no fallback to plaintext</strong>: a port
+somebody configured to be encrypted never comes up unencrypted.</p>
+<p>rustls, not OpenSSL. No system library and no C toolchain requirement beyond what the build already
+has, which is what keeps the statically linked targets buildable - there is no musl OpenSSL in
+nixpkgs.</p>
+<h3 id="certificate-renewal-without-dropping-connections">Certificate renewal without dropping connections<a class="headerlink" href="#certificate-renewal-without-dropping-connections" title="Permanent link">&para;</a></h3>
+<p>A renewed certificate does not need a restart. The certificate and key paths are re-read on an
+interval; when the bytes change, a candidate pair is built and validated in full, and only then does
+it become what new handshakes are offered. A handshake already in flight keeps the pair it resolved,
+so nothing in progress is disturbed and no connection is dropped.</p>
+<p><strong>A bad new pair does not take the listener down.</strong> If the replacement will not parse, or its key
+does not match its certificate, it is logged at <code>error</code> naming both paths and discarded - the
+listener keeps serving what it was already serving. Reloading into a broken state would be worse than
+not reloading at all: every new connection would fail and the working pair would be gone.</p>
+<p>Polling rather than a filesystem watch, and deliberately. Kubernetes replaces a projected Secret by
+building a new directory and swapping a symlink, so an <code>inotify</code> watch on the file path follows the
+old inode and never fires; getting that right means watching the directory and interpreting rename
+events. Reading the path answers the question with no cases. Comparing the file <em>contents</em> rather
+than a timestamp is the same choice again: an <code>mtime</code> a writer preserved is a rotation that never
+happened. The cost is bounded staleness - up to the poll interval between the write and the swap -
+which for something an issuer plans days ahead is nothing.</p>
+<p>The arrangement this expects is the one most clusters already run: an external certificate manager
+owns renewal and writes the files, and this process follows them. There is <strong>no ACME client here</strong>,
+and that is a judgement rather than a gap - see below.</p>
+<h3 id="no-acme-and-why">No ACME, and why<a class="headerlink" href="#no-acme-and-why" title="Permanent link">&para;</a></h3>
+<p><code>rustls-acme</code> would do TLS-ALPN-01 with automatic renewal, which sounds like exactly this
+requirement. It only makes sense when this process is the edge:</p>
+<ul>
+<li>TLS-ALPN-01 is validated by the certificate authority connecting to <strong>port 443 of the name being
+  issued for</strong>. A pod behind an ingress controller is not what answers that connection - the
+  ingress is - so the challenge cannot complete. In the deployment this service is normally in, an
+  ACME client here would fail every renewal.</li>
+<li>It wants to own the listener, offering its own accept loop. That is the same objection recorded
+  against <code>axum-server</code> in <code>crates/sutura-http/src/tls.rs</code>: this surface has a bounded drain on
+  shutdown, and a second serving implementation would mean two drains to keep in agreement.</li>
+<li>Where this process <em>is</em> the edge, the ingress that would have terminated TLS is usually also the
+  thing that would have obtained the certificate, so the deployments that could use ACME are the
+  small ones - which are also the ones where a manually issued pair is least painful.</li>
+</ul>
+<p>So the recommendation is file-watch reload plus an external issuer, which is what is built. ACME
+belongs behind a <em>second</em> feature if it is ever wanted, gated on this process being the edge, and it
+should not be the default.</p>
+<h2 id="the-log">The log<a class="headerlink" href="#the-log" title="Permanent link">&para;</a></h2>
+<p>One decision with two right answers, made from the environment and nothing else. In production a log
+line is read by a collector, so it is one JSON object per line in the bunyan schema with the span
+context attached; on a laptop the same line is read by a person recompiling every thirty seconds, so
+it is indented and coloured. An explicit <code>telemetry.format</code> overrides it, and the startup log says
+which of the two happened.</p>
+<p>On boot the process prints an ASCII banner and the build line to standard output - before any
+subscriber exists, so it is readable whatever the log format turns out to be - and then writes the
+whole resolved configuration to the log. The configuration line is safe to emit because the only
+credential-shaped value in the tree is held in a type whose <code>Debug</code> prints a placeholder, and that is
+asserted by a test rather than by the log call being careful.</p>
+<p>A panic is traced before the process gives up on it. The shipped profiles abort, so there is no
+unwinding to catch; what a hook can still do is run first, with the payload and the location in
+hand, so the last thing in the log says what happened and where instead of the log just stopping.</p>
+<h2 id="stopping">Stopping<a class="headerlink" href="#stopping" title="Permanent link">&para;</a></h2>
+<p><code>SIGTERM</code> or an interrupt - and the platform equivalent elsewhere - drains in-flight work and logs
+why it stopped. <code>runtime.shutdown_grace_seconds</code> is the budget, and it is the budget for the <strong>whole</strong>
+of stopping rather than for the connection drain alone.</p>
+<p>Fifteen seconds by default, chosen against the deadline on the other side rather than as a round
+number: an orchestrator's usual <code>SIGTERM</code>-to-<code>SIGKILL</code> window is thirty, and a process still running
+when that expires is killed mid-answer.</p>
+<p>Stopping is two waits, in this order, sharing one budget:</p>
+<ol>
+<li><strong>The connection drain.</strong> Waiting for every open connection is what makes a rolling deployment not
+   drop answers, and it is also how one connection nothing is going to close pins the process open.
+   So the drain gets the budget, and the deadline arms only <em>after</em> shutdown has been asked for -
+   before that a long-lived connection is not a deadline.</li>
+<li><strong>Questions already executing.</strong> Dropping the serve future ends the drain; it does not end the
+   work. A question on the pool cannot be aborted, and the runtime's own shutdown waits for it - with
+   no bound at all, which is what this budget's remainder now supplies. Whatever the drain did not
+   spend is what the process waits here, and then it stops waiting and exits.</li>
+</ol>
+<p><strong>What the number guarantees, precisely:</strong> how long the process <em>waits</em>. Not that work finished, and
+not that anything was cancelled - a question still running when the budget is spent is left running,
+and the process exits out from under it. That is the honest trade, and it is the right one: a process
+that exits on its own terms got to run whatever it does on the way out, and one that is <code>SIGKILL</code>ed
+did not.</p>
+<p>Spending the budget twice - a full grace period for the drain and then a full one again for the pool -
+would be twice the number the operator chose, which is the number their kill timer is racing. So the
+second wait gets the remainder, and the log line says how much that was.</p>
+<p>A grace period shorter than a question is not refused, and it is not a misconfiguration either: it
+says "stop on time even if that means abandoning an answer in flight", which is a legitimate posture
+for a deployment being replaced. Nothing here can know how long a question takes, so nothing here can
+check it - the number that <em>is</em> checked is that it is neither zero nor above five minutes.</p>
+<h2 id="running-it">Running it<a class="headerlink" href="#running-it" title="Permanent link">&para;</a></h2>
+<p>The engine reads files, so there is nothing to provision. Three ways in, and they take the same
+environment - which is <strong>not</strong> three catalog keys: a <code>sources.&lt;alias&gt;</code> entry says what kind of data
+system the catalog's models read, where its files are and which identity a query reaches it as, and
+a catalog naming a source nobody declared is a startup refusal that names the source.</p>
+<p><strong>From a published release</strong>, with no Rust toolchain. Take the tarball for your triple - the musl
+ones are statically linked and need no libc at all - and verify it before you run it;
+<a href="../verifying-a-release/">verifying a release</a> is that page. The <code>cd</code> below is into the corpus, and
+<strong>no release asset carries it</strong>: <a href="../getting-started/#the-corpus">the corpus</a> is the commands that
+put it beside you, and the reason it is not an asset. This fence assumes you ran those, so the
+corpus is at <code>sutura-corpus/</code> in the directory you are standing in; a clone puts it at
+<code>examples/single-player</code> instead, and the <code>cd</code> is the only line that differs.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>sutura-serve-x86_64-unknown-linux-musl.tar.gz
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nv">BINARY</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/sutura-serve"</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nb">cd</span><span class="w"> </span>sutura-corpus/examples/single-player
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$BINARY</span><span class="s2">"</span>
+</span></code></pre></div>
+<p><strong>Or the image.</strong> The <code>-serve</code> tags are this binary; the unsuffixed ones are the command-line tool.
+The entrypoint is the server and it takes no arguments, so <code>docker run</code> with none starts it.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--network<span class="w"> </span>host<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>--workdir<span class="w"> </span>/examples<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/examples/single-player:/examples:ro"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span>/examples/data<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span>ghcr.io/telekom/sutura:latest-serve
+</span></code></pre></div>
+<p><strong><code>--network host</code> rather than <code>-p 8080:8080</code>, and the difference is a startup refusal rather than a
+preference.</strong> The default bind is loopback, and inside a container loopback is the container - so a
+published port would reach nothing. Binding <code>0.0.0.0</code> instead makes this deployment one other hosts
+can reach, and that needs <code>security.access_token</code> and a <code>security.tls_termination</code> that says which
+cleartext hop the token crosses; without both, the process refuses to start and names both. Which is
+the right shape for a real deployment and the wrong one for reading this page. The image runs as uid
+65532 with no shell and no package manager in it.</p>
+<p><strong>Every published x86_64 image is smoke-tested with this shape before a release is cut</strong> -
+<code>.github/serve-smoke.sh</code>, the same mount and the same keys plus a port of its own - and the test is
+not a liveness probe. It starts the image, asks the <code>recurring_revenue</code> question from
+<a href="https://github.com/telekom/sutura/tree/main/examples/single-player"><code>examples/single-player</code></a>,
+checks the certified January figure is in the answer, and checks that a question the catalog refuses
+comes back <code>403</code>. The arm64 pair is built and not run, because executing it would need an emulator
+registered on the runner.</p>
+<p><strong>Or from source</strong>, which is what a change to this repository is tested with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nv">ROOT</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">"</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="nb">cd</span><span class="w"> </span>examples/single-player
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>--manifest-path<span class="w"> </span><span class="s2">"</span><span class="nv">$ROOT</span><span class="s2">/Cargo.toml"</span><span class="w"> </span>-p<span class="w"> </span>sutura-serve
+</span></code></pre></div>
+<p>It binds <code>127.0.0.1:8080</code>, needs no token there, and serves the browser interface at <code>/docs</code>. Startup
+loads the catalog through its port and re-executes <strong>every declared anchor</strong> against the data system;
+a bundle whose anchors do not reproduce the numbers their author certified starts nothing. That is not
+a check the startup sequence performs and could forget - the type the service accepts has no other
+constructor.</p>
+<p><strong>Two suites are the thing to read next rather than this page</strong>, and they are suites rather than
+transcripts. <code>crates/sutura-serve/tests/served.rs</code> starts this binary against
+<code>examples/single-player</code> on a kernel-chosen port and asserts the liveness probe answering only once
+the catalog has loaded, a question with no bearer token refused by the gate, a certified question
+answered, the catalog route, a refusal arriving as its documented status, a caller's own token
+verified and every forgery refused alike, a published key set this deployment cannot use stopping the
+process, and <strong>four of the refusals in the table above on the binary that makes them</strong> - a
+non-loopback bind with no TLS termination declared, a production deployment with no credential, a
+configured source with no <code>security.identity</code>, and a misspelled key, each asserted as exit <code>1</code>, no
+listener opened, and the sentence <code>sutura_config</code> renders for that deployment. <code>just serve-e2e</code> runs
+it. <code>crates/sutura-http/src/harness.rs</code> asserts the
+envelope one status at a time, in process and with no socket: the token gate, <code>sql</code> in a body as a
+<code>400</code> naming the field, the bounds, the rate-limit tiers, and the interface description served in
+development and not in production. It reaches ten of the eighteen refusal reasons; the exhaustive
+one is <code>crates/sutura-http/src/wire/refusal.rs</code>, which lists every variant's status and <code>code</code> and
+assigns them in a match with no wildcard arm, so a new refusal is a compile error until somebody
+decides what it is on the wire.</p>
+<p><strong>What neither asserts, next to the claim:</strong> the startup banner's own wording. <code>announce_identity</code>
+in <code>crates/sutura-runtime/src/banner.rs</code> emits the <code>NO PER-CALLER IDENTITY</code> sentence from the
+config types, and no test compares it to a string - so quoting it on a page is a promise no gate
+keeps. It is step 5 and the four refusal cases exit at step 3, so they reach it in neither direction.
+Nor does anything pin a response's JSON <em>formatting</em> or the <code>detail</code> sentences beside the codes.</p>
+<p><strong>And the refusals in the table are not all held on the binary.</strong> Four are; the rest are asserted
+over <code>Settings::load</code> alone, and nothing in the tree forces a new one onto either venue - there is no
+exhaustive match over the refusal enum the way <code>crates/sutura-http/src/wire/refusal.rs</code> has one over
+the wire's. A startup refusal also names <strong>no configuration layer</strong>, so a deployment refused because
+<code>SUTURA_CONFIG_DIR</code> was wrong is refused in the same words as one refused for its own file
+(<code>telekom/sutura#445</code>).</p>
+<p>A hand-captured session in <code>examples/single-player/README.md</code> used to hold the read-next role, and
+<code>docs/adr/0005</code> had already recorded it as stale - it showed <code>200 OK</code> for refusals, which stopped
+being true when a refusal got a status of its own. It is deleted rather than re-captured: a
+transcript nobody runs goes stale silently, and a suite cannot.</p>
+<h2 id="what-is-not-built">What is not built<a class="headerlink" href="#what-is-not-built" title="Permanent link">&para;</a></h2>
+<p>Named rather than implied, because an absence that reads as an oversight gets assumed away.</p>
+<ul>
+<li><strong>No caller identity on the agent surface.</strong> This bullet said the agent transport did not exist,
+  and that had stopped being true: <code>sutura-mcp</code> sits on the same small port this one talks to and
+  serves the tool surface over a process's own standard input and output, which <code>just mcp-e2e</code>
+  drives end to end. What does not exist there is anyone to be: a pipe has no header a token could
+  arrive in, so that surface offers every capability and answers as the deployment, and a
+  network-reachable one needs the identity leg
+  <a href="../adr/0014-how-a-caller-proves-who-it-is/">how a caller proves who it is</a> designs.</li>
+<li><strong>No record STORE.</strong> This bullet said "no audit sink" and that had already stopped being true: there
+  is an <code>AuditSink</code> port, <code>sutura-app</code> writes one record per outcome through it before the outcome
+  returns, and the writer a deployment gets for free puts that record on the log below. What does not
+  exist is retention - sutura keeps nothing, so what a record is worth is what the deployment's log
+  pipeline is worth. What has changed with leg 1 is that the record can now name a <strong>person</strong> rather
+  than only the deployment.</li>
+<li><strong>No key-set endpoint.</strong> <code>security.inbound.key_set_file</code> reads a JWK set off disk, and there is no
+  URL source: an outbound HTTP client is a supply-chain change with its own review, and it makes the
+  authorization server a hard runtime dependency whose outage has to stay distinguishable from a dead
+  data system. Everything a URL source would need is built - the cache, the refetch on an unknown key
+  id, and the rate limit on that refetch - and a sidecar that rewrites a mounted key set is how a
+  process with no egress rotates. <strong>The limit a file has:</strong> no cache header, so a key rotated <em>without</em>
+  its id changing is one this deployment keeps using.</li>
+<li><strong>No protected-resource metadata.</strong> A <code>401</code> carries an RFC 6750 challenge naming the realm and no
+  <code>resource_metadata</code> parameter, so a client learns which authorization server governs this resource
+  out of band rather than by reading a document here.</li>
+<li><strong>No replay protection on a gateway assertion.</strong> The <em>window</em> is bounded - an <code>iat</code> is required and
+  <code>exp - iat</code> is capped - and inside it an intercepted assertion replays. Closing that needs the
+  assertion bound to the request (a hash of the method, path and body the component computes) or a
+  store of what has been seen, and neither exists. That is why this page calls it an assertion rather
+  than a proof of transit, and why the hop from the component is a trusted boundary.</li>
+<li><strong>No source that executes as the asking subject.</strong> Leg 1 establishes who is asking and the
+  credential port makes a question unable to execute without a credential minted for its source - but
+  no adapter in this build can carry a per-subject one, so every question still reads as one identity.
+  See the first section - this is the single most important absence on this page.</li>
+<li><strong>No request identifier.</strong> It belongs in the failure body and there is nothing to put in it, and a
+  field that is always absent is worse than no field.</li>
+<li><strong>No readiness endpoint.</strong> There is nothing it could report that is not already true of a process
+  that is listening: the bundle validated, or the process did not start. One would arrive with the
+  first thing that can become unready <em>after</em> startup.</li>
+<li><strong>No CORS.</strong> A browser is not a client of this surface, and an allow-list nobody needs is an
+  allow-list somebody widens.</li>
+<li><strong>No metrics or trace export.</strong> A span per request exists and is rendered into the log, which is
+  what makes one request's lines findable. Exporting it is a decision about a backend, a sampling
+  rate and an egress path, and none of those has been made.</li>
+<li><strong>No CONFIGURABLE client TLS, and this bullet is narrower than it used to be.</strong> It used to say no
+  crate here holds an HTTP client, and that stopped being true: <code>sutura-exec-bigquery</code>'s default-off
+  <code>wire</code> feature holds one - <code>ureq</code> over rustls, with a compiled-in root set and <code>https_only</code> - so
+  outbound TLS to a data source exists and works. What does not exist is any way for a deployment to
+  <em>configure</em> it: no trust-store setting, no client certificate, no pinning, and no configuration
+  group at all. Two reasons, and the second is why it is not simply an omission. There is little to
+  attach one to: the crate is linked and <code>kind: bigquery</code> dispatches behind a default-off feature,
+  so what a default build can open still reads local files. <strong>Both clauses that used to stand here -
+  <em>no composition root links that crate</em> and <em><code>sutura-serve</code> refuses <code>kind: bigquery</code> by name</em> - are
+  spent</strong>, which <code>docs/adr/0017</code>'s second amendment recorded. And for that endpoint
+  the <em>absence</em> of configuration is the safer default - a compiled-in root set means the same binary
+  trusts the same authorities on every machine, and a settable host is a settable place to send a
+  bearer token, which <code>docs/adr/0018</code> records as a deliberate trade against local testability. A
+  configuration group arrives with the first networked adapter a deployment can actually open, and
+  the parsing and validation the inbound listener already does is what it will be built out of.</li>
+<li><strong>No mutual TLS inbound either.</strong> The listener above presents a certificate and verifies no
+  client. Client-certificate authentication would be an identity, and this service has none to
+  attach one to - see the first section.</li>
+</ul>
+<h2 id="what-a-caller-can-still-do">What a caller can still do<a class="headerlink" href="#what-a-caller-can-still-do" title="Permanent link">&para;</a></h2>
+<p>Stated plainly, because the posture above is a perimeter and not an authorisation model.</p>
+<p>A caller who holds the token can read the whole catalog and ask any question the catalog certifies,
+over any period inside the bound, with any permitted filter. There is no way to give one caller less
+than that. The controls that exist are the shape of the question - no SQL, no table, no predicate, no
+row ids - and the bounds on it, and those apply equally to everybody.</p>
+<p>A caller behind a proxy shares a rate-limit bucket with everybody behind the same proxy <strong>unless the
+proxy is named</strong>. The default keys on the connection's peer address, which cannot be forged and which
+behind an ingress controller is <em>the ingress</em> for every request there has ever been - so the whole
+internet is one bucket, and the limiter either takes everybody down with one abusive caller or is set
+high enough to bound nothing. Setting <code>rate_limit.client_address: forwarded</code> and listing the hops in
+<code>rate_limit.trusted_proxies</code> is what fixes it. Neither half works alone: <code>forwarded</code> with an empty
+list is refused at startup, because a header nobody vouched for is a bucket the caller picks.</p>
+<p>With a proxy named, <code>X-Forwarded-For</code> is read only when the <em>peer</em> is one of the named hops, and the
+entry taken is the rightmost one that is not itself a named hop. A caller who prepends their own
+value, or who sends their own header line before the proxy appends one, gets it skipped; a caller who
+reaches this service directly and sets the header is ignored entirely. Every helper in the ecosystem
+takes the leftmost entry, which hands the key straight to whoever sent the request.</p>
+<p>A caller who does not hold the token can still consume rate-limit quota by presenting a wrong one -
+that is deliberate and is the point of the limiter sitting <em>outside</em> the token gate. It also means an
+unauthenticated caller can create a rate-limit bucket on any path that resolves to a handler. Those
+buckets are swept on an interval, so the memory is bounded rather than growing for the life of the
+process.</p>
+<p>An unauthenticated caller can reach <code>/health</code> and learn that the process is up, and can learn which
+paths exist - a path under the version prefix that matches no route answers <code>404</code> without holding a
+credential. The paths are in the published interface description in any case. Every path that
+resolves to a handler holds a credential.</p>
+<p>A caller with the token can occupy every execution slot and shed everybody else, inside their own
+rate limit, by asking questions that each cost more than the request timeout. The <code>503</code> the others
+get is honest and the backlog is bounded, but the <em>sharing</em> is not fair and is not made fair here.
+With leg 1 there is now a principal to be fair <em>between</em> - and nothing keys anything on it: no budget
+port exists, so what bounds a caller is still <code>rate_limit.api_per_second</code>, which bounds how fast one
+address can start questions.</p>
+<p>The same caller can keep a question running after being answered <code>408</code>, because nothing cancels one.
+So the cost of a question is not bounded by anything the caller experiences - only the <em>number</em> of
+them running at once is.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

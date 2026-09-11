@@ -1,0 +1,4301 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/0.5.1/changelog/">
+      
+      
+        <link rel="prev" href="../publishing/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Changelog - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../css/telekom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start here
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start here
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serve it
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Serve it
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../where-identity-is-proven/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where each identity claim is proven
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Untrusted content, and what marks it
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the agent surface learns who is asking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Three OSS-readiness scans, and what each discloses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a Scorecard zero says about this repository
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0026-no-third-party-binary-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No third-party binary cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An OSS binary cache for this repository's own paths
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-catalog-datahub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-datahub
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#051-2026-09-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.1 - 2026-09-11
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.1 - 2026-09-11">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#050-2026-09-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0 - 2026-09-11
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0 - 2026-09-11">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refactoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refactoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#041-2026-09-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.1 - 2026-09-01
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.1 - 2026-09-01">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixes_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#040-2026-09-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.0 - 2026-09-01
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0 - 2026-09-01">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#030-2026-09-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.0 - 2026-09-01
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.0 - 2026-09-01">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refactoring_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refactoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#infra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Infra
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#merge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Merge
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#024-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.4 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.4 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixes_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#023-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.3 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.3 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#documentation_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#022-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.2 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.2 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#documentation_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#021-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.1 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.1 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixes_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#020-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.0 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.0 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refactoring_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refactoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1.0 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.1.0 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#051-2026-09-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.1 - 2026-09-11
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.1 - 2026-09-11">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#050-2026-09-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0 - 2026-09-11
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0 - 2026-09-11">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refactoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refactoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#041-2026-09-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.1 - 2026-09-01
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.1 - 2026-09-01">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixes_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#040-2026-09-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.0 - 2026-09-01
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0 - 2026-09-01">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#030-2026-09-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.0 - 2026-09-01
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.0 - 2026-09-01">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refactoring_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refactoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#infra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Infra
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#merge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Merge
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#024-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.4 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.4 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixes_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#023-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.3 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.3 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#documentation_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#022-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.2 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.2 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#documentation_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#021-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.1 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.1 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixes_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#020-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.0 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.0 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refactoring_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refactoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-2026-08-25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1.0 - 2026-08-25
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.1.0 - 2026-08-25">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixes_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!--
+This page is `CHANGELOG.md` from the repository root, pulled in by pymdownx.snippets rather than
+copied. git-cliff generates that file from the commit subjects, so it has one owner and this page
+must never become a second copy of it.
+
+A whole-file include on purpose: `CHANGELOG.md` carries no `[start:...]` / `[end:...]` section
+markers today. An include naming a marker that is not there fails the build, which is the
+behaviour we want if somebody adds markers and this page is not updated with them.
+-->
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<p>Generated by git-cliff from the commit subjects. Do not edit by hand: every push to main
+rewrites this file. Fix a wrong entry by fixing the commit message convention, not the file.</p>
+<h2 id="051-2026-09-11">0.5.1 - 2026-09-11<a class="headerlink" href="#051-2026-09-11" title="Permanent link">&para;</a></h2>
+<h3 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>release</strong>: Read the image-record header and untagged list reference (#596)</li>
+</ul>
+<h3 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>ci</strong>: Read the cachix stores in docs, and free two paid jobs (#594)</li>
+</ul>
+<h2 id="050-2026-09-11">0.5.0 - 2026-09-11<a class="headerlink" href="#050-2026-09-11" title="Permanent link">&para;</a></h2>
+<h3 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>app</strong>: C2 BootRoot single root of trust (conf266) (#575)</li>
+<li>Use new rust compiler for traits (#590)</li>
+<li><strong>identity</strong>: R1 digest-only AssertionDigest (conf266) (#566)</li>
+<li><strong>agents</strong>: Ponytail on by default, and inherited by subagents (#577)</li>
+<li><strong>conformance</strong>: Corpus as files (#350) (#555)</li>
+<li><strong>mcp</strong>: Honor peer cancellation (#553)</li>
+<li><strong>conformance</strong>: Compile packs behind a default-off feature (#549)</li>
+<li><strong>release</strong>: Export portable provenance bundles (#505)</li>
+<li><strong>domain</strong>: One answer's legs decide identity the same way, or it is refused (#484)</li>
+<li><strong>gates</strong>: Needle-substring lint in check-expect-thresholds (#497)</li>
+<li>Jscpd copy/paste gate (issue #474) (#483)</li>
+<li><strong>federation</strong>: The shipped engine executes a leg, so a published build answers two sources (#441)</li>
+<li><strong>ci</strong>: Three OSS-readiness scans, and two badges held against what they claim (#422)</li>
+<li><strong>xtask</strong>: A worktree's state is its own, held by a gate (#417)</li>
+<li><strong>xtask</strong>: An absence a doc comment claims, read against the code (#406)</li>
+<li><strong>nix</strong>: The artifact/sweep pairing is held by a gate, not review (#368)</li>
+<li><strong>xtask</strong>: A venue a job reaches, whose run nobody has seen - and what a <code>Reached by</code> may get away with (#396)</li>
+<li><strong>xtask</strong>: The causality gate reads its base and its manifests (#384)</li>
+<li>The conformance suite's own coverage - a gate and its cost (#375)</li>
+<li><strong>docs</strong>: The site build joins validate, and a dead href is a gate (#361)</li>
+<li><strong>xtask</strong>: An example no test reaches for is a directory of prose (#294)</li>
+<li><strong>datahub</strong>: The deployment-defined property, measured against a real DataHub - and the closedness claim gated (#256)</li>
+<li><strong>identity</strong>: Serve attaches the exchanging broker, and the expiry floor lands (#284)</li>
+<li><strong>xtask</strong>: The compose tier's one bounded wait is held by a gate (#280)</li>
+<li><strong>xtask</strong>: The boot order the pre-flight relies on is a gate (#251)</li>
+<li><strong>xtask</strong>: The acceptance job's five properties are asserted, not configured (#255)</li>
+<li><strong>dev</strong>: Keycloak as a nix-native tier, provisioned without a human (#250)</li>
+<li><strong>xtask</strong>: The identity venue map is held by a gate, not by recall (#254)</li>
+<li><strong>xtask</strong>: A <code>just</code> task a failure prints is resolved by a gate (#253)</li>
+<li><strong>dev</strong>: Every discoverable service declares its CI venue (#239)</li>
+<li><strong>cli</strong>: The agent surface refuses a table the dataset does not hold (#236)</li>
+<li><strong>cli</strong>: Open a BigQuery dataset behind a default-off feature (#230)</li>
+<li><strong>cli</strong>: Open the data system the deployment declared (#229)</li>
+<li><strong>dev</strong>: A provisioned DataHub tier behind a compose profile (#227)</li>
+<li><strong>example</strong>: The DataHub multi-player shape, and its fixture proof (#211)</li>
+<li><strong>metadata</strong>: A DataHub metric carries a whole certified metric (#210)</li>
+<li><strong>serve</strong>: A table the dataset does not hold stops the boot (#212)</li>
+<li><strong>xtask</strong>: No first-party Deref, and no Borrow at all (#203)</li>
+<li><strong>xtask</strong>: A transport cannot declare the port it calls (#201)</li>
+<li><strong>xtask</strong>: An adapter cannot reach an adapter of its own kind (#200)</li>
+<li><strong>xtask</strong>: A refusal variant nothing provokes is a failure (#199)</li>
+<li><strong>clippy</strong>: Ban the one call that lets a credential out (#198)</li>
+<li><strong>xtask</strong>: Gate serde against a newtype's own constructor (#197)</li>
+<li><strong>cli</strong>: Serve the MCP agent surface over stdio via <code>sutura mcp</code> (#189)</li>
+<li><strong>catalog</strong>: DataHub as the first declaring SemanticCatalog (#195)</li>
+</ul>
+<h3 id="fixes_1">Fixes<a class="headerlink" href="#fixes_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>exec-bigquery</strong>: Source_refused from the transport's own refusal split (#579)</li>
+<li><strong>sql</strong>: Bound the parenthesis the pinned parser never closes (#146) (#592)</li>
+<li><strong>ci</strong>: Create target/ before the privileged cache restore (#591)</li>
+<li><strong>refusal</strong>: G4 per-variant witness keyed by domain code (conf266) (#573)</li>
+<li><strong>exec</strong>: A data-source refusal is a non-retryable class, distinct from transient (#574)</li>
+<li><strong>fuzz</strong>: Bound non-ASCII in SQL and repair the question_body dictionary (#146) (#582)</li>
+<li><strong>xtask</strong>: Refuse pub modules no first-party crate references (#131) (#581)</li>
+<li><strong>api</strong>: Public re-exports carry their docs (#470) (#580)</li>
+<li><strong>gates</strong>: Refuse intent-to-add source gaps (#578)</li>
+<li><strong>keycloak</strong>: Preserve status code contract (#576)</li>
+<li><strong>ci</strong>: Preserve pending BigQuery acceptance jobs (#567)</li>
+<li><strong>identity</strong>: Mask at the parse boundary, not at render (#388) (#572)</li>
+<li><strong>ci</strong>: State the pruning fallback cost (#556)</li>
+<li><strong>cli</strong>: A remedy naming variables that are not set (#435)</li>
+<li><strong>docs</strong>: Remove unresolved generated self link (#558)</li>
+<li><strong>xtask</strong>: Falsifier guard for the hygiene gates (closes #371 guard step) (#554)</li>
+<li><strong>docs</strong>: Point the backoff note at a public item (#550)</li>
+<li><strong>security</strong>: Typed ceilings on caller input, and the token hashed at parse (#547)</li>
+<li><strong>http,mcp</strong>: Caller-chosen values no longer reach a log or a body (#546)</li>
+<li><strong>domain</strong>: One refusal code the transports both read (#545)</li>
+<li><strong>dev</strong>: Preserve foreign keycloak claims (#548)</li>
+<li><strong>gates</strong>: Anchor the jscpd drift check, and hold its thresholds to the declared set (#542)</li>
+<li><strong>ci</strong>: Generate the attribution document instead of committing it (#536)</li>
+<li><strong>gates</strong>: Check binary-only rustdoc links (#504)</li>
+<li><strong>xtask</strong>: Name both missing advisory causes (#544)</li>
+<li><strong>config</strong>: Carry each key's layer origin into the refusal it is about (#543)</li>
+<li><strong>domain</strong>: Restate the limit UnsupportedAggregate cannot reach (#540)</li>
+<li><strong>identity</strong>: Mask opaque principal suffixes (#541)</li>
+<li><strong>xtask</strong>: A gate that cannot be switched off, and a file it cannot read (#534)</li>
+<li><strong>gates</strong>: Share the jscpd ignore config (#529)</li>
+<li><strong>xtask</strong>: An escaped backtick is prose, and a citation needs a test (#537)</li>
+<li><strong>http</strong>: Keep raw paths out of warnings (#523)</li>
+<li><strong>identity</strong>: Mask principals in diagnostic output (#530)</li>
+<li><strong>xtask</strong>: The witness counts the subjects the check reached (#516)</li>
+<li><strong>domain</strong>: Bind re-aggregated leaves to their tree (#524)</li>
+<li><strong>nix</strong>: The keycloak tier's start guard is the process, its status the records (#434)</li>
+<li><strong>xtask</strong>: Enrol NotValidated, and make the enrolled count a witness (#507)</li>
+<li><strong>xtask</strong>: A gate's inner walk reaches every subject it was offered (#509)</li>
+<li><strong>jscpd</strong>: Hygiene follow-ups — temp-dir leak and single-owner ignore set (#502)</li>
+<li><strong>gates</strong>: Enforce literal task filter parity (#503)</li>
+<li><strong>dev</strong>: A tier reads and writes only its own entry, and derives its own state (#454)</li>
+<li><strong>config</strong>: Retain file layers in startup failures (#493)</li>
+<li><strong>gates</strong>: The changed-package recipe sources the stable helper (#491)</li>
+<li>Include enums in serde constructor coverage (#489)</li>
+<li><strong>gates</strong>: Refuse an unconfigured local Rust toolchain (#481)</li>
+<li><strong>xtask</strong>: Cover startup refusal names (#479)</li>
+<li><strong>bigquery</strong>: Distinguish unreadable inventories from absences (#475)</li>
+<li><strong>ci</strong>: Drop the publication-refusal witness, publishing is the success condition (#476)</li>
+<li><strong>xtask,serve</strong>: The guard takes the lock, the site cannot skip a join (#460)</li>
+<li><strong>bigquery</strong>: Redact session-user debug output (#473)</li>
+<li><strong>ci</strong>: Measure causality on the pull request head (#469)</li>
+<li><strong>ci</strong>: The publication the badge needs, and a witness that it landed (#456)</li>
+<li><strong>xtask</strong>: Distinguish venue commands and check named credential cleanup (#433)</li>
+<li><strong>exec-postgres</strong>: A fixture credential is configured, or it refuses (#461)</li>
+<li><strong>release</strong>: Every published byte is signed, sidecars included (#465)</li>
+<li><strong>ci</strong>: Preserve a failed check without an offline retry (#467)</li>
+<li><strong>bigquery</strong>: A listing short of its own total is unaccounted for, not absent (#439)</li>
+<li><strong>xtask</strong>: A green run over a revert the tests cannot reach is INCONCLUSIVE (#399)</li>
+<li><strong>xtask</strong>: A census reads its own subjects, and its sealed types hand out nothing (#438)</li>
+<li><strong>xtask</strong>: The <code>#[ignore]</code> line itself is not a run this venue reaches (#420)</li>
+<li><strong>domain</strong>: A violated many_to_one is refused at boot, not answered twice (#354) (#427)</li>
+<li><strong>docs</strong>: Fifteen unresolved intra-doc links, and the lint that keeps them fixed (#408)</li>
+<li>Two intermittent test failures - the compose lock's release, and the serve harness's drain (#407)</li>
+<li><strong>xtask</strong>: A shipped-set value the gate cannot compare is a verdict (#373)</li>
+<li><strong>dev</strong>: Every devenv shell body is discovered, not matched by a needle (#409)</li>
+<li><strong>xtask</strong>: Ordinary CI is every file it calls, not one file name (#403)</li>
+<li><strong>devenv</strong>: ShellCheck reads every script body, and a gate keeps every body inside it (#395)</li>
+<li><strong>xtask</strong>: Check-examples resolves a line to the test around it, and to disk (#393)</li>
+<li><strong>docs</strong>: The guided path installs a published binary, not a toolchain (#385)</li>
+<li><strong>dev</strong>: The postgres tier is ephemeral, and heals a directory it wedged on (#379)</li>
+<li><strong>docs</strong>: ADR records that no longer describe the tree, held by a gate (#369)</li>
+<li><strong>serve</strong>: A refusal may not send an operator after a feature that does not exist (#367)</li>
+<li><strong>xtask</strong>: Check-arrow reads its allowlist on a single-major tree too (#374)</li>
+<li><strong>bounds</strong>: One process builds one Admission, and the reply is bounded (#364)</li>
+<li><strong>xtask</strong>: What the causality gate believes about its own diff (#359)</li>
+<li><strong>xtask</strong>: What a causality verdict may claim - the exit code and the sentence (#344)</li>
+<li><strong>federation</strong>: A null fact key, a colliding label and the null order (#331)</li>
+<li><strong>mcp</strong>: A question takes an execution slot, and its worker keeps it (#342)</li>
+<li><strong>nix</strong>: An inherited build root is regenerated, not required (#330)</li>
+<li>Five gates that reported more coverage than they had (#322)</li>
+<li><strong>dev</strong>: One record for the tier's state, and a failed stop keeps it (#316)</li>
+<li><strong>xtask</strong>: A <code>#[cfg(test)]</code> helper is test code, and a verdict says how much it measured (#306)</li>
+<li><strong>xtask</strong>: A fence, a constant and a file, derived not believed (#309)</li>
+<li><strong>domain</strong>: The catalog's authored content is parsed and reconciled (#282)</li>
+<li><strong>dev</strong>: The unprovisioned remedy derives its venue in both arms (#268)</li>
+<li><strong>xtask</strong>: A causality verdict names the test it measured, and the name is a key (#279)</li>
+<li><strong>mcp</strong>: The prose setting reaches both halves of the catalog reply (#277)</li>
+<li><strong>bigquery</strong>: The listing's own total is decoded, so the cross-check has something to check (#272)</li>
+<li><strong>cli</strong>: The query command records the outcome it prints (#276)</li>
+<li><strong>domain</strong>: A leaf column's numeric type is established before any aggregate reads it (#270)</li>
+<li><strong>xtask</strong>: Six properties of the acceptance job read a line where a shape was meant (#269)</li>
+<li><strong>xtask</strong>: A daemon wedging mid-run fails dev-up rather than hanging it (#273)</li>
+<li><strong>xtask</strong>: A wedged daemon fails a gate rather than hanging it (#262)</li>
+<li><strong>xtask</strong>: The remedy a claim prints is checked, not trusted (#246)</li>
+<li><strong>xtask</strong>: A gated count that no page states is not a gate (#237)</li>
+<li><strong>dev</strong>: A stopped Postgres tier stops claiming to be there (#231)</li>
+<li>Agentt guardrails and skills (#228)</li>
+<li><strong>http</strong>: The catalog body honours catalog_prose: omitted (#128) (#207)</li>
+<li><strong>ci</strong>: Prune pull request caches on close (#205)</li>
+<li><strong>ci</strong>: Prune unreachable caches daily (#191)</li>
+</ul>
+<h3 id="performance_1">Performance<a class="headerlink" href="#performance_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>ci</strong>: Compute the full cross matrix only for a release (#587)</li>
+<li><strong>ci</strong>: Fix a no-op cache, read every store we write, and gate what made it invisible (#586)</li>
+<li><strong>ci</strong>: Close #560 + #561 + #562 + #564 — the CI-caching improvement batch (#571)</li>
+<li><strong>ci</strong>: Persist the writable causality target across runs (#563)</li>
+<li><strong>nix</strong>: A deps-only build states whether it compiles test targets (#510)</li>
+</ul>
+<h3 id="refactoring">Refactoring<a class="headerlink" href="#refactoring" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>domain</strong>: Typed result labels, and a truthful failure (#432)</li>
+<li><strong>xtask</strong>: A gate's witness is minted by the walk, not by its own loop (#419)</li>
+<li>Five files off the 1000-line cap, each at a named seam (#345)</li>
+<li><strong>xtask</strong>: What the acceptance job must hold is its own module (#323)</li>
+<li><strong>domain</strong>: The re-aggregation above the legs is its own module (#318)</li>
+<li><strong>ci</strong>: The cross link check is its own reusable workflow (#289)</li>
+<li><strong>bigquery</strong>: A resource name's position is a variant (#220)</li>
+</ul>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>gates</strong>: State accounting witness limits (#570)</li>
+<li><strong>adr</strong>: Close both CodeQL next steps with a measurement (#535)</li>
+<li><strong>git</strong>: Clarify published-branch rewrite authority (#501)</li>
+<li><strong>adr</strong>: Why a CodeQL Rust SQL-taint job is not shippable yet (#464) (#480)</li>
+<li><strong>build</strong>: Distinguish Cargo relocation from baked files (#488)</li>
+<li><strong>identity</strong>: Record startup refusal evidence limits (#482)</li>
+<li>Surface the issue tracker and steer security reports to SECURITY.md (#478)</li>
+<li><strong>adr</strong>: The re-measurement is the argument for not acting (#471)</li>
+<li>The tree stated both branch styles, and argued a refusal from the wrong one (#436)</li>
+<li>Three corpora of already-false claims, and where the reader is blind (#442)</li>
+<li><strong>adr</strong>: Where a per-request principal reaches the agent surface (#380)</li>
+<li><strong>adr</strong>: 0017 said acceptance.rs still needed splitting, and #323 split it (#326)</li>
+<li>Five prose corrections in the README (#315)</li>
+<li><strong>site</strong>: The implementation plans stop being published pages (#292)</li>
+<li><strong>adr</strong>: Which half of the DataHub property a deployment owns (#234)</li>
+<li><strong>skills</strong>: Name what stays advisory, and what the gates miss (#208)</li>
+</ul>
+<h3 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>bigquery</strong>: Preserve qualifiers in isolated fixture naming (#498)</li>
+<li><strong>federation</strong>: Exercise the remaining compile-time refusals (#500)</li>
+<li><strong>security</strong>: Fuzz the SQL and JSON parsers that read untrusted input (#494)</li>
+<li><strong>bigquery</strong>: One workload identity, exchanged per subject, against SESSION_USER() (#382)</li>
+<li>Allow complete mutation runs through nextest profiles (#466)</li>
+<li><strong>serve</strong>: The four startup refusals, held on the binary that makes them (#444)</li>
+<li>Assertions that read text where they meant a value (blocked on #394) (#397)</li>
+<li><strong>conformance</strong>: Postgres is bound, and an absent tier is not a pass (#398)</li>
+<li><strong>xtask</strong>: Every registered hygiene gate, run against a tree it must refuse (#390)</li>
+<li>Slice C - the splitter, two executions and the combiner, joined (#355)</li>
+<li><strong>conformance</strong>: The packs crate, and two adapters held to it from their own crates (#352)</li>
+<li>B0 - one typed comparison policy, and the reformatting golden compares two inputs (#333)</li>
+<li><strong>cli</strong>: Every command the pages print is run, or named as skipped (#293)</li>
+<li><strong>bigquery</strong>: The two-principal cell, and the half it cannot establish (#286)</li>
+<li><strong>bigquery</strong>: Make the acceptance leg re-entrant with per-run table names (#283)</li>
+<li><strong>bigquery</strong>: A real listing reaches the boot decision, and the soft edge names its status (#257)</li>
+<li><strong>identity</strong>: The exchange chain, joined through the transport (#252)</li>
+<li><strong>identity</strong>: Leg 1 on the composed binary, over a published key set (#238)</li>
+<li><strong>bigquery</strong>: A real dataset answers the pre-flight's listing (#221)</li>
+<li><strong>e2e</strong>: Ask the served deployment a question (#117) (#192)</li>
+<li><strong>identity</strong>: A mock issuer in the sandbox, provable every run (#193)</li>
+</ul>
+<h3 id="build">Build<a class="headerlink" href="#build" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Bump rmcp from 3.1.4 to 3.2.0 (#426)</li>
+<li>Bump the patch-level group with 3 updates (#425)</li>
+<li><strong>xtask</strong>: Gate the hygiene classification, not its count (#247)</li>
+<li><strong>devenv</strong>: Upgrade the pinned stax to 0.110.0 (#194)</li>
+</ul>
+<h3 id="ci">CI<a class="headerlink" href="#ci" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>fuzz</strong>: Drop the per-push leg, run the fuzzer at a release (#146) (#593)</li>
+<li>Category filter over the workspace, named by adapter crate (#552)</li>
+<li><strong>cache</strong>: PRs publish to sutura-prs behind a PR-gated read (#551)</li>
+<li><strong>cache</strong>: Publish the cross, connector and fuzz closures to per-consumer caches (#539)</li>
+<li>Make the host-utilisation numbers quotable from a job log (#531)</li>
+<li>Fold every CI refinement into one change, and trust one binary cache (#520)</li>
+<li>Retire the inert third-party binary cache and gate its return (#508)</li>
+<li><strong>gates</strong>: Anchor the event-scoped cross matrix in check-workflows (#496)</li>
+<li>Chain doctest onto the nextest artifacts to drop a workspace recompile (#495)</li>
+<li>Restore the Actions cache everywhere, write it only from main (#490)</li>
+<li>Event-scoped cross matrix (PR 2/main 4/release 4) + binary-cache backstop (#472) (#477)</li>
+<li>The shipped feature set gets a lint gate in CI too (#258)</li>
+<li>The shipped feature set's tests are run by a gate, not compiled by one (#271)</li>
+<li><strong>cross</strong>: The documented feature-on source build is linked, not assumed (#259)</li>
+</ul>
+<h2 id="041-2026-09-01">0.4.1 - 2026-09-01<a class="headerlink" href="#041-2026-09-01" title="Permanent link">&para;</a></h2>
+<h3 id="fixes_2">Fixes<a class="headerlink" href="#fixes_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>release</strong>: Create the licence artifact directory (#188)</li>
+</ul>
+<h2 id="040-2026-09-01">0.4.0 - 2026-09-01<a class="headerlink" href="#040-2026-09-01" title="Permanent link">&para;</a></h2>
+<h3 id="features_1">Features<a class="headerlink" href="#features_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>catalog</strong>: Compose N metadata sources into one bundle (#115) (#181)</li>
+</ul>
+<h3 id="fixes_3">Fixes<a class="headerlink" href="#fixes_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>release</strong>: Authenticate the early stale check with Git (#187)</li>
+<li><strong>release</strong>: Authenticate the stale-dispatch fetch on version-bump (#186)</li>
+<li><strong>ci</strong>: Reserve release builds for tags (#185)</li>
+<li><strong>release</strong>: Use one approved main release path (#184)</li>
+</ul>
+<h2 id="030-2026-09-01">0.3.0 - 2026-09-01<a class="headerlink" href="#030-2026-09-01" title="Permanent link">&para;</a></h2>
+<h3 id="features_2">Features<a class="headerlink" href="#features_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>xtask</strong>: Ban #[expect] on count-threshold lints (#107)</li>
+<li><strong>catalog</strong>: Let a deployment declare several catalogs</li>
+<li><strong>catalog</strong>: Declare a catalog kind and dispatch it in the server</li>
+<li><strong>identity</strong>: Grant the two principals jobUser+dataViewer and record the cell state in ADR 0017</li>
+<li><strong>test-infra</strong>: Run Pulumi through pixi, drop requirements.txt/venv</li>
+<li><strong>test-infra</strong>: Google identity E2E scaffold, config-driven Pulumi</li>
+<li>Answer every file's licence mechanically, per the REUSE specification (#101)</li>
+<li><strong>ci</strong>: A curated licence review, with the config written here rather than cloned (#102)</li>
+<li><strong>release</strong>: The SBOM comes out of the binary, not out of Cargo.lock (#98)</li>
+<li><strong>federation</strong>: Execute a two-source question end to end (#89)</li>
+<li><strong>bigquery</strong>: A BigQuery source executes as the asking subject (issue 87) (#93)</li>
+<li><strong>serve</strong>: Register the BigQuery adapter so a deployment can serve kind: bigquery (#88)</li>
+<li><strong>identity</strong>: A credential the compiler refuses to print (#86)</li>
+<li><strong>catalog</strong>: A model may name a table outside its connection's dataset (#83) (#84)</li>
+<li><strong>bigquery</strong>: The wire, and the client decision that had to come first (#80)</li>
+<li><strong>postgres</strong>: A Warehouse adapter over Postgres, on a static credential (#78)</li>
+<li><strong>federation</strong>: Split, combine and serve a two-source question (#72) (#76)</li>
+<li><strong>catalog</strong>: Split the catalog matrix by adapter kind (#77)</li>
+<li><strong>bigquery</strong>: The fourth dialect, the adapter, and what a test runs against (#64)</li>
+<li><strong>xtask</strong>: Clean-branches, because --merged cannot see a squash merge (#74)</li>
+<li><strong>catalog</strong>: A metadata adapter says what it cannot supply (#59)</li>
+<li><strong>identity</strong>: A credential per leg, so nothing runs as the process (#58)</li>
+<li><strong>dev</strong>: The compose tier gets a reader, and the tier came up (#56)</li>
+<li><strong>config</strong>: A source registry, a declared posture, and two boot checks (#48)</li>
+<li><strong>surface</strong>: One tool set for two transports, gated by scope (#49)</li>
+<li><strong>identity</strong>: Leg 1, so a caller can prove who it is (#45)</li>
+<li><strong>domain</strong>: The two leg shapes, rendered and pinned before a combiner (#47)</li>
+<li><strong>dev</strong>: One service instance per worktree, on ports docker allocates (#34)</li>
+<li><strong>bounds</strong>: The engine gets a memory pool, and exhaustion becomes a refusal (#38)</li>
+<li><strong>identity</strong>: The principal chain, while both tail positions are still absent (#37)</li>
+<li><strong>mcp</strong>: The agent surface, one tool, schema generated not written (#35)</li>
+<li><strong>domain</strong>: A new aggregate cannot compile without saying how it federates (#33)</li>
+<li><strong>catalog</strong>: The knowledge layer, and an escape hatch for authored SQL (#23)</li>
+<li>One catalog, CRAP delta control, and three CI holes (#21)</li>
+<li>The query path - a catalog compiles to a plan, and the plan executes (#19)</li>
+</ul>
+<h3 id="fixes_4">Fixes<a class="headerlink" href="#fixes_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>ci</strong>: One merge_group key; fix(release): push as the App, not the bot (#178)</li>
+<li><strong>release</strong>: Push the release commit under a dedicated App token (#172)</li>
+<li><strong>domain</strong>: Re-land the two-bound too-much-data refusal lost in the dev restructure (#91 / #158) (#165)</li>
+<li><strong>ci</strong>: Reuse warmed artifacts and skip needless cleanup (#162)</li>
+<li><strong>mcp</strong>: Honour catalog_prose: omitted on the describe tool, and share the injection corpus</li>
+<li><strong>licence</strong>: Attribute vendored crates, and check the licence values</li>
+<li><strong>mcp</strong>: The agent text half can no longer be forged by a cell or a description</li>
+<li><strong>sql</strong>: State null placement in ORDER BY so the dialects agree (#92) (#95)</li>
+<li><strong>xtask</strong>: A lock file naming no holder is not PID 0, and it is never visibly empty (#68)</li>
+<li><strong>identity</strong>: The anchor door was a shape check, not an authority (#61)</li>
+<li><strong>identity</strong>: A broker's answer was trusted, and now it is checked (#62)</li>
+<li><strong>tooling</strong>: A rebase could push a tree nothing had compiled (#55)</li>
+<li><strong>dev</strong>: Ship-check could not run, because <code>cargo nextest</code> has no <code>-q</code> (#57)</li>
+<li><strong>tooling</strong>: A green <code>just check</code> was read as a green tree (#52)</li>
+<li>Main did not compile after seven parallel merges (#40)</li>
+<li><strong>xtask</strong>: A test appended to an existing test module is not a production change (#36)</li>
+<li><strong>docs</strong>: Publish a version per release, so the dropdown has versions</li>
+</ul>
+<h3 id="refactoring_1">Refactoring<a class="headerlink" href="#refactoring_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>serve</strong>: Split catalog opening out of main to hold the line limit</li>
+<li><strong>ci</strong>: Share the workflow lint sequence, and gate its references</li>
+<li><strong>test-infra</strong>: Hoist Pulumi tasks into the top-level justfile as infra-*</li>
+</ul>
+<h3 id="documentation_1">Documentation<a class="headerlink" href="#documentation_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>justfile</strong>: Describe BigQuery acceptance accurately (#164)</li>
+<li><strong>plan</strong>: Reconcile the stack, hand the backlog to the tracker (#157)</li>
+<li><strong>adr</strong>: Untrusted content, and what marks it</li>
+<li><strong>contributing</strong>: Restack with stax, never hand-rebase a branch in a stack</li>
+<li><strong>test-infra</strong>: Fix stale just gl citation to infra-gl in setup</li>
+<li><strong>adr</strong>: Settle where each identity claim is proven, per issue 81 (#103)</li>
+<li>The exact-order comparison is measured now, not predicted (#100)</li>
+<li><strong>adr</strong>: DataHub carries part of a model, and declares the rest (#53)</li>
+<li><strong>agents</strong>: The dev shell follows cargo into other repos and breaks builds there (#46)</li>
+<li><strong>plan</strong>: The table says which steps shipped, because six of them did not (#44)</li>
+<li><strong>plan</strong>: BigQuery leads the stack, and cheap-first is a tiebreak (#43)</li>
+<li>The records catch up with what the merges actually shipped (#41)</li>
+<li><strong>adr</strong>: The metrics endpoint, the pool policy, and a finding withdrawn (#29)</li>
+<li><strong>adr</strong>: Two false claims and seven stale cross-references from the final review (#27)</li>
+<li>The architecture of record for federation and impersonation, and the plan (#26)</li>
+</ul>
+<h3 id="tests_1">Tests<a class="headerlink" href="#tests_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>mcp</strong>: Share the single-cell answer fixture between the two forgery tests</li>
+<li><strong>google</strong>: Pulumi-only bootstrapping - enable APIs and RLS in-program</li>
+<li><strong>google</strong>: Configure the stack from the machine env automatically</li>
+<li><strong>google</strong>: Make pulumi preview actually run against the pinned SDK</li>
+<li><strong>google</strong>: Local file backend, no pulumi cloud, CI stack postfix</li>
+<li><strong>google</strong>: Workload identity pool (jwt), env-driven config, e2e-gcp workflow</li>
+<li><strong>bigquery</strong>: The corpus acceptance leg, and the importer it needed (#90)</li>
+<li><strong>sql</strong>: Prove and cover the week grain's Monday semantics (#67) (#75)</li>
+<li><strong>golden</strong>: A value in double quotes was stripped before we looked (#51)</li>
+<li><strong>startup</strong>: The source refusals both binaries make and neither proved (#31)</li>
+</ul>
+<h3 id="build_1">Build<a class="headerlink" href="#build_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>licence</strong>: Ship a committed, signed attribution document (#161) (#170)</li>
+<li><strong>release</strong>: Publish sutura-serve as a second artefact (#167)</li>
+<li><strong>licence</strong>: An attribution document, and a signed licence report</li>
+<li>Refresh dependencies (#65)</li>
+<li><strong>tooling</strong>: The Google Cloud CLI, as a container not a package (#54)</li>
+<li><strong>xtask</strong>: One Arrow major per lock file, or an explained exception (#30)</li>
+<li><strong>nix</strong>: Stax 0.108.0, pinned upstream because nixpkgs has 0.102.2 (#25)</li>
+</ul>
+<h3 id="ci_1">CI<a class="headerlink" href="#ci_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Answer the merge_group event, and gate cross on the event (#109)</li>
+<li>Run required checks for merge queue</li>
+<li><strong>secrets</strong>: Allowlist the KEY_ALG_RSA_2048 GCP enum in the test-infra pulumi program</li>
+<li><strong>e2e-gcp</strong>: Install pulumi at the pixi-locked version, no third-party action (address review r3897537270)</li>
+<li><strong>e2e-gcp</strong>: Take the pulumi CLI version from pixi.lock, not a float</li>
+<li>A dev trunk, and a release on every promotion to main (#104)</li>
+<li><strong>release</strong>: Sign and attest every published artefact (#97)</li>
+<li>Run all workflows on the rust-mcp larger runner (#96)</li>
+<li><strong>docs</strong>: A text-only citation gate, so a prose-only PR stops paying 15m45s (#32)</li>
+</ul>
+<h3 id="infra">Infra<a class="headerlink" href="#infra" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>google</strong>: Add infra-down and infra-set operator recipes</li>
+<li><strong>google</strong>: Move provisioning out of CI; CI consumes the bq-test environment</li>
+<li><strong>google</strong>: Export a CI service account key and CI dataset/table for the bq-test environment</li>
+<li><strong>google</strong>: Make <code>up</code> run as the developer ADC and fix three resource validations</li>
+<li><strong>google</strong>: Give the GCP provider a concrete region+zone so it stops enumerating compute regions</li>
+<li><strong>google</strong>: Bootstrap the Service Usage API itself, first, from pulumi</li>
+<li><strong>google</strong>: Env-driven stack name and a pulumi CLI/SDK version-parity gate</li>
+<li><strong>google</strong>: Pin the pixi pulumi SDK to the nix CLI version (both 3.255.0)</li>
+<li><strong>google</strong>: Pin the pulumi CLI via nix (devenv + flake), drop the web installer</li>
+</ul>
+<h3 id="merge">Merge<a class="headerlink" href="#merge" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Bring main's direct merges back into dev, keeping one licence implementation</li>
+</ul>
+<h2 id="024-2026-08-25">0.2.4 - 2026-08-25<a class="headerlink" href="#024-2026-08-25" title="Permanent link">&para;</a></h2>
+<h3 id="fixes_5">Fixes<a class="headerlink" href="#fixes_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>ci</strong>: The prune's own display line failed the workflow</li>
+</ul>
+<h3 id="performance_2">Performance<a class="headerlink" href="#performance_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>ci</strong>: A profile for the link check, tuned for compile speed</li>
+</ul>
+<h3 id="ci_2">CI<a class="headerlink" href="#ci_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Delete the caches of closed pull requests, weekly</li>
+<li><strong>release</strong>: Cut releases on request, not on every push</li>
+</ul>
+<h2 id="023-2026-08-25">0.2.3 - 2026-08-25<a class="headerlink" href="#023-2026-08-25" title="Permanent link">&para;</a></h2>
+<h3 id="documentation_2">Documentation<a class="headerlink" href="#documentation_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>The end-user pages stop routing contributors</li>
+<li><strong>release</strong>: The notes are tables, and nothing else</li>
+</ul>
+<h2 id="022-2026-08-25">0.2.2 - 2026-08-25<a class="headerlink" href="#022-2026-08-25" title="Permanent link">&para;</a></h2>
+<h3 id="documentation_3">Documentation<a class="headerlink" href="#documentation_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>release</strong>: Notes are the changelog, the binaries and the images</li>
+</ul>
+<h2 id="021-2026-08-25">0.2.1 - 2026-08-25<a class="headerlink" href="#021-2026-08-25" title="Permanent link">&para;</a></h2>
+<h3 id="fixes_6">Fixes<a class="headerlink" href="#fixes_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>api-docs</strong>: Drop the version, and wire the writer through nix</li>
+</ul>
+<h3 id="documentation_4">Documentation<a class="headerlink" href="#documentation_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Compress the prose, and make "Where to start" end-user only</li>
+</ul>
+<h2 id="020-2026-08-25">0.2.0 - 2026-08-25<a class="headerlink" href="#020-2026-08-25" title="Permanent link">&para;</a></h2>
+<h3 id="features_3">Features<a class="headerlink" href="#features_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Mimalloc 3.5.0 via nix, generated API docs, new identity mark</li>
+</ul>
+<h3 id="fixes_7">Fixes<a class="headerlink" href="#fixes_7" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>release</strong>: Take the image digest from the push, not from RepoDigests</li>
+</ul>
+<h3 id="refactoring_2">Refactoring<a class="headerlink" href="#refactoring_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Move repo-only config into devco/</li>
+</ul>
+<h3 id="documentation_5">Documentation<a class="headerlink" href="#documentation_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>One mark on the front page, not two</li>
+<li><strong>agents</strong>: Cite a just task, never a raw command</li>
+<li><strong>agents</strong>: Let CONTRIBUTING.md own the procedure</li>
+<li><strong>agents</strong>: Cut what the file already says elsewhere</li>
+</ul>
+<h3 id="ci_3">CI<a class="headerlink" href="#ci_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Check every arch on the pull request, as a matrix</li>
+<li>Build the shipped artifacts on main, not on every branch</li>
+<li><strong>hooks</strong>: Run the tests at commit, not at push</li>
+<li><strong>release</strong>: Cache the release path, and split it into a matrix</li>
+</ul>
+<h2 id="010-2026-08-25">0.1.0 - 2026-08-25<a class="headerlink" href="#010-2026-08-25" title="Permanent link">&para;</a></h2>
+<h3 id="features_4">Features<a class="headerlink" href="#features_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Musl artifacts with mimalloc, plus a contributing guide</li>
+<li>Mkdocs-material docs, FHS dev container, one pin per tool</li>
+<li>Typed newtypes, structured errors, and an honest hexagon</li>
+<li>Secrets gate, dev CLI, justfile, changelog automation</li>
+<li><strong>gates</strong>: Check-guidance, skills lock, and one dispatch table</li>
+<li><strong>skills</strong>: Import 20 library-tier skills, enforce provenance</li>
+<li><strong>agents</strong>: Cross-agent skill wiring, ponytail, PR and issue templates</li>
+<li>Stacked-branches skill, repo-local stax config, generated-file exemption</li>
+<li><strong>skills</strong>: Add ms-rust, regenerated from current upstream</li>
+<li><strong>agents</strong>: Skills tree, causality gate, and the checks that keep them honest</li>
+<li><strong>gates</strong>: Max-lines 1000, unused-deps, and a stricter lint table</li>
+<li>M0 walking skeleton — toolchain, gates, and a binary that runs</li>
+<li>Initial</li>
+</ul>
+<h3 id="fixes_8">Fixes<a class="headerlink" href="#fixes_8" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>xtask</strong>: A check that could not run must not report a finding</li>
+<li><strong>xtask</strong>: A pointer file is not a newline violation</li>
+<li><strong>dev</strong>: Clear build-users-group so the container can build derivations</li>
+<li><strong>ci</strong>: Catch a missing flake output and a vendored leak locally</li>
+<li><strong>dev</strong>: Pass a token through only when it exists, and keep nix on PATH</li>
+<li>Unbreak CI on main, and make the hooks work outside the dev shell</li>
+<li><strong>dev</strong>: Doctor catches uninstalled hooks - they were never installed</li>
+<li><strong>ci</strong>: A moved file no longer skips its own area</li>
+<li>Ship one binary, one hygiene list, CRLF for every text file</li>
+<li>Nextest everywhere, doctests in CI, and three things I got wrong</li>
+<li><strong>ci</strong>: Compare against the whole branch, and stop passing on a base that never built</li>
+<li><strong>deny</strong>: Allow only the licences in use, and fail if that stops being true</li>
+<li><strong>security</strong>: Act on the review - publish paths, supply chain, betterleaks</li>
+<li><strong>gates</strong>: Skip crane's .cargo-home, drop four lint allows, ASCII output</li>
+<li><strong>ci</strong>: Make the Nix path actually work, and stop rebuilding Rust four times</li>
+</ul>
+<h3 id="documentation_6">Documentation<a class="headerlink" href="#documentation_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li>The brand slots are filled, not empty</li>
+<li><strong>skills</strong>: St sync does not restack, st refresh does</li>
+<li>Trim getting-started and enterprise-mirrors</li>
+</ul>
+<h3 id="build_2">Build<a class="headerlink" href="#build_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Bump sha2 from 0.10.9 to 0.11.0</li>
+</ul>
+<h3 id="ci_4">CI<a class="headerlink" href="#ci_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Remove every third-party action, add the weekly security audit</li>
+<li>Classify changes, inline the remote hooks, --all-features everywhere</li>
+<li>Drop devenv from CI, add the opt-in performance release</li>
+</ul>
+<h3 id="review">Review<a class="headerlink" href="#review" title="Permanent link">&para;</a></h3>
+<ul>
+<li>1.98, rustfmt 130, drop the hook, cross-built releases, cranelift dev-only</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
