@@ -222,7 +222,16 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // keyed on the sentence alone would refuse a record for quoting what it corrects, so what
         // is forbidden is ASSERTING it, which is the connector rather than the words.
         name: "a buildless CodeQL database leaves out `alloc`/`std`",
-        wordings: &["because a buildless database extracts the crate's own dependencies but not"],
+        // Three wordings for the TWO sentences `github.com/telekom/sutura#538` names: the `because`
+        // line is one literal of the first, and neither of the other two exists anywhere in the
+        // tree - so the row is a ratchet on a re-assertion rather than a refusal of prose already
+        // written. They need no `because` anchor because the record does not quote either of them;
+        // it quotes only the "extracts ... but not" phrasing.
+        wordings: &[
+            "because a buildless database extracts the crate's own dependencies but not",
+            "does not extract `alloc`/`std`",
+            "standard library is absent",
+        ],
         // The measurement that replaced the cause. If it ever leaves the record, this rule
         // retires rather than forbidding a sentence nothing in the tree disproves any more.
         evidence: &[Evidence {

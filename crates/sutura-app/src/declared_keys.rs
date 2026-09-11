@@ -101,12 +101,13 @@
 //!   the fixture's own row count - so the default, an `Err`, and a probe that resolved the wrong
 //!   table are each a red cell rather than a quiet pass. That is what stops this check from
 //!   becoming absent by an edit, and it is measured: neutering the probe in each of the three
-//!   adapters reddens that adapter's cell. * A LIVE deployment whose probe fails is no longer quiet
-//!   - it does not start, and the refusal carries the data system's own complaint. * **An adapter
-//!   outside that registry is still quiet**, and there is one: `BigQuery` takes the default, and it
-//!   is absent from the `data_systems` registry because no published artifact links the crate. So a
-//!   dimension model on a dataset is unchecked, nothing says so at boot, and no test here can see
-//!   it. What closes that is the adapter implementing the method, not another gate.
+//!   adapters reddens that adapter's cell.
+//! * A LIVE deployment whose probe fails is no longer quiet - it does not start, and the refusal
+//!   carries the data system's own complaint.
+//! * **An adapter outside that registry is still quiet**, and there is one: `BigQuery` takes the
+//!   default, and it is absent from the `data_systems` registry because no published artifact links
+//!   the crate. So a dimension model on a dataset is unchecked, nothing says so at boot, and no test
+//!   here can see it. What closes that is the adapter implementing the method, not another gate.
 //!
 //! **The second limit is time, and it is the whole process lifetime.** This is a boot check over the
 //! table as it stood then, which is the same limit an anchor carries - and `verify_and_validate` has

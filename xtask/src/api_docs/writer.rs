@@ -106,7 +106,10 @@ pub(super) fn check(root: &Path) -> Result<Vec<String>, String> {
     let theirs = flags(&text)?;
     let mine: Vec<String> = RUSTDOC_ARGS.iter().map(|flag| String::from(*flag)).collect();
     if theirs == mine {
-        return Ok(mine);
+        // `theirs` and NOT `mine`: the caller asserts the return against `RUSTDOC_ARGS`, so
+        // handing back the gate's own list makes that assertion compare `mine` to `mine` and the
+        // whole test tautological - measured, a neutered comparator here survived `just test`.
+        return Ok(theirs);
     }
     Err(format!(
         "`just api` and this gate hand rustdoc different flags, so one of them judges what the \
