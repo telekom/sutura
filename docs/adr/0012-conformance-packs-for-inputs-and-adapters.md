@@ -215,15 +215,28 @@ reddens it naming `row 0, column 2 (amount_total)` - so *the execute packs canno
 defect* is exactly backwards about the built harness. The stronger behaviour is the right call, and
 correcting the record matters because the sentence would otherwise be cited to justify dropping it.
 
-**What the re-sort actually existed for has not gone away, and this is the open decision.** A source
-executes the plan's `ORDER BY` under its own **collation** and its own **NULL placement**, neither of
-which the plan states. The built corpus avoids the question - all-lowercase ASCII keys with distinct
-first letters, no null in a group key - which is weaker than deciding it, and says so about itself.
-So: **`agree_on_order` governs, and a case whose order a source could legitimately answer differently
-may not be asserted on order.** The packs have no field for that today; every case is compared both
-ways. Building it is the corpus branch's, and it must land WITH the null-in-a-group-key case rather
-than after it - otherwise the first such case reports a source's collation as a conformance failure.
-The per-source row snapshot in `sutura-app/tests` remains the place a collation difference is a diff a
+**Half of what the re-sort existed for is now DECIDED and the other half is still open, and this
+record used to state them as one.** The sentence was: a source executes the plan's `ORDER BY` under
+its own **collation** and its own **NULL placement**, *"neither of which the plan states"*. That is
+now false about the second of them, so the per-case opt-out this record asked the corpus branch to
+build alongside the null case **is not built and is not owed**.
+
+**NULL placement IS stated, and uniformly: `ASC NULLS LAST`.** `sutura_sql`'s `ordered_nulls_last`
+puts it in the AST for every dialect and `every_order_by_states_nulls_last` holds it there - the
+keyword is rendered for the one target whose default is the other way and collapsed where it is
+already the default, so what converges is behaviour rather than text. `sutura-exec-datafusion`
+renders no SQL at all and reaches the same placement, because `LogicalPlanBuilder::sort_by` is
+`Expr::sort(true, false)`. So there is no case whose null order a conforming source may legitimately
+answer differently, and the null-in-a-group-key case lands on its own with the null group expected
+LAST. **What it buys is where the decision is held:** before it, the placement was held at RENDER
+time for the three adapters that render and by nothing at all for the one that does not - that
+adapter's own `leg.rs` records that reversing a leg's sort keys reddens no test in the workspace.
+`Behaviour::Order` now holds it at EXECUTION time, per adapter, under a name a failure reports.
+
+**COLLATION is still open, and the corpus still avoids it** - all-lowercase ASCII keys with distinct
+first letters. A case whose TEXT order a source could legitimately answer differently would still
+need the field the packs do not have, and would still report a locale as a conformance failure. The
+per-source row snapshot in `sutura-app/tests` remains the place a collation difference is a diff a
 reviewer reads rather than a red cell.
 
 ### Cases the corpus must contain by name, because nothing else finds them

@@ -367,7 +367,7 @@ Five things, and the first is the one a review had to correct:
    were actually emitted rather than a constant beside it;
 5. **a venue where the fixture did not stand up prints NO coverage line at all.** It takes the
    `open` path rather than a `Spent` for exactly this: a census that printed *6 behaviour(s)
-   over 2 case(s)* beside six cells that each reported `NOT RUN` is the skip that reads as
+   over the corpus's cases* beside six cells that each reported `NOT RUN` is the skip that reads as
    coverage, which is the failure mode the packs were built against. What it prints instead
    names the count as one that asserted nothing, and carries the provisioner's diagnostic. The
    two assertions above it still run, because what a binding emitted and whether the corpus has
@@ -610,7 +610,7 @@ its position.
 
 ## Module `corpus`
 
-The corpus the execute packs run: one table, two questions, and the answer written ONCE.
+The corpus the execute packs run: one table, four questions, and the answer written ONCE.
 
 **Written once is the whole property.** Every registered adapter is asked the same plan and
 compared against the same `Case::expected` rows, so *these two data systems answer this
@@ -631,18 +631,43 @@ them as a dev-dependency without acquiring a catalog adapter, `sutura-semantic` 
 - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
   keys. Each needs a second table and a federated plan; none is here.
-- **A null in a group key.** Null placement in `ORDER BY` differs per data system and is not
-  stated by the plan, so a null key would make `crate::Behaviour::Order` a claim about the
-  source's collation. `docs/adr/0012` designed a re-sort for that and the re-sort was superseded
-  by the two-function comparison - so the packs DO assert order, and that record now says so and
-  carries the decision this corpus is deferring: a case whose order a source could legitimately
-  answer differently must be able to opt out of the order behaviour, and there is no field for
-  that yet. Avoiding the question is weaker than deciding it, which is why it is written here.
-- **A wide integer or a decimal.** The type-mapping disagreements
-  `sutura_domain::warehouse::agreement`'s header lists are all reachable only past an `i64`,
-  and nothing here goes near one.
+- **An integral total strictly PAST `i64`, which is not a gap but an undecidable row.** Read off
+  the three bound adapters: `sutura-exec-postgres` REFUSES one
+  (`numeric_cell` parses an integral `NUMERIC` into an `i64` and errors rather than rounding),
+  `sutura-exec-duckdb` answers `Value::Text` from its `HugeInt` arm, and
+  `sutura-exec-datafusion`'s `sum` over an `Int64` column has nowhere wider to go at all. Three
+  adapters, three different endings, so a corpus whose answer is written ONCE cannot hold that
+  row - `total_wide_by_day` goes to the boundary and stops there. What the boundary still
+  buys is in that case's own doc.
+- **A fixed-point measure, and so the `Value::Text` arm all three adapters keep for one.**
+  Unreachable from a CSV-backed corpus rather than omitted: no type inference on the load path
+  produces a fixed-point column from a fractional literal - `read_csv_auto` and `DataFusion`'s
+  inference both answer a 64-bit float, and `sutura-exec-postgres`'s own importer has no
+  `NUMERIC` arm to reach. The fractional CLASS is exercised, as `Value::Real`
+  (`total_rate_by_day`), and the day an inference answers a fixed-point type instead that
+  cell reddens - which is the class comparison working rather than a case somebody has to write.
 - **Files.** `docs/adr/0012`'s *the corpus is files, not code* is unbuilt: a case is a value in
   this module, so adding one is still a code change.
+
+# Null placement in a group key: decided, and the order behaviour is what holds it
+
+**`ASC NULLS LAST`, everywhere, and it is not this corpus's choice to make.** `sutura_sql`'s
+`ordered_nulls_last` states the placement in the AST for every dialect - the keyword is
+RENDERED for the one target whose default is the other way and collapsed where it is already
+the default, which is behaviour converging rather than text - and
+`sutura-exec-datafusion`, which renders no SQL at all, lands on the same placement because
+`LogicalPlanBuilder::sort_by` is `Expr::sort(true, false)`.
+`sutura_domain::plan::federated` calls it *the whole of the ordered-result contract*.
+
+So the per-case opt-out this module used to say it owed is **not** owed, and that is the
+correction rather than a deferral: there is no case here whose order a conforming source may
+legitimately answer differently, because the placement is stated rather than left to a
+collation. What was missing was the ROW. With no null in a key, no adapter was held to the
+decision at EXECUTION time, and the `DataFusion` half was held by nothing whatever - that
+adapter's own `leg.rs` records that reversing a leg's sort keys reddens no test in the
+workspace. `total_by_region_and_day` carries a null group now and expects it LAST, so
+`crate::Behaviour::Order` fails under its own per-adapter name for a source that ranks it
+first.
 
 ### `struct Case`
 

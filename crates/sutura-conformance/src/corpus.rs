@@ -1,4 +1,4 @@
-//! The corpus the execute packs run: one table, two questions, and the answer written ONCE.
+//! The corpus the execute packs run: one table, four questions, and the answer written ONCE.
 //!
 //! **Written once is the whole property.** Every registered adapter is asked the same plan and
 //! compared against the same [`Case::expected`] rows, so *these two data systems answer this
@@ -19,18 +19,43 @@
 //! - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
 //!   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
 //!   keys. Each needs a second table and a federated plan; none is here.
-//! - **A null in a group key.** Null placement in `ORDER BY` differs per data system and is not
-//!   stated by the plan, so a null key would make [`crate::Behaviour::Order`] a claim about the
-//!   source's collation. `docs/adr/0012` designed a re-sort for that and the re-sort was superseded
-//!   by the two-function comparison - so the packs DO assert order, and that record now says so and
-//!   carries the decision this corpus is deferring: a case whose order a source could legitimately
-//!   answer differently must be able to opt out of the order behaviour, and there is no field for
-//!   that yet. Avoiding the question is weaker than deciding it, which is why it is written here.
-//! - **A wide integer or a decimal.** The type-mapping disagreements
-//!   [`sutura_domain::warehouse::agreement`]'s header lists are all reachable only past an `i64`,
-//!   and nothing here goes near one.
+//! - **An integral total strictly PAST `i64`, which is not a gap but an undecidable row.** Read off
+//!   the three bound adapters: `sutura-exec-postgres` REFUSES one
+//!   (`numeric_cell` parses an integral `NUMERIC` into an `i64` and errors rather than rounding),
+//!   `sutura-exec-duckdb` answers [`Value::Text`] from its `HugeInt` arm, and
+//!   `sutura-exec-datafusion`'s `sum` over an `Int64` column has nowhere wider to go at all. Three
+//!   adapters, three different endings, so a corpus whose answer is written ONCE cannot hold that
+//!   row - `total_wide_by_day` goes to the boundary and stops there. What the boundary still
+//!   buys is in that case's own doc.
+//! - **A fixed-point measure, and so the [`Value::Text`] arm all three adapters keep for one.**
+//!   Unreachable from a CSV-backed corpus rather than omitted: no type inference on the load path
+//!   produces a fixed-point column from a fractional literal - `read_csv_auto` and `DataFusion`'s
+//!   inference both answer a 64-bit float, and `sutura-exec-postgres`'s own importer has no
+//!   `NUMERIC` arm to reach. The fractional CLASS is exercised, as [`Value::Real`]
+//!   (`total_rate_by_day`), and the day an inference answers a fixed-point type instead that
+//!   cell reddens - which is the class comparison working rather than a case somebody has to write.
 //! - **Files.** `docs/adr/0012`'s *the corpus is files, not code* is unbuilt: a case is a value in
 //!   this module, so adding one is still a code change.
+//!
+//! # Null placement in a group key: decided, and the order behaviour is what holds it
+//!
+//! **`ASC NULLS LAST`, everywhere, and it is not this corpus's choice to make.** `sutura_sql`'s
+//! `ordered_nulls_last` states the placement in the AST for every dialect - the keyword is
+//! RENDERED for the one target whose default is the other way and collapsed where it is already
+//! the default, which is behaviour converging rather than text - and
+//! `sutura-exec-datafusion`, which renders no SQL at all, lands on the same placement because
+//! `LogicalPlanBuilder::sort_by` is `Expr::sort(true, false)`.
+//! [`sutura_domain::plan::federated`] calls it *the whole of the ordered-result contract*.
+//!
+//! So the per-case opt-out this module used to say it owed is **not** owed, and that is the
+//! correction rather than a deferral: there is no case here whose order a conforming source may
+//! legitimately answer differently, because the placement is stated rather than left to a
+//! collation. What was missing was the ROW. With no null in a key, no adapter was held to the
+//! decision at EXECUTION time, and the `DataFusion` half was held by nothing whatever - that
+//! adapter's own `leg.rs` records that reversing a leg's sort keys reddens no test in the
+//! workspace. `total_by_region_and_day` carries a null group now and expects it LAST, so
+//! [`crate::Behaviour::Order`] fails under its own per-adapter name for a source that ranks it
+//! first.
 
 #![expect(
     clippy::expect_used,
@@ -41,9 +66,10 @@
               handling at every call site in every pack. The same argument covers the two \
               filesystem calls in `materialise`: a corpus that cannot be written is a broken \
               environment, and a pack that carried on would assert over an empty table. The \
-              float arithmetic is the two expected means, written as the division an adapter \
-              performs rather than as a decimal literal transcribed to however many places \
-              somebody typed - the arithmetic IS the reference"
+              float arithmetic is in the expected means and the expected fractional totals, \
+              written as the division and the addition an adapter performs rather than as a \
+              decimal literal transcribed to however many places somebody typed - the \
+              arithmetic IS the reference"
 )]
 
 use std::path::PathBuf;
@@ -270,7 +296,12 @@ fn state_dir() -> PathBuf {
 /// cases is a failure rather than a fast green.
 #[must_use]
 pub fn cases() -> Vec<Case> {
-    vec![total_by_region_and_day(), mean_by_day()]
+    vec![
+        total_by_region_and_day(),
+        mean_by_day(),
+        total_wide_by_day(),
+        total_rate_by_day(),
+    ]
 }
 
 /// The one leg in the corpus.
@@ -305,7 +336,16 @@ pub fn leg_case() -> LegCase {
     }
 }
 
-/// `SUM` by region and day: the integer class, two keys, and a filter that excludes a row.
+/// `SUM` by region and day: the integer class, two keys, a filter that excludes a row - and the
+/// one NULL group key in the corpus.
+///
+/// **The null group is expected LAST, and that is the only thing in this corpus that holds an
+/// adapter to `ASC NULLS LAST` at execution time.** See the module header for where the decision
+/// comes from and why it needs no per-case opt-out. Two consequences worth reading together: the
+/// order assertion here is now a claim about null placement rather than about collation, and the
+/// content assertion is a claim that a null key is a GROUP rather than a row the adapter dropped -
+/// which is the same defect class `sutura-exec-datafusion`'s `leg.rs` names for a fact key and a
+/// different one from the inner-join elimination the golden matrix catches.
 fn total_by_region_and_day() -> Case {
     let plan = QueryPlan::new(
         source(),
@@ -331,6 +371,8 @@ fn total_by_region_and_day() -> Case {
             vec![text("east"), text("2026-01-02"), Value::Integer(150)],
             vec![text("north"), text("2026-01-01"), Value::Integer(400)],
             vec![text("north"), text("2026-01-02"), Value::Integer(1300)],
+            // LAST, because the plan claims `ASC NULLS LAST` and this is the row that says so.
+            vec![Value::Null, text("2026-01-01"), Value::Integer(50)],
         ],
     );
     Case {
@@ -340,8 +382,11 @@ fn total_by_region_and_day() -> Case {
     }
 }
 
-/// `AVG` by day: the approximate class, and the only reason
-/// [`sutura_domain::warehouse::agreement::RealTolerance`] is on the call.
+/// `AVG` by day: the approximate class reached through a DIVISION, and the only case that needs
+/// [`sutura_domain::warehouse::agreement::RealTolerance`] to agree at all.
+///
+/// `total_rate_by_day` answers the same class from the data instead, and its totals are exact - so
+/// this is still the one case the tolerance is on the call FOR.
 ///
 /// The expected values are written as the division rather than as a decimal literal, so the
 /// reference is the `f64` an adapter that summed exactly and divided once must land on - not a
@@ -367,12 +412,114 @@ fn mean_by_day() -> Case {
     let expected = rows(
         &plan,
         vec![
-            vec![text("2026-01-01"), real((100.0 + 250.0 + 400.0) / 3.0)],
+            // The null-region row is one of the four: a null in a DIMENSION key is absent from the
+            // grouping this case does not do, and an adapter that filtered it out instead would
+            // answer a mean over three rows.
+            vec![text("2026-01-01"), real((100.0 + 250.0 + 400.0 + 50.0) / 4.0)],
             vec![text("2026-01-02"), real((150.0 + 600.0 + 700.0) / 3.0)],
         ],
     );
     Case {
         name: "mean-by-day",
+        plan,
+        expected,
+    }
+}
+
+/// `SUM` by day over a column whose total lands exactly on `i64::MAX`: the WIDE integer class.
+///
+/// **The whole point is which Rust type each adapter arrives through, and that all three arrive at
+/// the same cell anyway.** `sum` over a 64-bit integer column is a different type in each of the
+/// three bound adapters - `DuckDB` widens to a `HUGEINT`, Postgres to a `NUMERIC`, and the engine
+/// stays in `Int64` - so before this case the only measure in the corpus was small enough that
+/// every one of those arms was interchangeable with a 32-bit read. Each adapter keeps a
+/// narrowing arm for its wide type ([`sutura_domain::warehouse::agreement`]'s header lists all
+/// three), and nothing exercised one.
+///
+/// **`i64::MAX` rather than a merely large number, and that is a falsifier rather than a flourish.**
+/// `i64::MAX` is `2^63 - 1`, which has 63 significant bits and therefore **no exact `f64`** - it
+/// rounds to `2^63`, one higher. So an adapter that routed this total through a 64-bit float on its
+/// way to a cell answers a different number here and this case reddens, where a round total like
+/// `9_000_000_000_000_000_000` has an exact `f64` and would not notice. That is the arm
+/// `sutura-exec-duckdb`'s own `cell` records as having been wrong once.
+///
+/// The boundary is also the ceiling: see the module header for why a total strictly past it is not
+/// a row a written-once corpus can hold.
+fn total_wide_by_day() -> Case {
+    let plan = QueryPlan::new(
+        source(),
+        metric("wide_total"),
+        StatementTables::only(table()),
+        bucket(),
+        Vec::new(),
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column("wide_cents"),
+            },
+        },
+        ResultLabel::measure(&metric("wide_total")),
+        range_filters(),
+        range_params(),
+        range(),
+    );
+    let expected = rows(
+        &plan,
+        vec![
+            // The corpus's four rows for this day sum to exactly `i64::MAX`, which is asserted
+            // against the type's own constant rather than against a transcribed literal.
+            vec![text("2026-01-01"), Value::Integer(i64::MAX)],
+            // Small, on purpose: one day at the boundary and one nowhere near it is what says the
+            // wide arm is reached by the VALUE rather than by the column.
+            vec![text("2026-01-02"), Value::Integer(14)],
+        ],
+    );
+    Case {
+        name: "total-wide-by-day",
+        plan,
+        expected,
+    }
+}
+
+/// `SUM` by day over a fractional column: the approximate class, reached from the DATA.
+///
+/// Distinct from [`mean_by_day`], which is the only other case answering a [`Value::Real`]: that
+/// one's real number comes out of an aggregate's DIVISION - and for Postgres out of an explicit
+/// cast `sutura_sql` applies to an `AVG` - while this one's comes out of each adapter's type
+/// inference over a fractional literal on the load path. So the two fail for different reasons: an
+/// adapter that mapped its fixed-point type here, or an inference that answered one, reddens this
+/// cell and leaves `mean-by-day` green.
+///
+/// The expected values are exact binary fractions and their sum is exact in any order, so this
+/// case does not lean on [`sutura_domain::warehouse::agreement::RealTolerance`] - it is about which
+/// class the cell is, and `mean-by-day` is where the approximation is the subject.
+fn total_rate_by_day() -> Case {
+    let plan = QueryPlan::new(
+        source(),
+        metric("rate_total"),
+        StatementTables::only(table()),
+        bucket(),
+        Vec::new(),
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column("rate"),
+            },
+        },
+        ResultLabel::measure(&metric("rate_total")),
+        range_filters(),
+        range_params(),
+        range(),
+    );
+    let expected = rows(
+        &plan,
+        vec![
+            vec![text("2026-01-01"), real(0.25 + 0.5 + 1.25 + 0.25)],
+            vec![text("2026-01-02"), real(2.5 + 0.5 + 0.25)],
+        ],
+    );
+    Case {
+        name: "total-rate-by-day",
         plan,
         expected,
     }
