@@ -81,7 +81,7 @@ fn keyed_by(language: Language, text: &str) -> Option<Keyed> {
     let code = match language {
         Language::Rust => outside_literals(text),
         // Shell has no such split and blanking one would be wrong: a `"$( .. )"` still interpolates
-        // and executes, so `pwd -P` inside `key="$(printf '%s' "$root" | cksum ..)"` IS the
+        // and executes, so `pwd -P` inside `key="$(printf '%s' "$root" | sha256sum ..)"` IS the
         // derivation the tiers key from.
         Language::Shell => String::from(text),
     };
@@ -169,7 +169,7 @@ fn referenced_name(language: Language, segment: &str) -> Option<String> {
         }
         Language::Shell => {
             // THE FIRST `$` IS NOT ALWAYS A VARIABLE, and getting that wrong is what made the real
-            // tier's shape read as unkeyed: `key="$(printf '%s' "$root" | cksum ..)"` opens with a
+            // tier's shape read as unkeyed: `key="$(printf '%s' "$root" | sha256sum ..)"` opens with a
             // command substitution, so `$(` yielded an empty name and the chain stopped one hop
             // short of `pwd -P`. Every `$` is tried, in order, and the first that names something
             // wins.
