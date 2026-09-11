@@ -5,7 +5,15 @@ description: The order in which federation and impersonation get built, plus the
 
 # The plan, from one source to many and one user to many
 
-Status: **accepted as the plan of record. Nothing here is built.**
+Status: **accepted as the plan of record, and partly built.** The branch table below is the authority
+on which rows have landed - the ones struck through and marked `DONE` - and it is worth reading before
+citing anything above it, because a row that shipped may have shipped in a shape this record's prose
+still describes as proposed. `AuditSink` is the clearest case: it exists, with `TracingAuditSink` as
+its first implementor, and the bullet further down says so in as many words.
+
+**Corrected:** this status line read *"Nothing here is built."* while the same file carried a `DONE`
+row and a bullet opening *`AuditSink` now exists*. A record contradicting itself on line 8 is the
+worst version of this defect, because line 8 is what a reader trusts before reading anything else.
 
 Seven records decide the pieces.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md)
@@ -489,7 +497,7 @@ number at all:
 | `feat/federation-decomposability` | A new aggregate cannot compile without stating how it federates; a ratio divided per leg is impossible rather than discouraged |
 | `feat/principal-chain` | The chain is the key everywhere a subject is recorded, with both tail positions absent and no reader that assumes one position |
 | `feat/query-bounds` | Each bound provokes its own refusal in a test; the working-set bound is shown biting rather than described |
-| `test/startup-source-refusals` | Red against a build with the more-than-one-source arm of `open_engine` removed. That arm has no test in either binary today |
+| `test/startup-source-refusals` | Red against a build with the more-than-one-source arm of `open_engine` removed. **That arm has a test now, and it changed shape as well as gaining one**: the refusal is per-KIND rather than per-source-count, and `crates/sutura-serve/src/tests.rs` asserts on its own sentence - *one kind of data system at a time*. Two sources of one kind load and both open, which is what `docs/adr/0006`'s correction records |
 | `feat/source-registry` | A duplicate alias, a missing file and a relative path each refused at parse, asserted on the variant. The shared-identity ACKNOWLEDGEMENT is a `NotFitToServe` variant from `sutura-config`'s own `Settings::refusals`, because that is the half configuration can see; the cross-check against whether the linked ADAPTER can carry a per-subject credential at all is a startup refusal in the composition root, because that is a property of the build rather than of the file. Each source's entry also carries the verification identity the anchor path runs under |
 | `feat/leg-plan-types` | `LegPlan` exists as a closed TWO-variant domain type, rendered through one `sutura-sql` entry point with a golden family, and `Warehouse::execute` takes an `Executable` so every adapter's match over what it can be handed is exhaustive. [0007](0007-federating-across-different-data-systems.md) owns that shape and this row does not restate it. **An earlier version of this row said this is the branch that moves the definition digest, and that was false**: `DefinitionDigest::of` takes `&Definitions` and `&Knowledge` and nothing else, so no plan type is under the digest at all. The reason this is its own branch is that a port signature change touching every adapter and every fake should not land in the same diff as a combiner |
 | `feat/two-source-execution` | Rows equal to the single-source corpus; each leg's statement snapshotted; a filtered remote dimension over an orphan key correct; a `CountDistinct` across sources EXACT, by transporting the distinct keys and counting above. Decision 2 decides the pull-up, so "or refused" is not an acceptable outcome here and an earlier version of this row that allowed it was the withdrawn decision surviving in a table |

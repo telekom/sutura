@@ -1,6 +1,6 @@
 ---
 title: How a published artefact proves where it came from
-description: Why a release is signed keylessly with Sigstore rather than with a key we hold, why both a cosign bundle and a GitHub attestation are published when either would verify, what the image SBOM covers and the exact question it cannot answer, and which of the four things a green verification does not establish.
+description: Why a release is signed keylessly with Sigstore rather than with a key we hold, why both a cosign bundle and a GitHub attestation are published when either would verify, what the image SBOM covers and the exact question it cannot answer, and which of the five things a green verification does not establish.
 ---
 
 # How a published artefact proves where it came from

@@ -13,6 +13,13 @@ Verified absent before deciding anything: no `prometheus`, `metrics-exporter-pro
 absence is already deliberate in three places - `sutura-runtime`'s and `sutura-http`'s module docs and
 `docs/serving.md` - and this record replaces that silence with a shape.
 
+**Corrected on the last clause only, and the rest of that sentence still holds** - which is why it is
+narrowed rather than struck. There is one `AtomicU64` in the workspace now: the correlation counter in
+`crates/sutura-http/src/correlation.rs`, and an `AtomicUsize` in test fixtures. So the counters this
+record specifies are the first **metric** counters, not the first atomics. The four candidate
+dependencies are still absent from `Cargo.lock` and there is still no `/metrics` route, so the status
+line above is accurate - this is the one record in the set whose *Nothing here is built* is still true.
+
 ## Decision 1: its own credential, never the deployment token
 
 `docs/serving.md` states plainly that a holder of the API token *"can read the whole catalog and ask
@@ -177,6 +184,17 @@ its hand-written `Debug` exposes only the source - and a new `RefusalReason`, be
 exhaustion is currently indistinguishable from a dead data system**: it arrives as
 `DataFusionError::Execute` and leaves as `503 unavailable`, so a caller is told to retry against a
 bound that will fire again. `ResourcesExhausted` appears nowhere in the workspace.
+
+**Corrected: both verified absences above are now present, so the precondition this section waits on
+is met and the series are still unshipped.** `crates/sutura-exec-datafusion/src/pool.rs` builds a
+`RuntimeEnv` with a `GreedyMemoryPool` sized from the configured ceiling - that file's own module doc
+states the same fact in the past tense, correctly. `ResourcesExhausted` exists as a `RefusalReason`
+variant, is raised on the federated path and maps to `422`, so exhaustion is no longer
+indistinguishable from a dead data system. **What this does NOT change is the decision**: the series
+are still specified and still must not ship, and *absent, not zero* still holds, because the reason
+was never the missing pool alone - it is the sentence two paragraphs down, which is unchanged and is
+the one to read next to any gauge that does ship: the pool bounds the engine's own operators and
+nothing else.
 
 **Take the ceiling from the configured value, not from the pool.** `MemoryPool::memory_limit()` defaults
 to unknown, so a pool that does not override it reports no ceiling and the ratio an operator wants is

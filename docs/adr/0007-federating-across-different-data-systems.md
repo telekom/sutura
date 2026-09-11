@@ -21,8 +21,18 @@ which cannot be re-aggregated across legs is REFUSED.
 descends, and otherwise retrieve finer-grained rows and compute above. Decision 3 of the same record
 retires the per-leg **row** cap in favour of a working set bounded in bytes.
 
+**Corrected, and this is the one worth reading before citing either record: the two are not
+opposites, and the refusal was never superseded.** What the plan changed is the DEFAULT - push what
+descends, retrieve and compute above - and it kept this record's refusal for the measures that cannot
+be recombined at all. `RefusalReason::MeasureDoesNotFederate` is live and is raised at two sites in
+`crates/sutura-semantic/src/plan.rs`; `docs/adr/0005`'s status table still carries its row. So the
+behaviour this record decided is the behaviour the tree has, and the paragraph above disowned it - the
+shape that makes a reader trust the wrong document, which is exactly what the next paragraph warns
+about one revision too late.
+
 A previous revision of this page put those two facts in this paragraph and left four later parts
-arguing the withdrawn design: an ordered step whose evidence was a refusal that no longer exists, a
+arguing the withdrawn design: an ordered step whose evidence was a refusal that no longer exists
+(**and it does exist - see the correction above; only that step's ordering moved**), a
 guarantee table asserting both that a non-combinable measure refuses and that a per-leg cap is
 asserted, and two open questions that were closed. **Each is rewritten below rather than struck.** A
 banner over a live design is the shape this repository has already paid for once, and a reader who
