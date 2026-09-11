@@ -199,13 +199,43 @@ jobs:
     # promotion PR whose tip happens to be a release commit is still gated.
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
     runs-on: rust-mcp-32core
-    # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
-    # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
-    # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
-    # the store cache has anything to restore - spends most of an hour compiling before a
-    # single test runs, and 60 killed exactly that run mid-`Tests`. Warm runs are far quicker;
-    # the cap has to survive the cold one that fills the cache for the rest.
-    timeout-minutes: 120
+    # 75, AND THE CEILING IS THE MERGE QUEUE RATHER THAN THE SLOWEST RUN. `ci` is the only
+    # REQUIRED check, so the queue's check-response timeout - 90 minutes - is the point past which
+    # a verdict cannot be consumed by anything. The 120 this replaces sat 30 minutes beyond it: a
+    # runaway was ejected from the queue at 90 and then went on burning a 32-core runner for half
+    # an hour producing an answer nothing could read.
+    #
+    # WHY NOT 120. It was set when the cold cost was an ESTIMATE. The engine brought DataFusion and
+    # Arrow in, a cap of 60 had killed one cold run mid-`Tests`, and "most of an hour compiling"
+    # was the guess that replaced it. The number now exists, taken over the last 300 runs of this
+    # workflow (2026-09-09 to 2026-09-11; 170 `pull_request`, 70 `merge_group`, 60 `push`), of
+    # which 266 `ci` jobs actually executed:
+    #
+    #   whole window   n=266   median  708 s   p90 959 s   p99 1107 s   max 1296 s (21.6 min)
+    #   since #586     n= 55   median  586 s   p90 882 s   p99 1057 s   max 1065 s (17.8 min)
+    #
+    # Exactly one job in the window exceeded 1200 s. Both COLD classes are inside that spread: a
+    # full Actions-cache MISS with warm cachix stores ran 1041 s, and a pull request that ADDS a
+    # crate, so the deps derivation is rebuilt from source, ran 992 s. Neither came near an hour.
+    #
+    # WHY NOT 60. That is the value that killed the cold run, and the estimate it lost to is the
+    # only record of what that run needed - so it is the one number the evidence cannot clear. 75
+    # is 3.5x the worst job ever seen in the window, 4.2x the worst since #586, and at least 4.3x
+    # either cold class; and, the property that actually matters, it is below 90.
+    #
+    # **THE LIMIT, STATED NEXT TO THE CLAIM - TWO THINGS THIS NUMBER DOES NOT DO.**
+    #
+    # It is NOT HELD BY A GATE. Nothing in this repository reads this key, and nothing can read the
+    # 90 either: that is a repository ruleset setting and `check-workflows` runs inside a derivation
+    # with no network. The pairing is text, so drift back above 90 would be green - the same shape
+    # of limit the store-cache action records about a credential's scope.
+    #
+    # AND IT DOES NOT BOUND A JOB THAT NEVER STARTED. The two longest `ci` walls in that window
+    # were 7794 s and 3653 s, and both are `cancelled` with ZERO steps, no runner name and no
+    # runner group - queued against an environment policy that never released them, which is an
+    # open gap and not compute. `timeout-minutes` begins when a runner picks the job up, so it
+    # would not have fired on either one. This cap is not protection against that.
+    timeout-minutes: 75
     # SCOPED TO THIS JOB, and it restates `contents: read` because a job-level block REPLACES the
     # workflow-level one rather than adding to it - omitting the line would take away the read
     # this job's checkout needs.
@@ -954,6 +984,32 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
+      # RESTORE-ONLY, AND THIS JOB CANNOT EVER SAVE THIS SCOPE. The action's `save:` is gated on a
+      # push to `main` and this job runs on `pull_request` alone, so it reads the scope `ci` entry
+      # that a `main` push wrote and writes nothing back - the step summary it prints says
+      # "restore-only, nothing written" on every run here. That is the DESIGNED shape and not an
+      # oversight: `cache_scope` refuses an `if:` on this step and on any caller of it, precisely so
+      # a pull request's restore survives while the write stays gated to `main`.
+      #
+      # KEPT ON EVIDENCE, because #604 deleted this exact shape twice as pure cost and it is NOT
+      # pure cost here. Measured on job `103311822910`: the restore took 42 s of a 157 s job, hit an
+      # older generation, pulled 3.65 GB, and left nix with 4 derivations to build and 4 paths -
+      # 2.7 MiB - to fetch. It supplied essentially the whole build-time closure.
+      #
+      # Deleting it moves those bytes to the cachix substituters, which is the trade #604 made for
+      # scope `bq` - and that one came out at NO MEASURABLE CHANGE: `bigquery-acceptance` ran a
+      # median of 179 s over the 143 executed jobs before that merge and 178 s over the 8 after it.
+      # (#604 claimed no after-number itself; this is that number.) So the expected saving here is
+      # nothing, and there is no census gain either, because the entry is shared rather than this
+      # job's own.
+      #
+      # IT DOES NOT DEFEAT THE PUBLISH BELOW, which was the one way it could have been load-bearing
+      # in reverse. cachix's post-build hook publishes only what nix BUILDS, and a restore carries
+      # dependencies rather than this pull request's own check outputs - the same run built and
+      # pushed 4 paths while skipping 1541.
+      #
+      # THE LIMIT: n=8 after that merge is a direction and not a distribution, and no A/B of THIS
+      # step exists - deleting it would need its own before-and-after on this job, not the `bq` one.
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci

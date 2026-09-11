@@ -908,7 +908,7 @@ economise.
    AND matched `ci.yml`'s leading `**`, so an ADR-only pull request that added a nav entry started BOTH
    workflows - the "exactly one workflow starts" claim in `docs.yml`'s header was false and had never
    been checked. `ci.yml` now excludes `docs/**` and `mkdocs.yml` by name, so a prose-only change no
-   longer starts the 120-minute chain. Neither path can affect what cargo produces.
+   longer starts the full `ci` chain. Neither path can affect what cargo produces.
 
    **The gate-skip half was PAUSED and is now RESTORED, with the check that answers the objection to
    it.** One path exclusion that rode along with it stays reverted outright. `docs.yml`'s
