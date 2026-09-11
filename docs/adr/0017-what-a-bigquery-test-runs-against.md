@@ -240,6 +240,19 @@ three before the leg runs: the project id read out of the key, and the dataset a
 environment's variables. `::add-mask::` is the right mechanism because it does not care where a value
 appears - it redacts every later log line in the job, a panicking test's own message included.
 
+**Corrected: two of the three are masked from their SECOND occurrence, not their first, and that is a
+property of the runner rather than of this job.** The runner prints a step's resolved `env:` block into
+that step's own `Run` group before it executes the body, so the dataset and the table - which reach the
+masking step through its `env:` - are in the log once, in cleartext, before the `::add-mask::` lines
+run. The project id is not, and the difference is the lesson: it never becomes an expression, because
+only the key's *path* goes through `env:` and `python3` reads the value out of the file. This cannot be
+repaired by masking earlier: the printed dictionary is assembled from the `env` context, which carries
+job-level and workflow-level entries too, so hoisting the values prints them in every step's group; and
+an expression read inside a `run:` body is echoed with the expression already resolved. **The one thing
+that closes it is making those two environment secrets rather than variables** - the runner adds every
+secret to its masker before the first step runs. That is a forge change, no file in this repository can
+make it, and no gate in this repository can see whether it has been made.
+
 **The cost is stated rather than hidden:** in CI the diagnostic that made carrying the message worth
 while is redacted away. A maintainer who needs the unredacted text runs the leg locally, where the log
 is theirs. That is the correct direction for a public repository and it is a real loss.
@@ -311,9 +324,12 @@ hand-built `SUM` over a two-column table a developer supplies. It contains no jo
 `COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF` ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and
 `ISOWEEK` and `DATE_TRUNC`'s argument order are exactly the two things this page MEASURED the parse
 check to be blind about, so they are what a live run is worth most for. **The leg this page specifies
-is #78's importer shape pointed at a dataset - load the fixtures, run the 21 questions, compare rows
-with the engine - and it is not built.** `docs/adr/0018` records that gap, and the smoke leg's own
-header opens with it.
+is #78's importer shape pointed at a dataset - load the fixtures, run the corpus's questions, compare
+rows with the engine - and it is now built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`.
+**Corrected: this sentence said *it is not built*, and the third amendment below already quotes it as
+the sentence that stopped being true** - so this record contradicted itself while `docs/adr/0018` and
+`docs/architecture.md` both cite it as their authority for the opposite. The quotation in that
+amendment keeps the original wording, count included, because a quote that is edited is not a quote.
 
 **This record said the change adding the wire would be the change that could first run it against a
 project. It was not** - the machine it was written on had no `gcloud`, no application-default

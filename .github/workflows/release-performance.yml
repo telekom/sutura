@@ -98,8 +98,17 @@ jobs:
           # absent: with it, a pull request could add a substituter and a trusted key and have
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
           # goes here, where the workflow diff shows it.
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # Carries /nix/store between runs: the same action at the same commit as ci.yml and
       # release.yml. The argument for why a path that PUBLISHES may share a cache is written out
