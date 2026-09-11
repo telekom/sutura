@@ -3,9 +3,12 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{Definitions, Description, Metric, Model};
-use sutura_domain::knowledge::{Capability, GlossaryEntry, InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase, Referent};
-use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::knowledge::{
+    Capability, GlossaryEntry, InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase,
+    Referent,
+};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 use sutura_domain::query::{Query, RefusalReason};
 
@@ -121,7 +124,11 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
     // A dictionary with the FK and no comments at all: Descriptions absent, lawfully.
     let fk_only = SparseReader(Dictionary::new(
         vec![
-            Table::new("orders".to_owned(), vec!["order_id".to_owned(), "customer_id".to_owned()], None),
+            Table::new(
+                "orders".to_owned(),
+                vec!["order_id".to_owned(), "customer_id".to_owned()],
+                None,
+            ),
             Table::new("customers".to_owned(), vec!["customer_id".to_owned()], None),
         ],
         vec![Relationship::new(
@@ -151,7 +158,7 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
         vec![Table::new(
             "orders".to_owned(),
             vec!["order_id".to_owned()],
-            Some("Orders." .to_owned()),
+            Some("Orders.".to_owned()),
         )],
         Vec::new(),
     ));
@@ -213,8 +220,7 @@ fn content_for_a_kind_it_did_not_declare_fails_the_load() {
         Description::parse("").expect("empty is a description"),
     )
     .expect("no dimensions to duplicate");
-    let definitions = Definitions::assemble(vec![model], Vec::new(), vec![metric])
-        .expect("a model and a metric hold together");
+    let definitions = Definitions::assemble(vec![model], Vec::new(), vec![metric]).expect("a model and a metric hold together");
 
     let entry = GlossaryEntry::new(
         Phrase::parse("revenue").expect("a phrase is a phrase"),

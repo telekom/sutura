@@ -85,7 +85,7 @@ not mocked SQL (`github.com/telekom/sutura#151`'s thing 4). What it does not con
 database client in the library closure: `DictionaryReader` is the seam a real reader over a
 Postgres socket will implement, and the only implementor today is the recorded fixture source in
 `fixture`. The spike's throwaway reader proved the read path is cheap and gate-reachable; the
-production reader is what ADR 0011's *[the raw SQL tool](0013-a-raw-sql-tool-off-by-default.md)*
+production reader is what ADR 0011's *the raw SQL tool* (`docs/adr/0013-a-raw-sql-tool-off-by-default.md`)
 companion would drive, and is deliberately out of this crate's scope.
 
 **And nothing serves it:** no composition root links this crate (its only dependant is

@@ -76,7 +76,7 @@
 //! database client in the library closure: [`DictionaryReader`] is the seam a real reader over a
 //! Postgres socket will implement, and the only implementor today is the recorded fixture source in
 //! [`fixture`]. The spike's throwaway reader proved the read path is cheap and gate-reachable; the
-//! production reader is what ADR 0011's *[the raw SQL tool](0013-a-raw-sql-tool-off-by-default.md)*
+//! production reader is what ADR 0011's *the raw SQL tool* (`docs/adr/0013-a-raw-sql-tool-off-by-default.md`)
 //! companion would drive, and is deliberately out of this crate's scope.
 //!
 //! **And nothing serves it:** no composition root links this crate (its only dependant is
@@ -91,7 +91,9 @@ use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, Metada
 use sutura_domain::catalog::{Definitions, Description, Model, Relationship as DomainRelationship};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
-use sutura_domain::pinned::{CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{
+    CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
+};
 
 /// The two halves of a bundle, read and checked but not yet pinned.
 type Content = (Definitions, Knowledge);
@@ -122,26 +124,49 @@ pub enum RdbmsError {
     Read(#[source] Box<dyn std::error::Error + Send + Sync>),
     /// A table's name did not parse as a model name.
     #[error("table {table} is not a usable model name: {cause}")]
-    ModelName { table: String, #[source] cause: sutura_domain::model::InvalidIdentifier },
+    ModelName {
+        table: String,
+        #[source]
+        cause: sutura_domain::model::InvalidIdentifier,
+    },
     /// A column's name did not parse.
     #[error("column {column} on table {table} is not a usable column name: {cause}")]
-    ColumnName { table: String, column: String, #[source] cause: sutura_domain::model::InvalidIdentifier },
+    ColumnName {
+        table: String,
+        column: String,
+        #[source]
+        cause: sutura_domain::model::InvalidIdentifier,
+    },
     /// A foreign key's name did not parse.
     #[error("foreign key {relationship} is not a usable relationship name: {cause}")]
-    RelationshipName { relationship: String, #[source] cause: sutura_domain::model::InvalidIdentifier },
+    RelationshipName {
+        relationship: String,
+        #[source]
+        cause: sutura_domain::model::InvalidIdentifier,
+    },
     /// A table description did not pass the authored-prose rule.
     #[error("the description of table {table} is not usable: {cause}")]
-    Description { table: String, #[source] cause: sutura_domain::catalog::InvalidDescription },
+    Description {
+        table: String,
+        #[source]
+        cause: sutura_domain::catalog::InvalidDescription,
+    },
     /// The assembled definitions did not hold together.
     #[error("the dictionary definitions do not hold together: {cause}")]
-    Inconsistent { cause: sutura_domain::catalog::InconsistentDefinitions },
+    Inconsistent {
+        cause: sutura_domain::catalog::InconsistentDefinitions,
+    },
     /// The knowledge did not assemble (a dictionary produces none, so unreachable unless a reader
     /// produces undeclared content).
     #[error("the dictionary knowledge did not assemble: {cause}")]
-    Knowledge { cause: sutura_domain::knowledge::InconsistentKnowledge },
+    Knowledge {
+        cause: sutura_domain::knowledge::InconsistentKnowledge,
+    },
     /// Pinning failed.
     #[error("the dictionary bundle could not be pinned: {cause}")]
-    Digest { cause: sutura_domain::definitions::NotDigestible },
+    Digest {
+        cause: sutura_domain::definitions::NotDigestible,
+    },
 }
 
 /// A catalog read from an RDBMS dictionary.
@@ -178,8 +203,8 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             relationships.push(Self::convert_relationship(relationship)?);
         }
 
-        let definitions = Definitions::assemble(models, relationships, Vec::new())
-            .map_err(|cause| RdbmsError::Inconsistent { cause })?;
+        let definitions =
+            Definitions::assemble(models, relationships, Vec::new()).map_err(|cause| RdbmsError::Inconsistent { cause })?;
         // A dictionary records no knowledge: nothing here reads a glossary aspect, so the bundle
         // carries none and the declaration agrees. The `Knowledge::assemble` call is what would
         // refuse undeclared content the day a reader produced any.
@@ -190,23 +215,30 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
 
     /// A table record into a [`Model`].
     fn convert_model(&self, table: &Table) -> Result<Model, RdbmsError> {
-        let name = ModelName::parse(&table.name)
-            .map_err(|cause| RdbmsError::ModelName { table: table.name.clone(), cause })?;
-        let table_name = TableName::parse(&table.name)
-            .map_err(|cause| RdbmsError::ModelName { table: table.name.clone(), cause })?;
+        let name = ModelName::parse(&table.name).map_err(|cause| RdbmsError::ModelName {
+            table: table.name.clone(),
+            cause,
+        })?;
+        let table_name = TableName::parse(&table.name).map_err(|cause| RdbmsError::ModelName {
+            table: table.name.clone(),
+            cause,
+        })?;
         let columns = table
             .columns
             .iter()
             .map(|column| {
-                ColumnName::parse(column)
-                    .map_err(|cause| RdbmsError::ColumnName { table: table.name.clone(), column: column.clone(), cause })
+                ColumnName::parse(column).map_err(|cause| RdbmsError::ColumnName {
+                    table: table.name.clone(),
+                    column: column.clone(),
+                    cause,
+                })
             })
             .collect::<Result<BTreeSet<ColumnName>, _>>()?;
         let description = if let Some(raw) = table.description() {
-            Some(
-                Description::parse(raw)
-                    .map_err(|cause| RdbmsError::Description { table: table.name.clone(), cause })?,
-            )
+            Some(Description::parse(raw).map_err(|cause| RdbmsError::Description {
+                table: table.name.clone(),
+                cause,
+            })?)
         } else {
             None
         }
@@ -225,8 +257,10 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
     /// declaration agrees.
     fn convert_relationship(relationship: &Relationship) -> Result<DomainRelationship, RdbmsError> {
         let name = match relationship.name() {
-            Some(raw) => RelationshipName::parse(raw)
-                .map_err(|cause| RdbmsError::RelationshipName { relationship: raw.to_owned(), cause })?,
+            Some(raw) => RelationshipName::parse(raw).map_err(|cause| RdbmsError::RelationshipName {
+                relationship: raw.to_owned(),
+                cause,
+            })?,
             None => {
                 // Postgres names every constraint, but a reader may not have read the name. Derive a
                 // deterministic one from the endpoints so the bundle is repeatable.
@@ -243,22 +277,24 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                 })?
             }
         };
-        let origin_model = ModelName::parse(relationship.origin_table())
-            .map_err(|cause| RdbmsError::ModelName { table: relationship.origin_table().to_owned(), cause })?;
-        let origin_column = ColumnName::parse(relationship.origin_column())
-            .map_err(|cause| RdbmsError::ColumnName {
-                table: relationship.origin_table().to_owned(),
-                column: relationship.origin_column().to_owned(),
-                cause,
-            })?;
-        let target_model = ModelName::parse(relationship.target_table())
-            .map_err(|cause| RdbmsError::ModelName { table: relationship.target_table().to_owned(), cause })?;
-        let target_column = ColumnName::parse(relationship.target_column())
-            .map_err(|cause| RdbmsError::ColumnName {
-                table: relationship.target_table().to_owned(),
-                column: relationship.target_column().to_owned(),
-                cause,
-            })?;
+        let origin_model = ModelName::parse(relationship.origin_table()).map_err(|cause| RdbmsError::ModelName {
+            table: relationship.origin_table().to_owned(),
+            cause,
+        })?;
+        let origin_column = ColumnName::parse(relationship.origin_column()).map_err(|cause| RdbmsError::ColumnName {
+            table: relationship.origin_table().to_owned(),
+            column: relationship.origin_column().to_owned(),
+            cause,
+        })?;
+        let target_model = ModelName::parse(relationship.target_table()).map_err(|cause| RdbmsError::ModelName {
+            table: relationship.target_table().to_owned(),
+            cause,
+        })?;
+        let target_column = ColumnName::parse(relationship.target_column()).map_err(|cause| RdbmsError::ColumnName {
+            table: relationship.target_table().to_owned(),
+            column: relationship.target_column().to_owned(),
+            cause,
+        })?;
         Ok(DomainRelationship::new(
             name,
             origin_model,
@@ -343,7 +379,11 @@ pub struct Table {
 impl Table {
     /// A physical table.
     pub const fn new(name: String, columns: Vec<String>, description: Option<String>) -> Self {
-        Self { name, columns, description }
+        Self {
+            name,
+            columns,
+            description,
+        }
     }
 
     /// The table's name, as the dictionary spells it.

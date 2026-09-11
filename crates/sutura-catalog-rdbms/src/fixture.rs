@@ -32,7 +32,12 @@ pub fn corpus() -> Dictionary {
         vec![
             Table::new(
                 "orders".to_owned(),
-                vec!["order_id".to_owned(), "customer_id".to_owned(), "amount_cents".to_owned(), "status".to_owned()],
+                vec![
+                    "order_id".to_owned(),
+                    "customer_id".to_owned(),
+                    "amount_cents".to_owned(),
+                    "status".to_owned(),
+                ],
                 Some("Orders placed by customers. One row per order.".to_owned()),
             ),
             Table::new(

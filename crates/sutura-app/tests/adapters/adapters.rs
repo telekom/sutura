@@ -268,10 +268,7 @@ impl CatalogUnderTest for sutura_catalog_datahub::DataHubCatalog<sutura_catalog_
 /// bundle is measured against the adapter's declaration, which is the whole point of the `declaring`
 /// path. It provides no measure at all - the narrowest declaration - so it answers no certified
 /// question, which the declare cells assert rather than the golden cells (it gets no golden cell).
-impl
-    CatalogUnderTest
-    for sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::fixture::FixtureReader>
-{
+impl CatalogUnderTest for sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::fixture::FixtureReader> {
     const NAME: &'static str = "rdbms";
 
     fn open() -> Self {
