@@ -54,7 +54,7 @@ internal that a stable surface can grow behind.
 | 18 | `feat/postgres-oauth` | 12, 17 - and the server-side validator decision, which is **made** | **#126**, blocked by #124 and #125. The verification is answered and the answer is unwelcome: no Rust client speaks SASL `OAUTHBEARER`, so the step owes first-party protocol code, and core Postgres ships no validator that reads `aud` |
 | 19 | `feat/source-mtls` | 8 - **done**, 17 | **#125**. Nothing this repository connects OUT with verifies a certificate, and `sutura-exec-postgres` is `NoTls` unconditionally |
 | 20 | `feat/raw-sql-tool` | 3 - **done**, 8 - **done**, 12 - **done** | **#129**, blocked by #128. Three of [0013](adr/0013-a-raw-sql-tool-off-by-default.md)'s four prerequisites are now spent; the showcase is what moved it up the order |
-| 21 | `feat/demo-tasks` | 14, and one example to demo | **#130** step 4, beside the tutorial and the docs cleanup it belongs with |
+| 21 | `feat/demo-tasks` | 14, and one example to demo | **#595**. The tutorial and the docs cleanup it used to belong with have landed - the site is a five-section arc with the plans excluded, `docs/getting-started.md` is the guided path and `crates/sutura-cli/tests/documented.rs` runs every command it prints, and `examples/multi-player` is reached by a test - so #130 is closed and this row is the half that was left. `crates/sutura-cli` links `sutura-mcp`, so the blocker is spent; what is missing is a `just demo` recipe and a chat client |
 | 22 | ~~`build/supply-chain`~~ | nothing - orthogonal | **DONE** - [0021](adr/0021-how-a-published-artefact-proves-where-it-came-from.md). A Sigstore bundle per asset, `cosign` on every image reference, CycloneDX and SPDX per leaf image from the auditable binary, SLSA provenance, and REUSE. the attribution document is generated and NOT committed - gated by `cargo xtask check-attribution` and `check-attribution-owner` - released and signed with every tag, and documented in `docs/verifying-a-release.md` |
 | 23 | ~~`ci/prose-change-cost`~~ | nothing - measure first | **DONE**. A prose-only change does not start a run (`paths` with `!` exceptions, since a semantic catalog is a directory of markdown), `classify` gates every expensive step inside the job, and the merge queue is answered. **Per-CATEGORY selection is the widening, and it is #135** - one filter per adapter, with the matrix derived from the registry rather than edited into a workflow |
 | 24 | `feat/metrics-endpoint` | 6 - **done** for the memory series, nothing for the rest | **#132**. A served deployment exports nothing, so a refusal and a fault look the same to an operator |
@@ -136,6 +136,51 @@ arrangement that would have gone wrong:**
   it and no committed digest moves. The real reason is better: types plus rendering plus per-dialect
   parse checks are evidence that stands before anything executes them, and one branch landing shapes,
   goldens and a combiner puts three kinds of failure in one review.
+
+### Two orderings in the OPEN work are security constraints, not preferences
+
+The six above are about the twenty-six numbered steps. These two are about work raised since, and
+they are here rather than on the issues for one reason: **GitHub's *blocked by* records THAT one
+thing waits for another and cannot record why, and for these two the why is the whole constraint.**
+An ordering whose reason is *shipping the other half first is itself the defect* is not a
+convenience a picker may trade away for a shorter branch, and a reason that lives only in an issue
+comment is a reason the next person does not read.
+
+Everything else about the open set stays where the table above says it does - the board owns
+priority, the issues own *blocked by*, and which of them happen to touch one file is a question
+`git grep` answers on the day somebody asks it. **What is written down here is only the part that
+cannot be derived.**
+
+- **The exporters must not land before a principal's printing is shaped.** A served deployment
+  exports nothing today, which is why a refusal and a fault look the same to an operator, and the
+  step that fixes it adds exporters. **Adding exporters is the moment principals start being
+  exported**, so the masking work goes first or in the same pull request - it is #388 against #132,
+  and the direction is the only one that is safe. The parse-boundary half of #388 has landed (a
+  principal is masked where it is parsed rather than where it is rendered); #388 is still open, so
+  the constraint still binds. Shipping the exporters over the remainder is not a cosmetic risk: it
+  is the one change in the open set that turns an unshaped `Debug` into an egress.
+- **A declarable Postgres source and its transport security are ONE pull request.** `SourceKind`
+  has no `postgres` today, so no deployment can declare one (#124), and `sutura-exec-postgres`
+  connects with `NoTls` unconditionally (#125) - `crates/sutura-exec-postgres/src/lib.rs` says so
+  on the module itself. **#124 alone therefore ships a deployment-declarable data source over a
+  connection on which nothing verifies a certificate.** Their files are the same
+  connection-and-configuration surface, so this is a merge constraint rather than an ordering one:
+  landing them separately leaves a release in which an operator can declare the source and cannot
+  make the connection safe.
+
+**A third ordering used to belong here and is now DISCHARGED, which is worth recording rather than
+deleting.** The refusal for an answer combining two identity postures had to land before the first
+shipped build that can answer a two-source question, because a build that can combine postures
+before anything refuses one answers silently where it should refuse. The refusal shipped -
+`RefusalReason::LegsDecideIdentityDifferently` - so #113 is closed and #112 no longer waits on it.
+The pair is kept here because a spent constraint read as a live one costs a reviewer the same time
+as a missed one.
+
+**The limit, stated next to the claim:** these are orderings between changes, not a statement about
+what identity sutura proves. Leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS
+the asker - is not, on anything published; see
+[where each identity claim is proven](where-identity-is-proven.md) for which venue may be cited for
+which claim.
 
 ## The original thesis, and where each piece stands
 
