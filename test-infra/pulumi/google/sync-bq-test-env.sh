@@ -82,8 +82,9 @@ VARS = {
     "SUTURA_BQ_TABLE": "ci_table",
     # The five the two-principal cell has to be pointed at: the policied dataset and table, the
     # column the two row access policies filter on, and the grouping value each policy grants. Vars
-    # rather than secrets: none of them is credential material, and the cell's own workflow step
-    # masks the two resource names before anything in the job can print them.
+    # rather than secrets: none of them is credential material. The workflow registers its two
+    # resource names for redaction, but the runner prints that step's resolved `env` before its body
+    # runs, so their first occurrence is visible and only subsequent ones are masked (#527).
     #
     # The policied dataset is NOT the one the acceptance legs run against, and that is an assertion
     # here only because `__main__.py` refuses `dataset == ci_dataset` - it used to be four

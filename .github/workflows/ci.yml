@@ -1255,7 +1255,7 @@ jobs:
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
           echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, and two principal credentials beside it, outside the checkout"
 
-      # **Mask the three resource names, and this step exists because of a channel the rest of the job
+      # **Mask the resource names, and this step exists because of a channel the rest of the job
       # would otherwise open.**
       #
       # Workflow logs on a PUBLIC repository are public. The wire carries the endpoint's own `message`
@@ -1270,13 +1270,14 @@ jobs:
       # unredacted message runs the leg locally, where the log is theirs.
       #
       # **THE LIMIT, AND THIS COMMENT USED TO OVERSTATE IT (#527).** It said the names were masked
-      # "before anything can print them". For two of the three they are not. The runner prints a
+      # "before anything can print them". For four of the five they are not. The runner prints a
       # step's resolved `env:` block into that step's own `Run` group BEFORE it executes the body -
       # `PrintActionDetails` in `actions/runner`'s `src/Runner.Worker/Handlers/Handler.cs` emits
       # `env:` and every entry of the handler's environment, and `ActionRunner` calls it ahead of
-      # `RunAsync` - so `SUTURA_BQ_DATASET` and `SUTURA_BQ_TABLE` appear in cleartext ONCE, here, and
-      # are redacted from every occurrence after that. An overstated control is worse than an absent
-      # one, because a reader who believes the old sentence stops looking.
+      # `RunAsync` - so `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET` and
+      # `SUTURA_BQ_RLS_TABLE` appear in cleartext ONCE, here, and are redacted from every occurrence
+      # after that. An overstated control is worse than an absent one, because a reader who believes
+      # the old sentence stops looking.
       #
       # **AND IT CANNOT BE FIXED BY MOVING THE MASK EARLIER**, which is why the shape below is the
       # best available one rather than a defect left in place. That printed dictionary is built from
@@ -1313,10 +1314,18 @@ jobs:
             fi
             printf '::add-mask::%s\n' "$(printenv "$name")"
           done
-          # The cell's own two: masked HERE, guarded in its own step - this step precedes the
-          # shared-key leg, so an unset value with no venue would stop the one that HAS a green run.
-          printf '::add-mask::%s\n' "$(printenv SUTURA_BQ_RLS_DATASET || true)" "$(printenv SUTURA_BQ_RLS_TABLE || true)"
-          echo "the resource names this job may print are masked for the rest of it"
+          # The cell's own two have the same first-occurrence limit above. Register them HERE for
+          # subsequent lines, but guard them in their own step: this step precedes the shared-key leg,
+          # so an unset value with no venue must not stop the one that HAS a green run.
+          rls_dataset="$(printenv SUTURA_BQ_RLS_DATASET || true)"
+          if [ -n "$rls_dataset" ]; then
+            printf '::add-mask::%s\n' "$rls_dataset"
+          fi
+          rls_table="$(printenv SUTURA_BQ_RLS_TABLE || true)"
+          if [ -n "$rls_table" ]; then
+            printf '::add-mask::%s\n' "$rls_table"
+          fi
+          echo "the three required resource names and any configured RLS names are masked after this step's own environment dump"
         # `K` separately, so the credential path is an environment value rather than an interpolation.
         # Same rule the rest of this file follows: no `${{ }}` reaches a shell body.
 
