@@ -1357,7 +1357,8 @@ jobs:
   # for a string comparison. What it can and cannot say about the LABEL: an org runner group has to
   # serve this repository for `rust-mcp-32core` to resolve at all, which is a permission on the
   # GitHub side that no gate here can read (`.github/actionlint.yaml` says so of its own list), and
-  # every run above proves it is served today - so this is a cost move, not a reachability fix. The
+  # the workflows that still name it prove it is served today - so this is a cost move, not a
+  # reachability fix. The
   # reported CONTEXT does not move: `devco/required-contexts` names it, and a context is a job's
   # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
   ci-aggregate:
