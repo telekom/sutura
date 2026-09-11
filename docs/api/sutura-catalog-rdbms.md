@@ -324,7 +324,7 @@ foreign key between them.
 ### `fn over_fixture_source`
 
 ```rust
-pub fn over_fixture_source(name: sutura_domain::model::SourceName, version: sutura_domain::pinned::DefinitionVersion) -> crate::RdbmsCatalog<FixtureReader>
+pub const fn over_fixture_source(name: sutura_domain::model::SourceName, version: sutura_domain::pinned::DefinitionVersion) -> crate::RdbmsCatalog<FixtureReader>
 ```
 
 A `crate::RdbmsCatalog` over the recorded corpus.
