@@ -234,6 +234,17 @@ requires the `BehindGateway` mode. This belongs in the plan with the same treatm
 question already gets - *blocked on one verification, to do FIRST* - because the answer decides whether
 an adapter is buildable, not when.
 
+**Corrected, and this is the premise the rest of the two-exchange chain rests on, so read it before
+planning from that paragraph.** *The Security Token Service wants `id_token`* is too broad, and the
+built exchange contradicts it: `crates/sutura-exec-bigquery/src/wire/sts.rs` declares
+`urn:ietf:params:oauth:token-type:jwt` as the subject token type, sends it, and a test asserts the
+sent value. **A WORKLOAD pool accepts `jwt`, and that is what shipped.** The `id_token` question is
+the WORKFORCE-pool one - the path described further up this record, where the principal is the person
+rather than a service account - and it is still open, which is why the paragraph is kept rather than
+deleted. What changes is its scope: it blocks the workforce chain, not the adapter, and the adapter is
+built. Anyone planning the enterprise chain from this record was planning against the wrong token
+type for the half that already works.
+
 **Per source, one audience, from one decision.** 0008 already rejects one `mint` call per leg because it
 puts the subject and the deadline in N places, and notes that RFC 8707 wants N audience-restricted
 tokens from one decision anyway. This is that shape made concrete: PostgreSQL 18's SASL OAUTHBEARER

@@ -90,7 +90,7 @@ decides the fields.
 
 **Rendering and parse-checking. Not acceptance.** In CI, for this dialect:
 
-- the 21 questions render, and their statements and parameters are pinned as goldens reviewed as a
+- the questions render, and their statements and parameters are pinned as goldens reviewed as a
   diff;
 - every statement is parsed with the BigQuery target;
 - no value from a question reaches a statement as text, and every identifier is quoted - both

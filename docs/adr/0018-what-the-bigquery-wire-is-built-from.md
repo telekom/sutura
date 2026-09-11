@@ -1,6 +1,6 @@
 ---
 title: What the BigQuery wire is built from
-description: The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, why the REST endpoint over a client already in the graph costs zero new packages, and the consequence that a wire now exists which nobody has run against a real project.
+description: The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, why the REST endpoint over a client already in the graph costs zero new packages, and the consequence that a wire now exists and has been run against a real project - for one hand-built statement first, and since 2026-08-31 for the example corpus, which is a claim 0017's third amendment and the correction in the What is claimed section carry rather than this sentence.
 ---
 
 # What the BigQuery wire is built from
@@ -395,10 +395,22 @@ to be blind about, which makes them what a live run is worth most for.
 What it does prove on the day it runs: the endpoint accepts a statement this repository generated,
 answers it as one complete page, the answer maps into domain values, and the composition fits
 together - which no local test can show. **The leg the records ask for is #78's importer shape pointed
-at a dataset** - load the example fixtures, run the 21 questions, compare rows with the engine - and it
-is not built. Every sentence in this repository that promised the corpus has been narrowed to that:
+at a dataset** - load the example fixtures, run the corpus's questions, compare rows with the engine.
+
+**Corrected:** this said *"and it is not built"*, and listed the sentences narrowed to match it -
 0017's amendment, `AGENTS.md`, `docs/architecture.md`, both plan pages, the justfile recipe and the
-leg's own header.
+leg's own header. **It is built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`, and it has run
+green against a real dataset; [0017](0017-what-a-bigquery-test-runs-against.md)'s third amendment is
+the record of that run and says which of the four bullets it answered. **The limit next to that: every
+test in that file is `#[ignore]`d and none of them is inside `just validate`**, because a nix check has
+no network - they run by binary selection in the acceptance tier, so a green local run proves nothing
+about this leg. The correction landed there and was not carried here, which is the sibling-drift
+class this record set exists to be checked against.
+The narrowness that survives is the identity one, and it is stated in that file's own header rather
+than restated here: the credential is one identity for everybody who asks, so a green there reads
+*accepted, and correct for that identity*. The count that used to sit in this sentence is gone rather
+than corrected - it said *21 questions* against a corpus that has grown twice since, and nothing here
+derives it.
 
 **Its own range was also wrong, and the fix is worth a line because of what it says about the claim.**
 The first version asked for a hundred-year span, which this surface refuses as `TimeRangeTooLong`

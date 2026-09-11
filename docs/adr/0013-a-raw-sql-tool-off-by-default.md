@@ -312,10 +312,12 @@ one.
   for the same reason and by the same mechanism as a source declaring an impersonation it cannot perform.
 - **Enabling it over the shipped file engine is a separate decision about a second SQL parser**, and
   that decision belongs in its own record rather than being inherited from this one.
-- **This record has no branch in the implementation stack, and that is deliberate rather than an
-  omission.** It is listed among the records the plan executes, so the absence would otherwise read as
-  a gap; what it is instead is the *unscheduled* status at the top of this file, and the prerequisites
-  there are what would have to be scheduled first.
+- **This record's branch is `feat/raw-sql-tool`, row 20 of the plan, and it is scheduled LAST rather
+  than unscheduled.** The prerequisites at the top of this file are what decide the position; three of
+  the four are now spent, and the remaining one is what the row is blocked on. **This bullet used to
+  say the record has no branch in the stack and that the status at the top is *unscheduled*. Both were
+  false, and the correction at the top of this file had already said so for 300 lines** - a record with
+  two answers to one question is worse than one answer, and this is the half that was left standing.
 - The demo that motivated this becomes reproducible: catalog search plus a select, with the answers
   labelled for what they are, and a path from there to a metric that makes the next identical question
   certified.
