@@ -216,19 +216,6 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         except: &[],
     },
     Contradicted {
-        name: "five refusal codes are 422",
-        wordings: &["five of the codes above land", "five of the eleven refusal codes"],
-        evidence: &[Evidence {
-            path: "crates/sutura-http/src/wire/refusal.rs",
-            holds: "four variants are `422`",
-        }],
-        instead: "four: `grain_not_supported`, `time_range_too_long`, `too_many_dimensions` and \
-                  `duplicate_dimension`. `docs/serving.md`'s own table two lines above the sentence \
-                  lists four, which is the tell that the number was carried and the table was not",
-        only: &[],
-        except: &[],
-    },
-    Contradicted {
         name: "the prompt renders only what the catalog endpoint renders",
         wordings: &["renders exactly what `GET /v1/catalog` renders and not one field more"],
         evidence: &[Evidence {
