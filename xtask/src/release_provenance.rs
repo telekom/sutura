@@ -135,10 +135,18 @@ fn asset_subjects(text: &str) -> Result<Subjects, String> {
 }
 
 /// Match the existing action's tag removal, retaining a registry's optional port.
+///
+/// The records carry a `#` comment header describing the two kinds, and that header ships inside
+/// the signed `image-digests.txt` asset - so a comment is part of the format, not a malformed
+/// record. Every other reader of the file already anchors on `list`/`leaf` and skips it. Skipping
+/// one hides no record: a commented-out list is a missing list, which the count below refuses.
 fn image_subjects(text: &str) -> Result<Subjects, String> {
     let mut subjects = Subjects::new();
     let mut variants = BTreeSet::new();
     for line in text.lines() {
+        if line.starts_with('#') {
+            continue;
+        }
         let words: Vec<_> = line.split_whitespace().collect();
         let [kind, variant, reference] = words.as_slice() else {
             return Err(String::from("malformed image record"));
@@ -314,7 +322,13 @@ mod tests {
             {"name": "runtime.tar.gz.sha256", "digest": {"sha256": hashes[1]}}
         ]));
         let mut bundles = vec![assets];
-        let mut images = String::new();
+        // The comment header verbatim from a released `image-digests.txt`, which the collector
+        // read as three malformed records. Only the references below are synthetic.
+        let mut images = String::from(
+            "# kind name reference@digest\n\
+             # list = multi-arch manifest list; pin this unless you want one architecture\n\
+             # leaf = single-arch image, named by its binary key and rust target triple\n",
+        );
         for (variant, digest) in ["glibc", "musl", "serve-glibc", "serve-musl"]
             .iter()
             .zip(hashes.iter().skip(2))
@@ -476,12 +490,24 @@ mod tests {
                 "recursive export",
                 checksums.replace("runtime.tar.gz.sha256", "sutura-provenance.intoto.jsonl"),
             ),
-            (1, "missing list", images.lines().skip(1).collect::<Vec<_>>().join("\n")),
+            (
+                1,
+                "missing list",
+                images
+                    .lines()
+                    .filter(|line| !line.starts_with("list glibc "))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
             (
                 1,
                 "changed list digest",
                 images.replace(&format!("{:064x}", 5), &"e".repeat(64)),
             ),
+            // A record short of a field is still refused, and a `#` skip is not a way to drop a
+            // list: commenting one out is a missing list, not an accepted one.
+            (1, "malformed record", images.replace("list glibc ", "list ")),
+            (1, "commented-out list", images.replace("list glibc ", "# list glibc ")),
         ] {
             std::fs::write(&fixture.args[index], bytes).expect("replace one expected input");
             observed.push((name, registered(&fixture.args), PathBuf::from(&fixture.args[2]).exists()));
