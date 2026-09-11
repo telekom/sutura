@@ -124,8 +124,17 @@ jobs:
           # absent: with it, a pull request could add a substituter and a trusted key and have
           # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
           # goes here, where the workflow diff shows it.
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # Carries /nix/store between runs. The same action at the same commit as ci.yml, copied
       # rather than written, so the two paths cannot drift into caching differently.
@@ -273,8 +282,17 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # As in `gates`: settings that matter are written here, not read out of flake.nix.
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # The same cache as `gates`, for the reason spelled out there. Within one run this also
       # picks up what `gates` just built, since both jobs read and write the same ref's scope.
@@ -348,8 +366,17 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # As in `gates`: settings that matter are written here, not read out of flake.nix.
+          # AND THE STORES THIS REPOSITORY PUBLISHES, which is why the pair below is here rather
+          # than only in `ci.yml`: a store this repository fills and never reads is spend with no
+          # return, and a tag-started run used to read none of them. Both halves are COMMITTED, so
+          # a reviewer sees them in the diff and `cargo xtask check-workflows` compares them - it
+          # now also refuses an installer step that names NEITHER. Nix verifies every path against
+          # the keys below; what bounds the poison risk is narrower and differs per store - see
+          # `ALLOWED` in `xtask/src/workflows/cache_scope/retired/stores.rs`.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       # No shared build-cache action in this publishing job. Its Nix tools may be substituted
       # or built on a cache miss, including xtask for provenance collection; that does not give
