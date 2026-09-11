@@ -134,11 +134,26 @@ fn asset_subjects(text: &str) -> Result<Subjects, String> {
     Ok(subjects)
 }
 
-/// Match the existing action's tag removal, retaining a registry's optional port.
+/// Read the shape the release actually writes: a `#` comment header, then `leaf` and `list`
+/// records whose reference is a repository and a digest with NO tag between them.
+///
+/// Both of those were refusals here, and neither shape has ever differed - a released
+/// `image-digests.txt` carries the header, and the producer prints `$IMAGE@sha256:...`. The
+/// header is part of the format, not a malformed record, and every other reader of the file
+/// already anchors on `list`/`leaf` and skips it. Skipping one hides no record: a commented-out
+/// list is a missing list, which the count below refuses.
+///
+/// The name derivation must AGREE with what the attestation recorded as `subject-name`, because
+/// the caller compares the two sets exactly. Where they could disagree - an untagged reference on
+/// a ported registry, which the sibling action's `${repo%:*}` would over-strip - the disagreement
+/// is a refusal rather than a pass, and no release writes that shape.
 fn image_subjects(text: &str) -> Result<Subjects, String> {
     let mut subjects = Subjects::new();
     let mut variants = BTreeSet::new();
     for line in text.lines() {
+        if line.starts_with('#') {
+            continue;
+        }
         let words: Vec<_> = line.split_whitespace().collect();
         let [kind, variant, reference] = words.as_slice() else {
             return Err(String::from("malformed image record"));
@@ -150,8 +165,20 @@ fn image_subjects(text: &str) -> Result<Subjects, String> {
             return Err(String::from("unknown or duplicate image list"));
         }
         let (tagged, digest) = reference.rsplit_once("@sha256:").ok_or("image list requires SHA-256")?;
-        let (name, tag) = tagged.rsplit_once(':').ok_or("image list requires a tag")?;
-        if tag.is_empty() || tag.contains('/') || !subjects.insert(subject(name, digest)?) {
+        // A `:` is a tag only AFTER the last `/`; before it, it is a registry port and part of the
+        // name. The release writes the repository with no tag at all, so the strip is optional -
+        // the sibling action's `${repo%:*}` leaves an untagged name alone, and porting it to
+        // `rsplit_once` turned that into a requirement no record has ever met.
+        let name = match tagged.rsplit_once(':') {
+            Some((head, tag)) if !tag.contains('/') => {
+                if tag.is_empty() {
+                    return Err(String::from("image list tag must not be empty"));
+                }
+                head
+            }
+            _ => tagged,
+        };
+        if !subjects.insert(subject(name, digest)?) {
             return Err(String::from("invalid or duplicate image subject"));
         }
     }
@@ -314,21 +341,23 @@ mod tests {
             {"name": "runtime.tar.gz.sha256", "digest": {"sha256": hashes[1]}}
         ]));
         let mut bundles = vec![assets];
-        let mut images = String::new();
+        // The comment header verbatim from a released `image-digests.txt`, which the collector
+        // read as three malformed records. Only the references below are synthetic.
+        let mut images = String::from(
+            "# kind name reference@digest\n\
+             # list = multi-arch manifest list; pin this unless you want one architecture\n\
+             # leaf = single-arch image, named by its binary key and rust target triple\n",
+        );
         for (variant, digest) in ["glibc", "musl", "serve-glibc", "serve-musl"]
             .iter()
             .zip(hashes.iter().skip(2))
         {
-            writeln!(
-                images,
-                "list {variant} registry.example.com:5000/test/runtime:v0-{variant}@sha256:{digest}"
-            )
-            .expect("write to a String");
+            writeln!(images, "list {variant} registry.example.com/test/runtime@sha256:{digest}").expect("write to a String");
             bundles.push(bundled(&json!([{
-                "name": "registry.example.com:5000/test/runtime", "digest": {"sha256": digest}
+                "name": "registry.example.com/test/runtime", "digest": {"sha256": digest}
             }])));
         }
-        images.push_str("leaf native registry.example.com/test/runtime:v0@sha256:ignored\n");
+        images.push_str("leaf native registry.example.com/test/runtime@sha256:ignored\n");
         let checksums = format!("{}  runtime.tar.gz\n{}  runtime.tar.gz.sha256\n", hashes[0], hashes[1]);
         std::fs::write(root.join("subjects.sha256"), checksums).expect("checksum snapshot");
         std::fs::write(root.join("image-digests.txt"), images).expect("image records");
@@ -434,7 +463,7 @@ mod tests {
             ),
             (
                 "wrong digest",
-                bundled(&json!([{"name": "registry.example.com:5000/test/runtime", "digest": {"sha256": "f".repeat(64)}}])),
+                bundled(&json!([{"name": "registry.example.com/test/runtime", "digest": {"sha256": "f".repeat(64)}}])),
             ),
             ("no subjects", bundled(&json!([]))),
         ] {
@@ -476,11 +505,29 @@ mod tests {
                 "recursive export",
                 checksums.replace("runtime.tar.gz.sha256", "sutura-provenance.intoto.jsonl"),
             ),
-            (1, "missing list", images.lines().skip(1).collect::<Vec<_>>().join("\n")),
+            (
+                1,
+                "missing list",
+                images
+                    .lines()
+                    .filter(|line| !line.starts_with("list glibc "))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
             (
                 1,
                 "changed list digest",
                 images.replace(&format!("{:064x}", 5), &"e".repeat(64)),
+            ),
+            // A record short of a field is still refused, and a `#` skip is not a way to drop a
+            // list: commenting one out is a missing list, not an accepted one.
+            (1, "malformed record", images.replace("list glibc ", "list ")),
+            (1, "commented-out list", images.replace("list glibc ", "# list glibc ")),
+            // An OPTIONAL tag is not an ignored one: present and empty is still a refusal.
+            (
+                1,
+                "empty tag",
+                images.replace("/test/runtime@sha256:", "/test/runtime:@sha256:"),
             ),
         ] {
             std::fs::write(&fixture.args[index], bytes).expect("replace one expected input");
@@ -498,5 +545,33 @@ mod tests {
             assert_eq!((verdict, exists), (Verdict::Fail, false), "{case}");
         }
         assert_eq!((clean, count), (Verdict::Pass, 5));
+    }
+
+    /// The four reference shapes the name derivation has to tell apart. The UNTAGGED row is what
+    /// a release actually writes, and it was a refusal; the ported rows are what the doc claimed
+    /// to support, and the untagged-ported one was a refusal too.
+    #[test]
+    fn a_list_reference_keeps_a_registry_port_and_drops_only_a_tag() {
+        for (reference, want) in [
+            ("registry.example.com/test/runtime", "registry.example.com/test/runtime"),
+            ("registry.example.com/test/runtime:v1", "registry.example.com/test/runtime"),
+            (
+                "registry.example.com:5000/test/runtime",
+                "registry.example.com:5000/test/runtime",
+            ),
+            (
+                "registry.example.com:5000/test/runtime:v1",
+                "registry.example.com:5000/test/runtime",
+            ),
+        ] {
+            use std::fmt::Write as _;
+            let mut text = String::new();
+            for (n, variant) in ["glibc", "musl", "serve-glibc", "serve-musl"].iter().enumerate() {
+                writeln!(text, "list {variant} {reference}@sha256:{n:064x}").expect("write to String");
+            }
+            let subjects = super::image_subjects(&text).unwrap_or_else(|cause| panic!("{reference}: {cause}"));
+            let names: std::collections::BTreeSet<_> = subjects.iter().map(|(name, _)| name.as_str()).collect();
+            assert_eq!(names, std::collections::BTreeSet::from([want]), "{reference}");
+        }
     }
 }
