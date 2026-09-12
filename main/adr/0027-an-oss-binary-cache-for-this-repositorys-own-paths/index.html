@@ -2699,9 +2699,17 @@ is the re-decision plus what changed.</p>
 paths</em>, not one store on every path. <code>sutura-prs</code> is an <strong>additive, pull-request-path-only</strong> cache:
 pull-request runs publish their own realised store paths to it and trust its key <strong>in addition to</strong>
 <code>sutura</code>, while the <strong>default branch trusts only <code>sutura</code> and never lists <code>sutura-prs</code>'s key</strong>. The
-security bound is that key boundary, not the text gate: even a compromised PR run that poisoned
-<code>sutura-prs</code> is read by no merged-main resolver, because main's resolver never names that store. This
-amendment is the <code>xtask</code> trust rule's counterpart and is enforced by it - see
+key boundary is what contains <em>poisoned content in that store</em>, not the text gate: a compromised PR
+run that poisoned <code>sutura-prs</code> is read by no merged-main resolver, because main's resolver never
+names that store. <strong>Corrected 2026-09-12 (#639 slice I): that boundary is not the whole security
+bound, and calling it so was an overstatement.</strong> The pull-request and mixed write credentials must be
+treated as able to write either store, including <code>sutura</code>, until their scope is independently verified
+(see "The write credential" below). Read-key separation cannot contain a writer authorised for the
+main store; the bound on <em>that</em> route is who can reach the
+<code>cachix-push-pr</code> environment's secret, which is the owner-held control this record already files
+under "What is NOT held by a mechanism". The credential scope was not independently inspected for
+this correction and no poisoning was attempted. This
+amendment's committed key lists are the <code>xtask</code> trust rule's counterpart and are enforced by it - see
 <code>xtask/src/workflows/cache_scope/retired.rs</code>, which pins both value lists ([<code>ALLOWED</code>] / the
 PR-gated pair) so the records and the gate cannot disagree.</p>
 <p><strong>Amendment, 2026-09-10 (read every store this repository writes):</strong> the inventory is now <strong>the
@@ -2712,10 +2720,10 @@ buckets were filled at the cost of a publish and substituted nothing. Every inst
 names those three plus <code>sutura-prs</code>. Two things did <strong>not</strong> change: the default branch still never
 lists <code>sutura-prs</code>'s key, and <code>sutura-fuzzing</code> is still absent because nothing pushes to it.</p>
 <p>The keys are the bound, and the limit belongs next to it: nix accepts a path only when its signer is
-in the trusted list, and what keeps these lists safe to trust is that <strong>every one of these stores is
-written solely by this repository's own CI</strong>, each under its own environment-gated credential that
-only a push to the default branch can reach. Content-addressing alone would not give that - a store
-anybody could write would be poisonable no matter how a path is named. <code>extraPullNames</code> was weighed
+in the trusted list. The main-store path is intended to be written solely by this repository's own
+CI under an environment-gated credential that only a push to the default branch can reach. PR and
+mixed credentials must be treated as able to write any trusted store until their scope is independently
+verified; a store anybody could write would be poisonable no matter how a path is named. <code>extraPullNames</code> was weighed
 and refused for the reason the committed pair exists: it configures a substituter at RUNTIME, where
 no reviewer sees it in the diff and no text gate can compare against it.</p>
 <h2 id="what-changed-and-it-is-two-things-rather-than-a-preference">What changed, and it is two things rather than a preference<a class="headerlink" href="#what-changed-and-it-is-two-things-rather-than-a-preference" title="Permanent link">&para;</a></h2>
@@ -2772,7 +2780,8 @@ configuration a reviewer read.</p>
 <p><strong>What bounds the trust is nix's signature check</strong>, not the gate: a path signed by a key that is not
 named is not accepted. The gate's job is to keep the <em>set of named keys</em> honest.</p>
 <h2 id="the-write-credential-and-why-an-environment-rather-than-an-if">The write credential, and why an environment rather than an <code>if:</code><a class="headerlink" href="#the-write-credential-and-why-an-environment-rather-than-an-if" title="Permanent link">&para;</a></h2>
-<p>Writes happen only from a push to the default branch. That is enforced <strong>twice, deliberately</strong>:</p>
+<p>The main-store publishing workflow writes only from a push to the default branch. That is enforced
+<strong>twice, deliberately</strong>; this does not cover the separate pull-request cache path:</p>
 <ul>
 <li>the publishing workflow triggers on nothing else, and</li>
 <li>the credential is an <strong>environment secret</strong> whose deployment-branch policy admits only that branch.</li>
