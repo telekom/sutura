@@ -89,14 +89,21 @@ adding a pin anywhere.
 `check-pins` fails if a tool appears in both nix and pixi. `nix` is the only pin for a tool whose
 version changes what it reports.
 
-**Adding a NEW gate needs a spare line in `xtask/src/main.rs`, and there may not be one.** That file
-holds the task table, and on 2026-09-07 it stood at **999 of the 1000-line cap** `max-lines`
-enforces - a cap `crates/` and `xtask/` cannot be exempted from, because `UNEXEMPTABLE_PREFIXES` is
-exactly those two. A module declaration plus a `Task { .. }` entry is seven lines at its shortest,
-so *add a gate* silently means *split `main.rs` first*. Two ways out, and the second is usually
-better: split the table, or add the rule to an existing gate that already reads the same inputs -
-a submodule under `xtask/src/<gate>/` costs `main.rs` nothing, and a second gate over the same walk
-would be a second answer anyway. `check-workflows`' badge rules landed that way.
+**A new rule usually belongs on a gate that already walks the right files, not on a new gate.** A
+submodule under `xtask/src/<gate>/` costs the task table nothing, and a second gate over the same
+walk would be a second answer anyway - `check-workflows`' badge rules landed that way. Check what
+already reads your subject before registering. The cap's part in that choice is usually believed
+rather than real: `#610` attributed two arms to it whose own records blame something else, and
+three files cited it directly - in every one the arm was the right shape regardless, so the cap
+took credit for a decision the author had already made correctly.
+
+Registration has headroom again. `TASKS` lives in `xtask/src/task_table.rs` since
+`github.com/telekom/sutura#610`, which moved it out of `main.rs` at 992 of the 1000-line cap
+`max-lines` enforces - a cap `crates/` and `xtask/` cannot be exempted from, because
+`UNEXEMPTABLE_PREFIXES` is exactly those two. **No line count is repeated here**, because a
+measurement copied into prose rots: three files carried 999 against a tree measuring 992. `just
+hygiene` reports the cap's verdict, and it is the only current answer. **What it does not report is
+how close any file is to refusing**, so the next near-cap file is as invisible as that one was.
 
 **And when a new gate reads `flake.nix` for a name, LEX it - do not search the text.** `flake.nix`
 declares `apps.<name>` and `checks.<name>` for overlapping sets of names, so *does the file mention

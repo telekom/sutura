@@ -2,10 +2,12 @@
 //!
 //! **Moved out of `main.rs` because that file hit the 1000-line cap `cargo xtask max-lines`
 //! holds**, on the merge of two branches that both grew it - which is the same pressure
-//! `crate::falsifier`'s own header records. What moved is the TYPES; `TASKS` itself stayed, and
-//! that is deliberate rather than arbitrary: the table is where every new gate registers, so
-//! moving it would put a rename in the path of every concurrent branch, and `main.rs` is held at
-//! HEAD by the tests that read it either way.
+//! `crate::falsifier`'s own header records. What moved first was the TYPES, and the table stayed
+//! on the argument that *moving it would put a rename in the path of every concurrent branch*.
+//! **`github.com/telekom/sutura#610` overtook that**: the cost it named is paid by branches that
+//! register a gate, and the cap was one line from refusing one, so the cost was zero when it came
+//! to be measured - no open pull request touched `main.rs`. `TASKS` now lives in
+//! `crate::task_table`, whose header carries the measurement and the rest of the argument.
 //!
 //! `Verdict` and `Reads` are re-exported from the crate root, so every gate's `crate::Verdict`
 //! resolves unchanged and this split is invisible to the thirty-odd modules that use it.

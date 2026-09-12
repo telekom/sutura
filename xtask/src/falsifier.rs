@@ -4,8 +4,9 @@
 //! tested while `run` and the exit code it produces are driven by nothing, so a mutation on the
 //! verdict path leaves the suite green. Measured on this tree before the falsifier existed: 2 of
 //! 31 hygiene gates had a test driving the registered entry point's verdict, and 7 of 31 answered
-//! `ok` over a tree with none of their subjects. The test that uses this lives in
-//! `crate::tests`, next to the `TASKS` table it reads.
+//! `ok` over a tree with none of their subjects. The test that uses this lives in this module's
+//! own `tests`, and reads `crate::TASKS` - re-exported from the crate root, so it is blind to
+//! which file declares the table (`task_table.rs` since `#610`).
 //!
 //! **Both root markers are load-bearing.** [`crate::repo::root`] identifies a root by `flake.nix`
 //! AND `Cargo.toml`; without them its walk falls through to `CARGO_MANIFEST_DIR`'s parent and

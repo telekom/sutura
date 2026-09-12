@@ -74,9 +74,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     //
     // `must_judge` replaces the `rs_files == 0` floor, and is strictly stronger than it. A floor
     // over a count is satisfiable by reading almost anything; naming a file the gate cannot have a
-    // verdict without survives a scope predicate that stopped matching. This one is the gate
-    // registry itself: every `.rs` scan in the tree can name it, and it is `max-lines`-capped, so
-    // it will not vanish.
+    // verdict without survives a scope predicate that stopped matching. This one is the crate's
+    // `[[bin]]` root: every `.rs` scan in the tree can name it, and a binary cannot lose its root
+    // file, so it will not vanish. It held the task table until `#610` moved that to
+    // `task_table.rs`; the anchor never depended on the table, only on the file existing.
     // Named with its type at the call site: a [`repo::Scope`] is a bare `fn` pointer, so a
     // closure - the only place an ordinal counter could live - does not compile here.
     let scope: repo::Scope = rust_source;
