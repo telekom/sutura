@@ -175,75 +175,75 @@ exclude_docs: |
 nav:
   - Introduction: index.md
   - Start here:
-    - Concepts: concepts.md
-    - Getting started: getting-started.md
-    - Questions and answers: qa.md
-    - The agent prompt: agent-prompt.md
+      - Concepts: concepts.md
+      - Getting started: getting-started.md
+      - Questions and answers: qa.md
+      - The agent prompt: agent-prompt.md
   - Serve it:
-    - Serving over HTTP: serving.md
-    - Verifying a release: verifying-a-release.md
-    - The local chat demo: demo.md
+      - Serving over HTTP: serving.md
+      - Verifying a release: verifying-a-release.md
+      - The local chat demo: demo.md
   - Reference:
-    - Architecture: architecture.md
-    - Where each identity claim is proven: where-identity-is-proven.md
-    - Decisions:
-      - First-party semantic models: adr/0001-first-party-semantic-models.md
-      - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
-      - DataFusion for local execution: adr/0003-datafusion-for-local-execution.md
-      - A named escape hatch for authored SQL: adr/0004-a-named-escape-hatch-for-authored-sql.md
-      - A refusal carries a status: adr/0005-a-refusal-carries-a-status.md
-      - Several databases behind one data system, declined: adr/0006-several-databases-behind-one-data-system.md
-      - Federating across different data systems: adr/0007-federating-across-different-data-systems.md
-      - A credential per leg, for the calling subject: adr/0008-a-credential-per-leg-for-the-calling-subject.md
-      - The plan, from one source to many and one user to many: adr/0009-the-plan-from-one-source-to-many.md
-      - Transport security for a source: adr/0010-transport-security-for-a-source.md
-      - Pluggable by declaration: adr/0011-pluggable-by-declaration.md
-      - Conformance packs for inputs and adapters: adr/0012-conformance-packs-for-inputs-and-adapters.md
-      - A raw SQL tool, off by default: adr/0013-a-raw-sql-tool-off-by-default.md
-      - How a caller proves who it is: adr/0014-how-a-caller-proves-who-it-is.md
-      - An authenticated metrics endpoint: adr/0015-an-authenticated-metrics-endpoint.md
-      - What DataHub can carry: adr/0016-what-datahub-can-carry.md
-      - What a BigQuery test runs against: adr/0017-what-a-bigquery-test-runs-against.md
-      - What the BigQuery wire is built from: adr/0018-what-the-bigquery-wire-is-built-from.md
-      - A table outside the connection's own dataset: adr/0019-a-table-outside-the-connections-dataset.md
-      - A credential the compiler refuses to print: adr/0020-a-credential-the-compiler-refuses-to-print.md
-      - How a published artefact proves where it came from: adr/0021-how-a-published-artefact-proves-where-it-came-from.md
-      - Untrusted content, and what marks it: adr/0022-untrusted-content-marking.md
-      - How the agent surface learns who is asking: adr/0023-how-the-agent-surface-learns-who-is-asking.md
-      - Three OSS-readiness scans, and what each discloses: adr/0024-three-oss-readiness-scans-and-what-each-discloses.md
-      - What a Scorecard zero says about this repository: adr/0025-what-a-scorecard-zero-says-about-this-repository.md
-      - No third-party binary cache: adr/0026-no-third-party-binary-cache.md
-      - An OSS binary cache for this repository's own paths: adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths.md
-      - Who may see a metric: adr/0028-who-may-see-a-metric.md
-    - API:
-      - api/index.md
-      - sutura-domain: api/sutura-domain.md
-      - sutura-catalog-local: api/sutura-catalog-local.md
-      - sutura-catalog-datahub: api/sutura-catalog-datahub.md
-      - sutura-semantic: api/sutura-semantic.md
-      - sutura-sql: api/sutura-sql.md
-      - sutura-exec-datafusion: api/sutura-exec-datafusion.md
-      - sutura-exec-duckdb: api/sutura-exec-duckdb.md
-      - sutura-exec-bigquery: api/sutura-exec-bigquery.md
-      - sutura-exec-postgres: api/sutura-exec-postgres.md
-      - sutura-app: api/sutura-app.md
-      - sutura-config: api/sutura-config.md
-      - sutura-runtime: api/sutura-runtime.md
-      - sutura-http: api/sutura-http.md
-      - sutura-mcp: api/sutura-mcp.md
-      # Dev tooling rather than shipped surface, and last for that reason. Both are here because
-      # they ARE libraries - `xtask`'s compose tier depends on `sutura-dev`'s `Scope` and two
-      # adapters' test targets depend on `sutura-conformance`'s pack signatures, so both are real
-      # contracts and a change to either belongs in a reviewable diff. Narrowing the gate instead
-      # was considered and rejected: every first-party crate is `publish = false`, so a `publish`
-      # predicate would exempt all of them and check nothing.
-      - sutura-conformance: api/sutura-conformance.md
-      - sutura-dev: api/sutura-dev.md
+      - Architecture: architecture.md
+      - Where each identity claim is proven: where-identity-is-proven.md
+      - Decisions:
+          - First-party semantic models: adr/0001-first-party-semantic-models.md
+          - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
+          - DataFusion for local execution: adr/0003-datafusion-for-local-execution.md
+          - A named escape hatch for authored SQL: adr/0004-a-named-escape-hatch-for-authored-sql.md
+          - A refusal carries a status: adr/0005-a-refusal-carries-a-status.md
+          - Several databases behind one data system, declined: adr/0006-several-databases-behind-one-data-system.md
+          - Federating across different data systems: adr/0007-federating-across-different-data-systems.md
+          - A credential per leg, for the calling subject: adr/0008-a-credential-per-leg-for-the-calling-subject.md
+          - The plan, from one source to many and one user to many: adr/0009-the-plan-from-one-source-to-many.md
+          - Transport security for a source: adr/0010-transport-security-for-a-source.md
+          - Pluggable by declaration: adr/0011-pluggable-by-declaration.md
+          - Conformance packs for inputs and adapters: adr/0012-conformance-packs-for-inputs-and-adapters.md
+          - A raw SQL tool, off by default: adr/0013-a-raw-sql-tool-off-by-default.md
+          - How a caller proves who it is: adr/0014-how-a-caller-proves-who-it-is.md
+          - An authenticated metrics endpoint: adr/0015-an-authenticated-metrics-endpoint.md
+          - What DataHub can carry: adr/0016-what-datahub-can-carry.md
+          - What a BigQuery test runs against: adr/0017-what-a-bigquery-test-runs-against.md
+          - What the BigQuery wire is built from: adr/0018-what-the-bigquery-wire-is-built-from.md
+          - A table outside the connection's own dataset: adr/0019-a-table-outside-the-connections-dataset.md
+          - A credential the compiler refuses to print: adr/0020-a-credential-the-compiler-refuses-to-print.md
+          - How a published artefact proves where it came from: adr/0021-how-a-published-artefact-proves-where-it-came-from.md
+          - Untrusted content, and what marks it: adr/0022-untrusted-content-marking.md
+          - How the agent surface learns who is asking: adr/0023-how-the-agent-surface-learns-who-is-asking.md
+          - Three OSS-readiness scans, and what each discloses: adr/0024-three-oss-readiness-scans-and-what-each-discloses.md
+          - What a Scorecard zero says about this repository: adr/0025-what-a-scorecard-zero-says-about-this-repository.md
+          - No third-party binary cache: adr/0026-no-third-party-binary-cache.md
+          - An OSS binary cache for this repository's own paths: adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths.md
+          - Who may see a metric: adr/0028-who-may-see-a-metric.md
+      - API:
+          - api/index.md
+          - sutura-domain: api/sutura-domain.md
+          - sutura-catalog-local: api/sutura-catalog-local.md
+          - sutura-catalog-datahub: api/sutura-catalog-datahub.md
+          - sutura-semantic: api/sutura-semantic.md
+          - sutura-sql: api/sutura-sql.md
+          - sutura-exec-datafusion: api/sutura-exec-datafusion.md
+          - sutura-exec-duckdb: api/sutura-exec-duckdb.md
+          - sutura-exec-bigquery: api/sutura-exec-bigquery.md
+          - sutura-exec-postgres: api/sutura-exec-postgres.md
+          - sutura-app: api/sutura-app.md
+          - sutura-config: api/sutura-config.md
+          - sutura-runtime: api/sutura-runtime.md
+          - sutura-http: api/sutura-http.md
+          - sutura-mcp: api/sutura-mcp.md
+          # Dev tooling rather than shipped surface, and last for that reason. Both are here because
+          # they ARE libraries - `xtask`'s compose tier depends on `sutura-dev`'s `Scope` and two
+          # adapters' test targets depend on `sutura-conformance`'s pack signatures, so both are real
+          # contracts and a change to either belongs in a reviewable diff. Narrowing the gate instead
+          # was considered and rejected: every first-party crate is `publish = false`, so a `publish`
+          # predicate would exempt all of them and check nothing.
+          - sutura-conformance: api/sutura-conformance.md
+          - sutura-dev: api/sutura-dev.md
   - Development:
-    - Contributing: contributing.md
-    - The CRAP gate: crap.md
-    - Building without direct egress: enterprise-mirrors.md
-    - Publishing the docs: publishing.md
+      - Contributing: contributing.md
+      - The CRAP gate: crap.md
+      - Building without direct egress: enterprise-mirrors.md
+      - Publishing the docs: publishing.md
   - Changelog: changelog.md
 
 extra:

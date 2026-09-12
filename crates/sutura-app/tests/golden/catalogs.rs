@@ -16,8 +16,15 @@ use crate::shared::{PROVOKED, question, settings};
 /// The digest and the parsed content, in one snapshot.
 ///
 /// It moves when a definition changes and when a description changes, because both are part of
-/// what was certified; it does not move when a file is reformatted or when two documents swap
-/// order, which is what makes it worth reading.
+/// what was certified, and it does not move when two documents swap order - which is what makes it
+/// worth reading.
+///
+/// **It DOES move when a file is reformatted, and this comment claimed the opposite until it was
+/// measured.** Pointing dprint's markdown plugin at the fixture inserted ONE BLANK LINE after each
+/// file's YAML frontmatter - not a word changed - and the digest moved. The body is hashed as the
+/// bytes it is, so leading whitespace is inside what was certified; a reformat is therefore
+/// indistinguishable here from an edit to what an agent is told. `dprint.json` excludes the fixture
+/// for that reason rather than re-pinning the snapshot.
 fn pins_the_whole_catalog<C>()
 where
     C: CatalogUnderTest,

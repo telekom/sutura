@@ -19,10 +19,10 @@ that cannot be asked, or let two callers read different meanings under one metri
 
 Knowledge follows its structured referents rather than its prose:
 
-* a glossary entry follows the metric its `Referent` names;
-* a caveat is visible only when every metric it refers to is visible;
-* a worked example follows the metric in its `Query`;
-* an unscoped absence has no metric from which to inherit, so it needs an explicit catalog-wide
+- a glossary entry follows the metric its `Referent` names;
+- a caveat is visible only when every metric it refers to is visible;
+- a worked example follows the metric in its `Query`;
+- an unscoped absence has no metric from which to inherit, so it needs an explicit catalog-wide
   audience and is withheld when none is granted.
 
 The all-referents rule treats a note as authored, atomic content. Removing one hidden referent while
@@ -60,12 +60,12 @@ visible(c, u) = audience(u) is open
 
 For a metric restricted to audience `finance`, the complete decision is:
 
-| Verified group claim | Deployment mapping result | Open metric | Restricted metric |
-| --- | --- | --- | --- |
-| absent | empty | visible | hidden |
-| only unmapped values | empty | visible | hidden |
-| mapped to `finance`, with or without unmapped values | includes `finance` | visible | visible |
-| mapped, but not to `finance`, with or without unmapped values | excludes `finance` | visible | hidden |
+| Verified group claim                                          | Deployment mapping result | Open metric | Restricted metric |
+| ------------------------------------------------------------- | ------------------------- | ----------- | ----------------- |
+| absent                                                        | empty                     | visible     | hidden            |
+| only unmapped values                                          | empty                     | visible     | hidden            |
+| mapped to `finance`, with or without unmapped values          | includes `finance`        | visible     | visible           |
+| mapped, but not to `finance`, with or without unmapped values | excludes `finance`        | visible     | hidden            |
 
 Any mapped group that grants a declared audience is sufficient; unmapped groups neither grant nor
 veto visibility. The inheritance rules above are then applied to knowledge after metric visibility is
@@ -86,12 +86,12 @@ definition.
 The predicate takes a verified caller, not an optional one. Absence is decided before a view is built,
 and differs by surface:
 
-| Surface | When there is no verified caller |
-| --- | --- |
-| HTTP with `security.inbound` configured | The inbound gate returns `401` before either the catalog or query handler runs. Neither open nor restricted metadata is returned. |
-| HTTP without `security.inbound` | This is the explicit single-player posture. Catalog rendering and query resolution use the whole bundle; absence is not interpreted as an empty group claim. |
-| `sutura catalog`, `sutura describe` and `sutura prompt` | These are operator-side commands with no request caller and retain the whole bundle. The prompt renderer has no served endpoint today. |
-| stdio MCP | The transport cannot establish a caller or receive a token, so `describe_catalog` and `ask_metric` retain the whole bundle. Caller-specific MCP visibility waits for an authenticated transport. |
+| Surface                                                 | When there is no verified caller                                                                                                                                                                 |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| HTTP with `security.inbound` configured                 | The inbound gate returns `401` before either the catalog or query handler runs. Neither open nor restricted metadata is returned.                                                                |
+| HTTP without `security.inbound`                         | This is the explicit single-player posture. Catalog rendering and query resolution use the whole bundle; absence is not interpreted as an empty group claim.                                     |
+| `sutura catalog`, `sutura describe` and `sutura prompt` | These are operator-side commands with no request caller and retain the whole bundle. The prompt renderer has no served endpoint today.                                                           |
+| stdio MCP                                               | The transport cannot establish a caller or receive a token, so `describe_catalog` and `ask_metric` retain the whole bundle. Caller-specific MCP visibility waits for an authenticated transport. |
 
 The implementation must keep the verified-caller and explicit whole-bundle cases distinct. An
 `Option<VerifiedCaller>` whose absent arm silently chooses either `open` or unrestricted visibility
@@ -160,18 +160,18 @@ allows the digest carried by an answer to describe definitions other than those 
 
 ## Consequences and limits
 
-* A visibility declaration is a hard catalog-shape change. The implementation must parse it through
+- A visibility declaration is a hard catalog-shape change. The implementation must parse it through
   a non-empty type and fail closed rather than default a missing field to unrestricted access.
-* The catalog declaration moves the definition digest; the deployment mapping does not. Both facts
+- The catalog declaration moves the definition digest; the deployment mapping does not. Both facts
   must be stated wherever the filtered response's digest is described.
-* One borrowed view can make advertisement and invocation agree. Two separate predicates would be a
+- One borrowed view can make advertisement and invocation agree. Two separate predicates would be a
   state in which a metric can be hidden at one door and used through the other.
-* Authored free text can still mention a model, column or hidden metric. Existing types constrain
+- Authored free text can still mention a model, column or hidden metric. Existing types constrain
   structured referents, not prose, so metadata visibility is not a content-redaction mechanism.
-* This is **metadata access only**. It changes no source's configured `SourcePosture`, credential path
+- This is **metadata access only**. It changes no source's configured `SourcePosture`, credential path
   or rows. A question continues through whatever posture and credential path that source already
   uses, shared or impersonating; visibility neither selects the deployment identity nor proves that a
   source executed as the caller. It is neither row-level authorization nor evidence that the second
   leg of impersonation ran.
-* No visibility declaration, caller-filtered type, refusal-path change or transport integration is
+- No visibility declaration, caller-filtered type, refusal-path change or transport integration is
   implemented by this record.

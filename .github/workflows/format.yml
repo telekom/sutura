@@ -1,0 +1,67 @@
+# Markdown, YAML and TOML formatting, and Python formatting plus lint.
+#
+# ITS OWN WORKFLOW, and the reason is what it does NOT run. The paths filter below means a
+# text-only change gets this verdict without `ci.yml`'s matrix, and a Rust-only change pays
+# nothing for a formatter that would have inspected no changed file. Folding it into `ci.yml`
+# inverts both halves of that.
+#
+# THE SAME SCRIPT A DEVELOPER RUNS. `nix/format-text.sh` is what the `format-text` pre-commit
+# hook, `just lint-text`, `just fmt` and `just validate` call, so a local run and CI cannot check
+# different things - the property `nix/lint-workflows.sh` exists for, applied one file over.
+#
+# THIRD-PARTY ACTIONS: none, as everywhere else here.
+name: format
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.md"
+      - "**.yml"
+      - "**.yaml"
+      - "**.toml"
+      - "**.py"
+      - "dprint.json"
+      - "nix/dprint.nix"
+      - "nix/format-text.sh"
+  pull_request:
+    paths:
+      - "**.md"
+      - "**.yml"
+      - "**.yaml"
+      - "**.toml"
+      - "**.py"
+      - "dprint.json"
+      - "nix/dprint.nix"
+      - "nix/format-text.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent, for the reason security-audit.yml gives: with it, a pull request could add
+          # a substituter and a trusted key and have CI fetch attacker-built store paths whose
+          # signature verifies.
+          extra_nix_config: |
+            fallback = true
+
+      # The candidate set is `git ls-files`, so the checkout above IS the input. `fetch-depth` is
+      # left at its default: the script reads the working tree, not a diff against a base.
+      - name: markdown, yaml, toml and python
+        run: bash nix/format-text.sh check

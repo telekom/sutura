@@ -80,8 +80,8 @@ jobs:
     runs-on: rust-mcp-32core
     timeout-minutes: 120
     permissions:
-      contents: write   # attach assets to an existing release
-      packages: write   # push the image to GHCR
+      contents: write # attach assets to an existing release
+      packages: write # push the image to GHCR
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

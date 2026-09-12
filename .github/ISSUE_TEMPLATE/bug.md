@@ -22,11 +22,11 @@ the usual differences are no `.git` in the Nix sandbox, no network in a Nix buil
 
 ## Environment
 
-| | |
-| --- | --- |
-| Version or commit | |
-| How it was built | `nix build` / `cargo` / the container |
-| Platform | |
+|                   |                                       |
+| ----------------- | ------------------------------------- |
+| Version or commit |                                       |
+| How it was built  | `nix build` / `cargo` / the container |
+| Platform          |                                       |
 
 ## Which mechanism should have caught this?
 

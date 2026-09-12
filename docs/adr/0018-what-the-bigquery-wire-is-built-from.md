@@ -31,12 +31,12 @@ it.
 
 ## What has to be priced, and why an unpriced option is not an option
 
-| Cost | The mechanism that would fail |
-| --- | --- |
-| **The release** | `sutura-cli` is the only crate any release package builds - `flake.nix` sets `cargoExtraArgs = "--package sutura-cli"` on both the native and the cross paths - across four target triples, two of which are musl. nixpkgs has no musl `libduckdb`, which is why a data system's driver is a dev-dependency here. A client with a native library repeats that problem in a source that is not optional |
-| **The licence gate** | `deny.toml` runs an exact allowlist with `unused-allowed-license = "deny"`, so an allowed licence nothing uses is itself a failure. Every addition is a deliberate entry |
-| **Arrow** | `cargo xtask check-arrow` fails when the `arrow-*` family spans more than one major without a dated, reasoned entry in `devco/arrow-majors-allow`. The engine sets the type vocabulary and adapters conform |
-| **`anyhow`** | Not on the issue's list and it is the one that decides this. `AGENTS.md` states that *`anyhow` appears nowhere in this workspace - `Cargo.lock` included, so not even transitively*, and `cargo xtask check-boundaries` fails a dynamic-error crate in a library. A dependency that pulls it transitively spends a claim this repository makes in writing |
+| Cost                 | The mechanism that would fail                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **The release**      | `sutura-cli` is the only crate any release package builds - `flake.nix` sets `cargoExtraArgs = "--package sutura-cli"` on both the native and the cross paths - across four target triples, two of which are musl. nixpkgs has no musl `libduckdb`, which is why a data system's driver is a dev-dependency here. A client with a native library repeats that problem in a source that is not optional |
+| **The licence gate** | `deny.toml` runs an exact allowlist with `unused-allowed-license = "deny"`, so an allowed licence nothing uses is itself a failure. Every addition is a deliberate entry                                                                                                                                                                                                                               |
+| **Arrow**            | `cargo xtask check-arrow` fails when the `arrow-*` family spans more than one major without a dated, reasoned entry in `devco/arrow-majors-allow`. The engine sets the type vocabulary and adapters conform                                                                                                                                                                                            |
+| **`anyhow`**         | Not on the issue's list and it is the one that decides this. `AGENTS.md` states that *`anyhow` appears nowhere in this workspace - `Cargo.lock` included, so not even transitively*, and `cargo xtask check-boundaries` fails a dynamic-error crate in a library. A dependency that pulls it transitively spends a claim this repository makes in writing                                              |
 
 ## The options, priced
 
@@ -51,14 +51,14 @@ handed to Google; that release pulls `openssl` and `arrow 53.4.1`. So `cargo add
 google-cloud-bigquery` gets an eighteen-month-old release that breaks two of the four costs at once.
 Written down because it is a trap a reader would otherwise walk into.
 
-| Option | Packages added | `anyhow` | `openssl` | Arrow | Native build | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| `gcp-bigquery-client` 0.28.0 | +71 | **yes** | no | no | `zstd-sys` (`links = "zstd"`) | **refused** |
-| `google-cloud-bigquery` 0.15.0 (what the name resolves to) | not counted | **yes** | **yes** | **53.4.1** | `openssl-sys` | **refused** |
-| `gcloud-bigquery` 1.7.0 (the same family, renamed) | not counted | **yes** (twice over) | no | **58.4.0** | `aws-lc-sys`, cmake | **refused** |
-| `google-cloud-bigquery` 0.16.1-preview (official) | +92 | **yes** | no | no | `aws-lc-sys`, cmake | **refused** |
-| `reqwest` + `gcp_auth`, calling `jobs.query` | +68 | no | no | no | `ring` only | viable |
-| **`ureq`, calling `jobs.query`** | **+0** | no | no | no | `ring` only | **chosen** |
+| Option                                                     | Packages added | `anyhow`             | `openssl` | Arrow      | Native build                  | Verdict     |
+| ---------------------------------------------------------- | -------------- | -------------------- | --------- | ---------- | ----------------------------- | ----------- |
+| `gcp-bigquery-client` 0.28.0                               | +71            | **yes**              | no        | no         | `zstd-sys` (`links = "zstd"`) | **refused** |
+| `google-cloud-bigquery` 0.15.0 (what the name resolves to) | not counted    | **yes**              | **yes**   | **53.4.1** | `openssl-sys`                 | **refused** |
+| `gcloud-bigquery` 1.7.0 (the same family, renamed)         | not counted    | **yes** (twice over) | no        | **58.4.0** | `aws-lc-sys`, cmake           | **refused** |
+| `google-cloud-bigquery` 0.16.1-preview (official)          | +92            | **yes**              | no        | no         | `aws-lc-sys`, cmake           | **refused** |
+| `reqwest` + `gcp_auth`, calling `jobs.query`               | +68            | no                   | no        | no         | `ring` only                   | viable      |
+| **`ureq`, calling `jobs.query`**                           | **+0**         | no                   | no        | no         | `ring` only                   | **chosen**  |
 
 **Every wrapper crate is refused on `anyhow`, and it is unavoidable rather than a feature flag.** It
 arrives through `prost-derive` → `prost`, which every one of them pulls because they all bundle the
@@ -151,14 +151,14 @@ Four parts, each with its own reason:
 **The answer today is: none of them link either half of this crate**, and that is checkable rather
 than asserted.
 
-| Artifact | Built from | Links `sutura-exec-bigquery`? | Links `ureq`? |
-| --- | --- | --- | --- |
-| `sutura` (`x86_64-unknown-linux-gnu`, native) | `--package sutura-cli` | no | no |
-| `sutura` (`aarch64-unknown-linux-gnu`, cross) | `--package sutura-cli --target …` | no | no |
-| `sutura` (`x86_64-unknown-linux-musl`, cross) | `--package sutura-cli --target …` | no | no |
-| `sutura` (`aarch64-unknown-linux-musl`, cross) | `--package sutura-cli --target …` | no | no |
-| `oci-<triple>` for each of those four | the unsuffixed cross package | no | no |
-| `sutura-serve` | nothing - **it is built by no release package at all**, because the flake's release derivations name `sutura-cli` only | no | no |
+| Artifact                                       | Built from                                                                                                             | Links `sutura-exec-bigquery`? | Links `ureq`? |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------- |
+| `sutura` (`x86_64-unknown-linux-gnu`, native)  | `--package sutura-cli`                                                                                                 | no                            | no            |
+| `sutura` (`aarch64-unknown-linux-gnu`, cross)  | `--package sutura-cli --target …`                                                                                      | no                            | no            |
+| `sutura` (`x86_64-unknown-linux-musl`, cross)  | `--package sutura-cli --target …`                                                                                      | no                            | no            |
+| `sutura` (`aarch64-unknown-linux-musl`, cross) | `--package sutura-cli --target …`                                                                                      | no                            | no            |
+| `oci-<triple>` for each of those four          | the unsuffixed cross package                                                                                           | no                            | no            |
+| `sutura-serve`                                 | nothing - **it is built by no release package at all**, because the flake's release derivations name `sutura-cli` only | no                            | no            |
 
 `crates/sutura-cli/Cargo.toml` declares no edge to `sutura-exec-bigquery`, and the root manifest
 keeps the crate out of `[workspace.dependencies]` on purpose - `cargo xtask unused-deps` is what
@@ -227,22 +227,22 @@ Everything below the socket, and one thing at it.
   **money** by `maximumBytesBilled`, both required, both carried by the `WireAgent` so the socket
   timeout and the request body read the same value. Two corrections are folded in here, and each was a
   real defect:
-    - **`timeoutMs` bounds nothing at the service.** The endpoint documents it as how long the CLIENT
-      waits; when it expires the answer carries `jobComplete: false` with a `jobReference` and **the
-      job keeps running and keeps billing.** The first version of this wire sent `timeoutMs: 55000`,
-      returned `NotComplete`, discarded the reference and walked away from a live billable job.
-      `jobTimeoutMs` is the field that is actually a deadline, and the two are now the same number so
-      the client stops waiting at the instant the service cancels.
-    - **Nothing in this repository bounded bytes SCANNED.** `LIMIT 10001` bounds rows returned, the
-      one-page refusal bounds a page, and the 32 MiB response cap bounds what is read into memory - a
-      question can satisfy all three and scan a partitioned table end to end. `maximumBytesBilled` is
-      enforced at the service, which is why it beats comparing a dry run's estimate: a job that would
-      exceed it fails **and is not charged.**
-    - And the numbers reconcile now. `server.request_timeout_seconds` ships as **30**; the first
-      version asked the endpoint to hold a job for 55 s behind a 70 s socket, so a blocking-pool
-      thread could be held for up to **40 s after the request it served had gone.** The deadline is a
-      parameter a composition root fills from that same setting, and the socket is the deadline plus
-      five seconds of connection setup.
+  - **`timeoutMs` bounds nothing at the service.** The endpoint documents it as how long the CLIENT
+    waits; when it expires the answer carries `jobComplete: false` with a `jobReference` and **the
+    job keeps running and keeps billing.** The first version of this wire sent `timeoutMs: 55000`,
+    returned `NotComplete`, discarded the reference and walked away from a live billable job.
+    `jobTimeoutMs` is the field that is actually a deadline, and the two are now the same number so
+    the client stops waiting at the instant the service cancels.
+  - **Nothing in this repository bounded bytes SCANNED.** `LIMIT 10001` bounds rows returned, the
+    one-page refusal bounds a page, and the 32 MiB response cap bounds what is read into memory - a
+    question can satisfy all three and scan a partitioned table end to end. `maximumBytesBilled` is
+    enforced at the service, which is why it beats comparing a dry run's estimate: a job that would
+    exceed it fails **and is not charged.**
+  - And the numbers reconcile now. `server.request_timeout_seconds` ships as **30**; the first
+    version asked the endpoint to hold a job for 55 s behind a 70 s socket, so a blocking-pool
+    thread could be held for up to **40 s after the request it served had gone.** The deadline is a
+    parameter a composition root fills from that same setting, and the socket is the deadline plus
+    five seconds of connection setup.
 - **The quota project on every request.** `x-goog-user-project`, carrying the source's declared billing
   project. An application-default credential is an END-USER credential, and the endpoint's own
   direct-REST guidance requires a quota project for one - without it a valid token comes back refused
@@ -257,18 +257,20 @@ Everything below the socket, and one thing at it.
   `answer()` a first page would read as *under the cap, not truncated*. The service's own result
   cache **off** - an anchor that reproduces from a cache has reproduced the cache, and a cached
   answer under a shared identity is shared across every asker. `max_redirects(0)`, so the bearer has
-  no second host to follow a redirect to. And every foreign string that reaches an error is bounded
-  and character-filtered through **one** shared function - the endpoint's `reason` and the credential
-  file's `type` are kept, the free-text `message` is not a field on the error type at all, and there
-  used to be two copies of the bounding that had drifted by one character in their allowed set.
+  no second host to follow a redirect to. The endpoint's `errors[].reason` is mapped to a closed
+  `ReasonCode` before it reaches an error; textual diagnostics that remain strings - the credential
+  file's `type`, an OAuth error code and an unusable page token - are bounded and character-filtered
+  through **one** shared function. The free-text `message` is carried separately, bounded to a line,
+  and redacted under ordinary rendering.
 - **Failure is derived from the RESULT SHAPE, never from `errors` being non-empty**, and the first
   version got this wrong in the direction that matters. The endpoint documents that array as *"the
   first errors or warnings encountered"* and says entries *"do not necessarily mean that the job has
   completed or was unsuccessful"* - so refusing on it **declined successful queries that merely
   warned**, and answered a caller a `503` for a result the service had produced. What refuses is
   `jobComplete`, a `pageToken`, an absent `totalRows` and a delivered count that is not the reported
-  total; the reported reason is folded into whichever of those fires, which is also where a genuinely
-  failed job lands, because the endpoint reports one as complete with no total.
+  total; the reported reason is mapped to a closed code and folded into whichever of those fires,
+  which is also where a genuinely failed job lands, because the endpoint reports one as complete with
+  no total.
 - **The bearer's DESTINATION is a constant; its ROUTE is not.** `HOST` cannot be configured,
   `https_only` is on, `max_redirects` is `0` - so nothing a deployment writes changes which service
   receives the credential. What a deployment *can* change is the path: `ureq`'s default config is
@@ -304,21 +306,21 @@ Everything below the socket, and one thing at it.
   Retrying inside an adapter spends a caller's request timeout on a decision the caller cannot see.
 - **A token cache** - and both the cost of not having one and the reason for not having one were
   written wrongly here first, so both are corrected rather than quietly fixed.
-    - **The cost is two exchanges per question, plus one per anchor.** `sutura_app::answer` calls
-      `dry_run` and then `execute`; each goes through `submit` and each mints a token. The earlier
-      wording, *"one extra round trip per job"*, was half the number and counted the wrong unit.
-    - **The reason was wrong, and wrong in a way row 16 would have inherited.** This page said a token
-      cache keyed by nothing is the credential-shaped version of the result cache this crate refuses.
-      That is true of a cache shared across SUBJECTS and false for this implementor:
-      `ApplicationDefault` **is** one identity, so a token held until its `not_after` is keyed by
-      exactly the thing that matters and leaks to nobody. The `std::sync::Mutex` ban is not an
-      argument either - `sutura-http`'s own key-set cache holds a lock.
-    - **The honest reason is the small one: it is not needed until it is measured.** Nothing here has
-      run against a real endpoint, minting is one round trip against a query that costs seconds and
-      money, and the shape with nothing to reuse cannot get *a credential is not reused past its
-      expiry* wrong - which is an assertion the per-subject step owes. **What that step must not
-      inherit is a prohibition**, because caching per subject, keyed by subject, is a different
-      question this decision does not answer.
+  - **The cost is two exchanges per question, plus one per anchor.** `sutura_app::answer` calls
+    `dry_run` and then `execute`; each goes through `submit` and each mints a token. The earlier
+    wording, *"one extra round trip per job"*, was half the number and counted the wrong unit.
+  - **The reason was wrong, and wrong in a way row 16 would have inherited.** This page said a token
+    cache keyed by nothing is the credential-shaped version of the result cache this crate refuses.
+    That is true of a cache shared across SUBJECTS and false for this implementor:
+    `ApplicationDefault` **is** one identity, so a token held until its `not_after` is keyed by
+    exactly the thing that matters and leaks to nobody. The `std::sync::Mutex` ban is not an
+    argument either - `sutura-http`'s own key-set cache holds a lock.
+  - **The honest reason is the small one: it is not needed until it is measured.** Nothing here has
+    run against a real endpoint, minting is one round trip against a query that costs seconds and
+    money, and the shape with nothing to reuse cannot get *a credential is not reused past its
+    expiry* wrong - which is an assertion the per-subject step owes. **What that step must not
+    inherit is a prohibition**, because caching per subject, keyed by subject, is a different
+    question this decision does not answer.
 
 ## What is claimed, and what is not
 
@@ -391,6 +393,7 @@ INT64"*. The fault was in the FIXTURE - the plan's metric label was the same wor
    diagnostic too.
 
 ### What is still not claimed, and by what mechanism
+
 The leg is a **smoke leg**, and it is:
 `crates/sutura-exec-bigquery/tests/acceptance.rs`, five `#[ignore]`d tests, reached by
 `just bigquery-acceptance`, needing three variables a developer names in their own environment.
@@ -592,49 +595,49 @@ bullets down:
   readable table id is a shape change and not an empty dataset. What is worth reading about HOW,
   because each of them is a way the obvious version would have been wrong:
 
-    - **Read as raw JSON and turned into a `ListingTotal`, never as an `Option<u64>`.** An `Option`
-      already tolerates the field's absence; what it would also do is fail the WHOLE decode on a value
-      spelled some other way, and a failed decode here is `NotAListing` - which
-      `listing_was_refused` puts in the warning half, so the absent-table check for that dataset is
-      lost whole: `Verdict::Unverified`, a `WARN` naming the source, and the deployment serves. Loud,
-      and serving anyway. **This bullet read *silently* and the mechanism does not support it** - a
-      review correction, and the accurate cost carries the decision on its own: a field nothing yet
-      decides on must not be able to switch off the check it exists to sharpen. This service already
-      spells the sibling `totalRows` as a JSON string, so a count arriving quoted is its own habit
-      rather than a hypothetical, and a string is read too.
-    - **Four variants rather than a number, and the two that mean *nothing to compare* are separate.**
-      *The service sent no total* and *the service sent something this crate could not read* are
-      different findings; the second is itself evidence the document is being generated differently.
-    - **The comparison is against the entries that carried a table id this crate could READ - neither
-      the ids the listing named nor the entries it merely counted**, and both halves of that are a
-      wrong claim avoided. An id outside `usable_table_id`'s accepted set is dropped from the named
-      set, and `BigQuery` permits one - so a dataset holding such a table names fewer ids than its own
-      total claims while nothing whatever is wrong, and comparing against the named set would report
-      that ordinary dataset as short of its total. **The entry count is the mistake the other way, and
-      it is a review finding on this change rather than a hypothetical:** a document whose
-      `tableReference` the service renamed or nested carries entries and no readable id, and counting
-      entries answered `Accounted { reported: 3 }` over zero ids - the pre-flight reporting every
-      table in the bundle absent while the cross-check read clean, over exactly the ambiguity the
-      field is decoded to remove. Reproduced before it was fixed, and
-      `a_listing_whose_entries_carry_no_readable_id_is_short_of_its_own_total` is what holds it: an
-      entry with no readable id is the shape signal, an id `usable_table_id` rejected is the
-      legitimate drop, and the two tests are a pair.
-    - **What the value still does not reach, stated where the claim is:** a service that re-spells the
-      COUNT as well as the entry leaves `Unreported` or `Unreadable`, which say *nothing to compare*
-      rather than *empty dataset*; a dataset every one of whose ids this crate drops is `Accounted`
-      beside no ids by design; and a `Short` whose identified count is non-zero does not separate a
-      shape change from a table created or deleted between the total and the array. The raw entry
-      count is not kept, so an identified count of zero merges *the array was empty* with *no entry
-      carried an id* - the same finding for the only caller there is, and a third number for a
-      decision that needs more.
-    - **The DATASET's number, not the page's, and that is measured rather than assumed.** In the
-      endpoint's own discovery document, read on 2026-09-04 at revision `20260811`,
-      `TableList.totalItems` is `{"format": "int32", "type": "integer"}` - a bare JSON number -
-      described as *"The total number of tables in the dataset"*, beside the neighbouring `etag`'s *"A
-      hash of this page of results"*. Nothing there calls it approximate. So it is compared against a
-      whole FINISHED listing: the first page's total against every page's entries, with a listing that
-      ran out of pages or budget staying an `Err` rather than a comparison against a count this
-      transport knows is short.
+  - **Read as raw JSON and turned into a `ListingTotal`, never as an `Option<u64>`.** An `Option`
+    already tolerates the field's absence; what it would also do is fail the WHOLE decode on a value
+    spelled some other way, and a failed decode here is `NotAListing` - which
+    `listing_was_refused` puts in the warning half, so the absent-table check for that dataset is
+    lost whole: `Verdict::Unverified`, a `WARN` naming the source, and the deployment serves. Loud,
+    and serving anyway. **This bullet read *silently* and the mechanism does not support it** - a
+    review correction, and the accurate cost carries the decision on its own: a field nothing yet
+    decides on must not be able to switch off the check it exists to sharpen. This service already
+    spells the sibling `totalRows` as a JSON string, so a count arriving quoted is its own habit
+    rather than a hypothetical, and a string is read too.
+  - **Four variants rather than a number, and the two that mean *nothing to compare* are separate.**
+    *The service sent no total* and *the service sent something this crate could not read* are
+    different findings; the second is itself evidence the document is being generated differently.
+  - **The comparison is against the entries that carried a table id this crate could READ - neither
+    the ids the listing named nor the entries it merely counted**, and both halves of that are a
+    wrong claim avoided. An id outside `usable_table_id`'s accepted set is dropped from the named
+    set, and `BigQuery` permits one - so a dataset holding such a table names fewer ids than its own
+    total claims while nothing whatever is wrong, and comparing against the named set would report
+    that ordinary dataset as short of its total. **The entry count is the mistake the other way, and
+    it is a review finding on this change rather than a hypothetical:** a document whose
+    `tableReference` the service renamed or nested carries entries and no readable id, and counting
+    entries answered `Accounted { reported: 3 }` over zero ids - the pre-flight reporting every
+    table in the bundle absent while the cross-check read clean, over exactly the ambiguity the
+    field is decoded to remove. Reproduced before it was fixed, and
+    `a_listing_whose_entries_carry_no_readable_id_is_short_of_its_own_total` is what holds it: an
+    entry with no readable id is the shape signal, an id `usable_table_id` rejected is the
+    legitimate drop, and the two tests are a pair.
+  - **What the value still does not reach, stated where the claim is:** a service that re-spells the
+    COUNT as well as the entry leaves `Unreported` or `Unreadable`, which say *nothing to compare*
+    rather than *empty dataset*; a dataset every one of whose ids this crate drops is `Accounted`
+    beside no ids by design; and a `Short` whose identified count is non-zero does not separate a
+    shape change from a table created or deleted between the total and the array. The raw entry
+    count is not kept, so an identified count of zero merges *the array was empty* with *no entry
+    carried an id* - the same finding for the only caller there is, and a third number for a
+    decision that needs more.
+  - **The DATASET's number, not the page's, and that is measured rather than assumed.** In the
+    endpoint's own discovery document, read on 2026-09-04 at revision `20260811`,
+    `TableList.totalItems` is `{"format": "int32", "type": "integer"}` - a bare JSON number -
+    described as *"The total number of tables in the dataset"*, beside the neighbouring `etag`'s *"A
+    hash of this page of results"*. Nothing there calls it approximate. So it is compared against a
+    whole FINISHED listing: the first page's total against every page's entries, with a listing that
+    ran out of pages or budget staying an `Err` rather than a comparison against a count this
+    transport knows is short.
 
   **The decision is taken now, and it is none of the three shapes this record deferred to.**
   telekom/sutura#275 offered a refusal-half `WireError`, a `WARN`, or deleting the value; the first
@@ -732,16 +735,16 @@ bullets down:
   the same dataset and a moving number would be a leg failing for a reason outside the diff; and the
   case the cross-check exists for - a document carrying no readable table id beside a non-zero total
   - has never been seen live and cannot be provoked from here, so what holds its MEANING is the
-  hermetic suite over documents. **The 2026-09-04 run predated the counting correction above**, so
-  what it established is that the field arrives and is comparable at all - not which basis the
-  comparison is made on, because `Accounted` over an entry count says nothing about readable ids.
-  **The job has now answered that too, green on the head carrying the correction**: a real
-  `tables.list` still answers `ListingTotal::Accounted`, and the total it reported equalled the
-  usable ids the same document carried - so on that dataset every entry carried an id this crate can
-  read, and the corrected count did not turn an ordinary listing into a shape change. One dataset at
-  one moment, again, and the case the cross-check exists for is still not among the things a live run
-  here has seen. It has never run on a developer machine either, for the reason the leg above
-  it has not: no dataset is named in this environment.
+    hermetic suite over documents. **The 2026-09-04 run predated the counting correction above**, so
+    what it established is that the field arrives and is comparable at all - not which basis the
+    comparison is made on, because `Accounted` over an entry count says nothing about readable ids.
+    **The job has now answered that too, green on the head carrying the correction**: a real
+    `tables.list` still answers `ListingTotal::Accounted`, and the total it reported equalled the
+    usable ids the same document carried - so on that dataset every entry carried an id this crate can
+    read, and the corrected count did not turn an ordinary listing into a shape change. One dataset at
+    one moment, again, and the case the cross-check exists for is still not among the things a live run
+    here has seen. It has never run on a developer machine either, for the reason the leg above
+    it has not: no dataset is named in this environment.
 - **A real listing DOES now reach the pre-flight decision, and what stays fake is each root's
   wording.** Issue #120's own verification asked for a run asserting the boot refusal, and until
   `a_real_listing_reaches_the_boot_decision_and_names_the_model_behind_the_absent_table` the two
@@ -778,3 +781,39 @@ bullets down:
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.
+
+## Second amendment, 2026-09-11: the refusal's `Display` no longer carries the endpoint's message
+
+The finding above - the endpoint's `message` is kept on the refusal - is narrowed where it was
+weakest. The message is still carried on the type and still bounded to 400 printable-ASCII
+characters, and `Debug` still redacts it. What changed is `Display` on `WireError::Refused`: it
+renders `{status}` and the closed local reason code and **no longer interpolates `detail`**. That was
+the path a cause-chain walk takes - the transports' sinks flatten each link with `Display` - so a
+deployment's own log used to carry the endpoint's free text, which on a `403` quotes the resource and
+the principal it refused.
+
+`EndpointMessage` also loses its `Display` implementation, so the raw sentence is reachable only
+through `EndpointMessage::as_str`, named on purpose. Every rendering this error can meet is therefore
+one of: status plus a closed reason code (`Display`), a redacted marker (`Debug`), or an explicit
+accessor.
+
+**The limit, stated next to the claim.** The endpoint's message is still a string on the error TYPE,
+and a caller that deliberately calls `as_str` can render it. This removes the accident, not the
+capability, and it says nothing about what the endpoint records on its own side. The tests are
+`the_endpoints_own_message_is_redacted_under_debug_and_absent_from_display` in
+`crates/sutura-exec-bigquery/src/wire/tests.rs`, and
+`a_refusal_this_leg_dies_on_names_the_reason_and_never_the_message` in
+`crates/sutura-exec-bigquery/tests/exchanged_identity.rs`, which holds that the leg goes through the
+status-and-reason shape rather than rendering the error.
+
+## Third amendment, 2026-09-12: provider reason text is closed before ordinary rendering
+
+The endpoint's `errors[].reason` is provider-owned input. Bounding and filtering its characters still
+allowed an arbitrary identifier to reach `WireError::Refused`'s `Display`, so the wire now maps it to
+the closed `ReasonCode` vocabulary at decode time. Known decisions, including `responseTooLarge`,
+`rateLimitExceeded` and `quotaExceeded`, retain their behavior; an absent or unrecognized provider
+value renders only a static local marker. The same type is carried by incomplete-job and missing-total
+errors, so no ordinary rendering of a shape-derived diagnostic can carry provider text either.
+
+`an_unrecognized_provider_reason_cannot_reach_ordinary_error_rendering` in
+`crates/sutura-exec-bigquery/src/wire/tests.rs` is the regression test for the boundary.

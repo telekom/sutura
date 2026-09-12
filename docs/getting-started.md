@@ -27,12 +27,12 @@ below goes through it: it is how the release assets and the corpus tarball are f
 what a release builds rather than a note about what has not been tried yet, and `nix/shipped.nix`
 is where the set is declared:
 
-| Asset | libc |
-| --- | --- |
-| `sutura-x86_64-unknown-linux-gnu.tar.gz` | glibc, so a host no older than the builder's |
-| `sutura-aarch64-unknown-linux-gnu.tar.gz` | glibc, same floor |
-| `sutura-x86_64-unknown-linux-musl.tar.gz` | none - statically linked, no dynamic loader and no version floor |
-| `sutura-aarch64-unknown-linux-musl.tar.gz` | none, same |
+| Asset                                      | libc                                                             |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| `sutura-x86_64-unknown-linux-gnu.tar.gz`   | glibc, so a host no older than the builder's                     |
+| `sutura-aarch64-unknown-linux-gnu.tar.gz`  | glibc, same floor                                                |
+| `sutura-x86_64-unknown-linux-musl.tar.gz`  | none - statically linked, no dynamic loader and no version floor |
+| `sutura-aarch64-unknown-linux-musl.tar.gz` | none, same                                                       |
 
 Take a musl one unless you have a reason not to: it has nothing to resolve at load time, so the
 only question it can fail on is the architecture. Each tarball holds one file, the executable, at
@@ -40,8 +40,7 @@ its root.
 
 **On macOS or Windows there is no binary to download**, and the two ways in are the image and a
 source build. The unsuffixed image tags at `ghcr.io/telekom/sutura` are this command-line tool -
-[verifying a release](verifying-a-release.md) is the tag table, and [serving over
-HTTP](serving.md) is the shape for the server, whose tags are the `-serve` ones.
+[verifying a release](verifying-a-release.md) is the tag table, and [serving over HTTP](serving.md) is the shape for the server, whose tags are the `-serve` ones.
 [Building from source](#building-from-source) is at the bottom of this page.
 
 **Both published binaries carry cargo's default features**, which for this one means it links no
@@ -308,6 +307,7 @@ source: local
 table: fct_subscription_monthly
 columns: [month, subscription_key, customer_key, status, mrr_cents, churned_in_month]
 ---
+
 One row per subscription per month. Money in minor units, so a total is exact.
 ```
 
@@ -398,8 +398,8 @@ waiting on any request.
 `table:` may also name where the table lives, when that is more than the connection's own default:
 
 ```markdown
-table: fct_subscription_monthly              # the connection's default dataset
-table: sales.fct_subscription_monthly        # a named dataset, or schema
+table: fct_subscription_monthly # the connection's default dataset
+table: sales.fct_subscription_monthly # a named dataset, or schema
 table: analytics-prod.sales.fct_subscription # a named project above a named dataset
 ```
 
@@ -434,6 +434,7 @@ anchor:
     end: 2026-07-01
   value: 202121
 ---
+
 Recurring revenue recognised in the month, in minor units, from active subscriptions only.
 ```
 
@@ -453,7 +454,7 @@ measure:
 # A ratio: one term divided by another, over possibly different columns.
 measure:
   ratio:
-    numerator:   { aggregate: sum,            column: mrr_cents }
+    numerator: { aggregate: sum, column: mrr_cents }
     denominator: { aggregate: count_distinct, column: customer_key }
     zero_denominator: yields_null
 ```
@@ -463,7 +464,7 @@ measure:
 # exists at two levels for. `examples/single-player` ships it as `churn_rate`.
 measure:
   ratio:
-    numerator:   { count_if: churned_in_month }
+    numerator: { count_if: churned_in_month }
     denominator: { aggregate: count_distinct, column: subscription_key }
     zero_denominator: yields_null
 ```
@@ -479,8 +480,7 @@ required_filters:
 Four things matter before you write one:
 
 - **A measure is a shape and terms from a closed vocabulary, not an expression.** There is no field
-  for `sum(price * quantity)`, and [the closed vocabulary for
-  measures](adr/0002-a-closed-vocabulary-for-measures.md) argues why: a string field is an escape
+  for `sum(price * quantity)`, and [the closed vocabulary for measures](adr/0002-a-closed-vocabulary-for-measures.md) argues why: a string field is an escape
   hatch, and an escape hatch on the query path is the thing being defended against. What the
   vocabulary cannot say belongs in a statement rendered upstream. `zero_denominator` is required
   rather than defaulted, because "a rate over an empty period is null" and "is an error" are both

@@ -189,6 +189,18 @@ impl AccessToken {
         let actual = sha2::Sha256::digest(presented.as_bytes());
         self.digest.ct_eq(&actual).into()
     }
+
+    /// Whether this token is the same as another configured token.
+    ///
+    /// **The one comparison two configured credentials need, and it is not the value-comparison a
+    /// `PartialEq` would be.** Both sides are already digests of at-rest configuration, so neither
+    /// is an attacker-presented value arriving at a timing-sensitive boundary; comparing them at
+    /// boot with `subtle`'s constant-time equality keeps even that much out. It exists because
+    /// `docs/adr/0015` Decision 1 refuses a metrics token equal to the API token, and the refusal
+    /// needs the two digests compared once, at startup.
+    pub fn equals(&self, other: &Self) -> bool {
+        self.digest.ct_eq(&other.digest).into()
+    }
 }
 
 /// Where TLS is terminated for this deployment.
@@ -486,13 +498,15 @@ pub enum InvalidDeploymentIdentity {
 /// exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
 /// agreeing that off-host is intended.
 ///
-/// **Four fields now, and the last two are the two halves of one story told from opposite ends.**
+/// **Five fields now, with the last three answering separate deployment questions.**
 /// [`Self::inbound`] is how the identity of a *caller* reaches this deployment; [`Self::identity`] is
-/// who a query then runs *as*. **Neither implies the other, and that is the fact worth writing down
-/// rather than the count:** a deployment can verify exactly who is asking and still read every row
-/// under one configured identity, because leg 2 - a credential per execution leg - is not built. The
-/// reverse holds too, and is the shape that ships: a single-user deployment with no inbound block
-/// knows what a query runs as and nothing about who asked.
+/// who a query then runs *as*; [`Self::metrics_token`] independently gates `/metrics`. **Neither
+/// inbound nor identity implies the other, and that is the fact worth writing down rather than the
+/// count:** a deployment can verify exactly who is asking and still read every row under one
+/// configured identity, because leg 2 - a credential per execution leg - is not built. The reverse
+/// holds too, and is the shape that ships: a single-user deployment with no inbound block knows what
+/// a query runs as and nothing about who asked. Omitting the metrics token is likewise an explicit
+/// choice not to gate that route; it does not alter either query authentication or caller identity.
 ///
 /// The inbound declaration lives in this group rather than one of its own because of
 /// [`Self::describes_identity`]: that function used to be a constant answering `false`, and a
@@ -507,6 +521,7 @@ pub struct SecuritySettings {
     tls_termination: TlsTermination,
     inbound: Option<InboundIdentity>,
     identity: Option<DeploymentIdentity>,
+    metrics_token: Option<AccessToken>,
 }
 
 impl SecuritySettings {
@@ -517,19 +532,30 @@ impl SecuritySettings {
     /// `docs/adr/0008` part 5a calls a first-class shape. What is *not* optional is saying which mode,
     /// once a block exists at all - and that refusal lives in `crate::settings::parse_inbound`,
     /// because the shape here cannot hold "a mode nobody named".
+    ///
+    /// The metrics token is an `Option` the same way: a deployment that chooses not to gate
+    /// `/metrics` is making a posture, not leaving a gap.
     #[inline]
     pub const fn new(
         access_token: Option<AccessToken>,
         tls_termination: TlsTermination,
         inbound: Option<InboundIdentity>,
         identity: Option<DeploymentIdentity>,
+        metrics_token: Option<AccessToken>,
     ) -> Self {
         Self {
             access_token,
             tls_termination,
             inbound,
             identity,
+            metrics_token,
         }
+    }
+
+    /// The token that gates `/metrics`, when one is configured.
+    #[inline]
+    pub const fn metrics_token(&self) -> Option<&AccessToken> {
+        self.metrics_token.as_ref()
     }
 
     /// Which kind of deployment this is, if the operator declared one.
@@ -690,6 +716,7 @@ mod tests {
             TlsTermination::None,
             None,
             Some(DeploymentIdentity::SubjectPerRequest),
+            None,
         );
         let rendered = format!("{settings:?}");
         assert!(!rendered.contains(GOOD), "{rendered}");
@@ -758,6 +785,7 @@ mod tests {
             TlsTermination::Ingress,
             None,
             Some(DeploymentIdentity::SubjectPerRequest),
+            None,
         );
         let without = SecuritySettings::default();
         assert!(!with_token.describes_identity(), "a shared token is not an identity");
@@ -769,7 +797,7 @@ mod tests {
         // And the other half, which is what makes the assertions above load-bearing rather than a
         // tautology about a constant: a deployment that validates a caller's token DOES establish an
         // identity, and the same function says so.
-        let verifying = SecuritySettings::new(None, TlsTermination::Ingress, Some(direct()), None);
+        let verifying = SecuritySettings::new(None, TlsTermination::Ingress, Some(direct()), None, None);
         assert!(verifying.describes_identity());
         assert_eq!(verifying.inbound_mode(), "direct");
         assert_eq!(verifying.token_state(), "absent");

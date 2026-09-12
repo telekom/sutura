@@ -31,12 +31,12 @@ becomes decorative.
 Three columns, deliberately. The middle one is the design; the last one says whether anything holds
 it in the code that is here now.
 
-| Property | The mechanism it rests on | Status |
-| --- | --- | --- |
-| Every query runs as the caller | A credential minted per request for the calling principal. A leg that cannot run as the subject is refused, never downgraded to a service identity | **Design target, not built.** No caller identity reaches the query path as the subject, and in single-player the property is trivially true and worth nothing: a file has no login, so there is nobody else to be |
-| A refusal is an answer | Refusal is a variant of the result type rather than an error return, so a caller cannot mistake it for a hiccup and retry until something works | **Enforced today.** `ToolOutcome::Refusal` is the public surface and the golden suite provokes every reachable variant. Recording it against the principal chain is enforced too - every outcome goes through an `AuditSink` before it is returned - with two limits: sutura retains nothing, and behind the shared bearer token alone the subject recorded is the deployment |
-| You cannot ask it to run SQL | The tool surface has no field for a query, a table or a filter. An uncertified question is unrepresentable, not merely refused | **Enforced today.** `Query` declares no such field, `deny_unknown_fields` turns an attempt into an error naming it, and a golden asserts no value a question carries reaches the statement as text |
-| Definitions come from elsewhere | They are authored in a semantic layer and arrive pinned and hashed. Nothing here edits one, because that would fork the definition from the number it certifies | **Enforced today.** The load path takes no request context, the bundle is hashed, and every declared anchor re-executes before the bundle may be served |
+| Property                        | The mechanism it rests on                                                                                                                                       | Status                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every query runs as the caller  | A credential minted per request for the calling principal. A leg that cannot run as the subject is refused, never downgraded to a service identity              | **Design target, not built.** No caller identity reaches the query path as the subject, and in single-player the property is trivially true and worth nothing: a file has no login, so there is nobody else to be                                                                                                                                                             |
+| A refusal is an answer          | Refusal is a variant of the result type rather than an error return, so a caller cannot mistake it for a hiccup and retry until something works                 | **Enforced today.** `ToolOutcome::Refusal` is the public surface and the golden suite provokes every reachable variant. Recording it against the principal chain is enforced too - every outcome goes through an `AuditSink` before it is returned - with two limits: sutura retains nothing, and behind the shared bearer token alone the subject recorded is the deployment |
+| You cannot ask it to run SQL    | The tool surface has no field for a query, a table or a filter. An uncertified question is unrepresentable, not merely refused                                  | **Enforced today.** `Query` declares no such field, `deny_unknown_fields` turns an attempt into an error naming it, and a golden asserts no value a question carries reaches the statement as text                                                                                                                                                                            |
+| Definitions come from elsewhere | They are authored in a semantic layer and arrive pinned and hashed. Nothing here edits one, because that would fork the definition from the number it certifies | **Enforced today.** The load path takes no request context, the bundle is hashed, and every declared anchor re-executes before the bundle may be served                                                                                                                                                                                                                       |
 
 Those mechanisms are the design. [Architecture](architecture.md) says how the four force the shape
 of the system and which parts are compiled today. `AGENTS.md` in the repository lists every invariant
@@ -89,19 +89,18 @@ configured. So "as the person or agent asking" holds here only because a file ha
 a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
 and still read every row as one identity. Arrow results are also still ahead. Federation is not:
 the splitter, two executions and the combiner all run in a published build, because the engine
-declares `Warehouse::EXECUTES_LEGS`. [The HTTP
-surface](serving.md) is not, and its bearer token authenticates the deployment rather than the caller.
+declares `Warehouse::EXECUTES_LEGS`. [The HTTP surface](serving.md) is not, and its bearer token authenticates the deployment rather than the caller.
 [What exists today](architecture.md#what-exists-today) is the honest inventory.
 
 ## Where to start
 
-| You want to | Read |
-| --- | --- |
-| Install it and ask a question | [Getting started](getting-started.md) |
-| Know what the words on the tool surface mean | [Concepts](concepts.md) |
-| Ask the short questions first | [Questions and answers](qa.md) |
-| Understand the shape of the system | [Architecture](architecture.md) |
-| Read the Rust API | [API reference](api/index.md) |
+| You want to                                  | Read                                  |
+| -------------------------------------------- | ------------------------------------- |
+| Install it and ask a question                | [Getting started](getting-started.md) |
+| Know what the words on the tool surface mean | [Concepts](concepts.md)               |
+| Ask the short questions first                | [Questions and answers](qa.md)        |
+| Understand the shape of the system           | [Architecture](architecture.md)       |
+| Read the Rust API                            | [API reference](api/index.md)         |
 
 To work *on* sutura, start at [Contributing](contributing.md) under **Development**.
 
