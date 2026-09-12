@@ -1895,6 +1895,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -1911,6 +1929,125 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enum-datafusionerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum DataFusionError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum DataFusionError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#struct-datafusionwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct DataFusionWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct DataFusionWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-workingset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use WorkingSet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-pool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module pool
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2440,6 +2577,114 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enum-datafusionerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum DataFusionError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum DataFusionError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#struct-datafusionwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct DataFusionWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct DataFusionWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-workingset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use WorkingSet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#module-pool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module pool
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -2484,8 +2729,6 @@ the shortest path around every check upstream of here.</p>
 <p><strong>No result caching.</strong> Under row-level security a query-keyed cache is a cross-user leak, and
 although an in-process engine over a local file has no row-level security to leak through,
 adding a cache here would be the place the habit started.</p>
-<p>What it does offer is two narrow, typed attach affordances, <code>DataFusionWarehouse::attach_csv</code>
-and <code>DataFusionWarehouse::attach_parquet</code>, which is what a golden fixture needs.</p>
 <p><strong>The engine's memory is bounded, and the bound is not this process's memory.</strong> Every session here
 is built with a <code>RuntimeEnv</code> carrying a fixed-size pool, because the alternative is the engine's
 unbounded one - and under <code>panic = "abort"</code> a large enough hash join is then process death for
@@ -2493,11 +2736,7 @@ every concurrent caller rather than an error for the one who asked. A refused re
 <code>RefusalReason::ResourcesExhausted</code>. What the pool counts is operator reservations and <strong>nothing
 else</strong>: not what a driver buffers, not <code>collect()</code> materialising every batch, not the row set built
 in the conversion loop below. See <code>pool</code>, which states the gap rather than implying it is closed.</p>
-<h1 id="four-files-along-three-seams">Four files, along three seams<a class="headerlink" href="#four-files-along-three-seams" title="Permanent link">&para;</a></h1>
-<p><code>translate.rs</code> turns a plan into expressions and never reads a result; <code>collect.rs</code> turns a result
-into domain rows and never reads a plan except for its labels; <code>pool.rs</code> is the working-set ceiling
-and reads neither. What is left here is what none of them is about: the session, the runtime,
-attaching a file, and executing.</p>
+<p><code>translate</code>, <code>collect</code>, <code>fixture</code> and <code>pool</code> own narrow seams; this owns session and execution.</p>
 <h2 id="enum-datafusionerror"><code>enum DataFusionError</code><a class="headerlink" href="#enum-datafusionerror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DataFusionError</span>
 </span></code></pre></div>
@@ -2535,19 +2774,18 @@ map" send a reader to three different places.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Exposes a CSV file as a table.</p>
-<p>A narrow, typed affordance instead of a general "run this" method, which is what a local
-adapter usually grows and what would make every check upstream of here optional. Nothing is
-escaped and nothing is quoted, because nothing is rendered: the name and the path are
-arguments to a registration call, so a path with a quote in it is a path. <code>has_header</code> is the
-read options' default.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_parquet</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<p>Exposes a CSV file as a table. <code>DataFusion</code> handles inference.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_fixture_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes a deliberately simple conformance fixture CSV with exact shared types.</p>
+<p>Available only with the default-off <code>fixtures</code> feature.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_parquet</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Exposes a Parquet file as a table.</p>
 <p>The CSV affordance's twin, and why the <code>parquet</code> feature is on. Neither <code>compression</code> nor
 <code>avro</code> is: each reintroduces a licence the supply-chain gate does not allow, and the
 manifest's comment records which.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">memory_pool</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">MemoryPool</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">memory_pool</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">MemoryPool</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The pool every operator in this session reserves against.</p>
 <p><strong>An accessor because the fields are private and stay private</strong>, and because
@@ -2557,7 +2795,7 @@ a gauge reading zero while no pool exists is a lie an operator builds an alert o
 hash-join build side, aggregate state, a sort - and nothing else. It is not this process's
 memory, and it must not be alerted on as though it were: <code>collect()</code> materialising every batch
 and the row set built during conversion are both outside it, on the same request path.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds an adapter with nothing registered.</p>
 <p>There is no file to open, which is the difference from the <code>DuckDB</code> adapter: the engine is
@@ -2569,7 +2807,7 @@ place the whole control could be forgotten. <code>sutura_config::WorkingSetCeili
 is what a caller with no settings to read uses.
 <strong>It also takes the posture, and that is not optional either</strong>, for the reason the ceiling is
 not: a defaulted posture would be a claim about who a query runs as that nobody made.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The same adapter, <code>workers</code> threads wide.</p>
 <p><strong>What <code>Self::new</code> costs when several threads call it at once, measured rather than
@@ -2625,12 +2863,9 @@ otherwise build sixteen-way plans and execute them two at a time. Pinning it is 
 widths above are <em>ahead</em> of the baseline rather than level with it.</p>
 <p><code>Self::new</code> is deliberately left alone: the command-line tool answers one question and
 exits, and it is also the caller with no settings to read a width from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">working_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">WorkingSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">working_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">WorkingSet</span>
 </span></code></pre></div>
-<p>The ceiling this adapter's pool was built with.</p>
-<p>From the configured value rather than from <code>MemoryPool::memory_limit</code>, which defaults to
-<code>Unknown</code>: a pool that does not override it reports no ceiling, and then the reserved-against-
-ceiling ratio an operator actually wants cannot be computed.</p>
+<p>The configured pool ceiling; <code>MemoryPool::memory_limit</code> can report <code>Unknown</code> instead.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Drop</code>, <code>Warehouse</code></p>
 <h2 id="use-workingset"><code>use WorkingSet</code><a class="headerlink" href="#use-workingset" title="Permanent link">&para;</a></h2>
@@ -2684,7 +2919,7 @@ disk state.</p>
 reaches a caller is <code>sutura_domain::query::RefusalReason::ResourcesExhausted</code>,
 which carries the configured ceiling and deliberately nothing about what the question demanded.</p>
 <h3 id="struct-workingset"><code>struct WorkingSet</code><a class="headerlink" href="#struct-workingset" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkingSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkingSet</span>
 </span></code></pre></div>
 <p>How many bytes the engine's operators may reserve at once.</p>
 <p><strong>A newtype for the unit rather than for a range</strong>, and that is the whole of its job:
@@ -2697,10 +2932,10 @@ parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memor
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.</p>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>The ceiling, for whatever sizes the pool.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The ceiling, in bytes.</p>
 <p>The one constructor, named for the unit so a call site reads as bytes at the point of the call

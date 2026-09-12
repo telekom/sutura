@@ -2536,8 +2536,8 @@ and an adapter contributes a constructor.</p>
   never called, so <em>held to the same test bodies</em> is a statement about two methods and not about
   <code>Warehouse</code>. Three of those five carry guarantees of their own in
   <code>.agents/skills/sutura/invariants</code>, held by other mechanisms.</li>
-<li><strong>That the corpus is hard.</strong> It is two questions over one table - <code>corpus</code> lists by name the
-  cases <code>docs/adr/0012</code> says nothing else finds, none of which is here yet.</li>
+<li><strong>That the corpus is exhaustive.</strong> It is seven questions over one table; <code>corpus</code> names the
+  federated cases that still belong to another suite.</li>
 <li><strong>That every adapter is held IS held now, and not by anything in this crate.</strong> A pack is bound
   where an adapter's own crate binds it, so which adapters conform used to be a reading of which
   crates carry a <code>tests/conformance.rs</code> - deleting one left <code>just validate</code> green.
@@ -2555,8 +2555,8 @@ and an adapter contributes a constructor.</p>
   then exports it, so that is <code>just test</code>, <code>just gates</code>, <code>just causality</code>'s head run and
   <code>nix/run-gate.sh tests</code> on a machine with the tier binary, plus <code>checks.nextest</code> in the
   sandbox. Measured before that arm existed: a fixture answering <code>Fixture::Absent</code>
-  unconditionally, with the tier UP and the variable set, was 21 passed and the only tell was
-  seven printed <code>NOT RUN</code> lines; with it, 7 of 7 fail.</li>
+  unconditionally, with the tier UP and the variable set, passed and the only tell was printed
+  <code>NOT RUN</code> lines; with it, every emitted cell fails.</li>
 </ul>
 <p><strong>The residual is two venues rather than <em>a developer machine</em>, and both are checkable</strong> -
   <em>a developer machine</em> was the sentence that stood here and it points at the case where the
@@ -2566,15 +2566,10 @@ and an adapter contributes a constructor.</p>
   variable on purpose, because an export follows a process tree and the endpoint file the base
   worktree would need does not. In those two a declared absence and a discovered one are the
   same value.
-- <strong>That <code>corpus::on_disk</code> is this run's corpus and nobody else's.</strong> It renames the rows onto
-  <code>&lt;temp_dir&gt;/sutura-conformance/&lt;table&gt;.csv</code>, a name carrying no worktree and no digest, so a
-  second checkout of this repository is a second WRITER of that file. <em>The bytes are identical
-  either side</em> holds per tree, not per machine, and two <code>just test</code> runs in two worktrees is how
-  the change that wrote this paragraph was reviewed. A cell would fail as a
-  <code>Fault::Content</code> naming the case and the adapter while the run that caused it stayed green -
-  the one reading these packs exist to make unambiguous. <code>telekom/sutura#405</code> is where the path
-  gets per-worktree isolation; it is deliberately not fixed here, because it is a change to a
-  fixture every binding shares and this file's diff is about one adapter.
+- <strong>That <code>corpus::on_disk</code> is this run's corpus and nobody else's.</strong> It writes below this
+  checkout's <code>.sutura-dev</code>, so two worktrees no longer share a path. Processes in one worktree
+  still share the same deterministic file; the atomic rename makes identical writers safe, but
+  this is isolation by worktree rather than by process.
 - <strong>A COST, rather than a budget.</strong> <code>Spent</code> reports what every cell and every fixture took,
   and <code>census</code> prints the per-adapter floor; nothing thresholds either, and nothing joins two
   adapters' numbers. <code>docs/adr/0012</code> carries what the remaining half would need.</p>
@@ -2732,7 +2727,7 @@ half is still real, because asking a provisioner and being told no costs somethi
 <p>The pack arrives as <code>impl FnOnce(&amp;W) -&gt; Conformed&lt;E&gt;</code> and every binding hands over a FUNCTION
 ITEM, which is what keeps <code>clippy::result_large_err</code> off the adapter's own crate: that lint
 inspects a closure's return type at its definition site, and the one closure this needs is
-defined here, generic in the adapter's error, rather than six times per binding.</p>
+defined here, generic in the adapter's error, rather than once in every generated test.</p>
 <h2 id="fn-census"><code>fn census</code><a class="headerlink" href="#fn-census" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">census</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">adapter</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">bound</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Behaviour</span><span class="p">],</span><span class="w"> </span><span class="n">declared</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">open</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">FnOnce</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Fixture</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">)</span>
 </span></code></pre></div>
@@ -2758,8 +2753,8 @@ defined here, generic in the adapter's error, rather than six times per binding.
    same <code>bound</code> slice the comparison above uses, so the multiplier is the number of tests that
    were actually emitted rather than a constant beside it;</li>
 <li><strong>a venue where the fixture did not stand up prints NO coverage line at all.</strong> It takes the
-   <code>open</code> path rather than a <code>Spent</code> for exactly this: a census that printed <em>6 behaviour(s)
-   over the corpus's cases</em> beside six cells that each reported <code>NOT RUN</code> is the skip that reads as
+   <code>open</code> path rather than a <code>Spent</code> for exactly this: a census that printed a coverage count
+   beside cells that each reported <code>NOT RUN</code> is the skip that reads as
    coverage, which is the failure mode the packs were built against. What it prints instead
    names the count as one that asserted nothing, and carries the provisioner's diagnostic. The
    two assertions above it still run, because what a binding emitted and whether the corpus has
@@ -2845,7 +2840,7 @@ cannot create has to decide its own direction - and a <code>matches!</code> gave
 <code>false</code>, silently, with <code>cargo check --all-features</code> exit 0. That is this branch's own hole
 reopened one adapter later and inside the venue this crate says is closed - a fixture answering
 <code>Absent(Cloud)</code> without asking anything, in <code>checks.nextest</code>, which sets the variable. Measured
-with the refusal absent: <code>21 tests run: 21 passed</code>, the only tell printed lines nobody diffs.</p>
+with the refusal absent: every test passed, and the only tell was printed lines nobody diffs.</p>
 <p>With the <code>match</code> a new variant does not compile until somebody writes its arm, so the fail-open
 direction cannot be chosen by not looking. <strong>No test asserts that and none can</strong> - a compile
 error is not an outcome libtest has - so the evidence is the mutation, re-taken on 2026-09-06:
@@ -2954,7 +2949,7 @@ COMPUTED from where the invocation sits, because those two properties are what t
 rest on. What it still cannot see is an emitted test: the evidence is a written invocation and
 its position.</p>
 <h2 id="module-corpus">Module <code>corpus</code><a class="headerlink" href="#module-corpus" title="Permanent link">&para;</a></h2>
-<p>The corpus the execute packs run: one table, four questions, and the answer written ONCE.</p>
+<p>The corpus the execute packs run: one table, seven questions, and the answer written ONCE.</p>
 <p><strong>Written once is the whole property.</strong> Every registered adapter is asked the same plan and
 compared against the same <code>Case::expected</code> rows, so <em>these two data systems answer this
 question the same way</em> is a claim about the answer rather than about two hand-written
@@ -2971,21 +2966,6 @@ them as a dev-dependency without acquiring a catalog adapter, <code>sutura-seman
 <li><strong>The three cases <code>docs/adr/0012</code> names</strong> - a filter on a remote dimension over an orphan key,
   a ratio whose denominator is zero for one subgroup, and a <code>CountDistinct</code> spanning two join
   keys. Each needs a second table and a federated plan; none is here.</li>
-<li><strong>An integral total strictly PAST <code>i64</code>, which is not a gap but an undecidable row.</strong> Read off
-  the three bound adapters: <code>sutura-exec-postgres</code> REFUSES one
-  (<code>numeric_cell</code> parses an integral <code>NUMERIC</code> into an <code>i64</code> and errors rather than rounding),
-  <code>sutura-exec-duckdb</code> answers <code>Value::Text</code> from its <code>HugeInt</code> arm, and
-  <code>sutura-exec-datafusion</code>'s <code>sum</code> over an <code>Int64</code> column has nowhere wider to go at all. Three
-  adapters, three different endings, so a corpus whose answer is written ONCE cannot hold that
-  row - <code>total_wide_by_day</code> goes to the boundary and stops there. What the boundary still
-  buys is in that case's own doc.</li>
-<li><strong>A fixed-point measure, and so the <code>Value::Text</code> arm all three adapters keep for one.</strong>
-  Unreachable from a CSV-backed corpus rather than omitted: no type inference on the load path
-  produces a fixed-point column from a fractional literal - <code>read_csv_auto</code> and <code>DataFusion</code>'s
-  inference both answer a 64-bit float, and <code>sutura-exec-postgres</code>'s own importer has no
-  <code>NUMERIC</code> arm to reach. The fractional CLASS is exercised, as <code>Value::Real</code>
-  (<code>total_rate_by_day</code>), and the day an inference answers a fixed-point type instead that
-  cell reddens - which is the class comparison working rather than a case somebody has to write.</li>
 <li><strong>Files.</strong> <code>docs/adr/0012</code>'s <em>the corpus is files, not code</em> is unbuilt: a case is a value in
   this module, so adding one is still a code change.</li>
 </ul>
@@ -3093,7 +3073,7 @@ running its own <code>on_disk</code>, one row differing: the <code>DuckDB</code>
 <code>total-by-region-and-day</code> and <code>total-by-region-and-day-as-a-leg</code> as content faults naming this
 corpus's own cases, while the run that overwrote the file was green. The window is wide because
 <code>attach_csv</code> makes a VIEW over <code>read_csv_auto</code>, so the file is read at QUERY time; the Postgres
-binding reads it seven times per binding at LOAD time.</p>
+binding reads it once per behaviour plus the census at LOAD time.</p>
 <p>A path under the worktree needs no key, because the worktree is the key - the same answer
 <code>sutura_dev::scope::Scope::state_dir</code> gives, and <code>tests/bound.rs</code> pins the two spellings
 together against that type rather than leaving a comment claiming they agree. This crate may not
@@ -3350,7 +3330,7 @@ cannot create has to decide its own direction - and a <code>matches!</code> gave
 <code>false</code>, silently, with <code>cargo check --all-features</code> exit 0. That is this branch's own hole
 reopened one adapter later and inside the venue this crate says is closed - a fixture answering
 <code>Absent(Cloud)</code> without asking anything, in <code>checks.nextest</code>, which sets the variable. Measured
-with the refusal absent: <code>21 tests run: 21 passed</code>, the only tell printed lines nobody diffs.</p>
+with the refusal absent: every test passed, and the only tell was printed lines nobody diffs.</p>
 <p>With the <code>match</code> a new variant does not compile until somebody writes its arm, so the fail-open
 direction cannot be chosen by not looking. <strong>No test asserts that and none can</strong> - a compile
 error is not an outcome libtest has - so the evidence is the mutation, re-taken on 2026-09-06:

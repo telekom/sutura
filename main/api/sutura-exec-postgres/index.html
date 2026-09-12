@@ -2732,7 +2732,6 @@ through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here i
 <li><code>Prepare</code></li>
 <li><code>Execute</code></li>
 <li><code>DivisionByZero</code> - The server refused a statement as <code>division by zero</code> (SQLSTATE <code>22012</code>).</li>
-<li><code>NumericNotCarryable</code> - A <code>NUMERIC</code> wider than this build can carry exactly. Refused, not rounded.</li>
 <li><code>UnsupportedType</code> - A column came back as a type this adapter does not map. An error, not a stringified value.</li>
 <li><code>NotFinite</code> - A floating-point (or <code>NUMERIC</code>) column came back as a value that is not a number.</li>
 <li><code>NotADate</code> - A day came back that is not a date this build can represent.</li>
@@ -2742,6 +2741,7 @@ through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here i
 <li><code>Fixture</code> - A fixture import failed.</li>
 <li><code>FixtureRead</code></li>
 <li><code>InvalidColumnName</code> - A CSV header named a column that is not a valid identifier. Refused, not interpolated.</li>
+<li><code>FixtureSchema</code> - The shared conformance fixture schema could not be inferred.</li>
 <li><code>InvalidSchemaName</code> - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.</li>
 <li><code>InvalidStatementTimeout</code> - The dev-only <code>statement_timeout</code> tuning value is not a <code>u32</code> millisecond count.</li>
 <li><code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</li>
@@ -2769,7 +2769,11 @@ The caller-supplied schema name is validated to a word before it reaches <code>C
 <p>Exposes a fixture CSV as a table: infers column types, recreates the table, then pushes the
 rows through <code>COPY ... FROM STDIN</code>. Re-inferring from the committed CSV each run cannot
 drift from it, and recreating makes a run idempotent.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">local_config</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">credential</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">fixture</span><span class="p">::</span><span class="n">FixtureCredential</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_fixture_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes a conformance fixture with the same exact types as the other adapter bindings.</p>
+<p>Available only with the default-off <code>fixtures</code> feature.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">local_config</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">credential</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">fixture</span><span class="p">::</span><span class="n">FixtureCredential</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span>
 </span></code></pre></div>
 <p>A connection config for the fixture tier, over a credential that has already been parsed.</p>
 <p><strong>It TAKES the credential and reads no environment of its own</strong>, which is the whole change:
@@ -2827,7 +2831,7 @@ their own argument.</p>
   distinction this module is about. Only the password is generated.</li>
 </ul>
 <h3 id="enum-fixturevariable"><code>enum FixtureVariable</code><a class="headerlink" href="#enum-fixturevariable" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FixtureVariable</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FixtureVariable</span>
 </span></code></pre></div>
 <p>One of the three values the Postgres fixture tier publishes into the environment.</p>
 <p>An enum rather than a <code>&amp;'static str</code>, because a refusal has to carry WHICH value was missing as
@@ -2839,7 +2843,7 @@ data: a caller that read the variable's name out of the message would be matchin
 <li><code>Database</code> - The database the tier created and owns.</li>
 </ul>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The environment variable's name, spelled once.</p>
 <p>One definition, because a refusal that tells somebody to set a name the reader spells
@@ -2847,7 +2851,7 @@ differently is a fix that does not work and looks like it should.</p>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>PartialEq</code></p>
 <h3 id="enum-unconfiguredfixture"><code>enum UnconfiguredFixture</code><a class="headerlink" href="#enum-unconfiguredfixture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
 </span></code></pre></div>
 <p>Why there is no fixture credential to connect with.</p>
 <p><strong>Two variants, and no third that carries a substitute.</strong> The failure is that this process was
@@ -2861,7 +2865,7 @@ so there is nowhere in this type for a default to be returned from.</p>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-fixturecredential"><code>struct FixtureCredential</code><a class="headerlink" href="#struct-fixturecredential" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
 </span></code></pre></div>
 <p>The fixture tier's credential.</p>
 <p>Exists only if all three values were present, so nothing downstream asks again. No <code>Display</code>,
@@ -2869,7 +2873,7 @@ no <code>PartialEq</code>, no public field and no public accessor: the password 
 <code>sutura_domain::identity::Secret</code>, which has neither <code>Display</code> nor <code>==</code>, and the two names
 leave this crate only as arguments to <code>PostgresWarehouse::local_config</code>.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>This process's credential, as the tier exported it.</p>
 <p>The production entry point, and a one-line adapter over <code>FixtureCredential::parse</code> on

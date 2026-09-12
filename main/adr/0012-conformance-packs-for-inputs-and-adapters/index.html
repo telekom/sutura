@@ -1287,10 +1287,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-corpus-is-files-not-code" class="md-nav__link">
+  <a href="#the-corpus-data-is-a-file-cases-are-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The corpus is files, not code
+        The corpus data is a file; cases are code
       
     </span>
   </a>
@@ -2639,10 +2639,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-corpus-is-files-not-code" class="md-nav__link">
+  <a href="#the-corpus-data-is-a-file-cases-are-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The corpus is files, not code
+        The corpus data is a file; cases are code
       
     </span>
   </a>
@@ -2848,11 +2848,9 @@ red on the first network source for reasons that are not defects</em> - floating
 summation order, decimal scale and rounding differ per system, tie order and NULL placement differ, and
 date truncation differs across date and timestamp types and time zones. <code>differential.rs</code> has met none
 of those because it compares two engines under one type mapping.</p>
-<p>So three rules, in one function in the packs crate and nowhere else. <strong>One function is part of the
-rule:</strong> a comparison written at two call sites compares differently at the second one, and the failure
-then reads as a difference between two data systems rather than as a difference between two copies of a
-comparison. This is the same argument the domain already makes for <code>Value::render</code> - <em>"one function so
-there is one answer"</em> - applied one level up.</p>
+<p>So three rules, in one comparison module and nowhere else. A comparison written independently at two
+call sites eventually differs at the second one, and the failure then reads as a difference between
+data systems rather than between two copies of a policy.</p>
 <p><strong>Rule 1: the canonical form is CLASSED, and the class comparison comes before the value
 comparison.</strong> A <code>RowSet</code> is compared as the column labels in projection order, then the rows, then
 each cell against the cell in the same column position. Each cell is reduced to a class and a value,
@@ -2872,7 +2870,7 @@ and the classes are:</p>
 <td>none. A null cell equals a null cell and nothing else</td>
 </tr>
 <tr>
-<td>exact number</td>
+<td>exact integer</td>
 <td><code>Integer</code></td>
 <td>the integer itself</td>
 </tr>
@@ -2896,13 +2894,14 @@ collision to every adapter. <strong>A cell that is <code>Integer</code> on one a
 type-mapping difference and the packs refuse it, naming both sides.</strong> That is a decision with a cost,
 stated: the first network adapter will go red until its type mapping agrees, because <code>SUM</code> over a wide
 integer comes back as <code>NUMERIC</code> in one system and as <code>HUGEINT</code> in another and it is the adapter's job
-to land both on the same class. Tolerating it would mean an exact count on one source and an
+to land both on the same exact-text fallback class once the value is past <code>i64</code>. Tolerating an exact
+class against an approximate one would mean an exact count on one source and an
 approximated one on another were "the same answer", which is the opposite of what a conformance suite
 is for. <strong>And a date is in the text class</strong>, because a date cell arrives as ISO text - the golden row
 snapshots record <code>Text(2026-01-01)</code> - so the date-truncation differences 0009 names show up as a text
 difference, which is the readable failure rather than a numeric one.</p>
 <p><strong>Rule 2: no tolerance for the exact classes, twelve significant digits for the approximate one.</strong>
-Null, text and <code>Integer</code> are compared exactly: byte for byte for text, value for value for an integer.
+Null, text and <code>Integer</code> are compared exactly: byte for byte for text and value for an integer.
 <code>Real</code> is compared at twelve significant digits, written <code>{:.12e}</code> through <code>Real</code>'s <code>LowerExp</code>
 implementation, which exists for this comparison and says so in its own documentation. The argument is
 already in the tree and is not a loosening: summing the same rows in a different order changes the last
@@ -2990,12 +2989,12 @@ under a partial implementation:</p>
 </ul>
 <p>Each is a directory like any other case. Naming them here is not a substitute for writing them - it is
 what stops the corpus from being complete-looking and blind in exactly the places the design is hard.</p>
-<h2 id="the-corpus-is-files-not-code">The corpus is files, not code<a class="headerlink" href="#the-corpus-is-files-not-code" title="Permanent link">&para;</a></h2>
-<p>A case is a directory entry, not a function. That is already how the repository works - questions are
-files under an example's <code>questions/</code>, read and iterated - and the conformance corpus extends it:
-a catalog, a set of question files, and the expected rows for the reference run.</p>
-<p>Adding a case is adding a file. Adding an adapter is one macro invocation and a capability
-declaration. Neither touches a pack body, and that is the property the requirement asks for.</p>
+<h2 id="the-corpus-data-is-a-file-cases-are-code">The corpus data is a file; cases are code<a class="headerlink" href="#the-corpus-data-is-a-file-cases-are-code" title="Permanent link">&para;</a></h2>
+<p>The shared input rows live in <code>crates/sutura-conformance/corpus/conformance_events.csv</code>. Plans and
+expected rows are currently constructors in <code>crates/sutura-conformance/src/corpus.rs</code>; there is no
+file-backed question loader or expected-output format in this pack.</p>
+<p>Adding a case therefore changes code today. Adding an adapter remains one macro invocation and a
+capability declaration without touching a pack body.</p>
 <h2 id="two-mechanics-to-get-right-because-both-are-how-a-suite-rots">Two mechanics to get right, because both are how a suite rots<a class="headerlink" href="#two-mechanics-to-get-right-because-both-are-how-a-suite-rots" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Orphaned snapshots, and the tool that has to be installed before any of this is checkable.</strong> A
@@ -3149,8 +3148,8 @@ declaration. Neither touches a pack body, and that is the property the requireme
   skip is not the packs' decision</strong>: <code>sutura_dev::requirement</code> decides it once for every harness
   here, and only the thing that provisioned a tier declares one. <strong>And a DECLARED absence is refused
   wherever a venue did provision one</strong> - the hole was measured before that arm existed (tier up,
-  requirement set, a fixture answering absent unconditionally: 21 passed, the only tell seven
-  printed lines). What remains is a developer machine that provisioned nothing, where a declared
+  requirement set, a fixture answering absent unconditionally: everything passed, with only
+  printed lines as a tell). What remains is a developer machine that provisioned nothing, where a declared
   absence and a discovered one are indistinguishable and the diff is where the fixture's one line is
   read.</p>
 <p>And that registry becomes the source CI's own job matrix is EMITTED from, rather than a category
