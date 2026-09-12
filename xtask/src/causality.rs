@@ -508,16 +508,26 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     //
     // `relocation` carries the four conditions, why the carrier is a commit trailer, and what a
     // pure-relocation verdict does NOT prove.
+    //
+    // GIT'S OWN PATH LIST IS A SECOND INPUT, and not a convenience: `changed_with_additions` builds
+    // from the POST-image, so a file this branch DELETED has no entry in it at all. Without the
+    // list a `git rm` of a test file rides a claim that every changed line was accounted for, over
+    // lines nothing ever read.
     match relocation::decide(
         Claim::of(&worktree::messages(&root, &at)).as_ref(),
-        &files,
+        &relocation::Changed {
+            files: &files,
+            touched: &worktree::touched(&root, &at),
+        },
         &Images {
             head: &working_tree,
             base: &base_tree,
         },
     ) {
         Relocation::Unclaimed => {}
-        Relocation::Pure(paths) => return relocation::report_pure(&paths, &Coverage::of(&[], &files, &working_tree)),
+        Relocation::Pure { paths, exempt } => {
+            return relocation::report_pure(&paths, &exempt, &Coverage::of(&[], &files, &working_tree));
+        }
         Relocation::Refused(broken) => return relocation::report_refused(&broken),
     }
 

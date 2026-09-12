@@ -81,6 +81,13 @@ impl AddedLine {
     }
 }
 
+mod literals;
+
+// RE-EXPORTED rather than reached through the module, so `super::relocation`'s call site is
+// unchanged by where this lives: one question, one name, and the split that moved it is invisible
+// to every caller.
+pub(super) use literals::inside_a_literal;
+
 /// How much of a file is test code.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TestScope {
@@ -145,30 +152,13 @@ pub(crate) fn scope(path: &str, read: &PostImage<'_>) -> TestScope {
 /// and is the one place this stays a heuristic - an added `#[derive(..)]` on a production type
 /// does change behaviour and is not counted here.
 pub(crate) fn has_non_test_additions(added: &[AddedLine], scope: &TestScope) -> bool {
-    added.iter().any(|line| outside(line, scope))
-}
-
-/// The lines that are plainly not test code, in the order the diff has them.
-///
-/// TWO CALLERS AND ONE PREDICATE. `super::plan` needs only whether any such line EXISTS;
-/// `super::relocation` needs WHICH, because a refusal that names no line is one an author cannot
-/// act on. A second implementation of *is this line test code* would be a second thing to keep
-/// true, and this module's own header is about what one such disagreement already cost.
-///
-/// The lines may be REMOVED ones re-presented against the base image - that is `relocation`'s
-/// second reader - so the parameter is `lines` rather than `added`: nothing here reads the diff's
-/// side, only a number and the scope it is asked against.
-pub(super) fn outside_test_code<'line>(lines: &'line [AddedLine], scope: &TestScope) -> Vec<&'line AddedLine> {
-    lines.iter().filter(|line| outside(line, scope)).collect()
-}
-
-/// Is this one line plainly not test code?
-fn outside(line: &AddedLine, scope: &TestScope) -> bool {
-    !carries_no_behaviour(&line.text) && !scope.covers(line.number)
+    added
+        .iter()
+        .any(|line| !carries_no_behaviour(&line.text) && !scope.covers(line.number))
 }
 
 /// Blank, a comment, or an attribute: nothing that changes what the code does.
-pub(super) fn carries_no_behaviour(line: &str) -> bool {
+fn carries_no_behaviour(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#[") || trimmed.starts_with("#!")
 }
@@ -433,6 +423,15 @@ impl Nesting {
     #[cfg(test)]
     const fn in_code(&self) -> bool {
         matches!(self.span, Span::Code)
+    }
+
+    /// Is the scanner part-way through a string literal at the line boundary?
+    ///
+    /// Both literal spans, because both carry their indentation as data: an ordinary multi-line
+    /// `".."` and a raw `r#".."#`. [`inside_a_literal`] is the only caller and its header carries
+    /// the argument.
+    const fn in_literal(&self) -> bool {
+        matches!(self.span, Span::Text | Span::Raw(_))
     }
 
     /// Did the line just fed END A STATEMENT - a `;` that is CODE rather than text or comment?

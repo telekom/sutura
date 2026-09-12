@@ -1278,10 +1278,13 @@ of ONE tree still share artifacts, which is cargo's ordinary path and the whole 
 harness, leave every assertion where it is - works exactly once: a file left at 892 lines carrying
 29 assertions and its imports has no lever left. `Cleanup-Split: <path>` as a commit TRAILER says
 *this commit moves test code and changes none*, and `causality::relocation` is the check that holds
-the claim. Four conditions, all of them: every changed path is compiled Rust; every ADDED line is
-test code in the post-image; every REMOVED line is test code in the BASE image; and the TRIMMED
-code-line multiset is equal on both sides, with `use` and `mod` declarations exempt because a split
-adds a `mod` and re-points imports by construction. The verdict is
+the claim. Five conditions, all of them: every path GIT says changed reached the diff reader and is
+compiled Rust; every changed line except a BLANK one is test code - an added line in the
+post-image, a removed line in the BASE image; every added `mod <name>;` resolves to a file this
+diff contains; and the code-line multiset is equal on both sides, keyed on the TRIMMED line outside
+a string literal and on the RAW line inside one. The only lines that may be in surplus are a
+`#[cfg(test)]`, a `mod` declaration and a `super::`-relative `use` - and only on the ADDED side,
+which is what makes a re-pointed import a refusal rather than a wash. The verdict is
 `nothing to measure - a declared test-file cleanup`, exit 0. **Trailer present and any one of those
 conditions broken is a FAILURE** - *the `Cleanup-Split:` trailer claims a cleanup this diff is not*,
 naming every line that broke it - so the trailer narrows what may pass and never disables
@@ -1320,9 +1323,13 @@ no behaviour in the diff to be about. It does not run the head suite either: lik
 answers before the proof block it returns first, and *the suite is green* is `just test`'s property
 and the nix `nextest` check's, never this gate's. And **the multiset reads COUNTS, so a REORDERING
 balances** - two test lines that swapped places between two test functions pass it. Production
-statements cannot reorder past it, because condition 3 requires every changed line to be test code
-in its own image; what stays in reach is test code shuffled within test code, which smuggles no
-untested change in. The uncommitted case is the carrier's own limit: `git diff <base>` compares base
+statements cannot reorder past it, because every changed line except a blank one has to be test
+code in its own image; what stays in reach is test code shuffled within test code, which smuggles
+no untested change in. **The surviving exemption is an added `super::`-relative import**, which can
+change which name a byte-identical assertion resolves to - the verdict NAMES every exempt line for
+that reason, so it is a thing a reviewer reads rather than a thing nobody can see. A `#[path]`
+declaration reads as unresolved, which is a false REFUSAL and the direction this is allowed to be
+wrong in. The uncommitted case is the carrier's own limit: `git diff <base>` compares base
 against the WORKING TREE, so a hand run over an uncommitted split has a diff and no message to
 declare it with. That direction is closed on purpose - a claim that is not in a commit is not in
 review either.
@@ -1365,3 +1372,58 @@ declaration at all. **It was rejected deliberately**, on two grounds worth keepi
 computed exception where the decision asked for a declaration a human makes and review can see, and
 it would break *trailer absent changes nothing* - the property that makes the trailer's own check
 meaningful. If that trade is ever revisited, this paragraph is the measurement it starts from.
+
+**AND THE FIRST VERSION OF THAT CHECK INHERITED A HEURISTIC AS A PERMISSION, which is the most
+transferable thing on this page.** Conditions 3 and 5 both delegated *does this line do anything* to
+`regions::carries_no_behaviour`, whose own docstring calls itself a heuristic: it treats a blank
+line, a COMMENT and an ATTRIBUTE as carrying no behaviour. That is right for the question it was
+written for - is this file separable - and catastrophic as the thing that decides what may PASS.
+Measured on that head with the trailer present, every one of these was exit 0, each with a
+same-shape control one line away that is refused twice over:
+
+| The diff, trailer present | Why it slipped |
+| --- | --- |
+| `#[serde(deny_unknown_fields)]` DELETED from the tool surface's `Query` | an attribute "carries no behaviour" - and `sutura/invariants` names that exact line as a mechanism |
+| `#[ignore]` ADDED to a live test | likewise; and no gate in `cargo xtask --help` censuses ignored tests, so nothing else would have said so either |
+| **a doctest assertion ADDED in a production file** | a doc comment is a comment - so **an added test skipped red-before-green**, under a verdict printing *no assertion was added*, which is this gate's entire subject |
+| the `compile_fail` doctest pinning `Secret`'s missing `Display`, DELETED | same, in the deleting direction |
+| an attribute-only change in a SIBLING commit | the claim is range-wide, so it rode along |
+
+**The repair is the shape to remember: an exemption is a SHORT LIST OF EXACT SHAPES, never a
+category.** *Any attribute* waves through `#[ignore]`; *any comment* waves through a doctest; *any
+`use`* waves through a re-point. Three shapes are exempt now and each is spelled out, the predicate
+is `relocation`'s own rather than borrowed, and `has_non_test_additions` is left exactly as it was -
+because the defect was never that predicate, it was asking it a question it does not answer.
+
+**THREE MORE, each measured and each closed by a different mechanism.** *Trimming is whitespace-blind
+inside a string literal*, and an expected-output fixture is exactly what a test asserts on - so the
+region lexer now answers which lines BEGIN inside a literal and those are keyed on their raw text,
+blank ones included. *A re-pointed import* changes what a byte-identical assertion asserts - so the
+scaffold surplus is added-side only, which leaves the removed half of a re-point with nothing to
+balance against. *An added `mod legacy;` beside an untouched `legacy.rs`* compiles a whole module of
+pre-existing tests, and `scoped`'s refusal for that shape sits AFTER this arm - so a declaration
+that resolves to no file in the diff is its own refusal here. **The general lesson in the third one:
+an arm that answers EARLY inherits none of the refusals that come later, so every one of them has to
+be re-asked or re-established.**
+
+**AND THE DIFF READER NEVER SEES A DELETED FILE, which is pre-existing and was newly asserted over.**
+`causality::diff` builds from the POST-image, so a file this branch `git rm`'d has no entry at all -
+its `+++` is `/dev/null`, and `worktree::touched`'s own docstring says so. A 785-line test file with
+29 tests could therefore be deleted under *this diff MOVED test code and changed none*, because not
+one of its lines was ever read. Git's `--name-only` list is a second input now, and **any path git
+says changed that the reader produced no entry for is a refusal** - which is broader than deletions
+on purpose, because the next shape that reader cannot see gets the same answer. **The question worth
+carrying: for any check that iterates what a reader produced, what does the reader NOT produce?**
+
+**AND THIS CHANGE BROKE THE CAP IT EXISTS TO MAKE SURVIVABLE, which is the cheapest demonstration
+of the whole problem.** Adding the literal lexer took `causality/regions.rs` to **1007** lines and
+`max-lines` refused it - nothing under `xtask/` may be listed in `devco/max-lines-ignore`. The split
+that fixed it is the rule in this file applied to itself: the new `regions/literals.rs` carries
+**implementation only**, and the assertions for it stayed in `relocation.rs` where assertions
+already were, because a new file that adds a `#[test]` is held at HEAD while the file declaring
+`mod literals;` is reverted - and the declaration would have outlived its target. So the gate's
+verdict on this branch is unchanged at `NOT MECHANICALLY SEPARABLE`, rather than the exit-3
+`DidNotCompile` a tests-carrying split would have produced. **The trailer could not help here
+either**, and that is the honest boundary: a commit that adds a lexer is not a pure relocation, so
+the declaration would be refused by its own check. `relocation.rs` itself now sits at 978 of 1000 -
+the next paragraph added to it needs the same split, and the same reasoning about which half moves.
