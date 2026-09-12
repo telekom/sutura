@@ -201,7 +201,8 @@ impl FixtureType {
                     })
                     .max()
                     .unwrap_or(0);
-                let mut possible_total = 0_i128;
+                let mut possible_positive_total = 0_i128;
+                let mut possible_negative_total = 0_i128;
                 for cell in values.iter().filter(|cell| !cell.is_empty()) {
                     let DecimalShape::Exact {
                         precision,
@@ -213,8 +214,13 @@ impl FixtureType {
                     if precision.saturating_add(usize::from(scale - cell_scale)) > 38 {
                         return None;
                     }
-                    possible_total = possible_total.checked_add(decimal_magnitude(cell, scale - cell_scale)?)?;
-                    if possible_total >= 10_i128.pow(38) {
+                    let total = if cell.starts_with('-') {
+                        &mut possible_negative_total
+                    } else {
+                        &mut possible_positive_total
+                    };
+                    *total = total.checked_add(decimal_magnitude(cell, scale - cell_scale)?)?;
+                    if *total >= 10_i128.pow(38) {
                         return None;
                     }
                 }
@@ -355,6 +361,13 @@ mod tests {
             infer("amount\n90000000000000000000000000000000000000\n90000000000000000000000000000000000000\n"),
             Err(super::InferenceError::DecimalNotCarryable { .. })
         ));
+    }
+
+    #[test]
+    fn opposite_sign_decimal_totals_are_bounded_separately() {
+        let columns = infer("amount\n90000000000000000000000000000000000000.0\n-90000000000000000000000000000000000000.0\n")
+            .expect("neither signed subtotal exceeds the decimal range");
+        assert_eq!(columns[0].kind, FixtureType::Decimal { scale: 0 });
     }
 
     #[test]
