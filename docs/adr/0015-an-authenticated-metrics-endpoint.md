@@ -5,7 +5,10 @@ description: Prometheus over the existing listener with its own credential rathe
 
 # An authenticated metrics endpoint, and the label that cannot be forged
 
-Status: **accepted as a design. Nothing here is built.**
+Status: **accepted, and built in part.** The registry, the authenticated endpoint, twelve of the
+thirteen series in the table, and the query-completion accounting ship. `sutura_build_info` and the
+three engine-pool series specified later do not. The amendment at the foot of this record names each
+limit and deviation.
 
 Verified absent before deciding anything: no `prometheus`, `metrics-exporter-prometheus`,
 `opentelemetry` or `sysinfo` in any manifest or in `Cargo.lock`; no `/metrics` route; and **no
@@ -17,8 +20,10 @@ absence is already deliberate in three places - `sutura-runtime`'s and `sutura-h
 narrowed rather than struck. There is one `AtomicU64` in the workspace now: the correlation counter in
 `crates/sutura-http/src/correlation.rs`, and an `AtomicUsize` in test fixtures. So the counters this
 record specifies are the first **metric** counters, not the first atomics. The four candidate
-dependencies are still absent from `Cargo.lock` and there is still no `/metrics` route, so the status
-line above is accurate - this is the one record in the set whose *Nothing here is built* is still true.
+dependencies are still absent from `Cargo.lock`; the `/metrics` route now exists, so the sentence that
+stood here - *this is the one record in the set whose Nothing here is built is still true* - is spent.
+The amendment at the foot of this record states which parts of the design are built and what is
+deliberately held back.
 
 ## Decision 1: its own credential, never the deployment token
 
@@ -40,7 +45,7 @@ Three startup refusals, each preventing a silent collapse of the separation:
 | --- | --- |
 | `metrics_token` equal to `access_token` | Collapses the separation this record exists for, and nothing at runtime would show it |
 | `/metrics` enabled with no `metrics_token`, in production or on a non-loopback bind | The existing `AccessTokenRequired` argument verbatim: the alternative is an unauthenticated way to read whatever the process can read |
-| Registry initialisation failing | A `200` carrying half the series is worse than a process that did not start |
+| An invalid `metrics_token` | A malformed secret must be refused at configuration load rather than leave a deployed endpoint nobody can scrape |
 
 **The limiter sits OUTSIDE the gate**, as `sutura-http`'s router already requires and for the reason
 recorded there: with the gate outermost a wrong-token attempt never cost a limiter cell, which made a
@@ -66,8 +71,9 @@ what defends the surface; the network separation is defence in depth an operator
 
 ## Decision 3: hand-rolled, no new dependency
 
-Roughly fourteen series. The Prometheus text exposition format is stable and line-oriented; every gauge
-is an atomic load; the two histograms need a fixed bucket array and cumulative counters.
+Thirteen series in the table below, plus three engine-pool families specified but held back. The
+Prometheus text exposition format is stable and line-oriented; every gauge is an atomic load; the two
+histograms need a fixed bucket array and cumulative counters.
 
 **The reason is specific to this case rather than general asceticism.** A facade crate arrives with a
 global recorder, a macro layer, and a label API typed as `String` - which is precisely the cardinality
@@ -103,16 +109,17 @@ own types. `AGENTS.md`'s rule is that a port arrives with its first implementor;
 port is not written. If one is ever needed it is a sink taking a closed enum of unit-carrying variants
 and holding no `String`.
 
-## Decision 5: a label is `&'static str`, so caller text is unrepresentable as one
+## Decision 5: label APIs accept only process-lifetime text and the registry is closed at boot
 
 **The mechanism already exists and this record only has to use it.** `sutura_http::wire::refusal`'s
 `refused` is a wildcard-free exhaustive match returning a `&'static str` code per refusal, and
 `problem.rs` does the same for failures. Their own doc comment anticipates this use: *"grouping them is
 what lets a monitor count attempts to ask outside the catalog as one number."*
 
-So the label parameter's type is `&'static str`, and the only values ever passed are those two existing
-accessors. **A caller's text is not `&'static str`, so it cannot be a label.** No fourth match, nothing
-to keep in step.
+So the label parameter's type carries `&'static str`, and the only values production passes are those
+existing accessors and literals. Request-owned or request-borrowed text cannot flow directly into
+that API. Registration supplies the complete key set at boot, and an observation outside it is
+ignored rather than creating a series.
 
 **The trap this closes, which is not obvious.** `MetricName` accepts any identifier-shaped string up to
 the length cap, and a caller may send a legal-but-unknown name and receive `metric_unknown`. So a
@@ -120,17 +127,18 @@ the length cap, and a caller may send a legal-but-unknown name and receive `metr
 scraper and a live record of what people ask, mintable by anybody holding a token. Metric names look
 bounded by the catalog and are bounded only on the answered path.
 
-**Second layer, because the first bounds only what a CALLER can inject:** a test that exercises every
-route and provokes every `RefusalReason`, renders the registry, and asserts the **exact series count
-and the exact set of names**. This is the idiom `AGENTS.md` already records for the SQL goldens, where
-`check-guidance` counts them and fails when the number drifts. A label added anywhere moves that number
-and fails the test.
+**Second layer, because the first bounds only what a CALLER can inject:** a freshly assembled
+representative router renders the registry before any observation, and a byte-for-byte snapshot pins
+the **exact pre-registered families, label values and initial samples**. A label added anywhere moves
+that snapshot and fails the test. Outcome paths are exercised by separate focused tests; the snapshot
+does not claim to provoke every refusal.
 
-**State the limit.** Layer one bounds caller injection completely, by construction. It does not bound
-the product of label dimensions - two closed five-valued enums on one family is twenty-five series, and
-that is somebody's choice rather than a caller's. Layer two catches that. **There is no
-`check-boundaries`-style gate for this and none is claimed:** that tool reads dependency direction,
-`pub` fields and `Result<_, String>`, and nothing anywhere reads a label construction site.
+**State the limit.** A `'static` lifetime does not prove where bytes originated: production code could
+deliberately leak request text with `Box::leak`. The closed pre-registration set still prevents an
+unknown observation from minting a series, and the snapshot pins the set an author chose. Neither
+mechanism bounds the product of label dimensions - two closed five-valued enums on one family is
+twenty-five series. **There is no `check-boundaries`-style gate for construction sites and none is
+claimed:** that tool reads dependency direction, `pub` fields and `Result<_, String>`.
 
 ## The series
 
@@ -227,8 +235,9 @@ conversion loop. **Pool-reserved is not process memory and must not be alerted o
 1. **The gate is separate.** No token → `401`; **the API token → `401`**; the metrics token → `200`. The
    middle assertion is the whole security argument in one line, and it is what fails if somebody reuses
    the existing gate.
-2. **The series set is exact** - every route exercised, every `RefusalReason` provoked, the count and the
-   names pinned. Fails when a label is added.
+2. **The pre-registered series set is exact** - a fresh representative router's complete exposition
+   is pinned byte for byte. It fails when a family or label is added; focused tests exercise outcome
+   paths separately.
 3. **No question text reaches the body.** Ask for a sentinel metric name, get `metric_unknown`, scrape,
    assert absence.
 4. **A refusal counts as a refusal** - the refusal code moved, `internal` and `unavailable` did not.
@@ -249,3 +258,58 @@ exist beforehand - so it uses `test-causality`'s stated-evidence path rather tha
   text can become a metric label*, enforced by the `&'static str` label type plus the series-count test -
   but the table's own rule is that a row arrives with its mechanism, and neither exists yet. It goes in
   with the code.
+
+## Amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above
+
+**Built.** `sutura-runtime::metrics` holds the registry behind a `RegistryBuilder` that is consumed,
+so the series set is frozen before it is shared and `Registry::render` takes no lock of any kind.
+`sutura-http::metrics::Metrics::install` registers the transport series; `ServiceState::new`
+registers `sutura_engine_worker_threads` (the width the engine was opened with) and
+`sutura_catalog_metrics` (the served bundle's governed coverage) against the same builder. `/metrics`
+is mounted on the one listener outside the version prefix, behind `require_metrics_token` and outside
+the token gate, with its own limiter tier. `security.metrics_token` is parsed like `access_token`, and
+the boot refusals this record specifies are asserted in `sutura-config`. The tests this record asks
+for exist in `crates/sutura-http/src/harness/metrics.rs`: the separate credential, the exact rendered
+exposition (a byte-for-byte snapshot, so a series or a label added anywhere fails), the
+refusal-versus-fault split, the disclosure exclusions, and a scrape answering while a question holds
+its execution slot. One outer response middleware identifies the governed `POST /v1/query` route by
+matched route and method, then records one declared response outcome and one duration. This includes
+authentication, authorization, rate-limit, timeout, extraction, admission, fault, refusal and answer
+responses without parsing a body. A missing declaration is recorded as `internal` and logged.
+
+**Deviations, each a decision rather than an omission.**
+
+1. **No default-off feature.** Decision 4's heading and the Consequences bullet above promise one, and
+   it is not there. The registry adds no dependency, so there is no closure to keep out of a default
+   build, and a default-off `metrics` feature would mean the shipped binaries - built at cargo's
+   default features - do not export at all, which is the opposite of this record's purpose. The `tls`
+   precedent is a feature that keeps a rustls closure out of four cross-linked artefacts; this has
+   nothing to keep out. What this record does hold is the part that matters: one builder per service
+   state, consumed once, so no series can be registered after the registry is shared.
+2. **`sutura_build_info` is not shipped.** Its labels are `version`, `catalog_version`,
+   `definition_version` and `environment`, and three of those are per-deploy strings. Decision 5's
+   label type is `&'static str` precisely so no runtime string can become a label, so shipping this
+   series would need either a second, dynamic-label door - reopening the cardinality hole this record
+   exists to close - or a boot-time leak of process-lifetime strings. Neither is worth a correlation
+   the startup log already carries.
+3. **The three engine-pool series remain absent**, which is the decision the memory section above
+   already reaches: absent rather than zero, because the pool bounds the engine's own operators and
+   nothing else.
+4. **`sutura_question_duration_seconds` ships with no `outcome` label**, unlike the table above. The
+   registry is hand-rolled and a labeled histogram is a second cardinality dimension on the largest
+   family; the `code` counter carries the same split, so the label would multiply series without
+   answering a question an operator cannot already answer.
+5. **Registry ownership is per `ServiceState`, not enforced process-wide.** The shipped serving root
+   constructs one state, so its endpoint and handlers share one registry. A caller that constructs
+   two independent states gets two registries and two counter sets; neither `Registry` nor
+   `ServiceState` prevents that. Immutability after build is enforced, singleton ownership is not.
+6. **The metrics route uses the shared info-level request trace.** The availability section above
+   asks for a debug span, but the current router installs one info-level trace over every matched
+   route. Scrapes are excluded from `sutura_questions_total`, not from request logs; at a
+   fifteen-second scrape interval they therefore add four info request lines per minute.
+
+**And the row the Consequences section said would arrive with the code has arrived:**
+`.agents/skills/sutura/invariants/SKILL.md` carries *request text cannot mint a metric series*, held
+by the `Label`-typed update API, the closed pre-registered label set and the exact-exposition
+snapshot. Its limit says explicitly that `'static` alone proves no provenance and none of these
+mechanisms bounds the product of label dimensions an author chooses.

@@ -162,15 +162,17 @@ fn answer(document: &str) -> crate::wire::QueryAnswer {
 // --------------------------------------------------------------- the request built ----
 
 #[test]
-fn the_endpoints_own_message_is_redacted_under_debug_and_verbatim_under_display() {
+fn the_endpoints_own_message_is_redacted_under_debug_and_absent_from_display() {
     // **The mechanism the leak fix rests on, held here rather than at fourteen call sites.** A leg
     // that ends `.expect(..)` formats its error with `Debug`, and `Debug` walks the struct - so on a
     // real refusal that printed the endpoint's sentence, which names the resource and the PRINCIPAL
     // it refused, into a public workflow log. Ten of the fourteen legs
     // `nix run .#bigquery-acceptance` invokes were in that shape.
     //
-    // `Display` keeps it, because a refusal with only a reason code is undiagnosable and that is
-    // what `docs/adr/0018` prices. The two formatters are the whole control.
+    // **`Display` omits the message too**, because the transports flatten a cause chain with
+    // `Display` at their sinks, and the endpoint's free text is the one field here that can carry an
+    // account. The status and the bounded named reason survive - a refusal with only a code would be
+    // undiagnosable, which is what `docs/adr/0018` prices - and neither names an identity.
     let refused: WireError<std::io::Error> = WireError::Refused {
         status: 403,
         named: String::from("accessDenied"),
@@ -186,16 +188,17 @@ fn the_endpoints_own_message_is_redacted_under_debug_and_verbatim_under_display(
     assert!(!debugged.contains("Access Denied"), "{debugged}");
     // It still says the field was populated, so a reader is not left wondering.
     assert!(debugged.contains("redacted"), "{debugged}");
-    assert!(
-        debugged.contains("accessDenied"),
-        "the reason code is a class, not an identity: {debugged}"
-    );
 
     let displayed = refused.to_string();
     assert!(
-        displayed.contains("someone@example.com"),
-        "Display is the diagnostic path and keeps the endpoint's own sentence: {displayed}"
+        !displayed.contains("someone@example.com"),
+        "Display is what a cause-chain sink flattens, and it may not carry the endpoint's message: {displayed}"
     );
+    assert!(!displayed.contains("Access Denied"), "{displayed}");
+    // The diagnostic half survives: the status and the bounded named reason are the whole message,
+    // and neither is an identity.
+    assert!(displayed.contains("403"), "{displayed}");
+    assert!(displayed.contains("accessDenied"), "{displayed}");
 }
 
 #[test]
@@ -540,16 +543,23 @@ fn a_refusal_keeps_the_endpoints_reason_and_a_bounded_message() {
             assert_eq!(*named, "accessDenied");
             assert!(
                 detail.as_str().contains("Access Denied"),
-                "the detail lost the sentence: {detail}"
+                "the detail lost the sentence: {}",
+                detail.as_str()
             );
             assert!(
                 detail.as_str().contains("does not have permission"),
-                "the detail was truncated: {detail}"
+                "the detail was truncated: {}",
+                detail.as_str()
             );
-            assert!(!detail.as_str().contains('\n'), "the detail carried a newline: {detail}");
+            assert!(
+                !detail.as_str().contains('\n'),
+                "the detail carried a newline: {}",
+                detail.as_str()
+            );
             assert!(
                 !detail.as_str().contains('\r'),
-                "the detail carried a carriage return: {detail}"
+                "the detail carried a carriage return: {}",
+                detail.as_str()
             );
             assert!(
                 !detail.as_str().contains('\u{1b}'),
@@ -588,7 +598,11 @@ fn a_refusal_whose_body_is_not_the_envelope_still_reports_the_status() {
             } => {
                 assert_eq!(status, 502);
                 assert!(named.is_empty(), "{document:?} produced a reason: {named}");
-                assert!(detail.as_str().is_empty(), "{document:?} produced a detail: {detail}");
+                assert!(
+                    detail.as_str().is_empty(),
+                    "{document:?} produced a detail: {}",
+                    detail.as_str()
+                );
             }
             ref other => panic!("{document:?} was mapped to {other:?}"),
         }

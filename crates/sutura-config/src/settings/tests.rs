@@ -21,6 +21,7 @@ use crate::telemetry::LogFormat;
 
 /// A token that satisfies the length floor, for the cases that need one.
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+const METRICS_TOKEN: &str = "0123456789abcdef0123456789abcdf0";
 
 fn variables(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs
@@ -33,7 +34,7 @@ fn variables(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 fn production_overlay() -> String {
     format!(
         "server:\n  host: \"0.0.0.0\"\n  port: 8080\nsecurity:\n  access_token: \"{TOKEN}\"\n  \
-         tls_termination: \"ingress\"\n"
+         tls_termination: \"ingress\"\n  metrics_token: \"{METRICS_TOKEN}\"\n"
     )
 }
 
@@ -368,12 +369,14 @@ fn a_declared_non_loopback_bind_still_needs_a_token() {
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
-    assert_eq!(
-        *refusals,
-        vec![NotFitToServe::AccessTokenRequired {
-            because: "this service is bound where other hosts can reach it and no inbound identity is configured"
-        }]
-    );
+    // Both the API token and the metrics token are required for an off-host surface now, so the
+    // two controls are two refusals.
+    assert!(refusals.contains(&NotFitToServe::AccessTokenRequired {
+        because: "this service is bound where other hosts can reach it and no inbound identity is configured"
+    }));
+    assert!(refusals.contains(&NotFitToServe::MetricsTokenRequired {
+        because: "the metrics endpoint is mounted where other hosts can reach it"
+    }));
 }
 
 #[test]
@@ -383,7 +386,8 @@ fn both_controls_together_start_an_off_host_development_service() {
     // every interface, with something in front of it that terminates TLS.
     for declared in ["sidecar", "ingress"] {
         let sources = Sources::defaults(Environment::Development).with_overlay(format!(
-            "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"{declared}\"\n"
+            "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"{declared}\"\n  \
+             metrics_token: \"{METRICS_TOKEN}\"\n"
         ));
         let settings = Settings::load(&sources).expect("a declared and tokenised off-host bind is servable");
         assert!(!settings.server().bind().is_loopback());
@@ -502,7 +506,7 @@ fn production_refuses_to_start_with_rate_limiting_switched_off() {
 fn production_refuses_an_ephemeral_port() {
     let sources = Sources::defaults(Environment::Production).with_overlay(format!(
         "server:\n  host: \"0.0.0.0\"\n  port: 0\nsecurity:\n  access_token: \"{TOKEN}\"\n  \
-         tls_termination: \"ingress\"\n"
+         tls_termination: \"ingress\"\n  metrics_token: \"{METRICS_TOKEN}\"\n"
     ));
     let error = Settings::load(&sources).expect_err("production on a kernel-chosen port is refused");
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
@@ -524,15 +528,15 @@ fn a_variable_cannot_switch_a_production_control_off_behind_the_files_back() {
 
 #[test]
 fn every_refusal_is_reported_rather_than_only_the_first() {
-    // A fix-and-restart loop that surfaces one problem at a time is how a deployment takes four
-    // restarts to discover three mistakes.
+    // A fix-and-restart loop that surfaces one problem at a time is how a deployment takes several
+    // restarts to discover several mistakes.
     let sources = Sources::defaults(Environment::Production)
         .with_overlay("server:\n  host: \"0.0.0.0\"\n  port: 0\nrate_limit:\n  enabled: false\n");
     let error = Settings::load(&sources).expect_err("a wholly unsafe production config is refused");
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
-    assert_eq!(refusals.len(), 4, "{refusals:?}");
+    assert_eq!(refusals.len(), 5, "{refusals:?}");
 }
 
 #[test]
@@ -983,3 +987,7 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
 
 /// Reading an inbound-identity declaration. Carved out because this file hit the line limit.
 mod inbound;
+
+/// The metrics credential's two startup refusals. Carved out for the same reason.
+#[cfg(test)]
+mod metrics;

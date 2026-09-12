@@ -123,6 +123,75 @@ sutura_runtime::spawn_carrying_span(|| 7_u8).await
 # }
 ```
 
+## `use Counter`
+
+A monotonic counter, shared by `Arc` between a handle and the registry.
+
+## `use Gauge`
+
+A gauge, shared by `Arc` between a handle and the registry.
+
+## `use Histogram`
+
+A handle to a histogram, sharing the registry's buckets.
+
+## `use Label`
+
+One process-lifetime label value.
+
+## `use LabeledCounter`
+
+A handle to a labeled counter family, sharing the registry's atomics.
+
+## `use LabeledGauge`
+
+A handle to a labeled gauge family.
+
+## `use Registry`
+
+The registry: every series a deployment exports, held in one place.
+
+Built via `RegistryBuilder::build` and handed to observers and a renderer. Handles share their
+atomics with the registry by `Arc`, so a handle and the registry it came from read the same
+value. The type does not enforce one registry per process; that ownership belongs to its caller.
+
+**Immutable after `RegistryBuilder::build`:** the series set is a plain `Vec`, closed at
+boot, so `Self::render` reads atomics and fixed strings and takes no lock and registers
+nothing.
+
+## `use RegistryBuilder`
+
+Collects every series at boot, and freezes them into an immutable `Registry`.
+
+`docs/adr/0015`'s scrape contract - **a scrape takes no request-path lock and registration is
+boot-only** - is held by shape rather than by convention. Registration the registry hands out
+after `build` would need a `&mut` into shared state or a lock; `Registry` has neither, so the
+only way to add a series is through this builder, and once `build` has run the set is closed.
+
+The caller owns the builder until it consumes it. The type is neither `Clone` nor `Copy`, so
+one builder cannot produce two independently registered views by accident. This does not make
+the registry process-global: two builders can deliberately create two registries.
+
+## `use label`
+
+Builds a `Label` from a literal.
+
+# Request text does not flow directly into a label
+
+The parameter is `&'static str`, so a value a request produced cannot be one:
+
+```compile_fail
+let from_a_request = String::from("metric_unknown");
+let _ = sutura_runtime::metrics::label(&from_a_request);
+```
+
+And the twin that must compile, so the snippet above is a statement about the lifetime rather
+than a broken example:
+
+```
+assert_eq!(sutura_runtime::metrics::label("metric_unknown").as_str(), "metric_unknown");
+```
+
 ## `use install_panic_hook`
 
 Makes every subsequent panic emit a `tracing` error before the default hook runs.
@@ -476,6 +545,365 @@ too, so a diagnostic emitted while dropping is still attributable to the request
 // A synchronous port call. Anything traced inside belongs to the caller's request.
 sutura_runtime::spawn_carrying_span(|| 7_u8).await
 # }
+```
+
+## Module `metrics`
+
+A hand-rolled Prometheus registry, and the one findable thing about it is the shape of its
+labels.
+
+# Why this is not a crate
+
+`docs/adr/0015` Decision 3 prices it: a facade crate arrives with a global recorder, a macro
+layer and a label API typed as `String` - which is precisely the cardinality hole this module
+exists to close. The Prometheus text environment format is stable and line-oriented; every gauge
+here is an atomic load; the histograms are a fixed bucket array and cumulative counters. Writing
+the boilerplate by hand costs nothing and adds no dependency, which is the whole of the decision.
+
+# A label carries only process-lifetime text
+
+Every labeled registration and update below takes `Label`, whose ordinary constructor accepts
+only `&'static str`. The transport supplies literals and its own fixed code vocabularies, so
+request-owned or request-borrowed text cannot flow directly into a label. Registration also
+supplies the complete key set at boot; an update for any other label is ignored rather than
+creating a series. The companion behavioural test pins that pre-registered set exactly.
+
+# The limit no type here reaches
+
+Rust's lifetime is not proof that bytes originated in the binary: production code could
+deliberately turn request text into `&'static str` with `Box::leak`. What prevents that text
+minting a series even then is the registry's closed pre-registered key set. Neither mechanism
+bounds the product of label dimensions an author chooses; the exact-series test catches that,
+and there is no `check-boundaries`-style gate for construction sites.
+
+# The memory series, and their limit
+
+The three engine-pool series - reserved bytes, the limit, and refusals - are **not shipped at
+all**: `docs/adr/0015` specifies them and keeps them absent rather than zero (the pool bounds
+the engine's own operators and nothing else). There is no `Option` gauge and no live closure,
+because the exact-series snapshot test means an author who registers one would be trading an
+asserted export for a silent gap. The transport module records the same absence in its own doc.
+
+# A scrape must not make the service work
+
+`Registry::render` reads atomics and fixed strings only. The registry holds no `Surface`, no
+catalog, no engine and no data source - the design `docs/adr/0015` states and the metrics route's
+state type enforces. `render` takes **no lock of any kind**: registration happens through a
+`RegistryBuilder`, and `RegistryBuilder::build` freezes the series into an immutable `Vec`
+before the registry is shared.
+
+### `struct Counter`
+
+```rust
+pub struct Counter
+```
+
+A monotonic counter, shared by `Arc` between a handle and the registry.
+
+#### Methods
+
+```rust
+pub fn add(&self, n: u64)
+```
+
+Adds `n`.
+
+```rust
+pub fn inc(&self)
+```
+
+Adds one.
+
+```rust
+pub fn value(&self) -> u64
+```
+
+The current value.
+
+#### Implements
+
+`Clone`, `Debug`, `Default`
+
+### `struct Gauge`
+
+```rust
+pub struct Gauge
+```
+
+A gauge, shared by `Arc` between a handle and the registry.
+
+#### Methods
+
+```rust
+pub fn adjust(&self, delta: i64)
+```
+
+Adjusts by `delta`, keeping the value from underflowing zero.
+
+A compare-and-exchange loop rather than a single `try_update`: a `try_update` whose closure
+sees contention reports that contention to a caller who would have to decide what to do with
+it, and discarding that `Result` is exactly the silent update-loss this loop is written to
+rule out. Here the loop re-reads and retries until an update lands, and the clamp to zero is
+`saturating_add_signed` - a number, not a silently-inspected `unwrap_or`.
+
+```rust
+pub fn set(&self, n: u64)
+```
+
+Sets a value.
+
+```rust
+pub fn value(&self) -> u64
+```
+
+The current value.
+
+#### Implements
+
+`Clone`, `Debug`, `Default`
+
+### `struct FloatSum`
+
+```rust
+pub struct FloatSum
+```
+
+A fractional sum, shared by `Arc` between a histogram's handle and the registry.
+
+The Prometheus histogram `_sum` is a float - a duration is fractional, and a histogram over
+durations must not round it to integer seconds or the sum stops meaning anything. The float is
+stored as its bit pattern in an `AtomicU64` and accumulated with a compare-and-exchange loop, so
+every observation lands and fractional parts survive.
+
+#### Methods
+
+```rust
+pub fn add(&self, value: f64)
+```
+
+Adds `value`, which must be finite and non-negative.
+
+```rust
+pub fn value(&self) -> f64
+```
+
+The current sum.
+
+#### Implements
+
+`Clone`, `Debug`, `Default`
+
+### `struct Label`
+
+```rust
+pub struct Label
+```
+
+One process-lifetime label value.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The value, for rendering and for a key lookup.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct RegistryBuilder`
+
+```rust
+pub struct RegistryBuilder
+```
+
+Collects every series at boot, and freezes them into an immutable `Registry`.
+
+`docs/adr/0015`'s scrape contract - **a scrape takes no request-path lock and registration is
+boot-only** - is held by shape rather than by convention. Registration the registry hands out
+after `build` would need a `&mut` into shared state or a lock; `Registry` has neither, so the
+only way to add a series is through this builder, and once `build` has run the set is closed.
+
+The caller owns the builder until it consumes it. The type is neither `Clone` nor `Copy`, so
+one builder cannot produce two independently registered views by accident. This does not make
+the registry process-global: two builders can deliberately create two registries.
+
+#### Methods
+
+```rust
+pub fn build(self) -> Registry
+```
+
+Freezes the collected series into a `Registry` that only render (and a reader) touches.
+
+```rust
+pub fn counter(&mut self, name: &'static str) -> Counter
+```
+
+Registers a counter and returns the handle.
+
+```rust
+pub fn gauge(&mut self, name: &'static str) -> Gauge
+```
+
+Registers a gauge and returns the handle.
+
+```rust
+pub fn histogram(&mut self, name: &'static str, bounds: &'static [f64]) -> Histogram
+```
+
+Registers a histogram with ascending upper bounds and returns the handle.
+
+```rust
+pub fn labeled_counter(&mut self, name: &'static str, label: &'static str, keys: &'static [Label]) -> LabeledCounter
+```
+
+Registers a labeled counter (closed literal keys) and returns the handle.
+
+```rust
+pub fn labeled_gauge(&mut self, name: &'static str, label: &'static str, keys: &'static [Label]) -> LabeledGauge
+```
+
+Registers a labeled gauge (closed literal keys) and returns the handle.
+
+#### Implements
+
+`Debug`, `Default`
+
+### `struct Registry`
+
+```rust
+pub struct Registry
+```
+
+The registry: every series a deployment exports, held in one place.
+
+Built via `RegistryBuilder::build` and handed to observers and a renderer. Handles share their
+atomics with the registry by `Arc`, so a handle and the registry it came from read the same
+value. The type does not enforce one registry per process; that ownership belongs to its caller.
+
+**Immutable after `RegistryBuilder::build`:** the series set is a plain `Vec`, closed at
+boot, so `Self::render` reads atomics and fixed strings and takes no lock and registers
+nothing.
+
+#### Methods
+
+```rust
+pub const fn new() -> Self
+```
+
+An empty registry.
+
+For a test that renders a single series family in isolation, and for the `Default` shape an
+immutable set takes. It registers nothing and cannot have series added to it - that is the
+builder's, and only its.
+
+```rust
+pub fn render(&self) -> String
+```
+
+Every series, in Text Exposition format, one family per section.
+
+**The whole point of the registry.** `O(series)` and constant-time per series - atomic loads
+and fixed strings only. It takes no lock the request path holds - it takes no lock at all.
+It acquires no admission permit, and reaches no other crate's state.
+
+#### Implements
+
+`Debug`, `Default`
+
+### `struct LabeledCounter`
+
+```rust
+pub struct LabeledCounter
+```
+
+A handle to a labeled counter family, sharing the registry's atomics.
+
+#### Methods
+
+```rust
+pub fn inc(&self, key: Label)
+```
+
+Increments the series for a closed key.
+
+An unknown key is ignored: the registry only ever renders keys it was built with, so a caller
+asking for an unknown key is a defect rather than a way to mint a label.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct LabeledGauge`
+
+```rust
+pub struct LabeledGauge
+```
+
+A handle to a labeled gauge family.
+
+#### Methods
+
+```rust
+pub fn set(&self, key: Label, value: u64)
+```
+
+Sets the series for a closed key.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct Histogram`
+
+```rust
+pub struct Histogram
+```
+
+A handle to a histogram, sharing the registry's buckets.
+
+#### Methods
+
+```rust
+pub fn observe(&self, value: f64)
+```
+
+Records one observation (a duration or a row count, as `f64`).
+
+Each bucket below stores the count of observations *in that bound's exclusive range*; the
+renderer turns those into cumulative counts. A value lands in exactly the first bucket whose
+upper bound it meets. The sum keeps its fractional part: it is a float, not a count rounded
+to integers.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `fn label`
+
+```rust
+pub const fn label(value: &'static str) -> Label
+```
+
+Builds a `Label` from a literal.
+
+# Request text does not flow directly into a label
+
+The parameter is `&'static str`, so a value a request produced cannot be one:
+
+```compile_fail
+let from_a_request = String::from("metric_unknown");
+let _ = sutura_runtime::metrics::label(&from_a_request);
+```
+
+And the twin that must compile, so the snippet above is a statement about the lifetime rather
+than a broken example:
+
+```
+assert_eq!(sutura_runtime::metrics::label("metric_unknown").as_str(), "metric_unknown");
 ```
 
 ## Module `panics`

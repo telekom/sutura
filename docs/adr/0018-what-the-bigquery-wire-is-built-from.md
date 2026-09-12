@@ -778,3 +778,26 @@ bullets down:
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.
+
+## Second amendment, 2026-09-11: the refusal's `Display` no longer carries the endpoint's message
+
+The finding above - the endpoint's `message` is kept on the refusal - is narrowed where it was
+weakest. The message is still carried on the type and still bounded to 400 printable-ASCII
+characters, and `Debug` still redacts it. What changed is `Display` on `WireError::Refused`: it
+renders `{status}` and the bounded named reason and **no longer interpolates `detail`**. That was the
+path a cause-chain walk takes - the transports' sinks flatten each link with `Display` - so a
+deployment's own log used to carry the endpoint's free text, which on a `403` quotes the resource and
+the principal it refused.
+
+`EndpointMessage` also loses its `Display` implementation, so the raw sentence is reachable only
+through `EndpointMessage::as_str`, named on purpose. Every rendering this error can meet is therefore
+one of: status plus named reason (`Display`), a redacted marker (`Debug`), or an explicit accessor.
+
+**The limit, stated next to the claim.** The endpoint's message is still a string on the error TYPE,
+and a caller that deliberately calls `as_str` can render it. This removes the accident, not the
+capability, and it says nothing about what the endpoint records on its own side. The tests are
+`the_endpoints_own_message_is_redacted_under_debug_and_absent_from_display` in
+`crates/sutura-exec-bigquery/src/wire/tests.rs`, and
+`a_refusal_this_leg_dies_on_names_the_reason_and_never_the_message` in
+`crates/sutura-exec-bigquery/tests/exchanged_identity.rs`, which holds that the leg goes through the
+status-and-reason shape rather than rendering the error.

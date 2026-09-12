@@ -220,6 +220,15 @@ pub(crate) struct RawSecurity {
     /// establish identity and did not say how - and that one does not start.
     #[serde(default)]
     pub(crate) inbound: Option<RawInbound>,
+    /// The credential that gates `/metrics` and nothing else.
+    ///
+    /// A holder of the API token can ask any question the catalog certifies; a scrape needs none of
+    /// that. So the metrics token is a separate value (`docs/adr/0015` Decision 1). Absent means the
+    /// metrics endpoint is not protected by its own secret, which `Settings::refusals` holds to on
+    /// any reachable bind. The empty string is the shape an unset variable takes in a shell and is
+    /// treated as absent, like `access_token`.
+    #[serde(default)]
+    pub(crate) metrics_token: Option<String>,
 }
 
 /// The inbound-identity declaration, as read.

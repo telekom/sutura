@@ -2911,6 +2911,19 @@ call site adds it. The comparison lives here instead, once, as
 #### Methods
 
 ```rust
+pub fn equals(&self, other: &Self) -> bool
+```
+
+Whether this token is the same as another configured token.
+
+**The one comparison two configured credentials need, and it is not the value-comparison a
+`PartialEq` would be.** Both sides are already digests of at-rest configuration, so neither
+is an attacker-presented value arriving at a timing-sensitive boundary; comparing them at
+boot with `subtle`'s constant-time equality keeps even that much out. It exists because
+`docs/adr/0015` Decision 1 refuses a metrics token equal to the API token, and the refusal
+needs the two digests compared once, at startup.
+
+```rust
 pub fn matches_in_constant_time(&self, presented: &str) -> bool
 ```
 
@@ -3275,7 +3288,13 @@ Which mode establishes the caller's identity, as a word for the startup log.
 sometimes absent reads as a field that is sometimes broken.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>) -> Self
+pub const fn metrics_token(&self) -> Option<&AccessToken>
+```
+
+The token that gates `/metrics`, when one is configured.
+
+```rust
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -3285,6 +3304,9 @@ deployment that establishes no per-caller identity is a single-player deployment
 `docs/adr/0008` part 5a calls a first-class shape. What is *not* optional is saying which mode,
 once a block exists at all - and that refusal lives in `crate::settings::parse_inbound`,
 because the shape here cannot hold "a mode nobody named".
+
+The metrics token is an `Option` the same way: a deployment that chooses not to gate
+`/metrics` is making a posture, not leaving a gap.
 
 ```rust
 pub const fn tls_termination(&self) -> TlsTermination

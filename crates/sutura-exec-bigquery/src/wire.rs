@@ -93,8 +93,10 @@
 //!   `reason` is folded into whichever of those fires, because it is the best diagnostic
 //!   available at that point. See `complete`, and the limit stated there.
 //! - **Refusal text is bounded and filtered, not discarded.** `credential::bounded` handles the
-//!   `reason`; [`EndpointMessage`] retains the free-text `message` and redacts it under `Debug`
-//!   only. `Display` and cause-chain logging can still render the message.
+//!   `reason`; [`EndpointMessage`] retains the free-text `message` and redacts it under `Debug`.
+//!   `Display` on the refusal renders the status and the named reason and never the message, so a
+//!   cause-chain walk cannot carry the endpoint's free text either - see the [`WireError::Refused`]
+//!   variant for the limit.
 //!
 //! # What is deliberately absent
 //!
@@ -276,30 +278,32 @@ impl DryRun {
 /// account.
 ///
 /// **A type rather than a `String`, because the rule it carries is about RENDERING and a rule about
-/// rendering cannot be held at call sites.** `Display` is the message; `Debug` is redacted. That is
-/// the whole mechanism, and it is here because the alternative was asking fourteen acceptance legs
-/// to remember which formatter they used.
+/// rendering cannot be held at call sites.** `Display` on the whole refusal omits this field;
+/// `Debug` redacts it; only an explicit accessor produces the raw value. That is the whole
+/// mechanism, and it is here because the alternative was asking fourteen acceptance legs to
+/// remember which formatter they used.
 ///
 /// **Measured, which is why this exists.** A leg ending `.expect("the endpoint answered")` formats
 /// its error with `Debug`, and `Debug` walks the struct: on a real refusal that printed
 /// `Access Denied: ... permission: <an account>` into a public workflow log. Ten of the fourteen
 /// legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the job's
 /// `::add-mask::` step covers the project, the dataset and the table - **not an account**.
-/// `Display` keeps the message because a `400` with only a reason code is undiagnosable, which is
-/// what `docs/adr/0018` prices.
 ///
-/// **What this does NOT do, and the earlier wording here claimed otherwise.** It said a caller
-/// "has to ask for the sentence by name". It does not: [`WireError::Refused`]'s own `Display`
-/// interpolates `detail`, so anything that walks a cause chain and `to_string()`s each link renders
-/// it. `sutura_app::surface::cause_chain` does exactly that, and its output reaches
-/// `tracing::error!` in the HTTP and agent transports - reachable from a `sutura-serve --features
-/// bigquery` deployment. That path is **pre-existing and deliberate**: this workspace flattens a
-/// cause chain at the sink, and a deployment's own log is not the public workflow log this
-/// redaction targets. So the scope of the control is exactly one thing - **`Debug`**, which is what
-/// a panicking test leg prints into a world-readable CI log - and it is not a general answer to
-/// where the endpoint's message may travel.
+/// **The refusal's own `Display` used to interpolate this field, and that made the type's
+/// redaction narrower than it read.** A cause-chain walk that flattens every link with `Display` -
+/// which is what the transports' sinks do - carried the message into a deployment's own log. That
+/// no longer happens: [`WireError::Refused`]'s `Display` renders the status and the bounded named
+/// reason and never this field. The limit, stated next to the claim: the endpoint's message
+/// remains a queryable string on the error TYPE, reached only by an explicit call - so a caller
+/// that deliberately opts in to rendering it can. The free text is bounded and stripped on the way
+/// in regardless - see [`Self::bounded`].
 ///
-/// It is already bounded and stripped on the way in - see [`Self::bounded`].
+/// **Why a caller would never reach the raw value by accident, and the cost of that shape:** there
+/// is no `Display` and no `Debug` here that prints the sentence - the only door is [`Self::as_str`],
+/// named on purpose - so any formatter that would have leaked it cannot be written without naming
+/// the field and calling that accessor. Keeping the raw sentence out of every ordinary rendering is
+/// the one control this type holds; it does not change what the endpoint itself records on its side.
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct EndpointMessage(String);
 
@@ -331,12 +335,6 @@ impl EndpointMessage {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-
-impl core::fmt::Display for EndpointMessage {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&self.0)
     }
 }
 
@@ -425,17 +423,19 @@ where
     ///
     /// **This used to say the message was deliberately not carried, and the field beside it was
     /// built from `error.message`.** The wrong half mattered: `detail` is free text the endpoint
-    /// writes, it quotes the resource and the principal it refused, and `Display` interpolates it -
-    /// so anything that renders this variant into a public log leaks both. `ci.yml`'s masking step
+    /// writes, it quotes the resource and the principal it refused, and `Display` interpolated it -
+    /// so anything that rendered this variant into a public log leaked both. `ci.yml`'s masking step
     /// exists because of exactly that, and `tests/exchanged_identity.rs` prints `status` and `named`
     /// and never `detail` for the same reason.
     ///
-    /// **`detail` is an [`EndpointMessage`], which redacts under `Debug` and not under `Display`**,
-    /// so the `#[error]` line below still renders it and every `to_string()` on this variant carries
-    /// it. That is deliberate and pre-existing, because a refusal carrying only a reason code is
-    /// undiagnosable, and it means a caller that flattens a cause chain into a log is choosing to
-    /// log the message. What the type removes is the accident: a `Debug` rendering nobody asked for.
-    #[error("the endpoint refused the job with {status}: {named}: {detail}")]
+    /// **`Display` does NOT render `detail`.** It prints the status and the bounded named reason,
+    /// and nothing else: a cause-chain walk that flattens every link with `Display` - which is what
+    /// the transports' sinks do - carries the same pair and never the endpoint's free text.
+    /// `detail` is an [`EndpointMessage`], whose `Debug` is redacted and whose raw value is reached
+    /// only through an explicit accessor a caller has to opt into. Each of the three renderings
+    /// this error can meet is therefore one of those, and the one that leaks is the one a caller
+    /// cannot write by accident. `docs/adr/0018` carries this decision and its limit.
+    #[error("the endpoint refused the job with {status}: {named}")]
     Refused {
         status: u16,
         named: String,

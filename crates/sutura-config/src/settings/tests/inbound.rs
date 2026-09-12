@@ -159,7 +159,8 @@ fn a_production_deployment_that_verifies_its_callers_needs_no_deployment_token()
     // holds. Without this change the two refusals are mutually unsatisfiable and a production
     // multi-user deployment in the direct mode cannot start at all.
     let sources = Sources::defaults(Environment::Production).with_overlay(format!(
-        "server:\n  host: \"0.0.0.0\"\n  port: 8080\nsecurity:\n  tls_termination: \"ingress\"\n{DIRECT_INBOUND}"
+        "server:\n  host: \"0.0.0.0\"\n  port: 8080\nsecurity:\n  tls_termination: \"ingress\"\n  \
+         metrics_token: \"0123456789abcdef0123456789abcdf0\"\n{DIRECT_INBOUND}"
     ));
     let settings = Settings::load(&sources).expect("a verifying production deployment starts");
     assert!(settings.security().access_token().is_none());

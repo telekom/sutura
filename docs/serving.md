@@ -66,6 +66,8 @@ them one at a time.
 | --- | --- |
 | a bind address other hosts can reach, without `security.tls_termination` declared | with no per-caller identity the bind address is the whole perimeter, and the bearer token crosses whatever hop is in front. Saying which thing terminates TLS is how the cleartext segment becomes a stated fact rather than an assumption. Applies in *every* environment, including a laptop. See [TLS](#tls) for the four answers |
 | no `security.access_token` **and** no `security.inbound`, in production or on a non-loopback bind | the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds |
+| `GET /metrics` reachable with no `security.metrics_token`, in production or on a non-loopback bind | the endpoint is on the same listener as the API, so the same argument applies to what a scrape can read. Set `security.metrics_token` |
+| a `security.metrics_token` equal to `security.access_token` | one token behind both surfaces hands the monitoring system every ability a holder of the deployment token has, and nothing at runtime would show it. Use a different value for each |
 | a `security.inbound` block with no `mode` | both defaults are wrong in opposite directions - `direct` makes a deployment behind a gateway reject every caller, and `behind-gateway` makes a directly exposed one accept a proof anybody can forge. See [who is asking](#who-is-asking) |
 | `security.access_token` together with `security.inbound.mode: direct` | both are read from `authorization: Bearer`, and a request cannot carry two credentials in one header. In the direct mode the caller's own token is what authenticates the request |
 | `security.inbound.algorithms` naming `none`, an `HS*` algorithm, nothing, or two key families | `none` is the absence of a signature; a symmetric algorithm is how algorithm confusion works; an empty list is pinning nothing; and a list spanning two key kinds verifies nothing, because one token is verified by one key |
@@ -243,6 +245,7 @@ bound that surface exactly as they bound this one.
 | `GET /health` | no | Liveness. The body is exactly `{"status":"ok"}` |
 | `GET /v1/catalog` | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is | The metrics this catalog defines, with grains, dimensions and the values a filter may use |
 | `POST /v1/query` | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
+| `GET /metrics` | its own token, never `security.access_token` | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint) |
 | `GET /openapi.json` | yes, when one is configured | The generated interface description |
 | `GET /docs` | yes, when one is configured | A browser interface over that description |
 
@@ -254,6 +257,46 @@ who can route a packet.
 
 The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.
+
+### The metrics endpoint
+
+`GET /metrics` renders this service state's counters in the Prometheus text exposition format. The
+shipped server constructs one state per process; separately embedded states do not share a registry.
+The endpoint has **its own credential**, `security.metrics_token`, and the deployment token is refused there: a holder of
+the API token can read the whole catalog and ask any question the catalog certifies, and a scrape
+needs none of that. Configuring the two to the same value is a startup refusal - see
+[What it will not start with](#what-it-will-not-start-with).
+
+**One listener, and the trade-off belongs to the operator.** `/metrics` is mounted on the same
+listener as `/health` and the versioned API, outside the version prefix so a scrape configuration
+survives a version bump. It is not a second listener: a second bind address would be a second drain
+to keep in agreement, a second TLS decision and a second load-balancer path. **The cost is real** -
+the endpoint is reachable wherever the API is, and the credential is what defends it. A deployment
+that must expose the API on a routable address while keeping `/metrics` on a cluster-internal
+interface has only the network as its control today; a second listener is the change that would
+express it (`docs/adr/0015`, Decision 2).
+
+**A scrape does not make the service work.** The handler holds the registry and nothing else - no
+`Surface`, no catalog, no engine, no data system - so it cannot load a catalog or execute a question
+even by mistake. Rendering reads atomics and fixed strings, takes no lock any request path holds, and
+is deliberately outside the capacity bound: a scrape keeps answering while every execution slot is
+full, which is exactly when an operator is watching. It sits behind its own rate-limit tier, so a
+wrong-credential scrape costs a bucket cell rather than being free.
+
+**Every label is a closed, static value**, chosen from this transport's own fixed failure codes and
+its three limiter tier names. No question text, metric or dimension name, source name, caller
+address, credential or definition digest can become a label, because a label value is a `&'static
+str` and none of those is one. The rendered exposition is asserted byte for byte in
+`crates/sutura-http/src/harness/metrics.rs`, so a series or label added anywhere is a failing test
+rather than a silent change.
+
+**What it is not.** Not an access log and not an audit record: a scrape sees counters, nothing that
+names a caller and nothing that names a question, and this endpoint writes no audit record. Four
+families specified by `docs/adr/0015` are deliberately not exported: `sutura_build_info`,
+whose labels would have to carry per-deploy version strings the label type cannot hold, and three
+engine-pool families, which stay absent rather than zero because the pool bounds the engine's own
+operators and not process memory. Scrapes use the shared info-level request trace, so the endpoint is
+excluded from question counters but not from request logs.
 
 ### A refusal carries a status
 
@@ -517,6 +560,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | `server.request_timeout_seconds` | `30` | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. It is also what a `bigquery` job's own deadline is divided out of |
 | `server.max_body_bytes` | `65536` | At most one mebibyte. A question is a few hundred bytes |
 | `security.access_token` | absent | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind, **unless `security.inbound` is declared** |
+| `security.metrics_token` | absent | An RFC 6750 `b64token`, at least 32 characters, gating `GET /metrics` and nothing else. Required in production and on a non-loopback bind, like the access token; equal to `security.access_token` is a refusal. See [the metrics endpoint](#the-metrics-endpoint) |
 | `security.tls_termination` | `none` | One of `none`, `sidecar`, `ingress`, `in-process`. Must be declared for any bind other hosts can reach |
 | `security.identity` | **absent, and absence is a refusal** | `single-user` or `multi-user`. Required once any source is configured. See [Sources](#sources) |
 | `security.single_user_because` | absent | The operator's reason. Required with `single-user`, refused with `multi-user` |
@@ -1014,9 +1058,12 @@ Named rather than implied, because an absence that reads as an oversight gets as
   first thing that can become unready *after* startup.
 - **No CORS.** A browser is not a client of this surface, and an allow-list nobody needs is an
   allow-list somebody widens.
-- **No metrics or trace export.** A span per request exists and is rendered into the log, which is
-  what makes one request's lines findable. Exporting it is a decision about a backend, a sampling
-  rate and an egress path, and none of those has been made.
+- **No trace export, and this bullet is narrower than it used to be.** It used to say no metrics or trace
+  export, and the metrics half is now built: `GET /metrics` renders this process's counters - see
+  [the metrics endpoint](#the-metrics-endpoint). A span per request also exists and is rendered into
+  the log, which is what makes one request's lines findable. What does not exist is a trace
+  exporter, which is a decision about a backend, a sampling rate and an egress path none of which has
+  been made.
 - **No CONFIGURABLE client TLS, and this bullet is narrower than it used to be.** It used to say no
   crate here holds an HTTP client, and that stopped being true: `sutura-exec-bigquery`'s default-off
   `wire` feature holds one - `ureq` over rustls, with a compiled-in root set and `https_only` - so
@@ -1068,7 +1115,7 @@ process.
 An unauthenticated caller can reach `/health` and learn that the process is up, and can learn which
 paths exist - a path under the version prefix that matches no route answers `404` without holding a
 credential. The paths are in the published interface description in any case. Every path that
-resolves to a handler holds a credential.
+resolves to a handler holds a credential: the API's, or `/metrics`'s own.
 
 A caller with the token can occupy every execution slot and shed everybody else, inside their own
 rate limit, by asking questions that each cost more than the request timeout. The `503` the others

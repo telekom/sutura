@@ -244,7 +244,16 @@ pub(crate) async fn ask(
 
     // Before the task is spawned, and not inside it: a slot acquired inside the blocking task would
     // be a thread already taken while waiting for permission to take one.
-    let slot = state.admission().admit().await.map_err(|shed| refused(&shed))?;
+    let admission_wait = state.metrics().admission_started();
+    let slot = state.admission().admit().await.map_err(|shed| {
+        state.metrics().shed();
+        refused(&shed)
+    })?;
+    drop(admission_wait);
+    // An execution slot is now held. The in-use guard joins the admission `slot` inside the
+    // blocking work: both are owned by that work, so a caller that times out and drops this request
+    // does not release either until the question actually finishes.
+    let slot_guard = state.metrics().slot_started();
 
     let surface = state.surface();
     // Derived from what this transport established, and from nothing the caller *sent*. Two answers:
@@ -271,19 +280,26 @@ pub(crate) async fn ask(
         // is written on the blocking thread, inside the span this helper carries across, and it is
         // written whether or not the caller is still waiting for the response.
         let answered = surface.answer(&context, &query);
-        // Explicitly, and here rather than at the top of the closure: the slot is released when the
-        // WORK finishes, which is what makes the bound a bound on execution. Dropping it earlier
-        // would let a second question start on top of this one.
+        // Explicitly, and here rather than at the top of the closure: the admission `slot` and the
+        // in-use `slot_guard` are released when the WORK finishes, which is what makes the bound a
+        // bound on execution. Dropping them earlier would let a second question start on top of
+        // this one, and a caller that timed out must not release them while the work runs.
         //
         // Inside the span as well, because the helper scopes the whole closure: a diagnostic
         // emitted while releasing is still attributable to this request.
         drop(slot);
+        drop(slot_guard);
         answered
     })
     .await;
-
     let outcome = match joined {
-        Ok(answered) => answered.map_err(|failure| failed(&failure))?,
+        Ok(answered) => match answered {
+            Ok(answered) => answered,
+            Err(ref failure) => {
+                let failure = failed(failure);
+                return Err(failure);
+            }
+        },
         Err(cause) => {
             // The blocking task panicked. The panic hook has already traced the payload and the
             // location; this says which request it took down with it.
@@ -305,7 +321,6 @@ pub(crate) async fn ask(
     // need to: `tower_http`'s response line already carries the status and the latency at `info`,
     // inside the same request span, configured in `crate::router`. The argument for putting the
     // status on the old line was that an operator correlating with an ingress log needs the number
-    // that was actually sent, and the response line is where that number is reported.
     Ok(Outcome::from(&outcome))
 }
 
@@ -586,6 +601,18 @@ mod tests {
         assert!(
             waited < Duration::from_secs(10),
             "the wait was not bounded by the window: {waited:?}"
+        );
+
+        let (metrics_status, exposition) =
+            crate::testing::call(&app, crate::testing::request("GET", "/metrics", None, Body::empty())).await;
+        assert_eq!(metrics_status, StatusCode::OK, "{exposition}");
+        assert!(
+            exposition.contains("\nsutura_admission_shed_total 1\n"),
+            "the rejected admission was not counted as shed: {exposition}"
+        );
+        assert!(
+            exposition.contains("\nsutura_admission_wait_seconds_count 2\n"),
+            "the successful holder and shed waiter must both be observed: {exposition}"
         );
     }
 
