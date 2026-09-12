@@ -16,7 +16,7 @@
 # `rust-mcp-32core` and `rust-mcp-16core` beside the older `rust-mcp`, and which machine a bare
 # `runs-on: rust-mcp` lands on is not something this repository can read - so a timing taken under
 # it is a timing on an unknown host, which is what made the label unusable for a comparison. Every
-# `runs-on:` in `.github/workflows` therefore names its host: `rust-mcp-32core` where Rust is
+# `runs-on:` in `.github/workflows` therefore names its host: a larger runner where Rust is
 # compiled, `ubuntu-latest` where nothing is.
 #
 # `rust-mcp` is gone from the list below so that a drift back to it FAILS rather than lands: a

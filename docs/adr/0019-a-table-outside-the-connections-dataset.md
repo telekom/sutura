@@ -191,6 +191,17 @@ measured - neither has a server in this repository to ask. What the declaration 
 `every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes`, so a variant folding *more* than
 ASCII case fails a test instead of quietly making both comparisons too fine.
 
+**Corrected: both now have a server in this repository, so that reason is spent while the
+declarations are unchanged.** `nix/postgres-tier.nix` provisions Postgres from nixpkgs and
+`clickhouse` is a default service of the docker dev tier `just dev-up` brings up;
+`sutura_sql::Dialect::identifier_case` already carries the Postgres half of this correction.
+**The limit on the other half:** no ClickHouse adapter exists in this workspace -
+`compose.services.yaml` says so beside the service - so asking that server would mean a client
+rather than this renderer. So
+the two are **not yet** measured rather than unmeasurable. **What that does not change is the
+decision**, for the reason the paragraph above gives: a value declared `Sensitive` cannot make a
+bundle unsafe, so measuring either one tightens the self-check and moves no comparison.
+
 ## Decision 5 - two tables whose paths end in one name are refused, not aliased around
 
 Decision 1 says a column is qualified by the **last** part of a path, because `FROM a.b.orders` gives

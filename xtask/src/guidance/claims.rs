@@ -330,6 +330,32 @@ mod tests {
     }
 
     #[test]
+    fn only_the_two_false_scoped_view_claims_are_registered() {
+        use super::wording_lines;
+
+        const FALSE: &[&str] = &[
+            "dimension validation reads the pinned definitions, not the scoped view",
+            "The scoped view BORROWS the pinned definitions",
+        ];
+        let rule = CONTRADICTED
+            .iter()
+            .find(|rule| rule.name == "the request path reads a scoped view of the definitions")
+            .expect("the two false claims stay registered");
+        assert_eq!(rule.wordings, FALSE, "the ratchet holds the exact prior overclaims");
+        for sentence in FALSE {
+            assert_eq!(wording_lines(sentence, sentence), vec![1]);
+        }
+
+        let valid_design = "A later scoped view may borrow the pinned bundle without claiming one exists today.";
+        assert!(
+            rule.wordings
+                .iter()
+                .all(|wording| wording_lines(valid_design, wording).is_empty()),
+            "the ratchet must not forbid a future design merely for naming a scoped view"
+        );
+    }
+
+    #[test]
     fn evidence_is_the_path_and_not_a_second_opinion() {
         let root = crate::repo::root().expect("the repo root");
         // Existence alone.
