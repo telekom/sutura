@@ -90,3 +90,6 @@ mod serialized_form_tests;
 pub mod source;
 mod text;
 pub mod warehouse;
+
+// probe(#639 slice I): deliberate rustfmt violation, measured then reverted
+pub const   PROBE_STAGE_ONE : u8   =   1 ;
