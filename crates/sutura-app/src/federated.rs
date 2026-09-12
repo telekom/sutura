@@ -231,9 +231,20 @@ where
     presented
         .agrees_with(warehouse.posture(), leg.source())
         .map_err(|cause| ServiceError::Posture { cause })?;
-    warehouse
-        .dry_run(Executable::Leg(leg), presented)
-        .map_err(|cause| ServiceError::Warehouse { cause })?;
+    // The same refusal a leg's `execute` can carry, asked of the pre-flight for the same reason
+    // (see `sutura_app::answer`): a data system may refuse the statement as this identity while it
+    // prepares, and that refusal must reach the caller as `SourceRefused` - the leg refusing as it
+    // would on `execute` - never as the retryable `ServiceError::Warehouse` a dead data system
+    // produces. `working_set_exhausted` and `result_did_not_fit` are deliberately not asked of the
+    // pre-flight, mirroring the mono path: a check reads no data, so neither bound can have fired.
+    if let Err(cause) = warehouse.dry_run(Executable::Leg(leg), presented) {
+        if warehouse.source_refused(&cause) {
+            return Err(LegError::Refusal(RefusalReason::SourceRefused {
+                source: warehouse.source().clone(),
+            }));
+        }
+        return Err(LegError::Failure(ServiceError::Warehouse { cause }));
+    }
     credentials
         .still_usable_at(now_in_unix_seconds())
         .map_err(|cause| ServiceError::Credentials { cause })?;
@@ -290,7 +301,7 @@ mod tests {
     use super::answer_federated;
     use crate::Warehouses;
     use crate::tests::{asked_by_a_person, bundle, june, metric, shared};
-    use crate::tests_support::FixedBroker;
+    use crate::tests_support::{DryRunOutcome, FixedBroker, LegPreflightWarehouse};
     use sutura_domain::model::{Grain, SourceName};
     use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
     use sutura_domain::warehouse::{RowSet, Value};
@@ -527,6 +538,100 @@ mod tests {
                 }
             ),
             "a leg the data system refuses at the identity/authorization level must be refused, not {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
+        let shared = shared();
+        let fact = LegPreflightWarehouse::new(
+            SourceName::parse("facts").expect("a test source"),
+            shared.clone(),
+            federated_fact_rows(),
+            DryRunOutcome::SourceRefused,
+        );
+        let lookup = LegPreflightWarehouse::new(
+            SourceName::parse("geo").expect("a test source"),
+            shared,
+            federated_lookup_rows(),
+            DryRunOutcome::Accepted,
+        );
+        let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
+        let outcome = answer_federated(
+            &bundle(),
+            &federated_plan(),
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            FEDERATED_BUDGET,
+        )
+        .expect("a pre-flight refusal is a governed answer")
+        .into_outcome();
+        assert!(matches!(
+            outcome,
+            ToolOutcome::Refusal { reason: RefusalReason::SourceRefused { ref source } }
+                if source.as_str() == "facts"
+        ));
+        assert_eq!(
+            warehouses
+                .get(&SourceName::parse("facts").expect("a test source"))
+                .expect("facts is registered")
+                .executions(),
+            0
+        );
+        assert_eq!(
+            warehouses
+                .get(&SourceName::parse("geo").expect("a test source"))
+                .expect("geo is registered")
+                .executions(),
+            0
+        );
+    }
+
+    #[test]
+    fn a_federated_lookup_preflight_refusal_discards_the_completed_fact_leg() {
+        let shared = shared();
+        let fact = LegPreflightWarehouse::new(
+            SourceName::parse("facts").expect("a test source"),
+            shared.clone(),
+            federated_fact_rows(),
+            DryRunOutcome::Accepted,
+        );
+        let lookup = LegPreflightWarehouse::new(
+            SourceName::parse("geo").expect("a test source"),
+            shared,
+            federated_lookup_rows(),
+            DryRunOutcome::SourceRefused,
+        );
+        let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
+        let outcome = answer_federated(
+            &bundle(),
+            &federated_plan(),
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            FEDERATED_BUDGET,
+        )
+        .expect("a pre-flight refusal is a governed answer")
+        .into_outcome();
+        assert!(matches!(
+            outcome,
+            ToolOutcome::Refusal { reason: RefusalReason::SourceRefused { ref source } }
+                if source.as_str() == "geo"
+        ));
+        assert_eq!(
+            warehouses
+                .get(&SourceName::parse("facts").expect("a test source"))
+                .expect("facts is registered")
+                .executions(),
+            1
+        );
+        assert_eq!(
+            warehouses
+                .get(&SourceName::parse("geo").expect("a test source"))
+                .expect("geo is registered")
+                .executions(),
+            0
         );
     }
 

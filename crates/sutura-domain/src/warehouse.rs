@@ -748,13 +748,13 @@ pub trait Warehouse {
         false
     }
 
-    /// Was this [`execute`](Warehouse::execute) failure the DATA SYSTEM refusing the statement at the
-    /// identity/authorization level, rather than failing to answer? The query-time sibling of
-    /// [`preflight_was_refused`](Warehouse::preflight_was_refused). A
-    /// statement can be refused because the identity it ran as may not read what it asks for; that
-    /// refusal returns forever until a grant changes, unlike a dead data system or a dropped
-    /// connection where a retry may answer. `true` selects the class a retry meets with the same
-    /// refusal. A caller told `true` receives
+    /// Was this [`dry_run`](Warehouse::dry_run) or [`execute`](Warehouse::execute) failure the data
+    /// system refusing the statement at the identity/authorization level, rather than failing to
+    /// answer? The query-time sibling of
+    /// [`preflight_was_refused`](Warehouse::preflight_was_refused). A statement can be refused
+    /// because the identity it ran as may not read what it asks for; that refusal returns forever
+    /// until a grant changes, unlike a transient connection failure where a retry may answer. A
+    /// caller told `true` receives
     /// [`RefusalReason::SourceRefused`](crate::query::RefusalReason::SourceRefused), not the `503`
     /// a data system being down produces - a refusal is never silently retried as if transient. A
     /// predicate rather than a conversion, for [`result_did_not_fit`](Warehouse::result_did_not_fit)'s
