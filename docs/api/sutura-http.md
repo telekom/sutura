@@ -2384,8 +2384,8 @@ pub async fn enforce_timeout(__arg0: axum::extract::State<std::time::Duration>, 
 
 Gives up on a request that outran the configured bound, with the documented body.
 
-**Written here rather than taken from `tower_http`, and the reason is a body.** Pinned
-`tower-http` 0.7.0 implements `TimeoutLayer::with_status_code` as
+**Written here rather than taken from `tower_http`, and the reason is a body.**
+`tower-http` implements `TimeoutLayer::with_status_code` as
 `Response::new(B::default())` - the status and an *empty* body - so the `408` this surface
 documents, and which `problem.rs` promises carries a `crate::problem::ProblemBody` like every
 other failure, was a status nothing put a body behind. `Failure::Timeout` existed and was never
@@ -3062,6 +3062,7 @@ is bound.
 - `Unreadable` - The file could not be read at all: absent, or not readable by this process.
 - `NoCertificate` - The file was read and held no PEM certificate.
 - `NoKey` - The file was read and held no PEM private key.
+- `TooLarge` - The file is larger than any certificate chain or private key is.
 - `Malformed` - A PEM block was found and did not parse.
 - `KeyDoesNotMatch` - The key does not belong to the certificate.
 - `NotConfigurable` - The server configuration itself would not build.

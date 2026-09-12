@@ -22,7 +22,7 @@
 # repository already has gates about:
 #
 #   `just <task>`         names come from `just --summary`, read on stdin
-#   `cargo xtask <task>`  names come from the `TASKS` table in xtask/src/main.rs, which is the
+#   `cargo xtask <task>`  names come from the `TASKS` table in xtask/src/task_table/, which
 #                         same table `--help` and dispatch are built from
 #
 # FAIL CLOSED IN THE DIRECTION THAT COSTS A RUNNER MINUTE. Either authority coming back empty
@@ -59,10 +59,10 @@ fi
 # rather than by running the binary, because running it needs the dependency closure this
 # check exists to avoid paying. A format change in that table yields nothing here and is
 # caught by the emptiness test below rather than by silently passing.
-gates="$(sed -n 's/^ *name: "\([a-z0-9-]*\)",$/\1/p' xtask/src/main.rs || true)"
+gates="$(sed -n 's/^ *name: "\([a-z0-9-]*\)",$/\1/p' xtask/src/task_table/*.rs || true)"
 
 if [ -z "$(printf '%s' "$gates" | tr -d ' \t\n')" ]; then
-    echo "check-task-citations: parsed no task names out of xtask/src/main.rs" >&2
+    echo "check-task-citations: parsed no task names out of xtask/src/task_table/" >&2
     echo "  the scan is broken, not the prose" >&2
     exit 2
 fi
@@ -172,7 +172,7 @@ printf '%s\n' "$recipes" | awk -v gates="$gates" '
             print "" > "/dev/stderr"
             print "A task named in prose that does not exist reads as current. Fix the citation," > "/dev/stderr"
             print "or add the task. The authorities are `just --summary` and the TASKS table in" > "/dev/stderr"
-            print "xtask/src/main.rs - not a list in this script." > "/dev/stderr"
+            print "xtask/src/task_table/ - not a list in this script." > "/dev/stderr"
             exit 1
         }
         printf "check-task-citations: ok - %d file(s), %d just task(s), %d xtask task(s)\n", \

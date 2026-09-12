@@ -403,8 +403,8 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 #     presents a bearer token is a second credential store nobody asked for.
 ureq = { version = "3", default-features = false, features = ["rustls", "rustls-webpki-roots"] }
 
-# The RSA signing a service-account assertion needs, and **zero new packages**: `ring` 0.17.14 is
-# already resolved as `ureq`'s and `tokio-rustls`'s crypto provider, and it carries
+# The RSA signing a service-account assertion needs, and **zero new packages**: `ring` is already
+# resolved at a single version as `ureq`'s and `tokio-rustls`'s crypto provider, and it carries
 # `RsaKeyPair::from_pkcs8` plus `RSA_PKCS1_SHA256` - exactly the primitive and exactly the key encoding
 # a service-account key uses, so no ASN.1 conversion is needed anywhere.
 #
@@ -476,8 +476,9 @@ schemars = { version = "1.2", default-features = false, features = ["derive", "s
 # `[target.'cfg(target_os = "linux")'.dependencies]` table, so a developer on macOS or
 # Windows never compiles the C.
 #
-# VENDORED, not taken from the registry: `libmimalloc-sys` 0.1.49 bundles mimalloc 3.3.2 and
-# we ship 3.5.0. `VENDOR.md` records the upstream, the tag, the hash and the local changes;
+# VENDORED, not taken from the registry: the published `libmimalloc-sys` bundles an older
+# mimalloc than the one we ship. `VENDOR.md` records the upstream, the tag, the hash and the
+# local changes;
 # `flake.nix` compiles the C into its own cached derivation and points the build script at it.
 #
 # `secure` is the deliberate half of this, and the reason it is on is argued where the
@@ -620,7 +621,7 @@ pub_without_shorthand = "allow"
 # it is what stops an unused item from being kept alive by a `pub` that reaches nowhere.
 # This is the side that loses.
 redundant_pub_crate = "allow"
-# `rest_pattern_accessible_field` is a NEW restriction lint (nightly-2026-09-08) that fires on
+# `rest_pattern_accessible_field` is a restriction lint NEW on the pinned nightly, and it fires on
 # `..` in a struct pattern whenever the remaining fields are accessible, demanding each be written
 # as `field: _`. The always-on default lint `unneeded_field_pattern` (kept at its workspace deny)
 # demands the exact opposite - collapse an all-wildcard tail back to `..`. The two cannot both be

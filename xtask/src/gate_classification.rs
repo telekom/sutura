@@ -175,7 +175,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("  {problem}");
     }
     eprintln!();
-    eprintln!("A hygiene gate declares what it reads on `Kind::Hygiene` in xtask/src/main.rs, and");
+    eprintln!("A hygiene gate declares what it reads on `Kind::Hygiene` in its xtask/src/task_table/ area,");
     eprintln!("{PAGE} argues from that classification:");
     eprintln!("a diff of docs/*.md and mkdocs.yml skips the sweep, which is only safe while every");
     eprintln!("gate reading prose has a row saying which verdict that defers. Add the row, or move it.");

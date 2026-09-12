@@ -930,8 +930,8 @@ economise.
    answer without paying the whole 15m45s again, so the citation property is checked as TEXT on the
    pull request: `.github/scripts/check-task-citations.sh`, run by `just citations` locally and by a
    `verify` step in CI, reads every `just <task>` and `cargo xtask <task>` this repository's markdown
-   cites and checks each against the names `just --summary` reports and against the `TASKS` table in
-   `xtask/src/main.rs`. Seconds, no compiler, and **neither list is kept in the script** - a second
+   cites and checks each against the names `just --summary` reports and against the `TASKS` rows in
+   `xtask/src/task_table/`. Seconds, no compiler, and **neither list is kept in the script** - a second
    copy of the task names is the class of drift this repository already has gates about. `nix run
    .#just` is how the list is obtained in CI, from the locked nixpkgs like every other tool here.
    **The framing to avoid, because this section had it:** the skip was not "rejected in review" - it
@@ -963,7 +963,7 @@ economise.
 
    **The residual risk, stated rather than waved at, because the replacement is narrower than what it
    replaced.** What makes the skip safe is a CLASSIFICATION of the sweep rather than its size, so the
-   classification is where the mechanism went: `Kind::Hygiene` in `xtask/src/main.rs` carries a
+   classification is where the mechanism went: `Kind::Hygiene` in `xtask/src/task_table/` carries a
    `Reads`, which the compiler makes every gate declare, and `check-gate-classification` fails unless
    the two tables below are exactly the two groups that registry declares, in both directions - so a
    gate named here that the sweep does not collect fails it too. **There is deliberately no count
@@ -1011,7 +1011,7 @@ economise.
 
    | Gate | On a prose-only pull request |
    | --- | --- |
-   | `check-guidance` | Citations replaced by the text-only check. **Stale phrases, version-against-pin, contradicted claims and counts are deferred to the `main` push** |
+   | `check-guidance` | Citations replaced by the text-only check. **Stale phrases, a version beside a pinned name, contradicted claims and counts are deferred to the `main` push** |
    | `check-docs` | Nav entries and links covered independently by `mkdocs --strict`; the asset half is unreachable from a `docs/*.md`-only diff |
    | `check-api-links` | Deferred, and the deferral is narrow: it reads `docs/api/*.md`, which are GENERATED, so only a hand edit to a page can break it from such a diff - and `check-api-docs` fails on that edit anyway, since the page no longer matches a fresh generation. What is genuinely deferred is a hand-edited `docs/api/index.md`, which nothing regenerates |
    | `check-shipped-binaries` | Half deferred, and it is the half a page can break: the binary literals it reconciles are under `nix/` and `.github/`, but its second rule reads the documented `cargo build --features` out of `docs/**` - so a page that stops documenting that build, or documents a feature `nix/shipped.nix` does not probe, merges green and only the `main` push says so |

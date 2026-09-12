@@ -697,7 +697,7 @@ mod tests {
 
     #[test]
     fn an_ignored_test_leaves_the_scope_rather_than_emptying_the_run() {
-        // Measured on nextest 0.9.143: a filterset naming only `#[ignore]`d tests matches
+        // Measured on the pinned nextest: a filterset naming only `#[ignore]`d tests matches
         // nothing and exits 4 with `error: no tests to run`, which the gate read as a failure.
         // `#[ignore]` is legal on either side of `#[test]`, so both orders are dropped, and the
         // runnable neighbour is still proven.

@@ -94,7 +94,7 @@ permissions:
   contents: read
 
 env:
-  # Silence Material's "MkDocs 2.0" upgrade notice, which is advice, not a finding.
+  # Silence Material's next-major upgrade notice, which is advice, not a finding.
   NO_MKDOCS_2_WARNING: "1"
 
 jobs:
@@ -394,7 +394,7 @@ jobs:
           # an alias a git SYMLINK, and GitHub Pages does not resolve one - `latest/` would serve
           # the text "0.3.0" instead of the docs. `redirect` writes a real HTML redirect per page
           # instead, so `latest/publishing/` lands on `0.3.0/publishing/` rather than the site
-          # root. Verified against mike 2.1.3 by deploying both ways and reading the branch.
+          # root. Verified against the pinned mike by deploying both ways and reading the branch.
           #
           # Deliberately NOT `--ignore-remote-status`: that tells mike to proceed when the branch
           # has moved under it, and the thing it would proceed to do is overwrite somebody else's

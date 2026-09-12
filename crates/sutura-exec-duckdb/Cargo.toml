@@ -28,5 +28,12 @@ thiserror = { workspace = true }
 [dev-dependencies]
 sutura-conformance = { workspace = true }
 
+[features]
+fixtures = ["sutura-domain/fixtures"]
+
+[[test]]
+name = "conformance"
+required-features = ["fixtures"]
+
 [lints]
 workspace = true

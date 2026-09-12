@@ -101,7 +101,7 @@ struct Sighting {
 
 /// An absence stated in prose, and what would refute it.
 ///
-/// [`Pin`](crate::guidance::Pin) holds a version against its source and
+/// The `versions` check refuses a version a comment states and
 /// [`Counted`](super::claims::COUNTS) holds a number against a walk of the tree. This holds a
 /// NEGATIVE EXISTENTIAL against the code, which neither can express: the sentence's whole content is
 /// that a thing is not there, so the only honest reading is to go and look.

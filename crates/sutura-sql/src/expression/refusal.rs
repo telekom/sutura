@@ -289,7 +289,7 @@ pub enum ExpressionError {
     /// A character the pinned dialect layer's generator cannot survive.
     ///
     /// **The dialect layer panics, it does not refuse.** Measured with the fuzz harness: the
-    /// pinned `polyglot-sql` 0.9.2 generator byte-slices a string without respecting character
+    /// pinned `polyglot-sql` generator byte-slices a string without respecting character
     /// boundaries, so any fragment carrying a multi-byte UTF-8 character - `é`, a full-width
     /// identifier, or the replacement character `\u{fffd}` a lossy decode produces - reaches a
     /// `&s[..]` cut through that byte and panics with *"start byte index N is not a char

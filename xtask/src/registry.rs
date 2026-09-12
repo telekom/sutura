@@ -1,11 +1,9 @@
 //! The gate registry's TYPES: what a task concluded, and what a task is.
 //!
-//! **Moved out of `main.rs` because that file hit the 1000-line cap `cargo xtask max-lines`
-//! holds**, on the merge of two branches that both grew it - which is the same pressure
-//! `crate::falsifier`'s own header records. What moved is the TYPES; `TASKS` itself stayed, and
-//! that is deliberate rather than arbitrary: the table is where every new gate registers, so
-//! moving it would put a rename in the path of every concurrent branch, and `main.rs` is held at
-//! HEAD by the tests that read it either way.
+//! **Here rather than in `main.rs` because that file hit the 1000-line cap `max-lines` holds over
+//! `xtask/`** - the same pressure `crate::falsifier`'s own header records, and the reason the
+//! table itself now lives in `crate::task_table`, split by area. That module's header carries the
+//! measurement and the argument; this one holds only the types.
 //!
 //! `Verdict` and `Reads` are re-exported from the crate root, so every gate's `crate::Verdict`
 //! resolves unchanged and this split is invisible to the thirty-odd modules that use it.

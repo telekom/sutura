@@ -4,8 +4,9 @@
 //! tested while `run` and the exit code it produces are driven by nothing, so a mutation on the
 //! verdict path leaves the suite green. Measured on this tree before the falsifier existed: 2 of
 //! 31 hygiene gates had a test driving the registered entry point's verdict, and 7 of 31 answered
-//! `ok` over a tree with none of their subjects. The test that uses this lives in
-//! `crate::tests`, next to the `TASKS` table it reads.
+//! `ok` over a tree with none of their subjects. The test that uses this lives in this module's
+//! own `tests`, and reads `crate::tasks()` - re-exported from the crate root, so it is blind to
+//! which area module declares a row (`task_table/` since `#610`).
 //!
 //! **Both root markers are load-bearing.** [`crate::repo::root`] identifies a root by `flake.nix`
 //! AND `Cargo.toml`; without them its walk falls through to `CARGO_MANIFEST_DIR`'s parent and
@@ -184,7 +185,7 @@ mod tests {
 
         let mut executed: Vec<&str> = Vec::new();
         let mut attested: Vec<&str> = Vec::new();
-        for task in crate::TASKS {
+        for task in crate::tasks() {
             if !matches!(task.kind, crate::registry::Kind::Hygiene(_)) {
                 continue;
             }

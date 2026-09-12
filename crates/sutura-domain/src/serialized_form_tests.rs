@@ -38,8 +38,12 @@
 //! it like any other test.
 //!
 //! The sweep is ordered shortest-first and searched in order, which buys the one thing a random
-//! generator is actually reached for: the counterexample a failure reports is a SHORTEST one over
-//! the alphabet, with no shrinking step to write or to trust.
+//! generator is actually reached for: the counterexample a failure reports is the shortest one
+//! AMONG THE CANDIDATES THIS GENERATOR PRODUCES, with no shrinking step to write or to trust.
+//! Not a shortest one over the alphabet, which is what this said while the sweep had a fourth
+//! level: [`SWEEP_LEN`] is three, so a defect whose minimal witness is longer than that is
+//! reported by whichever other family catches it, at that family's length rather than at the
+//! alphabet's shortest. Shortest-FIRST still holds; shortest over the alphabet does not.
 //!
 //! # Which generator earns its lines, measured
 //!
