@@ -98,8 +98,17 @@ pub(crate) fn hygiene_gates() -> impl Iterator<Item = (&'static str, Reads)> {
 
 /// Run every hygiene gate, in declaration order, stopping at the first failure.
 ///
-/// Stopping rather than collecting: these are ordered cheapest-first, so the first failure is
-/// usually the cheapest to read, and a wall of output from eight gates is worse than one.
+/// Stopping rather than collecting: one failure to read beats the output of every gate behind it.
+///
+/// **The order is `crate::task_table`'s area order - SUBJECT order, not cost.** This said
+/// `cheapest-first` until `github.com/telekom/sutura#610`, and that claim was held by nothing and
+/// was also false: timed on the tree before the split, the FIRST gate was `check-boundaries` at
+/// 21s, while the two cheapest measured - `text-hygiene` and `line-endings`, both under 1.5s -
+/// stood 25th and 24th. Early return makes the order BEHAVIOURAL, since it decides which failure
+/// a developer reads first, and splitting the table by area moved 36 of the 38 gates. What the
+/// order buys now is that a failure arrives beside the other rules about the same subject.
+/// Ordering by cost would need a per-row cost and a gate asserting the sequence: a doc comment
+/// cannot hold it, which is why this one is a description rather than a promise.
 fn run_hygiene(_args: &[String]) -> Verdict {
     let gates: Vec<&Task> = tasks().filter(|t| matches!(t.kind, Kind::Hygiene(_))).collect();
     for task in &gates {
