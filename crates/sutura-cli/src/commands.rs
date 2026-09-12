@@ -444,11 +444,8 @@ where
     )
     .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
     if let Some(attached) = opened.attached {
-        sutura_app::preflight::refuse_unattached(
-            &sutura_app::preflight::served_tables(service.definitions()),
-            &attached,
-        )
-        .map_err(|changed| changed.to_string())?;
+        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
+            .map_err(|changed| changed.to_string())?;
     }
     Ok(service)
 }

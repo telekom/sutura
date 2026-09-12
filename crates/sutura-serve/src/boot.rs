@@ -12,13 +12,13 @@
 //! adding a rule: see its own documentation.
 //!
 //! **What it no longer holds is the DECISION, and review is why.** Asking each data system, mapping
-//! the port's three answers plus the two shapes of failure, and rendering the absent tables with the
-//! models behind them all lived here and were copied verbatim into `sutura-cli`'s own root - review
-//! measured `unmatched` as byte-identical and `models_by_table` as identical modulo how the signature
-//! wraps. They are `sutura_app::preflight` now, which both roots already depend on for `Warehouses`
-//! itself, so the shared home points inward and adds no root-to-root edge. What stays here is the
-//! part that is genuinely this root's: the sentence an operator reads and the `tracing` sink a
-//! server delivers it through.
+//! every answer the port can give plus the two shapes of failure, and rendering the absent tables
+//! with the models behind them all lived here and were copied verbatim into `sutura-cli`'s own root
+//! - review measured `unmatched` as byte-identical and `models_by_table` as identical modulo how
+//! the signature wraps. They are `sutura_app::preflight` now, which both roots already depend on
+//! for `Warehouses` itself, so the shared home points inward and adds no root-to-root edge. What
+//! stays here is the part that is genuinely this root's: the sentence an operator reads and the
+//! `tracing` sink a server delivers it through.
 //!
 //! **The two-loads comparison went the same way, and so did the boot POLICY over a pre-flight
 //! answer.** `refuse_unattached` and `served_tables` were byte-identical in the two roots - measured,

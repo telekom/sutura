@@ -753,8 +753,11 @@ mod tests {
     /// new metric came back as an error from the engine rather than as a refusal at startup.
     #[test]
     fn a_model_with_no_table_attached_behind_it_does_not_serve() {
-        let changed = refuse_unattached(&tables(&["fact_subscription", "dim_customer"]), &tables(&["fact_subscription"]))
-            .expect_err("a served model with no attached table does not serve");
+        let changed = refuse_unattached(
+            &tables(&["fact_subscription", "dim_customer"]),
+            &tables(&["fact_subscription"]),
+        )
+        .expect_err("a served model with no attached table does not serve");
         let sentence = changed.to_string();
         assert!(
             sentence.contains("Served with no table attached: [dim_customer]"),
@@ -774,8 +777,11 @@ mod tests {
     /// has to be loud - whatever else moved in that edit is the part nobody has looked at.
     #[test]
     fn a_table_attached_for_a_model_no_longer_served_does_not_serve_either() {
-        let changed = refuse_unattached(&tables(&["fact_subscription"]), &tables(&["fact_subscription", "dim_customer"]))
-            .expect_err("an attached table for nothing served does not serve");
+        let changed = refuse_unattached(
+            &tables(&["fact_subscription"]),
+            &tables(&["fact_subscription", "dim_customer"]),
+        )
+        .expect_err("an attached table for nothing served does not serve");
         let sentence = changed.to_string();
         assert!(sentence.contains("Served with no table attached: []"), "{sentence}");
         assert!(
@@ -813,8 +819,11 @@ mod tests {
     /// catalog directory can add one model and drop another.
     #[test]
     fn the_mismatch_carries_both_differences_as_sets() {
-        let changed = refuse_unattached(&tables(&["dim_customer", "fact_order"]), &tables(&["fact_order", "dim_product"]))
-            .expect_err("a bundle naming one table and attaching another has changed");
+        let changed = refuse_unattached(
+            &tables(&["dim_customer", "fact_order"]),
+            &tables(&["fact_order", "dim_product"]),
+        )
+        .expect_err("a bundle naming one table and attaching another has changed");
         assert_eq!(*changed.missing(), tables(&["dim_customer"]), "served with nothing behind it");
         assert_eq!(*changed.extra(), tables(&["dim_product"]), "attached and no longer named");
         assert_eq!(
@@ -829,11 +838,16 @@ mod tests {
 
     /// The boot policy: which of the port's seven answers this deployment refuses to start on.
     ///
-    /// **One statement of the split both composition roots used to make arm by arm.** It is asserted
-    /// over `ask`'s real output rather than over hand-built verdicts, so the mapping from what an
-    /// adapter answered to whether a deployment starts is covered end to end for each outcome a fake
-    /// can produce. The three the fake cannot reach here - `NotReported` needs the port's default
-    /// and the two failures need an `Err` - are covered by the `Notice`/`Refusal` arms below.
+    /// **One statement of the split both composition roots used to make arm by arm.** Asserted over
+    /// `ask`'s real output rather than over hand-built verdicts, so what an adapter answered is
+    /// carried through the mapping to whether a deployment starts. Every answer the port can give is
+    /// reachable from this fake: it returns `TablesPresent::NotAsked` directly, and
+    /// `preflight_was_refused` is a field on it, so one `Err` answers as both `Refused` and
+    /// `Unverified`.
+    ///
+    /// **Nothing here holds that these cases stay exhaustive.** An answer added to the port is a
+    /// compile error in `boot_policy`, which is where the decision lives - this array keeps passing,
+    /// and it is a reviewer who notices it was not extended.
     #[test]
     fn the_boot_policy_refuses_the_four_outcomes_and_serves_the_others() {
         // The registries are owned by the array for the whole loop, because an answer BORROWS the

@@ -254,11 +254,8 @@ fn run() -> Result<(), String> {
     // between this root's two loads is caught below on `files` and is not caught at all on
     // `bigquery`.
     if let Some(attached) = attached {
-        sutura_app::preflight::refuse_unattached(
-            &sutura_app::preflight::served_tables(service.definitions()),
-            &attached,
-        )
-        .map_err(|changed| changed.to_string())?;
+        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
+            .map_err(|changed| changed.to_string())?;
     }
     tracing::info!(
         definition_version = %pinned.version(),

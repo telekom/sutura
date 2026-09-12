@@ -264,14 +264,16 @@ pub(super) fn open(
 ///
 /// # Errors
 ///
-/// A dataset that REFUSED the listing - the identity may not ask - a bundle naming a table the
-/// dataset does not hold, and a dataset whose listing did not account for every table it says it
-/// holds. The third is a refusal that names no `table:` to fix, deliberately: the catalog may be
-/// right and the listing incomplete, which is `telekom/sutura#275`. A dataset that could not be
-/// asked for any other reason is a standard-error line and not a refusal, because a process whose
-/// data system is briefly unreachable at startup still has to be able to serve when it comes back.
-/// `Warehouse::preflight_was_refused` is what splits those two, and the port documents why the split
-/// is the adapter's to make.
+/// Whatever [`sutura_app::preflight::Verdict::boot_policy`] puts on its `Err` side, which is where
+/// that list is kept rather than copied per root - this one had it a refusal short for as long as it
+/// took somebody to count. Two of them read unlike the rest: the unaccounted listing and the
+/// unreadable inventory name no `table:` to fix, deliberately, because the catalog may be right and
+/// the listing incomplete, which is `telekom/sutura#275`.
+///
+/// A dataset that could not be asked for any other reason is a standard-error line and not a
+/// refusal, because a process whose data system is briefly unreachable at startup still has to be
+/// able to serve when it comes back. `Warehouse::preflight_was_refused` is what splits those two,
+/// and the port documents why the split is the adapter's to make.
 #[cfg(feature = "bigquery")]
 pub(crate) fn refuse_absent_tables<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<(), String>
 where
@@ -298,8 +300,7 @@ where
 ///
 /// # Errors
 ///
-/// [`refuse_absent_tables`]'s three, unchanged: this is the same decision with the printing lifted
-/// out.
+/// [`refuse_absent_tables`]'s, unchanged: this is the same decision with the printing lifted out.
 #[cfg(feature = "bigquery")]
 fn absent_tables_notices<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<Vec<String>, String>
 where
