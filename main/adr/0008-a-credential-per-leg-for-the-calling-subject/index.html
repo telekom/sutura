@@ -4736,9 +4736,11 @@ be able to read.</p>
 <p><code>Subject</code> needs care and is not a <code>Secret</code> either. A subject identifier has to reach an audit record,
 so redacting it entirely defeats what it exists for, while printing it freely puts a caller identifier
 into every log line that formats a struct containing it. So <code>Subject</code> derives no <code>Debug</code>: it gets a
-hand-written one printing a truncated digest - <code>sha2</code> is already one of the domain's four dependencies
-- plus a named, greppable accessor for the sink allowed to record the real value, the way
-<code>Secret::expose</code> is named to be conspicuous.</p>
+hand-written one printing a truncated digest - <code>sha2</code> is already one of the domain's four dependencies</p>
+<ul>
+<li>plus a named, greppable accessor for the sink allowed to record the real value, the way
+  <code>Secret::expose</code> is named to be conspicuous.</li>
+</ul>
 <p><strong>The limit, again with the claim.</strong> A digest of a low-entropy identifier is not anonymisation - an
 address or a username is a dictionary attack away. It buys correlation between log lines without the
 identifier travelling to every collector that reads them, which is a smaller claim and the true one.</p>
@@ -4868,24 +4870,22 @@ subject and is immutable for the connection's life, which is what several of the
    this is what makes the first assertion red before the mechanism exists and green after.</li>
 <li><strong>The connection is never reused across subjects, and never reused past <code>not_after</code>.</strong> This is the
    wrong-subject case rewritten for the mechanism the plan builds, and it is two assertions because
-   <code>oauth</code> removes one hazard and leaves the other standing.<ul>
+   <code>oauth</code> removes one hazard and leaves the other standing.</li>
 <li><strong>Across subjects.</strong> A connection borrowed to answer for subject B reports <strong>B</strong> in
-  <code>system_user</code>, asked in-session. Under <code>oauth</code> the connection is authenticated as the subject and
-  a non-superuser's <code>session_user</code> is immutable for its life, so the only way to get A's identity
-  on B's question is a pool that keyed a connection by something other than the subject. Asserted
-  by asking the connection rather than by inspecting our own pool's bookkeeping, because our
-  bookkeeping is the thing under test. There is nothing to assert about <code>SET ROLE NONE</code> or
-  <code>RESET ALL</code> here: no role is switched, so there is no reversal to get wrong.</li>
+     <code>system_user</code>, asked in-session. Under <code>oauth</code> the connection is authenticated as the subject and
+     a non-superuser's <code>session_user</code> is immutable for its life, so the only way to get A's identity
+     on B's question is a pool that keyed a connection by something other than the subject. Asserted
+     by asking the connection rather than by inspecting our own pool's bookkeeping, because our
+     bookkeeping is the thing under test. There is nothing to assert about <code>SET ROLE NONE</code> or
+     <code>RESET ALL</code> here: no role is switched, so there is no reversal to get wrong.</li>
 <li><strong>Past the deadline.</strong> <em>Verified above and this is what makes the assertion necessary:</em> nothing
-  re-checks a token mid-session, so <strong>a session outlives the token that opened it.</strong> A connection
-  opened for a subject is therefore not handed to a second question for that subject once the
-  <code>not_after</code> on part 4's <code>LegCredentials</code> has passed - it is closed and replaced. The assertion is
-  that a question asked after the deadline opens a <strong>new</strong> connection under a <strong>freshly minted</strong>
-  credential, and never reuses the old one, which is measurable by the connection's backend
-  identifier changing. Without this assertion the pool is the one component that quietly converts a
-  short-lived credential into a long-lived authorization.</li>
-</ul>
-</li>
+     re-checks a token mid-session, so <strong>a session outlives the token that opened it.</strong> A connection
+     opened for a subject is therefore not handed to a second question for that subject once the
+     <code>not_after</code> on part 4's <code>LegCredentials</code> has passed - it is closed and replaced. The assertion is
+     that a question asked after the deadline opens a <strong>new</strong> connection under a <strong>freshly minted</strong>
+     credential, and never reuses the old one, which is measurable by the connection's backend
+     identifier changing. Without this assertion the pool is the one component that quietly converts a
+     short-lived credential into a long-lived authorization.</li>
 <li>A subject with no mapping is refused as <code>CredentialUnavailable</code>, and the assertion is on the
    refusal <strong>and</strong> on the absence of rows. A refusal that arrived after a successful read under
    somebody else's identity is not a refusal.</li>
@@ -5139,8 +5139,7 @@ below and still true for the rest.</p>
    place the subject lives.</li>
 </ol>
 <p><strong>And the assertion field is deliberately absent, which is the sharper half.</strong> Part 2 has the broker
-   exchanging the caller's own token, so it gave <code>Caller</code> a <code>Secret</code>. <a href="../0014-how-a-caller-proves-who-it-is/">How a caller proves who it
-   is</a> Decision 3 then decided that the exchange chain differs
+   exchanging the caller's own token, so it gave <code>Caller</code> a <code>Secret</code>. <a href="../0014-how-a-caller-proves-who-it-is/">How a caller proves who it is</a> Decision 3 then decided that the exchange chain differs
    per inbound mode, needs TWO exchanges in the direct one, and is <strong>blocked on a verification nobody
    has done</strong> - whether a deployment's own identity provider will mint a token of the required type for
    an audience we do not control. The shape of the value a broker would exchange is what that

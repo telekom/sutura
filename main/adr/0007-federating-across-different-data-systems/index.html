@@ -3996,9 +3996,11 @@ plan-stage <code>PlanSpansTwoSources</code>; the plan's one <code>source</code> 
 name; and <code>answer</code> refusing when the plan's source is not the warehouse's.</p>
 <p><strong>The fourth column names the branch that moves each one, and no longer a step number.</strong> An earlier
 version of this table indexed into an ordered list further down this page, which made this record a
-second owner of a step number while <code>docs/implementation-plan.md</code> was the first
-- the exact shape the <em>one owner per artefact</em> rule exists to prevent. The plan owns the numbering;
-this record names branches.</p>
+second owner of a step number while <code>docs/implementation-plan.md</code> was the first</p>
+<ul>
+<li>the exact shape the <em>one owner per artefact</em> rule exists to prevent. The plan owns the numbering;
+  this record names branches.</li>
+</ul>
 <table>
 <thead>
 <tr>
@@ -4274,15 +4276,19 @@ governance boundary is crossed that nothing in this system models.</p>
   federation.</li>
 </ul>
 <h2 id="what-is-explicitly-not-decided">What is explicitly not decided<a class="headerlink" href="#what-is-explicitly-not-decided" title="Permanent link">&para;</a></h2>
-<p><strong>Two entries that used to be here are decided and are gone from this list rather than struck through</strong>
-- whether the per-leg row cap is the answer's cap or a larger one, and whether <code>Avg</code> is rewritten or
-refused. 0009's Decisions 2 and 3 answer both: the per-leg row cap is retired in favour of a working
-set in bytes, and <code>Avg</code> travels as a sum and a count divided once above. Both answers are argued where
-they now belong, in <em>The finding that decides the cost</em> and <em>The leg SIZE bound</em>, so this list carries
-what is genuinely open and nothing that is closed.</p>
+<p><strong>Two entries that used to be here are decided and are gone from this list rather than struck through</strong></p>
 <ul>
-<li><strong>The transport, in the concrete.</strong> Flight SQL is adopted as the direction and not built. Whether
-  its prepared-statement binding carries our parameters is unverified and is the first thing to check.</li>
+<li>
+<p>whether the per-leg row cap is the answer's cap or a larger one, and whether <code>Avg</code> is rewritten or
+  refused. 0009's Decisions 2 and 3 answer both: the per-leg row cap is retired in favour of a working
+  set in bytes, and <code>Avg</code> travels as a sum and a count divided once above. Both answers are argued where
+  they now belong, in <em>The finding that decides the cost</em> and <em>The leg SIZE bound</em>, so this list carries
+  what is genuinely open and nothing that is closed.</p>
+</li>
+<li>
+<p><strong>The transport, in the concrete.</strong> Flight SQL is adopted as the direction and not built. Whether
+  its prepared-statement binding carries our parameters is unverified and is the first thing to check.</p>
+</li>
 <li><strong>The value of the working-set ceiling, and of the deadline.</strong> 0009 carries a provisional 1 GB and a
   provisional three minutes and says plainly that nobody measured either. <code>feat/query-bounds</code> measures
   them on this corpus, and the number this record most wants back is the one the section above names:

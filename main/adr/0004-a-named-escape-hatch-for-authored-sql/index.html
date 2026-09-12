@@ -3050,16 +3050,18 @@ TRIM TRY_CAST</code> and a bare identifier - <strong>only <code>IF</code> is sup
 under a millisecond.</p>
 <p><strong>No bound is written for it, and that is the decision rather than an omission.</strong> Bounding <em>slow</em>
 needs a complexity or work measure and none is available here. Length is refuted, decisively: the
-75-byte fragment above costs 14 s, while <code>SUM(CASE WHEN status = 'active' THEN mrr_eur ELSE 0 END)</code>
-- the metric this hatch exists for - is 56 characters, so any length cap that refuses the exploit
-refuses the metric. And <code>MAX_FRAGMENT_LEN</code>'s own 1024 characters hold about 340 <code>IF~</code> pairs, which
-on the measured doubling is not a wait anybody outlives - arithmetic on a measured curve, and not a
-run. The parser's own <code>ComplexityGuardOptions</code> sit far above these inputs -
-<code>max_tokens</code> at 1,000,000, <code>max_ast_depth</code> and <code>max_parenthesis_depth</code> at 512,
-<code>max_function_call_depth</code> at 64 - and none counts work per token; <code>MAX_DEPTH</code> is asked once the parse
-has already paid. A wall-clock budget is the mechanism that would fit, and the pinned parser offers
-no cancellation point for one: a watchdog could observe the deadline and could not reclaim the
-thread, and under <code>panic = "abort"</code> there is nothing to unwind.</p>
+75-byte fragment above costs 14 s, while <code>SUM(CASE WHEN status = 'active' THEN mrr_eur ELSE 0 END)</code></p>
+<ul>
+<li>the metric this hatch exists for - is 56 characters, so any length cap that refuses the exploit
+  refuses the metric. And <code>MAX_FRAGMENT_LEN</code>'s own 1024 characters hold about 340 <code>IF~</code> pairs, which
+  on the measured doubling is not a wait anybody outlives - arithmetic on a measured curve, and not a
+  run. The parser's own <code>ComplexityGuardOptions</code> sit far above these inputs -
+  <code>max_tokens</code> at 1,000,000, <code>max_ast_depth</code> and <code>max_parenthesis_depth</code> at 512,
+  <code>max_function_call_depth</code> at 64 - and none counts work per token; <code>MAX_DEPTH</code> is asked once the parse
+  has already paid. A wall-clock budget is the mechanism that would fit, and the pinned parser offers
+  no cancellation point for one: a watchdog could observe the deadline and could not reclaim the
+  thread, and under <code>panic = "abort"</code> there is nothing to unwind.</li>
+</ul>
 <p><strong>The obvious candidate, and why it is left on the table rather than taken.</strong> This guard already
 holds the token stream, <code>IF</code> is not one of the names <code>Construct::UnknownFunction</code> allows, and the
 four allowlisted names that contain the letters - <code>COUNTIF</code>, <code>COUNT_IF</code>, <code>SUMIF</code>, <code>SUM_IF</code> - carry

@@ -3337,42 +3337,40 @@ now and impossible to retrofit, and they are marked.</p>
   that because the available exchange semantics express impersonation rather than delegation, the
   principal chain exists nowhere downstream, so recording it cannot be delegated to the data system.
   It is right about that, and this record is right that we inherit no retention duty. Both halves,
-  stated separately, because that is what was wrong before:<ul>
+  stated separately, because that is what was wrong before:</li>
 <li><strong>Sutura WRITES the record.</strong> One per call, refusals included, carrying the whole chain, written
-  before the outcome returns rather than after - a record written after the response is the record
-  a crash loses, and the call worth having a record of is the one that went wrong. It is a
-  <strong>different channel from provenance</strong>: provenance rides with the result and a client is free to
-  drop it, and a record only the caller holds is not a record. So the deployment attaches a sink
-  and sutura writes into it. AGENTS.md says a port trait arrives with its first implementor, so the
-  sink port arrives with the one implementor that needs nothing from anybody - a structured writer
-  over the tracing subscriber this repository already composes - and <code>feat/principal-chain</code> carries
-  both, because that branch's entire justification is a record that can be told apart later. Today
-  the only thing that records a call is one <code>tracing::info!</code> per outcome in
-  <code>crates/sutura-http/src/routes/v1/query.rs</code>, whose own doc comment says there is no audit sink
-  and nothing records a principal chain. That is the honest starting point, not a gap to describe.</li>
+    before the outcome returns rather than after - a record written after the response is the record
+    a crash loses, and the call worth having a record of is the one that went wrong. It is a
+    <strong>different channel from provenance</strong>: provenance rides with the result and a client is free to
+    drop it, and a record only the caller holds is not a record. So the deployment attaches a sink
+    and sutura writes into it. AGENTS.md says a port trait arrives with its first implementor, so the
+    sink port arrives with the one implementor that needs nothing from anybody - a structured writer
+    over the tracing subscriber this repository already composes - and <code>feat/principal-chain</code> carries
+    both, because that branch's entire justification is a record that can be told apart later. Today
+    the only thing that records a call is one <code>tracing::info!</code> per outcome in
+    <code>crates/sutura-http/src/routes/v1/query.rs</code>, whose own doc comment says there is no audit sink
+    and nothing records a principal chain. That is the honest starting point, not a gap to describe.</li>
 <li><strong>Sutura RETAINS nothing.</strong> No archive, no rotation, no retention window, no query interface over
-  past calls, and no obligation inherited from any of those. Under impersonation the sources audit
-  each read under the asking subject, and a single-user deployment is a development and
-  proof-of-concept shape. <strong>The limit, next to the claim:</strong> everything after the write belongs to
-  the deployment - where the records go, how long they are kept, who may read them, and whether
-  they satisfy an obligation the deployment has and sutura does not. A deployment that attaches no
-  sink gets the tracing default and keeps whatever its log pipeline keeps, which may be nothing.
-  That is a choice we make legible rather than one we make for anybody. <strong>And the limit, in the
-  direction that costs us:</strong> an emitted record is worth what the sink behind it is worth, and
-  sutura cannot vouch for a sink it does not retain. A deployment that attaches a sink which drops
-  records, or attaches none, has no audit trail on this side and nothing here can tell it so -
-  which is precisely why the sources' own logs, written under the asking subject, carry the part of
-  the obligation that matters. <strong><code>AuditSink</code> now exists</strong> - shipped by <code>feat/principal-chain</code> with
-  <code>TracingAuditSink</code> as its first implementor - so the split this bullet argues for is built rather
-  than proposed: sutura writes before the outcome returns and retains nothing.
-  What a record is worth beyond attribution: refusals are the demand signal for which questions have no
-  certified answer, and the ungoverned-share number
-  <a href="../0013-a-raw-sql-tool-off-by-default/">a raw SQL tool, off by default</a> reports is computed over the
-  same stream. Both read what is written; neither needs an archive here, and neither can be computed if
-  nothing is written at all - which is why "emit, do not store" was too weak a position to leave in a
-  record three other records depend on.</li>
-</ul>
-</li>
+    past calls, and no obligation inherited from any of those. Under impersonation the sources audit
+    each read under the asking subject, and a single-user deployment is a development and
+    proof-of-concept shape. <strong>The limit, next to the claim:</strong> everything after the write belongs to
+    the deployment - where the records go, how long they are kept, who may read them, and whether
+    they satisfy an obligation the deployment has and sutura does not. A deployment that attaches no
+    sink gets the tracing default and keeps whatever its log pipeline keeps, which may be nothing.
+    That is a choice we make legible rather than one we make for anybody. <strong>And the limit, in the
+    direction that costs us:</strong> an emitted record is worth what the sink behind it is worth, and
+    sutura cannot vouch for a sink it does not retain. A deployment that attaches a sink which drops
+    records, or attaches none, has no audit trail on this side and nothing here can tell it so -
+    which is precisely why the sources' own logs, written under the asking subject, carry the part of
+    the obligation that matters. <strong><code>AuditSink</code> now exists</strong> - shipped by <code>feat/principal-chain</code> with
+    <code>TracingAuditSink</code> as its first implementor - so the split this bullet argues for is built rather
+    than proposed: sutura writes before the outcome returns and retains nothing.
+    What a record is worth beyond attribution: refusals are the demand signal for which questions have no
+    certified answer, and the ungoverned-share number
+    <a href="../0013-a-raw-sql-tool-off-by-default/">a raw SQL tool, off by default</a> reports is computed over the
+    same stream. Both read what is written; neither needs an archive here, and neither can be computed if
+    nothing is written at all - which is why "emit, do not store" was too weak a position to leave in a
+    record three other records depend on.</li>
 <li><strong>A budget checked at PLAN time and shared across replicas.</strong> <code>dry_run</code> already exists on the
   warehouse port, so a cost ceiling can refuse BEFORE spending rather than aborting mid-query, which
   is strictly better. Per-pod counters are not a budget.</li>

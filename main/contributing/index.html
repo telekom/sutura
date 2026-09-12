@@ -2812,10 +2812,12 @@ the hooks, the secret scan and the supply-chain gate all come from Nix and pixi,
 you find out on the pull request instead of before it. On a network with no direct egress, read
 <a href="https://github.com/telekom/sutura/blob/main/docs/enterprise-mirrors.md">Building without direct internet egress</a>
 first: nothing that fetches is hardcoded, and every location is read from the environment.</p>
-<p><strong>The dev shell's bare <code>cargo</code> is the nightly toolchain</strong>, the same one every gate and CI use now
-- the stable/nightly split is gone, so a bare <code>cargo clippy</code> reports the lints CI sees. Run
-<code>just lint</code> anyway, because it also adds <code>-D warnings</code>. The trap and its siblings are in
-<a href="https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md">the <code>gates</code> skill</a>.</p>
+<p><strong>The dev shell's bare <code>cargo</code> is the nightly toolchain</strong>, the same one every gate and CI use now</p>
+<ul>
+<li>the stable/nightly split is gone, so a bare <code>cargo clippy</code> reports the lints CI sees. Run
+  <code>just lint</code> anyway, because it also adds <code>-D warnings</code>. The trap and its siblings are in
+  <a href="https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md">the <code>gates</code> skill</a>.</li>
+</ul>
 <h2 id="using-ai-generated-code">Using AI-generated code<a class="headerlink" href="#using-ai-generated-code" title="Permanent link">&para;</a></h2>
 <p>This codebase is written largely with coding agents, and that is not something to be coy about.
 <code>AGENTS.md</code> is their contract; the tree under <code>.agents/skills/</code> is the reference material they load

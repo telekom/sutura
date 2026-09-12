@@ -3124,22 +3124,20 @@ impersonation it has no way to perform.</p>
   that would add one. An adapter is a crate that implements a port and is registered at composition
   time.</li>
 <li><strong>No capability negotiated at run time</strong>, and the two sides of that are not the same sentence, which
-  an earlier version of this bullet got wrong by generalising.<ul>
+  an earlier version of this bullet got wrong by generalising.</li>
 <li><strong>The DATA-side mode and capabilities are fixed for the life of the process.</strong> They are
-  configuration, read once at startup, and nothing at run time can widen them. That is what lets
-  the boot check mean anything: a source that gains a capability is a deployment change, and a
-  deployment change is a restart.</li>
+    configuration, read once at startup, and nothing at run time can widen them. That is what lets
+    the boot check mean anything: a source that gains a capability is a deployment change, and a
+    deployment change is a restart.</li>
 <li><strong>The METADATA-side declaration is under the definition digest and travels with the bundle</strong>, so
-  the TTL refresh above swaps it along with everything else. It does not change <em>within</em> a bundle
-  and no request can renegotiate it, but it is not fixed for the life of the process, and a
-  deployment whose catalog stopped declaring a knowledge capability finds out at the next refresh
-  rather than at the next restart. That is deliberate - it is the same swap, and the digest is what
-  makes it visible - but calling it unchanging was simply false.
-  Neither side is negotiated with a caller, which is the property this bullet is actually about: there
-  is no handshake, no probe and no request field that could ask for a capability, so nothing a caller
-  sends changes what a source can do.</li>
-</ul>
-</li>
+    the TTL refresh above swaps it along with everything else. It does not change <em>within</em> a bundle
+    and no request can renegotiate it, but it is not fixed for the life of the process, and a
+    deployment whose catalog stopped declaring a knowledge capability finds out at the next refresh
+    rather than at the next restart. That is deliberate - it is the same swap, and the digest is what
+    makes it visible - but calling it unchanging was simply false.
+    Neither side is negotiated with a caller, which is the property this bullet is actually about: there
+    is no handshake, no probe and no request field that could ask for a capability, so nothing a caller
+    sends changes what a source can do.</li>
 <li><strong>No adapter-specific vocabulary leaking inward.</strong> The real test of pluggability is not the trait,
   it is whether the pinned bundle stays catalog-neutral. The moment a provider's own identifier,
   aspect name or property shape appears in the domain's public types, the port is decorative and the

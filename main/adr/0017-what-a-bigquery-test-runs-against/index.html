@@ -4274,13 +4274,15 @@ where the documented source build did not compile.</p>
 <code>.github/workflows/cross-link.yml</code> is <em>the manifest has at least one row</em>, and that was read as <em>a
 probe cannot silently disappear</em>. It is not the same claim: zero rows means <em>the CLI probe is gone</em> only because the other binary
 declares none, which is a property of today's data rather than of the construction. Declare a probe
-for <code>sutura-serve</code> and delete <code>"bigquery"</code> from <code>sutura-cli</code>'s, and the manifest is still non-empty
-- the four link legs go green and this record's claim reverts to <em>assumed</em> with no signal at all.
-The coupling that closes it is the one nothing checked: a page tells a reader to run
-<code>cargo build --release -p sutura-cli --features bigquery</code>, and <code>probeFeatures</code> had to contain that
-feature. The gate now reconciles the two, in both directions - a documented feature no probe covers
-fails, and so does a tree where no page documents such a build at all, because a reconciliation
-against nothing passes everything.</p>
+for <code>sutura-serve</code> and delete <code>"bigquery"</code> from <code>sutura-cli</code>'s, and the manifest is still non-empty</p>
+<ul>
+<li>the four link legs go green and this record's claim reverts to <em>assumed</em> with no signal at all.
+  The coupling that closes it is the one nothing checked: a page tells a reader to run
+  <code>cargo build --release -p sutura-cli --features bigquery</code>, and <code>probeFeatures</code> had to contain that
+  feature. The gate now reconciles the two, in both directions - a documented feature no probe covers
+  fails, and so does a tree where no page documents such a build at all, because a reconciliation
+  against nothing passes everything.</li>
+</ul>
 <p><strong>WHICH TRIPLES ARE PROBED - still not held.</strong> The link matrix in
 <code>.github/workflows/cross-link.yml</code> spells the four triples as literals, as <code>release.yml</code>'s does, and
 <code>check-shipped-binaries</code> reconciles the shipped BINARIES between those files and <code>nix/shipped.nix</code> -

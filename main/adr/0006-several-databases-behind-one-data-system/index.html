@@ -3613,21 +3613,19 @@ the domain query type and the wire body, with a test that provokes it.</p>
   different events and this record used to name a third that is neither.</strong> An earlier version said the
   thing to watch was "whether DataFusion 56 moves to Arrow 59" - which the table above already
   contradicts: the pinned <code>datafusion 55.0.0</code> is <strong>already</strong> on <code>arrow 59.2.0</code>, and a DataFusion 56
-  would move nothing here. Corrected, from <code>Cargo.lock</code> rather than from memory:<ul>
+  would move nothing here. Corrected, from <code>Cargo.lock</code> rather than from memory:</li>
 <li><strong>The Arrow gap is the <code>duckdb</code> crate.</strong> It is pinned at <code>1.10505.0</code>, it requires <code>arrow ^58</code>
-  non-optionally, and that is where <code>arrow 58.4.0</code> in the lock comes from. So what removes the
-  bridge problem is <strong>the <code>duckdb</code> crate reaching Arrow 59</strong> - or, symmetrically, this workspace
-  holding the engine at 58, which is a downgrade of the thing that executes every query and is not
-  a trade anybody has argued for. That gap constrains one implementation of the built route and
-  nothing about whether the route is right.</li>
+    non-optionally, and that is where <code>arrow 58.4.0</code> in the lock comes from. So what removes the
+    bridge problem is <strong>the <code>duckdb</code> crate reaching Arrow 59</strong> - or, symmetrically, this workspace
+    holding the engine at 58, which is a downgrade of the thing that executes every query and is not
+    a trade anybody has argued for. That gap constrains one implementation of the built route and
+    nothing about whether the route is right.</li>
 <li><strong>The version skew is <code>datafusion-federation</code>.</strong> It requires <code>datafusion ^54</code> on the registry and
-  on its repository main alike, while this workspace pins <code>55.0.0</code>. What removes that is the crate
-  following DataFusion forward, and it is independent of the Arrow question.
-  Nothing here predicts either, and <strong>the wrong-number finding would still stand after both</strong>: the
-  transposed aggregate is a cast-by-position defect in the layer, not a version mismatch, and it is
-  what the decline actually rests on.</li>
-</ul>
-</li>
+    on its repository main alike, while this workspace pins <code>55.0.0</code>. What removes that is the crate
+    following DataFusion forward, and it is independent of the Arrow question.
+    Nothing here predicts either, and <strong>the wrong-number finding would still stand after both</strong>: the
+    transposed aggregate is a cast-by-position defect in the layer, not a version mismatch, and it is
+    what the decline actually rests on.</li>
 <li><strong>Whether the column-order defect is reported upstream.</strong> The repair is to reconcile by name, and the
   ingredients for rebuilding it are in the recipe above, so a report is a matter of somebody spending
   the afternoon rather than of anything being unknown. Stated as narrowly as this record can honestly

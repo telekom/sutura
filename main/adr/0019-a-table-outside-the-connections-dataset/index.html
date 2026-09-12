@@ -2731,13 +2731,13 @@ onward. Nothing stores the text it was handed.</p>
 <li><strong><code>ProjectName</code> is the one name shape in this workspace that admits a hyphen, and it is not a
   loosening of the property above.</strong> A <code>BigQuery</code> project id is lowercase letters, digits and hyphens</li>
 <li>the credential this repository's acceptance leg runs under has one, which is how this was found
-  rather than assumed - while a dataset id is letters, digits and underscore, exactly
-  <code>parse_identifier</code>'s set. <code>model::Hyphens</code> is a flag on <strong>one</strong> parser rather than a second parser,
-  and its documentation states the licence precisely: a hyphen is not <code>"</code>, <code>'</code> or <code>`</code>, so the
-  stripping argument is intact. A variant admitting a quote character, a dot or whitespace would
-  invalidate it, and that is written where the flag is. A legacy domain-scoped project -
-  <code>example.com:project</code> - is <strong>refused</strong>, because a <code>:</code> or a second <code>.</code> inside one part is the defect
-  this module exists to prevent.</li>
+    rather than assumed - while a dataset id is letters, digits and underscore, exactly
+    <code>parse_identifier</code>'s set. <code>model::Hyphens</code> is a flag on <strong>one</strong> parser rather than a second parser,
+    and its documentation states the licence precisely: a hyphen is not <code>"</code>, <code>'</code> or <code>`</code>, so the
+    stripping argument is intact. A variant admitting a quote character, a dot or whitespace would
+    invalidate it, and that is written where the flag is. A legacy domain-scoped project -
+    <code>example.com:project</code> - is <strong>refused</strong>, because a <code>:</code> or a second <code>.</code> inside one part is the defect
+    this module exists to prevent.</li>
 <li><strong><code>Serialize</code> is hand-written to emit the dotted text.</strong> <code>serde(try_from)</code> affects <code>Deserialize</code>
   alone, and a derived <code>Serialize</code> here would write a struct this type's own <code>Deserialize</code> refuses -
   the asymmetry that shipped in this workspace on <code>Date</code>. It matters because the definition digest is

@@ -2808,11 +2808,11 @@ argument in a diff, and it worked as intended: adding <code>secrecy</code> and <
 </span></code></pre></div>
 <ul>
 <li>because that gate walks the whole-workspace resolve graph rather than deciding which optional edges
-a feature resolver would really enable. <code>zeroize</code>'s <code>derive</code> feature is off, nothing in this workspace
-turns it on, and <code>cargo tree -p sutura-domain --all-features</code> does not list <code>zeroize_derive</code>; it is an
-entry of the over-broad kind that list already documents, and its own tree - <code>proc-macro2</code>, <code>quote</code>,
-<code>syn</code> - is the serde derives' tree, already allowed. The domain's walked tree is 31 crates, all
-allowlisted.</li>
+  a feature resolver would really enable. <code>zeroize</code>'s <code>derive</code> feature is off, nothing in this workspace
+  turns it on, and <code>cargo tree -p sutura-domain --all-features</code> does not list <code>zeroize_derive</code>; it is an
+  entry of the over-broad kind that list already documents, and its own tree - <code>proc-macro2</code>, <code>quote</code>,
+  <code>syn</code> - is the serde derives' tree, already allowed. The domain's walked tree is 31 crates, all
+  allowlisted.</li>
 </ul>
 <h2 id="what-was-considered-instead">What was considered instead<a class="headerlink" href="#what-was-considered-instead" title="Permanent link">&para;</a></h2>
 <p><strong>Delete only the <code>Display</code> from the hand-written <code>Secret</code>, and add no dependency.</strong> This gets the

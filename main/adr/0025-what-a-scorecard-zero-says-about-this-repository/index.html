@@ -3274,13 +3274,15 @@ build, so a job added today would be green while reporting nothing on exactly th
 That is the "runs and analyses nothing" shape this repository refuses, so the workflow is
 deliberately not added yet.</strong></p>
 <p><strong>The measurement.</strong> CodeQL CLI <code>2.26.4</code> with <code>codeql/rust-all</code> <code>0.2.20</code> and <code>codeql/rust-queries</code>
-<code>0.1.41</code> - the bundle <code>codeql-bundle-v2.26.4</code>, which is what the action resolves to as of this date
-- was run over a <strong>buildless</strong> Rust database (<code>--build-mode=none</code>, the mode a job here would use)
-built from a probe of the exact shape this tree compiles SQL in: a caller-supplied value is
-interpolated into a statement and executed by <code>rusqlite::Connection::execute</code> - <em>interpolated
-instead of bound</em>, the failure class <code>SECURITY.md</code> names. The full default Rust query suite found
-<strong>no</strong> <code>rust/sql-injection</code> finding, and <code>rust/summary/query-sinks</code> and <code>rust/summary/taint-sources</code>
-confirm both endpoints are modelled in that database.</p>
+<code>0.1.41</code> - the bundle <code>codeql-bundle-v2.26.4</code>, which is what the action resolves to as of this date</p>
+<ul>
+<li>was run over a <strong>buildless</strong> Rust database (<code>--build-mode=none</code>, the mode a job here would use)
+  built from a probe of the exact shape this tree compiles SQL in: a caller-supplied value is
+  interpolated into a statement and executed by <code>rusqlite::Connection::execute</code> - <em>interpolated
+  instead of bound</em>, the failure class <code>SECURITY.md</code> names. The full default Rust query suite found
+  <strong>no</strong> <code>rust/sql-injection</code> finding, and <code>rust/summary/query-sinks</code> and <code>rust/summary/taint-sources</code>
+  confirm both endpoints are modelled in that database.</li>
+</ul>
 <p><strong>The cause, isolated by re-measurement rather than assumed.</strong> Six variants, taint traced from a
 caller-supplied value to the first argument of <code>execute</code>:</p>
 <table>
