@@ -24,9 +24,6 @@
 //! although an in-process engine over a local file has no row-level security to leak through,
 //! adding a cache here would be the place the habit started.
 //!
-//! What it does offer is two narrow, typed attach affordances, [`DataFusionWarehouse::attach_csv`]
-//! and [`DataFusionWarehouse::attach_parquet`], which is what a golden fixture needs.
-//!
 //! **The engine's memory is bounded, and the bound is not this process's memory.** Every session here
 //! is built with a `RuntimeEnv` carrying a fixed-size pool, because the alternative is the engine's
 //! unbounded one - and under `panic = "abort"` a large enough hash join is then process death for
@@ -35,13 +32,7 @@
 //! else**: not what a driver buffers, not `collect()` materialising every batch, not the row set built
 //! in the conversion loop below. See [`pool`], which states the gap rather than implying it is closed.
 //!
-//! # Four files, along three seams
-//!
-//! `translate.rs` turns a plan into expressions and never reads a result; `collect.rs` turns a result
-//! into domain rows and never reads a plan except for its labels; `pool.rs` is the working-set ceiling
-//! and reads neither. What is left here is what none of them is about: the session, the runtime,
-//! attaching a file, and executing.
-
+//! `translate`, `collect`, `fixture` and `pool` own narrow seams; this owns session and execution.
 use std::path::Path;
 use std::sync::Arc;
 
@@ -242,6 +233,8 @@ mod translate;
 /// A result becomes domain rows here. The mirror half, which never reads a plan except for its
 /// labels.
 mod collect;
+#[cfg(feature = "fixtures")]
+mod fixture;
 
 /// One LEG becomes expressions here, which is `translate`'s sibling rather than a part of it: what
 /// differs from a whole plan is the SHAPE of the plan, not how a piece of one renders.
@@ -462,31 +455,35 @@ impl DataFusionWarehouse {
         &self.pool
     }
 
-    /// The ceiling this adapter's pool was built with.
-    ///
-    /// From the configured value rather than from `MemoryPool::memory_limit`, which defaults to
-    /// `Unknown`: a pool that does not override it reports no ceiling, and then the reserved-against-
-    /// ceiling ratio an operator actually wants cannot be computed.
+    /// The configured pool ceiling; `MemoryPool::memory_limit` can report `Unknown` instead.
     #[inline]
     #[must_use]
     pub const fn working_set(&self) -> WorkingSet {
         self.working_set
     }
 
-    /// Exposes a CSV file as a table.
-    ///
-    /// A narrow, typed affordance instead of a general "run this" method, which is what a local
-    /// adapter usually grows and what would make every check upstream of here optional. Nothing is
-    /// escaped and nothing is quoted, because nothing is rendered: the name and the path are
-    /// arguments to a registration call, so a path with a quote in it is a path. `has_header` is the
-    /// read options' default.
+    /// Exposes a CSV file as a table. `DataFusion` handles inference.
     pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
         let located = path.display().to_string();
+        self.register_csv(table, located, CsvReadOptions::new())
+    }
+
+    /// Exposes a deliberately simple conformance fixture CSV with exact shared types.
+    ///
+    /// Available only with the default-off `fixtures` feature.
+    #[cfg(feature = "fixtures")]
+    pub fn attach_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
+        let schema = fixture::schema(path).map_err(|cause| DataFusionError::Attach {
+            table: String::from(table.as_str()),
+            path: path.display().to_string(),
+            cause: datafusion::error::DataFusionError::External(Box::new(cause)),
+        })?;
+        self.register_csv(table, path.display().to_string(), CsvReadOptions::new().schema(&schema))
+    }
+
+    fn register_csv(&self, table: &TableName, located: String, options: CsvReadOptions<'_>) -> Result<(), DataFusionError> {
         self.runtime()?
-            .block_on(
-                self.context
-                    .register_csv(table_reference(table), located.as_str(), CsvReadOptions::new()),
-            )
+            .block_on(self.context.register_csv(table_reference(table), located.as_str(), options))
             .map_err(|cause| DataFusionError::Attach {
                 table: String::from(table.as_str()),
                 path: located,

@@ -41,7 +41,7 @@ resolves nowhere and a THIRD-PARTY crate fails to compile in a check that change
 regenerates output naming a directory it no longer sits in. **What it does not reach:** a generated
 file naming some OTHER absolute directory, or a path written into a compiled artifact rather than
 the output directory's bytes. The sibling `$unitDir/output` is also outside the search, but stale
-directive bytes alone are not a broken compiler input: pinned Cargo rewrites the previous literal
+directive bytes alone are not a broken compiler input: Cargo rewrites the previous literal
 `OUT_DIR` in parsed directive values. The script header records the source, independent probe and
 its limits, plus a closure scan whose detection time is NOT rebuild cost. None establishes general
 relocation safety. The existing four-unit actual-script fixture checks the unit AND its fingerprint
@@ -432,17 +432,53 @@ panic-free.
   prints `nix run .#…` and shell fragments in backticks legitimately and the general rule would
   fire on correct advice. A citation rule widened past prose without a precision story becomes
   noise, and noise is how a gate gets disabled.
-- **A derived number is only a control while a page still states it, and BOTH shapes here got
-  that wrong.** A count and a version pin work the same way - derive the value from the tree, then
-  compare it against pages under a `mentioned_in` glob - so both hold nothing when no page states
-  the value. The count was in that state after the router rewrite carried the invariants table out
-  of `AGENTS.md` and its `mentioned_in` list stayed behind; the pin was in it from the start, with
-  six pages naming `rust-toolchain.toml` and not one carrying a version, while the success line
-  said `1 pin(s)`. **A glob matching nothing was already a failure** for counts; what is new is
-  that a value no page states is a failure too, for the count and for the pin, and that the pin is
-  now written down where it can be compared. The other silent-green mode is granularity: an entry
-  counting FILES over a literal that can repeat inside one is right only by coincidence, which is
-  why each entry declares files or occurrences rather than inheriting a default.
+- **A derived number is only a control while a page still states it, and the count shape got that
+  wrong.** Derive the value from the tree, then compare it against pages under a `mentioned_in`
+  glob, and the check holds nothing when no page states the value. The count was in that state
+  after the router rewrite carried the invariants table out of `AGENTS.md` and its `mentioned_in`
+  list stayed behind. **A glob matching nothing was already a failure**; what is new is that a
+  value no page states is a failure too, so the comparison cannot run over an empty set. The other
+  silent-green mode is granularity: an entry counting FILES over a literal that can repeat inside
+  one is right only by coincidence, which is why each entry declares files or occurrences rather
+  than inheriting a default.
+- **THE VERSION SHAPE WAS THAT SAME CHECK AND IS GONE, because it REQUIRED the copy it was
+  guarding.** One pin, the compiler, compared against every page naming `rust-toolchain.toml`
+  beside a version - so its vacuity arm demanded that some page state one, and for a while SIX
+  pages named `rust-toolchain.toml` while not one carried a version, the success line saying
+  `1 pin(s)` over a comparison with nothing in it. `versions` refuses a version written beside the name
+  of anything this repo pins, wherever a comment or a page writes it, and a rule that refuses the
+  copy cannot also require it. So the table went rather than widening, and the vacuity arm became a
+  floor on the harvest: the check fails when it reads fewer names out of the manifests, or fewer
+  comment lines out of the tree, than a working reader must - a name set that comes back empty
+  refuses nothing and reads as a clean tree.
+- **What that check does NOT reach, which is the half worth knowing before trusting a green run.**
+  It keys on a pinned NAME next to the version, because over this tree a version-shaped token is
+  usually not a version - an address, an RFC section, a timing, an API route - and refusing by
+  shape reddens correct prose. So a version separated from its name by a clause escapes, and so
+  does one with no name beside it at all. A bare `v<n>` is not read as a version either, and that
+  is a MEASURED retreat rather than an oversight: a planted `the duckdb v1 route` was the one
+  false positive the falsifier probes found, and dropping the shape cost a single refusal in the
+  whole tree. What is exempt is exempt because something else already compares the copy, or
+  because the version IS the content: `docs/crap.md`, where `check-crap` fails when the page stops
+  naming the version `nix/crap.nix` pins and has its own test, and `docs/adr/**` plus `VENDOR.md`
+  and the changelog, where a dated record and an upstream provenance are what the page is for.
+  **A figure followed by a UNIT is not a version either** - `s`, `%`, `GB`, `core-hours` and the
+  rest - because a measurement beside the name of the thing it was measured on is exactly the
+  content this check protects, and no file holds a measurement. Measured, that retreat spares TWO
+  lines in the whole tree, and both are inside `UNITS`' own doc comment - so it costs no refusal
+  over any prose a person wrote. **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
+  dependency keys, flake inputs, `apps.<name>`, pixi dependency tables, compose image names and
+  the `nix/` module basenames, so **a tool named only as a nix CHECK is outside all six** -
+  `checks.nextest` is not `apps.nextest`, and nine transcriptions of nextest's version survived
+  the branch's first sweep until they were removed by hand. **So the gate is a ratchet, not a
+  proof that no copy is left**, and a green run means no copy the harvest can SEE.
+  **The trailing tag on a SHA-pinned action is out of scope by OWNER DECISION - dependabot
+  maintains its own tags - and nobody here reproduced what dependabot writes.** It is implemented
+  structurally, by a `#` breaking adjacency rather than by a list of those lines, so the exclusion
+  is broader than the ruling: a version whose neighbouring token is ENTIRELY punctuation is
+  spared, dependabot's or not. Punctuation ATTACHED to a name spares nothing, because the token
+  reader strips it off the name too - a COMMA between a pinned name and a version leaves it
+  refused, and only a neighbour that reduces to nothing (a table pipe, a `#`) breaks adjacency.
 - **The gate that fails a false claim carried one, and the reason generalises.** Its scope is prose
   files, so it never read its own source: the *remedy* a claim prints - the sentence handed to a
   reader as the correction - said a transport surface was absent for as long as it took a person to
@@ -706,7 +742,7 @@ panic-free.
   of ten commit-stage hooks printed `(no files to check)Skipped` - no format check, no clippy, no
   `cargo check`, no shellcheck - and the last line still said `green`. Both numbers were available
   and neither was printed. `cargo xtask hook-coverage` now prints them, and the recipe's own last
-  line points at them. **The half nobody would have guessed, measured on prek 0.4.14:** a hook
+  line points at them. **The half nobody would have guessed, measured on the pinned prek:** a hook
   silenced with `PREK_SKIP` / `SKIP` prints **no row at all** rather than a skipped one, so a
   verdict computed from the rows would report *8 of 8 ran* over a run with two gates switched off.
   The denominator is derived from `.pre-commit-config.yaml`, and a declared hook with no row is a
@@ -730,7 +766,7 @@ panic-free.
   self-skip on a missing tool exits 0. Measured with the `shellcheck` entry verbatim and `nix` off
   `PATH`: notice printed, exit 0. So on any host without nix the verdict was a green run over hooks
   that announced their own abstention.
-  **Reading the notice cannot be the mechanism, and that is the measured part:** prek 0.4.14 prints
+  **Reading the notice cannot be the mechanism, and that is the measured part:** the pinned prek prints
   a PASSING hook's own output nowhere - verified on a one-hook repository, `Passed` and nothing
   else - and it appears only under `verbose: true`, which would also dump the whole test suite's
   output on every run. So the authority is the shell that DECIDES plus this host's `PATH`, read out
@@ -990,7 +1026,7 @@ added now, the verdict NAMES what reddened, and a failure outside the diff is it
 
 **A TEST NAME IS NOT A KEY HERE, and the first fix for #278 was keyed on one.** 23 of this tree's
 1782 test-function names are duplicated - `deserialization_goes_through_the_constructor` four times
-in `sutura-domain`. Measured on nextest 0.9.143, `test(/(?:^|::)sums(?:::|$)/)` matches six tests in
+in `sutura-domain`. Measured on the pinned nextest, `test(/(?:^|::)sums(?:::|$)/)` matches six tests in
 three packages, one of them a MODULE called `sums`. So a collided failure satisfied both the filter
 and the name comparison, and a vacuous added test still got *ok - red on base, green on head*. The
 key is now the binary or package, the module path the file contributes, and the name.

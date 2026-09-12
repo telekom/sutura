@@ -30,7 +30,7 @@
 #
 # ORDER IS LOAD-BEARING. Where two annotations match one file, the LAST one wins - so the catch-all
 # comes first and every narrowing block comes after it. Adding a vendored tree means appending a
-# block, never editing the catch-all. VERIFIED rather than assumed, against `reuse` 6.2: a
+# block, never editing the catch-all. VERIFIED rather than assumed, against the pinned `reuse`: a
 # three-file tree with `**`, `sub/**` and `sub/deep/back.md` resolves to Apache-2.0, MIT and
 # Apache-2.0 respectively, read back out of `reuse spdx`.
 #

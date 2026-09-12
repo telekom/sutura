@@ -23,7 +23,8 @@ use sutura_domain::identity::{
 };
 
 use super::tests_support::{
-    AdapterFailure, CountingBroker, FixedBroker, FixedWarehouse, RefusingSourceWarehouse, TransientlyBrokenWarehouse,
+    AdapterFailure, CountingBroker, DryRunOutcome, FixedBroker, FixedWarehouse, MonoPreflightWarehouse, RefusingSourceWarehouse,
+    TransientlyBrokenWarehouse,
 };
 use super::{
     AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, Warehouses, exceeds_row_cap,
@@ -489,6 +490,37 @@ fn a_source_that_refuses_the_statement_is_refused_not_a_transport_failure() {
     // And it never reaches a caller as the retryable class. The same question against the same
     // refusal must not surface as `ServiceError::Warehouse`, which is what a data system being
     // down looks like - the status that invites the very retry this refusal exists to prevent.
+}
+
+#[test]
+fn a_source_that_refuses_the_preflight_is_refused_and_never_executed() {
+    let working = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
+    let validated = verify_and_validate(bundle(), &working).expect("the anchor reproduces its number");
+    let refusing = MonoPreflightWarehouse::new(source(), shared(), certified(), DryRunOutcome::SourceRefused);
+    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let warehouses = Warehouses::of(refusing);
+    let outcome = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+    );
+    let outcome = outcome.expect("a pre-flight refusal is a governed answer").into_outcome();
+    let ToolOutcome::Refusal {
+        reason: RefusalReason::SourceRefused { ref source },
+    } = outcome
+    else {
+        panic!("a source refusal must come back as a refusal, not {outcome:?}");
+    };
+    assert_eq!(source, &self::source());
+    assert_eq!(
+        warehouses
+            .get(&self::source())
+            .expect("the source is registered")
+            .executions(),
+        0
+    );
 }
 
 #[test]

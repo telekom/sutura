@@ -349,7 +349,7 @@ fn a_metric_declaring_one_dimension_twice_is_refused_by_the_constructor() {
 /// A dimension was folded against the time bucket, against the measure and against every table, and
 /// against another dimension by nothing at all - `dimensions` is keyed byte-wise, so `region` and
 /// `Region` were two entries and two projected columns. `Metric::new`'s own note carries the
-/// `DuckDB` 1.5.5 run that says what the engine does with the pair.
+/// pinned `DuckDB` run that says what the engine does with the pair.
 ///
 /// **The DECLARED order is what the refusal names**, and that is the reason the scan is in the
 /// constructor rather than in `assemble`: `first` is `region` because the fixture writes `region`

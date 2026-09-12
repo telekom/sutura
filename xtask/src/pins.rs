@@ -91,7 +91,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 /// Every `apps.<name>` defined in flake.nix.
-fn flake_apps(text: &str) -> BTreeSet<String> {
+pub(crate) fn flake_apps(text: &str) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     for line in text.lines() {
         let trimmed = line.trim_start();

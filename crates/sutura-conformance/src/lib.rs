@@ -52,8 +52,8 @@
 //!   never called, so *held to the same test bodies* is a statement about two methods and not about
 //!   `Warehouse`. Three of those five carry guarantees of their own in
 //!   `.agents/skills/sutura/invariants`, held by other mechanisms.
-//! - **That the corpus is hard.** It is two questions over one table - [`corpus`] lists by name the
-//!   cases `docs/adr/0012` says nothing else finds, none of which is here yet.
+//! - **That the corpus is exhaustive.** It is seven questions over one table; [`corpus`] names the
+//!   federated cases that still belong to another suite.
 //! - **That every adapter is held IS held now, and not by anything in this crate.** A pack is bound
 //!   where an adapter's own crate binds it, so which adapters conform used to be a reading of which
 //!   crates carry a `tests/conformance.rs` - deleting one left `just validate` green.
@@ -71,8 +71,8 @@
 //!   then exports it, so that is `just test`, `just gates`, `just causality`'s head run and
 //!   `nix/run-gate.sh tests` on a machine with the tier binary, plus `checks.nextest` in the
 //!   sandbox. Measured before that arm existed: a fixture answering [`Fixture::Absent`]
-//!   unconditionally, with the tier UP and the variable set, was 21 passed and the only tell was
-//!   seven printed `NOT RUN` lines; with it, 7 of 7 fail.
+//!   unconditionally, with the tier UP and the variable set, passed and the only tell was printed
+//!   `NOT RUN` lines; with it, every emitted cell fails.
 //!
 //!   **The residual is two venues rather than *a developer machine*, and both are checkable** -
 //!   *a developer machine* was the sentence that stood here and it points at the case where the
@@ -82,15 +82,10 @@
 //!   variable on purpose, because an export follows a process tree and the endpoint file the base
 //!   worktree would need does not. In those two a declared absence and a discovered one are the
 //!   same value.
-//! - **That [`corpus::on_disk`] is this run's corpus and nobody else's.** It renames the rows onto
-//!   `<temp_dir>/sutura-conformance/<table>.csv`, a name carrying no worktree and no digest, so a
-//!   second checkout of this repository is a second WRITER of that file. *The bytes are identical
-//!   either side* holds per tree, not per machine, and two `just test` runs in two worktrees is how
-//!   the change that wrote this paragraph was reviewed. A cell would fail as a
-//!   [`Fault::Content`] naming the case and the adapter while the run that caused it stayed green -
-//!   the one reading these packs exist to make unambiguous. `telekom/sutura#405` is where the path
-//!   gets per-worktree isolation; it is deliberately not fixed here, because it is a change to a
-//!   fixture every binding shares and this file's diff is about one adapter.
+//! - **That [`corpus::on_disk`] is this run's corpus and nobody else's.** It writes below this
+//!   checkout's `.sutura-dev`, so two worktrees no longer share a path. Processes in one worktree
+//!   still share the same deterministic file; the atomic rename makes identical writers safe, but
+//!   this is isolation by worktree rather than by process.
 //! - **A COST, rather than a budget.** [`Spent`] reports what every cell and every fixture took,
 //!   and [`census`] prints the per-adapter floor; nothing thresholds either, and nothing joins two
 //!   adapters' numbers. `docs/adr/0012` carries what the remaining half would need.
@@ -179,8 +174,8 @@ impl Behaviour {
     /// twice.** The `#[test]`s and the census elements are one macro repetition, so a test cannot
     /// lose its element - that was the first correction. `EVERY` was still a THIRD list tied to
     /// neither, and a review measured what that costs: delete `Self::Content` from it AND its entry
-    /// from [`execute_packs`]'s `@behaviours` list, and all three bindings print
-    /// *5 behaviour(s)* over the corpus's cases, `21 tests run` becomes `18 tests run: 18 passed`, and
+    /// from [`execute_packs`]'s `@behaviours` list, and all three bindings print one fewer behaviour
+    /// over the same cases while every emitted test still passes, and
     /// `-D warnings` says nothing - `execute::content_agrees_with_the_reference` stays alive because
     /// `tests/bound.rs`'s fault half calls it. What `execute`'s own header calls *the* conformance
     /// claim left the pack on a green run, in every binding.
@@ -224,7 +219,7 @@ impl Behaviour {
 
 // **[`Behaviour::EVERY`] and [`Behaviour::index`] are torn apart here unless they agree**, at
 // compile time, in a `const` block - so a behaviour cannot leave the pack the way a review measured
-// it leaving: `18 tests run: 18 passed` with every census green at five.
+// it leaving: every emitted test passing with every census green at one fewer behaviour.
 //
 // The indexing is deliberate and is not the lint's usual hazard: in a `const` block an
 // out-of-range index is a BUILD failure, not a panic somebody meets at run time.
@@ -523,7 +518,7 @@ pub fn not_here(adapter: &str, behaviour: Behaviour, missing: &Missing, spent: S
 /// The pack arrives as `impl FnOnce(&W) -> Conformed<E>` and every binding hands over a FUNCTION
 /// ITEM, which is what keeps `clippy::result_large_err` off the adapter's own crate: that lint
 /// inspects a closure's return type at its definition site, and the one closure this needs is
-/// defined here, generic in the adapter's error, rather than six times per binding.
+/// defined here, generic in the adapter's error, rather than once in every generated test.
 pub fn conduct<W, E>(
     adapter: &str,
     behaviour: Behaviour,
@@ -566,8 +561,8 @@ pub fn conduct<W, E>(
 ///    same `bound` slice the comparison above uses, so the multiplier is the number of tests that
 ///    were actually emitted rather than a constant beside it;
 /// 5. **a venue where the fixture did not stand up prints NO coverage line at all.** It takes the
-///    `open` path rather than a [`Spent`] for exactly this: a census that printed *6 behaviour(s)
-///    over the corpus's cases* beside six cells that each reported `NOT RUN` is the skip that reads as
+///    `open` path rather than a [`Spent`] for exactly this: a census that printed a coverage count
+///    beside cells that each reported `NOT RUN` is the skip that reads as
 ///    coverage, which is the failure mode the packs were built against. What it prints instead
 ///    names the count as one that asserted nothing, and carries the provisioner's diagnostic. The
 ///    two assertions above it still run, because what a binding emitted and whether the corpus has
@@ -751,8 +746,8 @@ macro_rules! execute_packs {
         }
     };
 
-    // Every behaviour a binding is held to: the five that hold whatever an adapter declares, plus
-    // the ONE leg direction its declaration selected, arriving as three tokens from the arm above.
+    // Every behaviour a binding is held to: five that hold whatever an adapter declares, plus the
+    // ONE leg direction its declaration selected, arriving as three tokens from the arm above.
     //
     // Internal, and one list rather than two. The leg cell is inside it rather than beside it,
     // which is what makes the census count derived: deleting the leg triple from either public arm
@@ -797,7 +792,7 @@ macro_rules! execute_packs {
                 // The pack is handed over as a FUNCTION ITEM rather than wrapped in a closure, and
                 // that is a lint rather than a style: `clippy::result_large_err` inspects a
                 // closure's return type at its definition site, so `|w| pack(w)` reported every
-                // adapter's own `Fault<E>` as too large to return - six errors per binding, in the
+                // adapter's own `Fault<E>` as too large to return - one error per emitted behaviour, in the
                 // adapter's crate, about a type this crate owns.
                 //
                 // `declared_here()` is read HERE rather than inside the reporters, and that is a

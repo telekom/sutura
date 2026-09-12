@@ -263,7 +263,7 @@ let
         # rather than the environment variable of the same name: that name is a CMake
         # option, and `libmimalloc-sys` builds with the `cc` crate and never reads it.
         # nixpkgs' own mimalloc derivation sets it whenever the host libc is musl. In
-        # mimalloc v2 it switches off `MI_USE_BUILTIN_THREAD_POINTER`
+        # an earlier mimalloc major it switches off `MI_USE_BUILTIN_THREAD_POINTER`
         # (`include/mimalloc/prim.h`), so the thread id comes from the TLS slot instead of
         # `__builtin_thread_pointer`. `CFLAGS_<triple>` is the `cc` crate's per-target
         # hook; it is appended to the flags cc already computed, not a replacement for

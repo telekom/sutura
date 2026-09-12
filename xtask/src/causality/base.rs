@@ -659,7 +659,7 @@ mod tests {
 
     #[test]
     fn an_aborting_base_is_a_failure_rather_than_a_build_that_did_not_happen() {
-        // THE FINDING THIS CLOSES. `ABORT [` is the Windows word; Unix nextest 0.9.143 prints
+        // THE FINDING THIS CLOSES. `ABORT [` is the Windows word; the pinned Unix nextest prints
         // `SIGABRT [`, so a base run whose only failure was an abort - a double panic, a panic in
         // `Drop`, a stack overflow - parsed to ZERO failures and printed *the base tree does not
         // build* about a tree that built fine. Every signal status is one word per signal, so the

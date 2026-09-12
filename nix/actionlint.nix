@@ -1,4 +1,4 @@
-# actionlint 1.7.12 predates GitHub's `concurrency.queue`. Apply the upstream parser and
+# The pinned actionlint predates GitHub's `concurrency.queue`. Apply the upstream parser and
 # validation change so `just lint-ci` remains the authority for the workflow syntax that CI uses.
 # Remove this patch when the locked nixpkgs actionlint release contains the upstream commit.
 { pkgs }:

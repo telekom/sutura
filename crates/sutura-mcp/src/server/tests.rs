@@ -746,7 +746,7 @@ async fn the_configured_bound_is_what_executes_at_once_and_the_next_question_is_
 /// assertion that says so.
 ///
 /// **It drives `super::answer` and not the SDK's dispatch, and that is a limit rather than a
-/// shortcut.** `rmcp` 3.1.4 answers a `notifications/cancelled` by cancelling a token this handler
+/// shortcut.** `rmcp` answers a `notifications/cancelled` by cancelling a token this handler
 /// does not read, and spawns each request as a detached task - so neither a cancelled call nor a
 /// closed session drops the future that is waiting for an answer. Dropping one is therefore
 /// something a test has to do itself: aborting the task is what a request timeout does to the same

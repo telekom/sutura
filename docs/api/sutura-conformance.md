@@ -61,8 +61,8 @@ mod conformance {
   never called, so *held to the same test bodies* is a statement about two methods and not about
   `Warehouse`. Three of those five carry guarantees of their own in
   `.agents/skills/sutura/invariants`, held by other mechanisms.
-- **That the corpus is hard.** It is two questions over one table - `corpus` lists by name the
-  cases `docs/adr/0012` says nothing else finds, none of which is here yet.
+- **That the corpus is exhaustive.** It is seven questions over one table; `corpus` names the
+  federated cases that still belong to another suite.
 - **That every adapter is held IS held now, and not by anything in this crate.** A pack is bound
   where an adapter's own crate binds it, so which adapters conform used to be a reading of which
   crates carry a `tests/conformance.rs` - deleting one left `just validate` green.
@@ -80,8 +80,8 @@ mod conformance {
   then exports it, so that is `just test`, `just gates`, `just causality`'s head run and
   `nix/run-gate.sh tests` on a machine with the tier binary, plus `checks.nextest` in the
   sandbox. Measured before that arm existed: a fixture answering `Fixture::Absent`
-  unconditionally, with the tier UP and the variable set, was 21 passed and the only tell was
-  seven printed `NOT RUN` lines; with it, 7 of 7 fail.
+  unconditionally, with the tier UP and the variable set, passed and the only tell was printed
+  `NOT RUN` lines; with it, every emitted cell fails.
 
   **The residual is two venues rather than *a developer machine*, and both are checkable** -
   *a developer machine* was the sentence that stood here and it points at the case where the
@@ -91,15 +91,10 @@ mod conformance {
   variable on purpose, because an export follows a process tree and the endpoint file the base
   worktree would need does not. In those two a declared absence and a discovered one are the
   same value.
-- **That `corpus::on_disk` is this run's corpus and nobody else's.** It renames the rows onto
-  `<temp_dir>/sutura-conformance/<table>.csv`, a name carrying no worktree and no digest, so a
-  second checkout of this repository is a second WRITER of that file. *The bytes are identical
-  either side* holds per tree, not per machine, and two `just test` runs in two worktrees is how
-  the change that wrote this paragraph was reviewed. A cell would fail as a
-  `Fault::Content` naming the case and the adapter while the run that caused it stayed green -
-  the one reading these packs exist to make unambiguous. `telekom/sutura#405` is where the path
-  gets per-worktree isolation; it is deliberately not fixed here, because it is a change to a
-  fixture every binding shares and this file's diff is about one adapter.
+- **That `corpus::on_disk` is this run's corpus and nobody else's.** It writes below this
+  checkout's `.sutura-dev`, so two worktrees no longer share a path. Processes in one worktree
+  still share the same deterministic file; the atomic rename makes identical writers safe, but
+  this is isolation by worktree rather than by process.
 - **A COST, rather than a budget.** `Spent` reports what every cell and every fixture took,
   and `census` prints the per-adapter floor; nothing thresholds either, and nothing joins two
   adapters' numbers. `docs/adr/0012` carries what the remaining half would need.
@@ -335,7 +330,7 @@ half is still real, because asking a provisioner and being told no costs somethi
 The pack arrives as `impl FnOnce(&W) -> Conformed<E>` and every binding hands over a FUNCTION
 ITEM, which is what keeps `clippy::result_large_err` off the adapter's own crate: that lint
 inspects a closure's return type at its definition site, and the one closure this needs is
-defined here, generic in the adapter's error, rather than six times per binding.
+defined here, generic in the adapter's error, rather than once in every generated test.
 
 ## `fn census`
 
@@ -366,8 +361,8 @@ Five things, and the first is the one a review had to correct:
    same `bound` slice the comparison above uses, so the multiplier is the number of tests that
    were actually emitted rather than a constant beside it;
 5. **a venue where the fixture did not stand up prints NO coverage line at all.** It takes the
-   `open` path rather than a `Spent` for exactly this: a census that printed *6 behaviour(s)
-   over the corpus's cases* beside six cells that each reported `NOT RUN` is the skip that reads as
+   `open` path rather than a `Spent` for exactly this: a census that printed a coverage count
+   beside cells that each reported `NOT RUN` is the skip that reads as
    coverage, which is the failure mode the packs were built against. What it prints instead
    names the count as one that asserted nothing, and carries the provisioner's diagnostic. The
    two assertions above it still run, because what a binding emitted and whether the corpus has
@@ -478,7 +473,7 @@ cannot create has to decide its own direction - and a `matches!` gave it one by 
 `false`, silently, with `cargo check --all-features` exit 0. That is this branch's own hole
 reopened one adapter later and inside the venue this crate says is closed - a fixture answering
 `Absent(Cloud)` without asking anything, in `checks.nextest`, which sets the variable. Measured
-with the refusal absent: `21 tests run: 21 passed`, the only tell printed lines nobody diffs.
+with the refusal absent: every test passed, and the only tell was printed lines nobody diffs.
 
 With the `match` a new variant does not compile until somebody writes its arm, so the fail-open
 direction cannot be chosen by not looking. **No test asserts that and none can** - a compile
@@ -610,7 +605,7 @@ its position.
 
 ## Module `corpus`
 
-The corpus the execute packs run: one table, four questions, and the answer written ONCE.
+The corpus the execute packs run: one table, seven questions, and the answer written ONCE.
 
 **Written once is the whole property.** Every registered adapter is asked the same plan and
 compared against the same `Case::expected` rows, so *these two data systems answer this
@@ -631,21 +626,6 @@ them as a dev-dependency without acquiring a catalog adapter, `sutura-semantic` 
 - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
   keys. Each needs a second table and a federated plan; none is here.
-- **An integral total strictly PAST `i64`, which is not a gap but an undecidable row.** Read off
-  the three bound adapters: `sutura-exec-postgres` REFUSES one
-  (`numeric_cell` parses an integral `NUMERIC` into an `i64` and errors rather than rounding),
-  `sutura-exec-duckdb` answers `Value::Text` from its `HugeInt` arm, and
-  `sutura-exec-datafusion`'s `sum` over an `Int64` column has nowhere wider to go at all. Three
-  adapters, three different endings, so a corpus whose answer is written ONCE cannot hold that
-  row - `total_wide_by_day` goes to the boundary and stops there. What the boundary still
-  buys is in that case's own doc.
-- **A fixed-point measure, and so the `Value::Text` arm all three adapters keep for one.**
-  Unreachable from a CSV-backed corpus rather than omitted: no type inference on the load path
-  produces a fixed-point column from a fractional literal - `read_csv_auto` and `DataFusion`'s
-  inference both answer a 64-bit float, and `sutura-exec-postgres`'s own importer has no
-  `NUMERIC` arm to reach. The fractional CLASS is exercised, as `Value::Real`
-  (`total_rate_by_day`), and the day an inference answers a fixed-point type instead that
-  cell reddens - which is the class comparison working rather than a case somebody has to write.
 - **Files.** `docs/adr/0012`'s *the corpus is files, not code* is unbuilt: a case is a value in
   this module, so adding one is still a code change.
 
@@ -813,7 +793,7 @@ running its own `on_disk`, one row differing: the `DuckDB` binding failed
 `total-by-region-and-day` and `total-by-region-and-day-as-a-leg` as content faults naming this
 corpus's own cases, while the run that overwrote the file was green. The window is wide because
 `attach_csv` makes a VIEW over `read_csv_auto`, so the file is read at QUERY time; the Postgres
-binding reads it seven times per binding at LOAD time.
+binding reads it once per behaviour plus the census at LOAD time.
 
 A path under the worktree needs no key, because the worktree is the key - the same answer
 `sutura_dev::scope::Scope::state_dir` gives, and `tests/bound.rs` pins the two spellings
@@ -1185,7 +1165,7 @@ cannot create has to decide its own direction - and a `matches!` gave it one by 
 `false`, silently, with `cargo check --all-features` exit 0. That is this branch's own hole
 reopened one adapter later and inside the venue this crate says is closed - a fixture answering
 `Absent(Cloud)` without asking anything, in `checks.nextest`, which sets the variable. Measured
-with the refusal absent: `21 tests run: 21 passed`, the only tell printed lines nobody diffs.
+with the refusal absent: every test passed, and the only tell was printed lines nobody diffs.
 
 With the `match` a new variant does not compile until somebody writes its arm, so the fail-open
 direction cannot be chosen by not looking. **No test asserts that and none can** - a compile

@@ -12,7 +12,7 @@
 //! `analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` rendered
 //! a `FROM` and a `LEFT JOIN` whose `ON` clause compared `orders.customer_id` with `orders.id` - one
 //! table with itself - and every projected column was qualified by an identifier that named two
-//! tables. On a real `DuckDB` 1.5.5 that statement is
+//! tables. On the pinned `DuckDB` that statement is
 //! `Binder Error: Ambiguous reference to table "orders"`; a target that binds it to one side instead
 //! returns a number under a certified metric name, which is the failure class this repository is
 //! arranged against. **Same-name tables are the normal shape of the estate `docs/adr/0019` exists
@@ -23,7 +23,7 @@
 //!
 //! Distinct aliases are the fix that would keep the question answerable, and they are **not reachable
 //! through the SQL builder this workspace renders with**, which was measured rather than assumed
-//! against `polyglot-sql` 0.9.2: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
+//! against the pinned `polyglot-sql`: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
 //! could carry an `AS`, but `left_join` and every other join method take a `&str` table name and
 //! `join_with_kind` is private - so the JOINED side cannot be aliased without hand-building a select
 //! expression with upwards of thirty fields, which `sutura_sql`'s renderer rules out at its own header

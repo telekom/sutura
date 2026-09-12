@@ -45,6 +45,8 @@ Why this data system could not answer.
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
 - `NoSchema` - The driver handed back a result set with no statement behind it, so there are no column labels to read.
 - `Render` - The plan could not be rendered as SQL.
+- `FixtureRead` - The fixture CSV could not be read to name its column types.
+- `FixtureSchema` - The fixture CSV did not satisfy the shared schema boundary.
 - `Attach`
 - `NoPlaceForASubject` - One leg of a federated answer, rendered here and assembled above by the combiner.
 - `PresentedDisagreesWithPosture` - The broker presented a leg that does not agree with how this source was DECLARED.
@@ -70,12 +72,21 @@ pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DuckDbErr
 Exposes a CSV file as a table.
 
 A narrow, typed affordance instead of a general "run this SQL" method, which is what a local
-adapter usually grows and what would make every check upstream of here optional. The table
-name is a `TableName`, so it cannot carry a quote; the path is a string, so it is escaped
-the only way a SQL string literal can be, by doubling every quote.
+adapter usually grows and would make every check upstream of here optional. The table name is
+a `TableName`, so it cannot carry a quote; the path is a string, so it is escaped the only
+way a SQL string literal can be, by doubling every quote.
 
-`read_csv_auto` and not a bind parameter, because a table function's argument is part of the
-statement's shape rather than a value and `DuckDB` will not bind one there.
+```rust
+pub fn attach_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), DuckDbError>
+```
+
+Exposes a conformance fixture CSV with shared column typing.
+
+The columns are typed before the read, and the typing comes from
+`sutura_domain::warehouse::csv` - the one classification every adapter shares. Naming the
+complete map keeps decimals exact and prevents `DuckDB`'s boolean and wide-integer inference
+from drifting from the other fixture adapters. Use `Self::attach_csv` for CSVs outside the
+deliberately simple fixture format. Available only with the default-off `fixtures` feature.
 
 ```rust
 pub fn in_memory(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture) -> Result<Self, DuckDbError>

@@ -35,7 +35,6 @@ Why this data system could not answer.
 - `Prepare`
 - `Execute`
 - `DivisionByZero` - The server refused a statement as `division by zero` (SQLSTATE `22012`).
-- `NumericNotCarryable` - A `NUMERIC` wider than this build can carry exactly. Refused, not rounded.
 - `UnsupportedType` - A column came back as a type this adapter does not map. An error, not a stringified value.
 - `NotFinite` - A floating-point (or `NUMERIC`) column came back as a value that is not a number.
 - `NotADate` - A day came back that is not a date this build can represent.
@@ -45,6 +44,7 @@ Why this data system could not answer.
 - `Fixture` - A fixture import failed.
 - `FixtureRead`
 - `InvalidColumnName` - A CSV header named a column that is not a valid identifier. Refused, not interpolated.
+- `FixtureSchema` - The shared conformance fixture schema could not be inferred.
 - `InvalidSchemaName` - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
 - `InvalidStatementTimeout` - The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
@@ -87,6 +87,14 @@ pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresErr
 Exposes a fixture CSV as a table: infers column types, recreates the table, then pushes the
 rows through `COPY ... FROM STDIN`. Re-inferring from the committed CSV each run cannot
 drift from it, and recreating makes a run idempotent.
+
+```rust
+pub fn load_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError>
+```
+
+Exposes a conformance fixture with the same exact types as the other adapter bindings.
+
+Available only with the default-off `fixtures` feature.
 
 ```rust
 pub fn local_config(host: &str, port: u16, credential: &fixture::FixtureCredential) -> tokio_postgres::Config

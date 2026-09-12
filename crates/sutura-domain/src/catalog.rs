@@ -402,7 +402,7 @@ impl Metric {
     /// order the file wrote them. Same shape, and the same argument, as
     /// [`StatementTables::parse`](crate::plan::StatementTables::parse).
     ///
-    /// **What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
+    /// **What a folded pair costs was measured rather than argued.** The pinned `DuckDB`
     /// (`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
     /// [`IdentifierCase::InsensitiveAscii`]:
     /// `SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")` returns **1** - the `region`
