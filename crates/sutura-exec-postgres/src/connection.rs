@@ -7,6 +7,8 @@
 
 use std::path::Path;
 
+use sutura_domain::identity::Secret;
+
 /// The address a PostgreSQL source is dialled through.
 #[derive(Clone, Copy)]
 pub enum ConnectionTarget<'a> {
@@ -28,7 +30,8 @@ pub struct PasswordFileUnreadable {
 /// Builds the driver configuration for one declared PostgreSQL connection.
 ///
 /// The password is trimmed exactly once after reading, so a trailing newline from a mounted secret
-/// is not part of the credential. The returned config does not select TLS; [`crate::PostgresWarehouse::connect_secured`]
+/// is not part of the credential, then parsed into [`Secret`] before the trimmed `String` is dropped.
+/// The returned config does not select TLS; [`crate::PostgresWarehouse::connect_secured`]
 /// makes a supplied TLS client mandatory before it dials.
 ///
 /// # Errors
@@ -57,6 +60,14 @@ pub fn config(
         path: password_file.display().to_string(),
         cause,
     })?;
-    config.password(password.trim());
+    // Read into `Secret` as close to the read as this module can manage - see `docs/adr/0020`'s
+    // "not claimed" list, which already concedes the pre-`Secret` `String` window this narrows.
+    let password = Secret::new(password.trim());
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the credential's destination is a connection handshake, which is the one place the \
+                  value itself is the payload"
+    )]
+    config.password(password.expose_secret());
     Ok(config)
 }

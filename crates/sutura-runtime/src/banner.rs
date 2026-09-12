@@ -252,10 +252,13 @@ fn announce_surface(settings: &Settings) {
                     TrustAnchors::File(path) => path.display().to_string(),
                 }),
             ),
-            // The kinds with no per-source channel: `files` is a directory this process reads, and
-            // the `bigquery` wire owns its own TLS rather than taking a declaration. Saying so beats
-            // inventing a word for either.
-            SourcePlacement::Files { .. } | SourcePlacement::BigQuery { .. } => ("none declared", None),
+            // The two kinds with no per-source channel, and deliberately not one word for both:
+            // `files` truly has no wire, so `"none declared"` is accurate for it. `bigquery`'s wire
+            // DOES carry TLS - `ureq`'s own, against its compiled-in roots - and printing "none
+            // declared" beside `anchors=none` reads to an operator scanning the log as plaintext,
+            // which it is not.
+            SourcePlacement::Files { .. } => ("none declared", None),
+            SourcePlacement::BigQuery { .. } => ("wire-owned tls (not declared)", None),
         };
         tracing::info!(
             source = %source,
@@ -330,7 +333,32 @@ fn announce_token_class(inbound: &InboundIdentity) {
 mod tests {
     use sutura_config::{Environment, Settings, Sources};
 
-    use super::{BANNER, announce_provenance};
+    use super::{BANNER, announce_provenance, announce_surface};
+
+    #[test]
+    fn a_postgres_sources_channel_and_anchors_reach_the_log_and_bigquery_reads_as_wire_owned() {
+        // `docs/adr/0010`'s "the startup line then prints that it was chosen" - held here, and not
+        // by the log line's own existence: a source whose channel is `verified` has to say so, and
+        // its anchors have to be readable next to it, or the distinction the ADR names is not
+        // actually visible anywhere. The `bigquery` source in the same tree is the finding-11 half:
+        // it must not read as `"none declared"`, which beside `anchors=none` looks like plaintext.
+        let sources = Sources::defaults(Environment::Development).with_overlay(
+            "security:\n  identity: \"multi-user\"\nsources:\n  \
+             warehouse:\n    kind: \"postgres\"\n    host: \"127.0.0.1\"\n    port: 5432\n    \
+             database: \"marts\"\n    user: \"sutura\"\n    password_file: \"/etc/sutura/pg-password\"\n    \
+             transport_mode: \"verified\"\n    transport_anchors: \"/etc/sutura/ca.pem\"\n    \
+             posture: \"shared-service-user\"\n    acknowledged_because: \"one service role for everybody\"\n  \
+             analytics:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
+             credential_file: \"/etc/sutura/bigquery.json\"\n    max_bytes_billed: 1073741824\n    \
+             posture: \"shared-service-user\"\n    acknowledged_because: \"one service account for everybody\"\n",
+        );
+        let settings = Settings::load(&sources).expect("two declared sources load");
+        let recorded = crate::testing::capture(|| announce_surface(&settings));
+        assert!(recorded.contains("\"channel\":\"verified\""), "{recorded}");
+        assert!(recorded.contains("\"anchors\":\"/etc/sutura/ca.pem\""), "{recorded}");
+        assert!(recorded.contains("wire-owned tls"), "{recorded}");
+        assert!(!recorded.contains("\"channel\":\"none declared\""), "{recorded}");
+    }
 
     #[test]
     fn the_startup_report_says_which_configuration_files_are_in_effect() {

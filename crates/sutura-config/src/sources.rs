@@ -40,7 +40,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::security::DeploymentIdentity;
-use crate::sources::placement::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
+use crate::sources::placement::{BillingProject, DatasetId, InvalidHostName, InvalidResourceName, SourcePlacement};
 use crate::sources::transport::InvalidTransport;
 use crate::sources::workload_identity::{InvalidWorkloadIdentity, WorkloadIdentityConfig};
 use sutura_domain::model::{InvalidIdentifier, SourceName};
@@ -339,6 +339,13 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: InvalidResourceName,
     },
+    /// A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
+    #[error("`sources.{alias}.host` is not a usable host")]
+    Host {
+        alias: SourceName,
+        #[source]
+        cause: InvalidHostName,
+    },
     /// An `impersonation-at-source` source declared no token-exchange setup.
     ///
     /// A source that executes as the asking subject has to say WHICH provider exchanges the subject's
@@ -609,32 +616,32 @@ fn parse_placement(
     let written = |value: Option<&str>| value.is_some_and(|text| !text.trim().is_empty());
     match kind {
         SourceKind::Files => {
-            for (key, present) in [
-                ("billing_project", written(entry.billing_project)),
-                ("dataset", written(entry.dataset)),
-                ("credential_file", written(entry.credential_file)),
-                ("max_bytes_billed", entry.max_bytes_billed.is_some()),
-            ] {
-                if present {
-                    return Err(InvalidSourceRegistry::KeyNotForKind {
-                        alias: alias.clone(),
-                        kind,
-                        key,
-                    });
-                }
-            }
+            refuse_foreign_keys(
+                alias,
+                kind,
+                [
+                    ("billing_project", written(entry.billing_project)),
+                    ("dataset", written(entry.dataset)),
+                    ("credential_file", written(entry.credential_file)),
+                    ("max_bytes_billed", entry.max_bytes_billed.is_some()),
+                ]
+                .into_iter()
+                .chain(postgres_only_keys(entry, written)),
+            )?;
             Ok(SourcePlacement::Files {
                 data_dir: parse_data_dir(alias, entry.data_dir)?,
             })
         }
         SourceKind::BigQuery => {
-            if written(entry.data_dir) {
-                return Err(InvalidSourceRegistry::KeyNotForKind {
-                    alias: alias.clone(),
-                    kind,
-                    key: "data_dir",
-                });
-            }
+            // The `postgres`-only keys are refused here too, for the same reason as on `files`: a
+            // `bigquery` entry carrying `transport_mode: verified` and `transport_anchors` would
+            // otherwise load and verify against `ureq`'s compiled-in roots regardless, which is
+            // exactly the limit this deployment's own transport declaration would claim to close.
+            refuse_foreign_keys(
+                alias,
+                kind,
+                std::iter::once(("data_dir", written(entry.data_dir))).chain(postgres_only_keys(entry, written)),
+            )?;
             let billing_project = BillingProject::parse(required(alias, kind, "billing_project", entry.billing_project)?)
                 .map_err(|cause| InvalidSourceRegistry::ResourceName {
                     alias: alias.clone(),
@@ -673,26 +680,31 @@ fn parse_placement(
             // The reference values the kind refuses when a foreign key sits on it. `files` keys are
             // refused on a `postgres` entry too - a directory would be an adapter that reads it - so
             // the set is the union of every key that belongs to a DIFFERENT kind.
-            for (key, present) in [
-                ("data_dir", written(entry.data_dir)),
-                ("billing_project", written(entry.billing_project)),
-                ("dataset", written(entry.dataset)),
-                ("credential_file", written(entry.credential_file)),
-                ("max_bytes_billed", entry.max_bytes_billed.is_some()),
-            ] {
-                if present {
-                    return Err(InvalidSourceRegistry::KeyNotForKind {
-                        alias: alias.clone(),
-                        kind,
-                        key,
-                    });
-                }
-            }
+            refuse_foreign_keys(
+                alias,
+                kind,
+                [
+                    ("data_dir", written(entry.data_dir)),
+                    ("billing_project", written(entry.billing_project)),
+                    ("dataset", written(entry.dataset)),
+                    ("credential_file", written(entry.credential_file)),
+                    ("max_bytes_billed", entry.max_bytes_billed.is_some()),
+                ],
+            )?;
             // Exactly one of `host` or `unix_socket`. Both, or neither, is a declaration the adapter
             // cannot dial - a source has to say whether it is reached over the network or a socket.
+            // Built directly into `PostgresDial` rather than into two `Option` fields: the states a
+            // struct of options would still admit - `(None, None)`, `(Some, Some)` - are exactly the
+            // two this match refuses, so there is no representable state left for a composition
+            // root to re-refuse. See `sources::placement::PostgresDial`.
             let has_host = written(entry.host);
             let has_unix_socket = written(entry.unix_socket);
-            match (has_host, has_unix_socket) {
+            let port = entry.port.ok_or_else(|| InvalidSourceRegistry::MissingForKind {
+                alias: alias.clone(),
+                kind,
+                key: "port",
+            })?;
+            let dial = match (has_host, has_unix_socket) {
                 (true, true) => {
                     return Err(InvalidSourceRegistry::KeyNotForKind {
                         alias: alias.clone(),
@@ -707,32 +719,27 @@ fn parse_placement(
                         key: "host_or_unix_socket",
                     });
                 }
-                _ => {}
-            }
-            let host = has_host.then(|| entry.host.map(str::trim).unwrap_or_default().to_owned());
-            let unix_socket = has_unix_socket
-                .then(|| entry.unix_socket.map(str::trim).unwrap_or_default().to_owned())
-                .filter(|text| !text.is_empty());
-            let unix_socket = match unix_socket {
-                Some(text) => {
-                    let path = PathBuf::from(text);
-                    if path.is_relative() {
+                (true, false) => {
+                    let text = entry.host.map(str::trim).unwrap_or_default();
+                    let host = crate::sources::placement::HostName::parse(text).map_err(|cause| InvalidSourceRegistry::Host {
+                        alias: alias.clone(),
+                        cause,
+                    })?;
+                    crate::sources::placement::PostgresDial::Tcp { host, port }
+                }
+                (false, true) => {
+                    let text = entry.unix_socket.map(str::trim).unwrap_or_default();
+                    let directory = PathBuf::from(text);
+                    if directory.is_relative() {
                         return Err(InvalidSourceRegistry::RelativePath {
                             alias: alias.clone(),
                             key: "unix_socket",
-                            path,
+                            path: directory,
                         });
                     }
-                    Some(path)
+                    crate::sources::placement::PostgresDial::UnixSocket { directory, port }
                 }
-                None => None,
             };
-
-            let port = entry.port.ok_or_else(|| InvalidSourceRegistry::MissingForKind {
-                alias: alias.clone(),
-                kind,
-                key: "port",
-            })?;
             let database = required(alias, kind, "database", entry.database)?.to_owned();
             let user = required(alias, kind, "user", entry.user)?.to_owned();
             let password_file = parse_absolute(
@@ -757,18 +764,16 @@ fn parse_placement(
             // `anchors().is_none()` IS "no transport security" - both TLS variants name a store - and
             // the refusal names `transport_mode`, which is the key the remedy is written under.
             if transport.anchors().is_none()
-                && let Some(host) = host.as_deref()
-                && !crate::sources::transport::host_is_loopback(host)
+                && let crate::sources::placement::PostgresDial::Tcp { ref host, .. } = dial
+                && !crate::sources::transport::host_is_loopback(host.as_str())
             {
                 return Err(InvalidSourceRegistry::RemoteWithoutTls {
                     alias: alias.clone(),
-                    host: host.to_owned(),
+                    host: host.as_str().to_owned(),
                 });
             }
             Ok(SourcePlacement::Postgres {
-                host,
-                unix_socket,
-                port,
+                dial,
                 database,
                 user,
                 password_file,
@@ -776,6 +781,48 @@ fn parse_placement(
             })
         }
     }
+}
+
+/// The ten keys that mean something only to a `postgres` entry, paired with whether this entry
+/// wrote each one.
+///
+/// Shared by the `Files` and `BigQuery` foreign-key checks in [`parse_placement`]: a key that means
+/// something only to one kind and is refused on every OTHER kind is the same rule five times over
+/// (`data_dir` is the sixth, and it stays inline because only one other kind refuses it).
+fn postgres_only_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 10] {
+    [
+        ("host", written(entry.host)),
+        ("unix_socket", written(entry.unix_socket)),
+        ("port", entry.port.is_some()),
+        ("database", written(entry.database)),
+        ("user", written(entry.user)),
+        ("password_file", written(entry.password_file)),
+        ("transport_mode", written(entry.transport_mode)),
+        ("transport_anchors", written(entry.transport_anchors)),
+        ("client_certificate", written(entry.client_certificate)),
+        ("client_key", written(entry.client_key)),
+    ]
+}
+
+/// Refuses the first key in `keys` this entry wrote, naming it and the kind it does not belong to.
+///
+/// `Ok(())` when nothing in `keys` was written - the fail-closed rule `parse_placement`'s own doc
+/// states, mechanised in one place for the three kinds that all read the same union.
+fn refuse_foreign_keys(
+    alias: &SourceName,
+    kind: SourceKind,
+    keys: impl IntoIterator<Item = (&'static str, bool)>,
+) -> Result<(), InvalidSourceRegistry> {
+    for (key, present) in keys {
+        if present {
+            return Err(InvalidSourceRegistry::KeyNotForKind {
+                alias: alias.clone(),
+                kind,
+                key,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// One kind-specific key that has to be there, trimmed, or the refusal that says it is not.

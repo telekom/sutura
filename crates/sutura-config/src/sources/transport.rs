@@ -386,6 +386,21 @@ mod tests {
     }
 
     #[test]
+    fn a_relative_anchors_path_is_refused_naming_the_key() {
+        // The same fact `a_client_identity_is_one_pair_or_nothing` proves for a relative
+        // `client_key`, over the anchors path: a working directory is whatever this process's
+        // supervisor chose, so a relative bundle path is a different file on every host.
+        assert!(matches!(
+            parse(&source("pg"), "verified", Some("ca.pem"), None, None),
+            Err(InvalidTransport::RelativePath {
+                alias,
+                key: "transport_anchors",
+                ..
+            }) if alias == source("pg")
+        ));
+    }
+
+    #[test]
     fn tls_without_anchors_refuses_naming_the_source() {
         assert_eq!(
             parse(&source("warehouse"), "verified", None, None, None),

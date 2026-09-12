@@ -85,8 +85,11 @@ mod tls {
 
     /// A connection config for the loopback TLS dial.
     ///
-    /// This deliberately keeps tokio-postgres's default `SslMode::Prefer`: `connect_secured` must
-    /// strengthen it to `Require` whenever a verifier is supplied, so no caller can forget.
+    /// This deliberately leaves tokio-postgres's default `SslMode::Prefer` unset: `connect_secured`
+    /// strengthens it to `Require` whenever a verifier is supplied. That the tier always answers the
+    /// TLS negotiation `S` means no cell in THIS file can observe a downgrade if that strengthening
+    /// were ever removed - the tier has no server to decline TLS with. The hermetic negative that
+    /// proves it is `crates/sutura-exec-postgres/src/tests.rs`, against a listener that answers `N`.
     fn config(port: u16) -> tokio_postgres::Config {
         let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
         PostgresWarehouse::local_config(LOOPBACK, port, &credential)

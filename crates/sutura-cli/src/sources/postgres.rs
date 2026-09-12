@@ -50,9 +50,7 @@ pub(super) fn open(
     use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
 
     let sutura_config::SourcePlacement::Postgres {
-        ref host,
-        ref unix_socket,
-        port,
+        ref dial,
         ref database,
         ref user,
         ref password_file,
@@ -78,14 +76,12 @@ pub(super) fn open(
         )
         .map_err(|cause| render(&cause))?;
 
-    let target = match (host, unix_socket) {
-        (Some(host), _) => ConnectionTarget::Host(host),
-        (None, Some(socket)) => ConnectionTarget::UnixSocket(socket),
-        (None, None) => {
-            return Err(format!(
-                "`sources.{source}` declares no `host` and no `unix_socket`, so this adapter has \
-                 nothing to dial"
-            ));
+    // Exactly one of these, by construction - `sutura_config::sources::placement::PostgresDial`
+    // is the reason there is no third arm here for a state `parse_placement` already refused.
+    let (target, port) = match dial {
+        sutura_config::sources::placement::PostgresDial::Tcp { host, port } => (ConnectionTarget::Host(host.as_str()), *port),
+        sutura_config::sources::placement::PostgresDial::UnixSocket { directory, port } => {
+            (ConnectionTarget::UnixSocket(directory), *port)
         }
     };
     let config = config(target, port, database, user, password_file)

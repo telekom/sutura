@@ -282,6 +282,28 @@ mod tests {
     }
 
     #[test]
+    fn a_partially_read_system_store_is_refused_naming_how_many_failed() {
+        // The "partially" half of this function's own doc: the upstream reader reports a partial
+        // read as certificates PLUS errors, and accepting the certificates alone would make
+        // `system` mean a silently reduced store. One good certificate and one reported failure -
+        // the good one must not paper over the bad one.
+        let mut loaded = rustls_native_certs::CertificateResult::default();
+        let issued = rcgen::generate_simple_self_signed([String::from(SUBJECT)]).expect("a self-signed pair generates");
+        loaded.certs.push(issued.cert.der().clone());
+        loaded.errors.push(rustls_native_certs::Error {
+            context: "one store entry could not be read",
+            kind: rustls_native_certs::ErrorKind::Io {
+                inner: std::io::Error::other("permission denied"),
+                path: PathBuf::from("/etc/ssl/certs/broken.pem"),
+            },
+        });
+        assert!(matches!(
+            system_roots(loaded),
+            Err(PostgresError::SystemStoreRead { errors: 1, .. })
+        ));
+    }
+
+    #[test]
     fn a_missing_anchor_file_is_refused_naming_the_path() {
         let missing = PathBuf::from("/definitely/not/here.pem");
         assert!(matches!(

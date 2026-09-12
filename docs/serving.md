@@ -751,8 +751,10 @@ the same policy result. Per-subject Postgres credentials are separate work.
 
 The gate-backed example loads `examples/single-player/data/*.csv` into the provisioned Postgres tier,
 starts the real `sutura-serve` binary with the declaration above over verified loopback TLS, and asks
-the example's certified June revenue question over HTTP. Run it with `just serve-e2e`; the tier is
-provisioned by the test wrapper, and no fixed fixture port is involved.
+the example's certified June revenue question over HTTP. Run it with `just test`, which is where the
+tier is provisioned - `just serve-e2e` scopes `cargo nextest` to `sutura-serve` alone and does not
+source `nix/with-tier.sh`, so run from a shell with no tier up it returns without asserting. No fixed
+fixture port is involved either way.
 
 | Posture                   | What it means                                                          | What decides what a subject sees                                                |
 | ------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------- |

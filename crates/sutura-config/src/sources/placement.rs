@@ -195,6 +195,100 @@ impl DatasetId {
     }
 }
 
+/// A `postgres` source's host or address, exactly as written.
+///
+/// **Unrepresentable rather than checked, per `secure-by-design`.** Before this type, `host` was a
+/// bare `String` carried past `parse_placement` unexamined - the exclusivity of `host` and
+/// `unix_socket` was a check in that function, but the FIELD still admitted whatever text was
+/// there, so [`crate::sources::placement::PostgresDial`] existed only as a `match` two composition
+/// roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
+/// whitespace, a URL scheme, a path separator - and nothing about reachability: a value that parses
+/// may still fail to resolve, or fail the TLS name check at connect time, and neither is this
+/// type's question. [`crate::sources::transport::host_is_loopback`] still does the loopback test on
+/// the parsed text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostName(String);
+
+/// Why a declared Postgres host cannot be dialled at all.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidHostName {
+    /// Nothing was written, or only whitespace was.
+    #[error("it is empty")]
+    Empty,
+    /// A host cannot contain whitespace - it would not survive being one token in a connection
+    /// string, and a name split by a space is not a name any resolver would look up.
+    #[error("it contains whitespace, which cannot be part of a host")]
+    Whitespace,
+    /// A URL was written where a bare host belongs - `host` is not a connection string.
+    #[error("it names a URL scheme (`{scheme}://`), and a host is not a URL")]
+    Scheme { scheme: String },
+    /// A `/` is a path separator, not a character a host or an address ever carries.
+    #[error("it contains `/`, and a host is not a path")]
+    PathSeparator,
+}
+
+impl HostName {
+    /// Parses a declared host or address.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidHostName> {
+        let trimmed = raw.as_ref().trim();
+        if trimmed.is_empty() {
+            return Err(InvalidHostName::Empty);
+        }
+        if let Some((scheme, _rest)) = trimmed.split_once("://") {
+            return Err(InvalidHostName::Scheme {
+                scheme: String::from(scheme),
+            });
+        }
+        if trimmed.contains('/') {
+            return Err(InvalidHostName::PathSeparator);
+        }
+        if trimmed.chars().any(char::is_whitespace) {
+            return Err(InvalidHostName::Whitespace);
+        }
+        Ok(Self(String::from(trimmed)))
+    }
+
+    /// The host, for dialling and for the loopback check.
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl core::fmt::Display for HostName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// How a `postgres` source is dialled: over TCP to a named host, or through a unix socket
+/// directory. Exactly one, decided once in [`crate::sources::parse_placement`].
+///
+/// **Replaces `host: Option<String>` plus `unix_socket: Option<PathBuf>` on the placement.** Those
+/// two fields admitted `(None, None)` and `(Some, Some)`, states `parse_placement` already refused -
+/// so both composition roots carried a `match (host, unix_socket)` with a fourth arm the parser had
+/// already made unreachable, and a comment saying so at each. This enum is the same argument
+/// `SourcePlacement` itself makes about `Files` versus `BigQuery`: unrepresentable beats checked
+/// twice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PostgresDial {
+    /// A TCP dial to a named host or address.
+    Tcp {
+        /// The host or address dialled.
+        host: HostName,
+        /// The TCP port.
+        port: u16,
+    },
+    /// A unix domain socket dial.
+    UnixSocket {
+        /// The socket directory. Absolute - checked at parse.
+        directory: PathBuf,
+        /// The port, which the driver still needs to name the socket file it connects to.
+        port: u16,
+    },
+}
+
 /// Where one declared source's data is.
 ///
 /// The module header carries why this is an enum. What is worth repeating at the type is that
@@ -267,14 +361,10 @@ pub enum SourcePlacement {
     ///
     /// `host` and `port` are the network dial; when the source sits on a unix socket, `unix_socket`
     /// is written instead. The two cannot both be set, and which one an operator chooses is what
-    /// decides whether a non-loopback host must have TLS declared.
+    /// decides whether a non-loopback host must have TLS declared - see [`PostgresDial`].
     Postgres {
-        /// The host dialled, or a unix socket path. Exactly one of these is set.
-        host: Option<String>,
-        /// The unix socket directory, when the source is socket-only. See `host`.
-        unix_socket: Option<PathBuf>,
-        /// The TCP port, when `host` is set.
-        port: u16,
+        /// The dial: a TCP host or a unix socket. Exactly one, by construction.
+        dial: PostgresDial,
         /// The database to connect to.
         database: String,
         /// The role to connect as.

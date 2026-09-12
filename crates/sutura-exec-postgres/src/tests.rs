@@ -1,6 +1,80 @@
 use super::*;
 use sutura_domain::warehouse::Value;
 
+/// Renders a typed error and every cause beneath it, one per line, so a chain-only fact (the
+/// message a downstream `#[source]` carries, not this type's own `Display`) can be asserted on.
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut out = error.to_string();
+    let mut cursor = std::error::Error::source(error);
+    while let Some(cause) = cursor {
+        out.push_str(" | caused by: ");
+        out.push_str(&cause.to_string());
+        cursor = cause.source();
+    }
+    out
+}
+
+/// **The hermetic negative M2 in the review that shipped this file could delete without reddening
+/// a single tier-backed cell.** `tests/tls.rs`'s tier always answers the SSL negotiation byte `S`,
+/// so nothing there can observe what happens when a server answers `N` - the one byte that matters
+/// for whether `connect_secured` actually makes the handshake mandatory, or merely sets it up to be
+/// forgotten. This binds a real `TcpListener` instead: no tier, no feature, runs everywhere.
+#[test]
+fn a_server_that_declines_tls_is_refused_rather_than_used_in_plaintext() {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    use sutura_conformance::corpus;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener binds");
+    let port = listener.local_addr().expect("a bound listener has a local address").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("the driver dials this listener");
+        // The whole of an SSLRequest: an 8-byte length-and-code message, nothing more, per
+        // tokio-postgres's own `connect_tls`.
+        let mut request = [0_u8; 8];
+        stream
+            .read_exact(&mut request)
+            .expect("the driver sends the 8-byte SSLRequest before anything else");
+        // `N` is the server declining TLS. Closed right after, rather than kept open: under a
+        // `Prefer` fallback the driver would carry on in plaintext and wait on a startup response
+        // nothing here answers - closing turns that into a fast, different failure rather than a
+        // hang, so this cell still terminates if the mandatory-`Require` line is ever lost.
+        stream.write_all(b"N").expect("declining TLS is one byte");
+        drop(stream);
+    });
+
+    let directory = std::env::temp_dir().join(format!("sutura-pg-declines-tls-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+    let anchor_path = directory.join("root.pem");
+    let issued = rcgen::generate_simple_self_signed([String::from("localhost")]).expect("a self-signed pair generates");
+    std::fs::write(&anchor_path, issued.cert.pem()).expect("the anchor writes");
+    let tls = crate::tls::client_config(&crate::tls::TlsAnchors::Bundle(anchor_path), None)
+        .expect("a bundle with one certificate builds a verifier");
+
+    let mut config = tokio_postgres::Config::new();
+    config
+        .host("127.0.0.1")
+        .port(port)
+        .dbname("sutura")
+        .user("sutura")
+        .password("unused")
+        .connect_timeout(Duration::from_secs(5));
+
+    let refused = PostgresWarehouse::connect_secured(corpus::source(), corpus::posture(), &config, Some(tls));
+    server.join().expect("the fake server thread does not panic");
+    let _ignored = std::fs::remove_dir_all(&directory);
+
+    let error = refused.expect_err("a server that declines TLS must not be used in plaintext");
+    assert!(matches!(error, PostgresError::Connect { .. }), "{error}");
+    let chain = error_chain(&error);
+    assert!(
+        chain.contains("does not support TLS"),
+        "the refusal must name why the handshake could not happen: {chain}"
+    );
+}
+
 /// The wire bytes for a `NUMERIC`: two bytes each of digit count, weight, sign and display
 /// scale, then the base-10000 digits. Built big-endian exactly as the documented format.
 #[expect(

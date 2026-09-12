@@ -588,6 +588,51 @@ fn the_two_keys_that_open_a_bigquery_source_mean_nothing_on_a_files_source() {
 }
 
 #[test]
+fn postgres_only_keys_mean_nothing_on_a_files_or_a_bigquery_source() {
+    // Both directions again, this time for the ten `postgres`-only keys against the OTHER two
+    // kinds: a `bigquery` entry carrying `transport_mode: verified` and `transport_anchors` would
+    // otherwise load and verify against `ureq`'s compiled-in roots regardless - the operator
+    // believes the wire verifies against their anchors, and it does not.
+    let on_files = RawSourceEntry {
+        transport_mode: Some("verified"),
+        transport_anchors: Some("/etc/sutura/ca.pem"),
+        ..impersonating("local")
+    };
+    let error =
+        SourceRegistry::parse(&[on_files], Some(&single_user())).expect_err("a postgres-only key on a files source is refused");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::KeyNotForKind {
+                kind: super::SourceKind::Files,
+                key: "transport_mode",
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+
+    let on_bigquery = RawSourceEntry {
+        transport_mode: Some("verified"),
+        transport_anchors: Some("/etc/sutura/ca.pem"),
+        ..bigquery("warehouse")
+    };
+    let error = SourceRegistry::parse(&[on_bigquery], Some(&single_user()))
+        .expect_err("a postgres-only key on a bigquery source is refused rather than silently unread");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::KeyNotForKind {
+                kind: super::SourceKind::BigQuery,
+                key: "transport_mode",
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn an_unusable_resource_name_is_refused_at_the_key_that_carries_it() {
     // The newtype's own refusal, surfaced with the key beside it - so an operator is told which line
     // to fix rather than that "a name" is wrong. The value is NOT in the message: a project id is one
@@ -692,17 +737,19 @@ fn a_postgres_source_declares_its_connection_and_its_plaintext_choice() {
     assert_eq!(configured.kind(), super::SourceKind::Postgres);
     match configured.placement() {
         super::placement::SourcePlacement::Postgres {
-            host,
-            unix_socket,
-            port,
+            dial,
             database,
             user,
             password_file,
             transport,
         } => {
-            assert!(host.is_none());
-            assert_eq!(unix_socket, &Some(std::path::PathBuf::from("/tmp/sutura-pg")));
-            assert_eq!(*port, 5432);
+            assert_eq!(
+                *dial,
+                super::placement::PostgresDial::UnixSocket {
+                    directory: std::path::PathBuf::from("/tmp/sutura-pg"),
+                    port: 5432,
+                }
+            );
             assert_eq!(database, "sutura");
             assert_eq!(user, "sutura");
             assert_eq!(password_file, std::path::Path::new("/etc/sutura/pg-password"));
@@ -780,6 +827,39 @@ fn a_postgres_source_must_declare_exactly_one_of_host_or_unix_socket() {
         matches!(error, InvalidSourceRegistry::KeyNotForKind { key, .. } if key == "host_and_unix_socket"),
         "{error}"
     );
+}
+
+#[test]
+fn a_relative_password_file_or_unix_socket_is_refused_naming_the_key() {
+    // The same fact `a_relative_credential_file_is_refused_and_the_refusal_names_the_key` proves
+    // for `bigquery`, over the two `postgres` paths that were untested: a working directory is
+    // whatever this process's supervisor chose, and a password file or a socket resolved against it
+    // is a different file on every host.
+    let entries = [RawSourceEntry {
+        password_file: Some("pg-password"),
+        ..postgres("warehouse")
+    }];
+    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a relative password file is refused");
+    match error {
+        InvalidSourceRegistry::RelativePath { key, ref path, .. } => {
+            assert_eq!(key, "password_file");
+            assert_eq!(path, std::path::Path::new("pg-password"));
+        }
+        other => panic!("expected a relative-path refusal, got {other:?}"),
+    }
+
+    let entries = [RawSourceEntry {
+        unix_socket: Some("relative/pg"),
+        ..postgres("warehouse")
+    }];
+    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a relative unix socket is refused");
+    match error {
+        InvalidSourceRegistry::RelativePath { key, ref path, .. } => {
+            assert_eq!(key, "unix_socket");
+            assert_eq!(path, std::path::Path::new("relative/pg"));
+        }
+        other => panic!("expected a relative-path refusal, got {other:?}"),
+    }
 }
 
 #[test]
