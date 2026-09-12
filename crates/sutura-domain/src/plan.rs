@@ -27,6 +27,7 @@ use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, Qualified
 use crate::pinned::PinnedDefinitions;
 use crate::warehouse::ParamValue;
 
+pub mod bindings;
 pub mod federated;
 pub mod label;
 pub mod leg;
@@ -35,6 +36,7 @@ pub mod tables;
 #[cfg(test)]
 mod anchor_tests;
 
+pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
 pub use crate::plan::federated::{
     AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
 };
@@ -305,6 +307,11 @@ pub enum PlanMeasure {
 /// The parameter index is recorded rather than implied by position, so a reader of a plan can see
 /// which value goes where without reconstructing the generator's ordering in their head - and so an
 /// adapter that binds by index cannot disagree with one that binds by order.
+///
+/// **The index on its own is unconstrained, and what bounds it is [`PlanBindings`].** Whether an
+/// index resolves is a relation between this predicate and a parameter LIST, so it is parsed over
+/// the pair rather than wrapped around the number; a predicate outside a parsed set reaches no
+/// renderer and no executor. [`crate::plan::bindings`] carries the argument and the limit.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanPredicate {
@@ -419,11 +426,18 @@ pub struct QueryPlan {
 impl QueryPlan {
     /// One statement's worth of decisions.
     ///
-    /// **The tables arrive as a [`StatementTables`] and not as a table plus a vector of joins**, and
-    /// that argument is the whole of what keeps this constructor infallible: the check that two of
-    /// them do not answer to one identifier happens where that set is parsed, so a plan holding the
-    /// ambiguous pair does not exist to be rendered. [`crate::plan::tables`] is where the defect, the
-    /// measurement and the choice of a refusal over an alias are argued.
+    /// **Two of the arguments are parsed sets rather than loose fields, and that is the whole of what
+    /// keeps this constructor infallible.** Each carries a relation the plan would otherwise have to
+    /// be trusted to have got right, checked where the set is parsed so the incoherent plan does not
+    /// exist to be rendered:
+    ///
+    /// - the tables arrive as a [`StatementTables`] and not as a table plus a vector of joins, so no
+    ///   plan holds two tables one statement could not tell apart. [`crate::plan::tables`] argues the
+    ///   defect, the measurement and the choice of a refusal over an alias.
+    /// - the filters arrive as [`PlanBindings`] and not as a filter list plus a parameter list, so no
+    ///   plan holds a predicate that binds a parameter it does not carry, or binds one out of the
+    ///   order a positional placeholder gives it. [`crate::plan::bindings`] argues what each adapter
+    ///   does with the incoherent pair, and why the check cannot live on the index.
     pub fn new(
         source: SourceName,
         metric: MetricName,
@@ -432,14 +446,14 @@ impl QueryPlan {
         keys: Vec<PlanKey>,
         measure: PlanMeasure,
         measure_label: ResultLabel,
-        filters: Vec<PlanFilter>,
-        params: Vec<ParamValue>,
+        bindings: PlanBindings,
         range: TimeRange,
     ) -> Self {
-        // Taken apart rather than stored whole, so the serialized form a golden pins is unchanged by
-        // the guard existing. What the argument buys is that there is no way in here for a set of
-        // tables one statement could not tell apart - `plan::tables` is where that is argued.
+        // Both sets are taken apart rather than stored whole, so the serialized form a golden pins is
+        // unchanged by either guard existing. What the arguments buy is that there is no way in here
+        // for a set either one refuses.
         let (table, joins) = tables.into_parts();
+        let (filters, params) = bindings.into_parts();
         Self {
             source,
             metric,
@@ -566,6 +580,10 @@ impl QueryPlan {
             .iter()
             .filter(|f| matches!(f.origin(), PredicateOrigin::Definition))
             .filter_map(|f| f.predicate().param())
+            // `get` rather than an index because `indexing_slicing` is denied, and it drops nothing:
+            // every index a filter of this plan carries resolves, because the pair was parsed as
+            // `PlanBindings` before the plan existed. It used to drop, and the golden that reads this
+            // list passed on the shorter one - `crate::plan::bindings` is where that is argued.
             .filter_map(|index| self.params.get(index))
             .collect()
     }

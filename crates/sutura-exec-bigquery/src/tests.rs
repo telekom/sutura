@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{ColumnName, Grain, MetricName, QualifiedTable, TableName};
-use sutura_domain::plan::{Executable, PlanBucket, PlanColumn, ResultLabel};
+use sutura_domain::plan::{Executable, PlanBindings, PlanBucket, PlanColumn, ResultLabel};
 use sutura_domain::source::ImpersonationCapability;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{PreFlight, Value, Warehouse};
@@ -390,8 +390,7 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
         keys: Vec::new(),
         terms: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range: TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
     }
 }

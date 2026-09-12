@@ -32,8 +32,9 @@ use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate,
-    PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure, plan_required_filter,
+    FederatedPlan, FederatedPlanError, IncoherentBindings, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanFilter,
+    PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure,
+    plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -78,12 +79,25 @@ pub(crate) enum Plan {
 /// rather than a governance refusal. `crates/sutura-app/tests/differential/federated.rs` is the
 /// venue that would see such an edit today: it asserts that the only compile-side refusal a
 /// two-source corpus question may get is `MeasureDoesNotFederate`.
+///
+/// [`NotBound`](PlanError::NotBound) is the third arm and carries the same argument for the same
+/// reason. [`predicates_and_params`] and [`requested_for`] mint every parameter index from the
+/// position the value was pushed to, so neither can build a set
+/// [`PlanBindings::parse`](sutura_domain::plan::PlanBindings::parse) refuses, and no test provokes
+/// this arm either. What it buys is that a producer which stops minting - a hand-written index, a
+/// reordered push - surfaces as a failure rather than as a statement that renders correctly on a
+/// numbered dialect and binds the wrong values on a positional one.
+/// [`sutura_domain::plan::bindings`] argues why that is a wrong number rather than an error, and it
+/// is why this is not a [`RefusalReason`]: a caller cannot narrow their question out of our own
+/// arithmetic.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PlanError {
     #[error("the question was refused")]
     Refused(RefusalReason),
     #[error(transparent)]
     NotAssembled(#[from] FederatedPlanError),
+    #[error(transparent)]
+    NotBound(#[from] IncoherentBindings),
 }
 
 impl From<RefusalReason> for PlanError {
@@ -133,7 +147,7 @@ fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
 }
 
 /// A question confined to one data system: exactly the plan this module already built.
-fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
+fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, PlanError> {
     let metric = resolution.metric;
     let model = resolution.model;
     // Two readings of "the table", and both are used below. `own_path` is what the `FROM` names -
@@ -171,7 +185,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
 
     let requested: Vec<&ResolvedFilter> = resolution.filters.iter().collect();
-    let (filters, params) = predicates_and_params(resolution, &requested, own_table, &time_column);
+    let bindings = predicates_and_params(resolution, &requested, own_table, &time_column)?;
 
     let keys: Vec<PlanKey> = resolution
         .keys
@@ -201,8 +215,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
         keys,
         measure,
         ResultLabel::measure(metric.name()),
-        filters,
-        params,
+        bindings,
         resolution.range,
     ))
 }
@@ -309,8 +322,8 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
         .collect();
 
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
-    let (fact_filters, fact_params) = predicates_and_params(resolution, &local_filters, own_table, &time_column);
-    let (lookup_filters, lookup_params) = requested_for(&remote_filters, remote_table);
+    let fact_bindings = predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
+    let lookup_bindings = requested_for(&remote_filters, remote_table)?;
 
     // The fact leg's terms, projected under the one labelling rule the combiner reads back - in the
     // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
@@ -383,8 +396,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
         bucket: bucket.clone(),
         keys: fact_keys,
         terms,
-        filters: fact_filters,
-        params: fact_params,
+        bindings: fact_bindings,
         range: resolution.range,
     };
 
@@ -392,8 +404,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
         source: remote_source.clone(),
         table: remote_path.clone(),
         keys: lookup_keys,
-        filters: lookup_filters,
-        params: lookup_params,
+        bindings: lookup_bindings,
     };
 
     // The answer's group-by keys in question order, each naming which leg's result it is read from.
@@ -434,12 +445,6 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
     .map_err(PlanError::NotAssembled)
 }
 
-/// The predicates a statement carries, paired with the parameters they bind.
-///
-/// A named alias because the tuple is over the complexity threshold in `clippy.toml`, and naming it
-/// says what the pairing means: neither half is usable without the other.
-type PredicatesAndParams = (Vec<PlanFilter>, Vec<ParamValue>);
-
 /// Every predicate a fact leg will carry, and the parameters they bind, built together.
 ///
 /// The range bounds, then the metric's required filters, then `requested` - the caller's own filters
@@ -450,7 +455,7 @@ fn predicates_and_params(
     requested: &[&ResolvedFilter<'_>],
     own_table: &TableName,
     time_column: &PlanColumn,
-) -> PredicatesAndParams {
+) -> Result<PlanBindings, IncoherentBindings> {
     let metric = resolution.metric;
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
@@ -499,12 +504,12 @@ fn predicates_and_params(
         ));
     }
 
-    (filters, params)
+    PlanBindings::parse(filters, params)
 }
 
 /// The predicates a lookup leg carries: only the caller's own remote filters, bound on the remote
 /// table.
-fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) -> PredicatesAndParams {
+fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) -> Result<PlanBindings, IncoherentBindings> {
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
     for filter in requested {
@@ -518,7 +523,7 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
             },
         ));
     }
-    (filters, params)
+    PlanBindings::parse(filters, params)
 }
 
 /// Every dimension the question mentions, grouped by or filtered on.

@@ -3,7 +3,9 @@ use crate::federation::Federation;
 use crate::measure::Measure;
 use crate::model::{Aggregate, ColumnName, DimensionName, InvalidIdentifier, MetricName, TableName};
 use crate::plan::leg::LegPlan;
-use crate::plan::{AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, ResultLabel, StatementTables};
+use crate::plan::{
+    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBindings, ResultLabel, StatementTables,
+};
 use crate::warehouse::{Real, RowSet, Value};
 
 mod fixtures;
@@ -570,8 +572,7 @@ fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
         source: source(REMOTE_SOURCE),
         table: table(FACT).into(),
         keys: vec![key("region", FACT)],
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
     };
     let plan = FederatedPlan::new(
         metric("revenue"),
@@ -607,8 +608,7 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
         bucket: bucket(),
         keys: vec![key("product_family", FACT)],
         terms: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range: range(),
     };
     let plan = FederatedPlan::new(
