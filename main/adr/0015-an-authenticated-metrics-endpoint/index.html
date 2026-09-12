@@ -1354,10 +1354,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#decision-5-a-label-is-static-str-so-caller-text-is-unrepresentable-as-one" class="md-nav__link">
+  <a href="#decision-5-label-apis-accept-only-process-lifetime-text-and-the-registry-is-closed-at-boot" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Decision 5: a label is &amp;'static str, so caller text is unrepresentable as one
+        Decision 5: label APIs accept only process-lifetime text and the registry is closed at boot
       
     </span>
   </a>
@@ -1424,6 +1424,17 @@
     <span class="md-ellipsis">
       
         Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-six-deviations-from-the-sections-above" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above
       
     </span>
   </a>
@@ -2649,10 +2660,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#decision-5-a-label-is-static-str-so-caller-text-is-unrepresentable-as-one" class="md-nav__link">
+  <a href="#decision-5-label-apis-accept-only-process-lifetime-text-and-the-registry-is-closed-at-boot" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Decision 5: a label is &amp;'static str, so caller text is unrepresentable as one
+        Decision 5: label APIs accept only process-lifetime text and the registry is closed at boot
       
     </span>
   </a>
@@ -2725,6 +2736,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-six-deviations-from-the-sections-above" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2746,7 +2768,10 @@
 
 
 <h1 id="an-authenticated-metrics-endpoint-and-the-label-that-cannot-be-forged">An authenticated metrics endpoint, and the label that cannot be forged<a class="headerlink" href="#an-authenticated-metrics-endpoint-and-the-label-that-cannot-be-forged" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted as a design. Nothing here is built.</strong></p>
+<p>Status: <strong>accepted, and built in part.</strong> The registry, the authenticated endpoint, twelve of the
+thirteen series in the table, and the query-completion accounting ship. <code>sutura_build_info</code> and the
+three engine-pool series specified later do not. The amendment at the foot of this record names each
+limit and deviation.</p>
 <p>Verified absent before deciding anything: no <code>prometheus</code>, <code>metrics-exporter-prometheus</code>,
 <code>opentelemetry</code> or <code>sysinfo</code> in any manifest or in <code>Cargo.lock</code>; no <code>/metrics</code> route; and <strong>no
 <code>AtomicU64</code> or <code>AtomicUsize</code> anywhere in the workspace</strong>, so the counters here are the first. The
@@ -2756,8 +2781,10 @@ absence is already deliberate in three places - <code>sutura-runtime</code>'s an
 narrowed rather than struck. There is one <code>AtomicU64</code> in the workspace now: the correlation counter in
 <code>crates/sutura-http/src/correlation.rs</code>, and an <code>AtomicUsize</code> in test fixtures. So the counters this
 record specifies are the first <strong>metric</strong> counters, not the first atomics. The four candidate
-dependencies are still absent from <code>Cargo.lock</code> and there is still no <code>/metrics</code> route, so the status
-line above is accurate - this is the one record in the set whose <em>Nothing here is built</em> is still true.</p>
+dependencies are still absent from <code>Cargo.lock</code>; the <code>/metrics</code> route now exists, so the sentence that
+stood here - <em>this is the one record in the set whose Nothing here is built is still true</em> - is spent.
+The amendment at the foot of this record states which parts of the design are built and what is
+deliberately held back.</p>
 <h2 id="decision-1-its-own-credential-never-the-deployment-token">Decision 1: its own credential, never the deployment token<a class="headerlink" href="#decision-1-its-own-credential-never-the-deployment-token" title="Permanent link">&para;</a></h2>
 <p><code>docs/serving.md</code> states plainly that a holder of the API token <em>"can read the whole catalog and ask
 any question the catalog certifies… There is no way to give one caller less than that."</em></p>
@@ -2768,7 +2795,7 @@ credential store, and monitoring credential stores are not where a data-access s
 an RFC 6750 <code>b64token</code>, at least 32 characters, compared through the existing
 <code>matches_in_constant_time</code> - which SHA-256s both sides before <code>subtle</code>'s constant-time equality, so
 there is no length oracle. <strong>One comparison implementation, reused rather than copied.</strong></p>
-<p>Three startup refusals, each preventing a silent collapse of the separation:</p>
+<p>Four startup refusals, each preventing a silent collapse of the separation:</p>
 <table>
 <thead>
 <tr>
@@ -2784,6 +2811,10 @@ there is no length oracle. <strong>One comparison implementation, reused rather 
 <tr>
 <td><code>/metrics</code> enabled with no <code>metrics_token</code>, in production or on a non-loopback bind</td>
 <td>The existing <code>AccessTokenRequired</code> argument verbatim: the alternative is an unauthenticated way to read whatever the process can read</td>
+</tr>
+<tr>
+<td>An invalid <code>metrics_token</code></td>
+<td>A malformed secret must be refused at configuration load rather than leave a deployed endpoint nobody can scrape</td>
 </tr>
 <tr>
 <td>Registry initialisation failing</td>
@@ -2809,8 +2840,9 @@ cluster-internal interface, because the network is the only control it trusts. T
 <code>JoinSet</code> over both listeners so <code>stop()</code> still spends one budget. <strong>The credential separation above is
 what defends the surface; the network separation is defence in depth an operator may want.</strong></p>
 <h2 id="decision-3-hand-rolled-no-new-dependency">Decision 3: hand-rolled, no new dependency<a class="headerlink" href="#decision-3-hand-rolled-no-new-dependency" title="Permanent link">&para;</a></h2>
-<p>Roughly fourteen series. The Prometheus text exposition format is stable and line-oriented; every gauge
-is an atomic load; the two histograms need a fixed bucket array and cumulative counters.</p>
+<p>Thirteen series in the table below, plus three engine-pool families specified but held back. The
+Prometheus text exposition format is stable and line-oriented; every gauge is an atomic load; the two
+histograms need a fixed bucket array and cumulative counters.</p>
 <p><strong>The reason is specific to this case rather than general asceticism.</strong> A facade crate arrives with a
 global recorder, a macro layer, and a label API typed as <code>String</code> - which is precisely the cardinality
 hole Decision 5 closes. Taking the dependency would mean adding the hazard and then guarding it.
@@ -2838,29 +2870,31 @@ number worth exporting except the engine's.</p>
 own types. <code>AGENTS.md</code>'s rule is that a port arrives with its first implementor; there is none, so the
 port is not written. If one is ever needed it is a sink taking a closed enum of unit-carrying variants
 and holding no <code>String</code>.</p>
-<h2 id="decision-5-a-label-is-static-str-so-caller-text-is-unrepresentable-as-one">Decision 5: a label is <code>&amp;'static str</code>, so caller text is unrepresentable as one<a class="headerlink" href="#decision-5-a-label-is-static-str-so-caller-text-is-unrepresentable-as-one" title="Permanent link">&para;</a></h2>
+<h2 id="decision-5-label-apis-accept-only-process-lifetime-text-and-the-registry-is-closed-at-boot">Decision 5: label APIs accept only process-lifetime text and the registry is closed at boot<a class="headerlink" href="#decision-5-label-apis-accept-only-process-lifetime-text-and-the-registry-is-closed-at-boot" title="Permanent link">&para;</a></h2>
 <p><strong>The mechanism already exists and this record only has to use it.</strong> <code>sutura_http::wire::refusal</code>'s
 <code>refused</code> is a wildcard-free exhaustive match returning a <code>&amp;'static str</code> code per refusal, and
 <code>problem.rs</code> does the same for failures. Their own doc comment anticipates this use: <em>"grouping them is
 what lets a monitor count attempts to ask outside the catalog as one number."</em></p>
-<p>So the label parameter's type is <code>&amp;'static str</code>, and the only values ever passed are those two existing
-accessors. <strong>A caller's text is not <code>&amp;'static str</code>, so it cannot be a label.</strong> No fourth match, nothing
-to keep in step.</p>
+<p>So the label parameter's type carries <code>&amp;'static str</code>, and the only values production passes are those
+existing accessors and literals. Request-owned or request-borrowed text cannot flow directly into
+that API. Registration supplies the complete key set at boot, and an observation outside it is
+ignored rather than creating a series.</p>
 <p><strong>The trap this closes, which is not obvious.</strong> <code>MetricName</code> accepts any identifier-shaped string up to
 the length cap, and a caller may send a legal-but-unknown name and receive <code>metric_unknown</code>. So a
 <code>metric</code> label would be <strong>caller-controlled and combinatorially unbounded</strong> - a memory leak in the
 scraper and a live record of what people ask, mintable by anybody holding a token. Metric names look
 bounded by the catalog and are bounded only on the answered path.</p>
-<p><strong>Second layer, because the first bounds only what a CALLER can inject:</strong> a test that exercises every
-route and provokes every <code>RefusalReason</code>, renders the registry, and asserts the <strong>exact series count
-and the exact set of names</strong>. This is the idiom <code>AGENTS.md</code> already records for the SQL goldens, where
-<code>check-guidance</code> counts them and fails when the number drifts. A label added anywhere moves that number
-and fails the test.</p>
-<p><strong>State the limit.</strong> Layer one bounds caller injection completely, by construction. It does not bound
-the product of label dimensions - two closed five-valued enums on one family is twenty-five series, and
-that is somebody's choice rather than a caller's. Layer two catches that. <strong>There is no
-<code>check-boundaries</code>-style gate for this and none is claimed:</strong> that tool reads dependency direction,
-<code>pub</code> fields and <code>Result&lt;_, String&gt;</code>, and nothing anywhere reads a label construction site.</p>
+<p><strong>Second layer, because the first bounds only what a CALLER can inject:</strong> a freshly assembled
+representative router renders the registry before any observation, and a byte-for-byte snapshot pins
+the <strong>exact pre-registered families, label values and initial samples</strong>. A label added anywhere moves
+that snapshot and fails the test. Outcome paths are exercised by separate focused tests; the snapshot
+does not claim to provoke every refusal.</p>
+<p><strong>State the limit.</strong> A <code>'static</code> lifetime does not prove where bytes originated: production code could
+deliberately leak request text with <code>Box::leak</code>. The closed pre-registration set still prevents an
+unknown observation from minting a series, and the snapshot pins the set an author chose. Neither
+mechanism bounds the product of label dimensions - two closed five-valued enums on one family is
+twenty-five series. <strong>There is no <code>check-boundaries</code>-style gate for construction sites and none is
+claimed:</strong> that tool reads dependency direction, <code>pub</code> fields and <code>Result&lt;_, String&gt;</code>.</p>
 <h2 id="the-series">The series<a class="headerlink" href="#the-series" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3022,8 +3056,9 @@ conversion loop. <strong>Pool-reserved is not process memory and must not be ale
 <li><strong>The gate is separate.</strong> No token → <code>401</code>; <strong>the API token → <code>401</code></strong>; the metrics token → <code>200</code>. The
    middle assertion is the whole security argument in one line, and it is what fails if somebody reuses
    the existing gate.</li>
-<li><strong>The series set is exact</strong> - every route exercised, every <code>RefusalReason</code> provoked, the count and the
-   names pinned. Fails when a label is added.</li>
+<li><strong>The pre-registered series set is exact</strong> - a fresh representative router's complete exposition
+   is pinned byte for byte. It fails when a family or label is added; focused tests exercise outcome
+   paths separately.</li>
 <li><strong>No question text reaches the body.</strong> Ask for a sentinel metric name, get <code>metric_unknown</code>, scrape,
    assert absence.</li>
 <li><strong>A refusal counts as a refusal</strong> - the refusal code moved, <code>internal</code> and <code>unavailable</code> did not.
@@ -3044,6 +3079,58 @@ exist beforehand - so it uses <code>test-causality</code>'s stated-evidence path
   but the table's own rule is that a row arrives with its mechanism, and neither exists yet. It goes in
   with the code.</li>
 </ul>
+<h2 id="amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-six-deviations-from-the-sections-above">Amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above<a class="headerlink" href="#amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-six-deviations-from-the-sections-above" title="Permanent link">&para;</a></h2>
+<p><strong>Built.</strong> <code>sutura-runtime::metrics</code> holds the registry behind a <code>RegistryBuilder</code> that is consumed,
+so the series set is frozen before it is shared and <code>Registry::render</code> takes no lock of any kind.
+<code>sutura-http::metrics::Metrics::install</code> registers the transport series; <code>ServiceState::new</code>
+registers <code>sutura_engine_worker_threads</code> (the width the engine was opened with) and
+<code>sutura_catalog_metrics</code> (the served bundle's governed coverage) against the same builder. <code>/metrics</code>
+is mounted on the one listener outside the version prefix, behind <code>require_metrics_token</code> and outside
+the token gate, with its own limiter tier. <code>security.metrics_token</code> is parsed like <code>access_token</code>, and
+the boot refusals this record specifies are asserted in <code>sutura-config</code>. The tests this record asks
+for exist in <code>crates/sutura-http/src/harness/metrics.rs</code>: the separate credential, the exact rendered
+exposition (a byte-for-byte snapshot, so a series or a label added anywhere fails), the
+refusal-versus-fault split, the disclosure exclusions, and a scrape answering while a question holds
+its execution slot. One outer response middleware identifies the governed <code>POST /v1/query</code> route by
+matched route and method, then records one declared response outcome and one duration. This includes
+authentication, authorization, rate-limit, timeout, extraction, admission, fault, refusal and answer
+responses without parsing a body. A missing declaration is recorded as <code>internal</code> and logged.</p>
+<p><strong>Deviations, each a decision rather than an omission.</strong></p>
+<ol>
+<li><strong>No default-off feature.</strong> Decision 4's heading and the Consequences bullet above promise one, and
+   it is not there. The registry adds no dependency, so there is no closure to keep out of a default
+   build, and a default-off <code>metrics</code> feature would mean the shipped binaries - built at cargo's
+   default features - do not export at all, which is the opposite of this record's purpose. The <code>tls</code>
+   precedent is a feature that keeps a rustls closure out of four cross-linked artefacts; this has
+   nothing to keep out. What this record does hold is the part that matters: one builder per service
+   state, consumed once, so no series can be registered after the registry is shared.</li>
+<li><strong><code>sutura_build_info</code> is not shipped.</strong> Its labels are <code>version</code>, <code>catalog_version</code>,
+   <code>definition_version</code> and <code>environment</code>, and three of those are per-deploy strings. Decision 5's
+   label type is <code>&amp;'static str</code> precisely so no runtime string can become a label, so shipping this
+   series would need either a second, dynamic-label door - reopening the cardinality hole this record
+   exists to close - or a boot-time leak of process-lifetime strings. Neither is worth a correlation
+   the startup log already carries.</li>
+<li><strong>The three engine-pool series remain absent</strong>, which is the decision the memory section above
+   already reaches: absent rather than zero, because the pool bounds the engine's own operators and
+   nothing else.</li>
+<li><strong><code>sutura_question_duration_seconds</code> ships with no <code>outcome</code> label</strong>, unlike the table above. The
+   registry is hand-rolled and a labeled histogram is a second cardinality dimension on the largest
+   family; the <code>code</code> counter carries the same split, so the label would multiply series without
+   answering a question an operator cannot already answer.</li>
+<li><strong>Registry ownership is per <code>ServiceState</code>, not enforced process-wide.</strong> The shipped serving root
+   constructs one state, so its endpoint and handlers share one registry. A caller that constructs
+   two independent states gets two registries and two counter sets; neither <code>Registry</code> nor
+   <code>ServiceState</code> prevents that. Immutability after build is enforced, singleton ownership is not.</li>
+<li><strong>The metrics route uses the shared info-level request trace.</strong> The availability section above
+   asks for a debug span, but the current router installs one info-level trace over every matched
+   route. Scrapes are excluded from <code>sutura_questions_total</code>, not from request logs; at a
+   fifteen-second scrape interval they therefore add four info request lines per minute.</li>
+</ol>
+<p><strong>And the row the Consequences section said would arrive with the code has arrived:</strong>
+<code>.agents/skills/sutura/invariants/SKILL.md</code> carries <em>request text cannot mint a metric series</em>, held
+by the <code>Label</code>-typed update API, the closed pre-registered label set and the exact-exposition
+snapshot. Its limit says explicitly that <code>'static</code> alone proves no provenance and none of these
+mechanisms bounds the product of label dimensions an author chooses.</p>
 
 
 

@@ -2473,10 +2473,15 @@ this crate installs, so it is a <em>use</em> of a process-global rather than a s
 one. It is the first implementor of <code>sutura_domain::audit::AuditSink</code>, which is what keeps that
 port from being a guess at a signature - see <code>audit</code>.</p>
 <h1 id="why-this-is-its-own-crate">Why this is its own crate<a class="headerlink" href="#why-this-is-its-own-crate" title="Permanent link">&para;</a></h1>
-<p>Everything here is process-<em>global</em>. Installing a subscriber, replacing the panic hook and
-registering signal handlers are one-per-process operations that a library must not perform as a
-side effect of being used - so they belong somewhere a composition root calls deliberately,
-rather than inside a transport crate that a test also links.</p>
+<p>Most of the lifecycle concerns here are process-<em>global</em>. Installing a subscriber, replacing the
+panic hook and registering signal handlers are one-per-process operations that a library must not
+perform as a side effect of being used - so they belong somewhere a composition root calls
+deliberately, rather than inside a transport crate that a test also links.</p>
+<p>The metrics primitives are different. <code>metrics::Registry</code> is built once per
+<code>sutura_http::ServiceState</code>, rendered by that state's <code>/metrics</code> route, and is not a
+process-global recorder. Its series set is closed at construction: a scrape can read atomics and
+fixed strings, but cannot register another series. Separately constructed states have separate
+registries.</p>
 <p>It also means the transport crates do not have to agree on any of it. <code>sutura-http</code> takes a
 shutdown as an argument and emits <code>tracing</code> events like any other library; nothing in it
 installs anything. A second surface - an MCP transport, say - gets the same treatment for free.</p>
@@ -2511,11 +2516,12 @@ installs anything. A second surface - an MCP transport, say - gets the same trea
 </span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a># }
 </span></code></pre></div>
 <h1 id="what-is-deliberately-not-here">What is deliberately not here<a class="headerlink" href="#what-is-deliberately-not-here" title="Permanent link">&para;</a></h1>
-<p>No metrics and no traces-to-a-collector. A span per request exists and is rendered into the log,
-which is what makes one request's lines findable; exporting it anywhere is a decision about a
-backend, a sampling rate and an egress path, and none of those has been made. Adding a
-dependency now to satisfy the word "observability" would be the shape of the thing without the
-thing.</p>
+<p>No traces-to-a-collector. The runtime supplies an in-memory registry and atomic handles;
+<code>sutura-http</code> registers its transport series in the registry belonging to each
+<code>ServiceState</code>. A span per request exists and is rendered into the log, which is what makes one
+request's lines findable; exporting it anywhere is a decision about a backend, a sampling rate
+and an egress path, and none of those has been made. Adding a dependency now to satisfy the word
+"observability" would be the shape of the thing without the thing.</p>
 <h2 id="use-admission"><code>use Admission</code><a class="headerlink" href="#use-admission" title="Permanent link">&para;</a></h2>
 <p>The bound on how many questions execute at once, and the bound on waiting for a turn.</p>
 <p>Cloneable and cheap: every clone shares one permit set, which is the property that makes this a
@@ -2552,6 +2558,46 @@ too, so a diagnostic emitted while dropping is still attributable to the request
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>// A synchronous port call. Anything traced inside belongs to the caller's request.
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>sutura_runtime::spawn_carrying_span(|| 7_u8).await
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a># }
+</span></code></pre></div>
+<h2 id="use-counter"><code>use Counter</code><a class="headerlink" href="#use-counter" title="Permanent link">&para;</a></h2>
+<p>A monotonic counter, shared by <code>Arc</code> between a handle and the registry.</p>
+<h2 id="use-gauge"><code>use Gauge</code><a class="headerlink" href="#use-gauge" title="Permanent link">&para;</a></h2>
+<p>A gauge, shared by <code>Arc</code> between a handle and the registry.</p>
+<h2 id="use-histogram"><code>use Histogram</code><a class="headerlink" href="#use-histogram" title="Permanent link">&para;</a></h2>
+<p>A handle to a histogram, sharing the registry's buckets.</p>
+<h2 id="use-label"><code>use Label</code><a class="headerlink" href="#use-label" title="Permanent link">&para;</a></h2>
+<p>One process-lifetime label value.</p>
+<h2 id="use-labeledcounter"><code>use LabeledCounter</code><a class="headerlink" href="#use-labeledcounter" title="Permanent link">&para;</a></h2>
+<p>A handle to a labeled counter family, sharing the registry's atomics.</p>
+<h2 id="use-labeledgauge"><code>use LabeledGauge</code><a class="headerlink" href="#use-labeledgauge" title="Permanent link">&para;</a></h2>
+<p>A handle to a labeled gauge family.</p>
+<h2 id="use-registry"><code>use Registry</code><a class="headerlink" href="#use-registry" title="Permanent link">&para;</a></h2>
+<p>The registry: every series a deployment exports, held in one place.</p>
+<p>Built via <code>RegistryBuilder::build</code> and handed to observers and a renderer. Handles share their
+atomics with the registry by <code>Arc</code>, so a handle and the registry it came from read the same
+value. The type does not enforce one registry per process; that ownership belongs to its caller.</p>
+<p><strong>Immutable after <code>RegistryBuilder::build</code>:</strong> the series set is a plain <code>Vec</code>, closed at
+boot, so <code>Self::render</code> reads atomics and fixed strings and takes no lock and registers
+nothing.</p>
+<h2 id="use-registrybuilder"><code>use RegistryBuilder</code><a class="headerlink" href="#use-registrybuilder" title="Permanent link">&para;</a></h2>
+<p>Collects every series at boot, and freezes them into an immutable <code>Registry</code>.</p>
+<p><code>docs/adr/0015</code>'s scrape contract - <strong>a scrape takes no request-path lock and registration is
+boot-only</strong> - is held by shape rather than by convention. Registration the registry hands out
+after <code>build</code> would need a <code>&amp;mut</code> into shared state or a lock; <code>Registry</code> has neither, so the
+only way to add a series is through this builder, and once <code>build</code> has run the set is closed.</p>
+<p>The caller owns the builder until it consumes it. The type is neither <code>Clone</code> nor <code>Copy</code>, so
+one builder cannot produce two independently registered views by accident. This does not make
+the registry process-global: two builders can deliberately create two registries.</p>
+<h2 id="use-label_1"><code>use label</code><a class="headerlink" href="#use-label_1" title="Permanent link">&para;</a></h2>
+<p>Builds a <code>Label</code> from a literal.</p>
+<h1 id="request-text-does-not-flow-directly-into-a-label">Request text does not flow directly into a label<a class="headerlink" href="#request-text-does-not-flow-directly-into-a-label" title="Permanent link">&para;</a></h1>
+<p>The parameter is <code>&amp;'static str</code>, so a value a request produced cannot be one:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>let from_a_request = String::from("metric_unknown");
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>let _ = sutura_runtime::metrics::label(&amp;from_a_request);
+</span></code></pre></div>
+<p>And the twin that must compile, so the snippet above is a statement about the lifetime rather
+than a broken example:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>assert_eq!(sutura_runtime::metrics::label("metric_unknown").as_str(), "metric_unknown");
 </span></code></pre></div>
 <h2 id="use-install_panic_hook"><code>use install_panic_hook</code><a class="headerlink" href="#use-install_panic_hook" title="Permanent link">&para;</a></h2>
 <p>Makes every subsequent panic emit a <code>tracing</code> error before the default hook runs.</p>
@@ -2620,51 +2666,51 @@ and no text scan can see a bound obtained through a function pointer or a re-exp
 nothing here reaches at all is two <em>processes</em>: this bound is per process by construction, so
 two replicas admit twice the number - which is what a replica is for.</p>
 <h3 id="struct-atcapacity"><code>struct AtCapacity</code><a class="headerlink" href="#struct-atcapacity" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AtCapacity</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AtCapacity</span>
 </span></code></pre></div>
 <p>Nothing was free inside the admission timeout.</p>
 <p>Carries both numbers because the answer to it differs by which one is wrong: a bound that is too
 small for the machine is a configuration change, and a wait that expires under normal load is a
 deployment that needs another replica.</p>
 <h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bound</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bound</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many slots there are in total.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">waited</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">waited</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>How long the caller waited before being shed.</p>
 <h4 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-admission"><code>struct Admission</code><a class="headerlink" href="#struct-admission" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Admission</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Admission</span>
 </span></code></pre></div>
 <p>The bound on how many questions execute at once, and the bound on waiting for a turn.</p>
 <p>Cloneable and cheap: every clone shares one permit set, which is the property that makes this a
 bound at all. A per-request or per-connection copy would be a number that reads like a limit and
 bounds nothing.</p>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">admit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Slot</span><span class="p">,</span><span class="w"> </span><span class="n">AtCapacity</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">admit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Slot</span><span class="p">,</span><span class="w"> </span><span class="n">AtCapacity</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Waits for a slot, for at most the admission timeout.</p>
 <p>The returned <code>Slot</code> must be moved into whatever does the work rather than held by the
 awaiting future, or the bound becomes a bound on <em>starting</em> work instead of on running it -
 see the module documentation.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bound</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bound</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many questions may execute at once.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">free</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">free</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many slots are free right now.</p>
 <p>For a log line and for a test. Not for a decision: it is true when it is read and can be
 false by the time it is acted on, which is what <code>Self::admit</code> exists to avoid.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_settings</span><span class="p">(</span><span class="n">runtime</span><span class="p">:</span><span class="w"> </span><span class="nc">RuntimeSettings</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_settings</span><span class="p">(</span><span class="n">runtime</span><span class="p">:</span><span class="w"> </span><span class="nc">RuntimeSettings</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The bound this process's settings describe.</p>
 <p><strong>The only public door</strong>, so the two values cannot be taken from different places and cannot
 be numbers a caller chose. What a composition root calls, and <code>cargo xtask check-one-bound</code>
 is what holds <em>once per root</em> - a transport that called this would be a second permit set,
 which is the shape the module documentation calls not-a-bound.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">wait</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">wait</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>How long a question may wait for a slot.</p>
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
@@ -2697,7 +2743,7 @@ the transport's and the application cannot see it. Nothing is lost, because <cod
 response line already carries it inside the same request span, configured at <code>info</code> in
 <code>sutura_http::router</code> - which is where a status belongs.</p>
 <h3 id="struct-tracingauditsink"><code>struct TracingAuditSink</code><a class="headerlink" href="#struct-tracingauditsink" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TracingAuditSink</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TracingAuditSink</span>
 </span></code></pre></div>
 <p>Writes each record as one structured event on the process subscriber.</p>
 <p>There is nothing to configure, and a <code>new</code> that took a level or a target would be two ways to
@@ -2711,7 +2757,7 @@ in this type, and it is written down here rather than worked around silently. Th
 stands on its own: a field, even an empty one, means <code>Self::new</code> is the only way in from
 outside this crate, where a unit struct is its own literal.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>AuditSink</code>, <code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code></p>
@@ -2725,14 +2771,14 @@ without needing the log format to be readable yet.</p>
 whatever a collector is ingesting. It is for an operator, and the lines that matter most are
 the ones about what this service does <em>not</em> do.</p>
 <h3 id="fn-print"><code>fn print</code><a class="headerlink" href="#fn-print" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">print</span><span class="p">(</span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Environment</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">print</span><span class="p">(</span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Environment</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Prints the banner and the build line to standard output.</p>
 <p>Before the subscriber, deliberately. <code>version</code> is the caller's <code>CARGO_PKG_VERSION</code>: taking it
 as an argument rather than reading this crate's own means the number printed is the binary's,
 which is the one somebody is trying to identify.</p>
 <h3 id="fn-announce"><code>fn announce</code><a class="headerlink" href="#fn-announce" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">announce</span><span class="p">(</span><span class="n">settings</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Settings</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">announce</span><span class="p">(</span><span class="n">settings</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Settings</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Writes the resolved configuration to the log.</p>
 <p><strong>Every value comes from the loaded <code>Settings</code>, not from a file.</strong> The environment layer is
@@ -2772,7 +2818,7 @@ that subscriber; the event then finds it there. Under a subscriber scoped to one
 whatever global default exists instead. That is why the test for this is an integration test
 that installs a global subscriber, and not a unit test in this file.</p>
 <h3 id="fn-spawn_carrying_span"><code>fn spawn_carrying_span</code><a class="headerlink" href="#fn-spawn_carrying_span" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">spawn_carrying_span</span><span class="o">&lt;</span><span class="n">Work</span><span class="p">,</span><span class="w"> </span><span class="n">Answer</span><span class="o">&gt;</span><span class="p">(</span><span class="n">work</span><span class="p">:</span><span class="w"> </span><span class="nc">Work</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio</span><span class="p">::</span><span class="n">task</span><span class="p">::</span><span class="n">JoinHandle</span><span class="o">&lt;</span><span class="n">Answer</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">spawn_carrying_span</span><span class="o">&lt;</span><span class="n">Work</span><span class="p">,</span><span class="w"> </span><span class="n">Answer</span><span class="o">&gt;</span><span class="p">(</span><span class="n">work</span><span class="p">:</span><span class="w"> </span><span class="nc">Work</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio</span><span class="p">::</span><span class="n">task</span><span class="p">::</span><span class="n">JoinHandle</span><span class="o">&lt;</span><span class="n">Answer</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Spawns <code>work</code> on the blocking pool, entered in the caller's current span.</p>
 <p>The span is captured <em>here</em>, on the caller's thread, and entered inside the closure - which is
@@ -2782,10 +2828,213 @@ thread's span, which is none.</p>
 permit or a guard is released at the end of the closure: the release happens inside the span
 too, so a diagnostic emitted while dropping is still attributable to the request.</p>
 <h1 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h1>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a># async fn call() -&gt; Result&lt;u8, tokio::task::JoinError&gt; {
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>// A synchronous port call. Anything traced inside belongs to the caller's request.
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>sutura_runtime::spawn_carrying_span(|| 7_u8).await
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a># }
+<div class="language-text highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a># async fn call() -&gt; Result&lt;u8, tokio::task::JoinError&gt; {
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>// A synchronous port call. Anything traced inside belongs to the caller's request.
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>sutura_runtime::spawn_carrying_span(|| 7_u8).await
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a># }
+</span></code></pre></div>
+<h2 id="module-metrics">Module <code>metrics</code><a class="headerlink" href="#module-metrics" title="Permanent link">&para;</a></h2>
+<p>A hand-rolled Prometheus registry, and the one findable thing about it is the shape of its
+labels.</p>
+<h1 id="why-this-is-not-a-crate">Why this is not a crate<a class="headerlink" href="#why-this-is-not-a-crate" title="Permanent link">&para;</a></h1>
+<p><code>docs/adr/0015</code> Decision 3 prices it: a facade crate arrives with a global recorder, a macro
+layer and a label API typed as <code>String</code> - which is precisely the cardinality hole this module
+exists to close. The Prometheus text environment format is stable and line-oriented; every gauge
+here is an atomic load; the histograms are a fixed bucket array and cumulative counters. Writing
+the boilerplate by hand costs nothing and adds no dependency, which is the whole of the decision.</p>
+<h1 id="a-label-carries-only-process-lifetime-text">A label carries only process-lifetime text<a class="headerlink" href="#a-label-carries-only-process-lifetime-text" title="Permanent link">&para;</a></h1>
+<p>Every labeled registration and update below takes <code>Label</code>, whose ordinary constructor accepts
+only <code>&amp;'static str</code>. The transport supplies literals and its own fixed code vocabularies, so
+request-owned or request-borrowed text cannot flow directly into a label. Registration also
+supplies the complete key set at boot; an update for any other label is ignored rather than
+creating a series. The companion behavioural test pins that pre-registered set exactly.</p>
+<h1 id="the-limit-no-type-here-reaches">The limit no type here reaches<a class="headerlink" href="#the-limit-no-type-here-reaches" title="Permanent link">&para;</a></h1>
+<p>Rust's lifetime is not proof that bytes originated in the binary: production code could
+deliberately turn request text into <code>&amp;'static str</code> with <code>Box::leak</code>. What prevents that text
+minting a series even then is the registry's closed pre-registered key set. Neither mechanism
+bounds the product of label dimensions an author chooses; the exact-series test catches that,
+and there is no <code>check-boundaries</code>-style gate for construction sites.</p>
+<h1 id="the-memory-series-and-their-limit">The memory series, and their limit<a class="headerlink" href="#the-memory-series-and-their-limit" title="Permanent link">&para;</a></h1>
+<p>The three engine-pool series - reserved bytes, the limit, and refusals - are <strong>not shipped at
+all</strong>: <code>docs/adr/0015</code> specifies them and keeps them absent rather than zero (the pool bounds
+the engine's own operators and nothing else). There is no <code>Option</code> gauge and no live closure,
+because the exact-series snapshot test means an author who registers one would be trading an
+asserted export for a silent gap. The transport module records the same absence in its own doc.</p>
+<h1 id="a-scrape-must-not-make-the-service-work">A scrape must not make the service work<a class="headerlink" href="#a-scrape-must-not-make-the-service-work" title="Permanent link">&para;</a></h1>
+<p><code>Registry::render</code> reads atomics and fixed strings only. The registry holds no <code>Surface</code>, no
+catalog, no engine and no data source - the design <code>docs/adr/0015</code> states and the metrics route's
+state type enforces. <code>render</code> takes <strong>no lock of any kind</strong>: registration happens through a
+<code>RegistryBuilder</code>, and <code>RegistryBuilder::build</code> freezes the series into an immutable <code>Vec</code>
+before the registry is shared.</p>
+<h3 id="struct-counter"><code>struct Counter</code><a class="headerlink" href="#struct-counter" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Counter</span>
+</span></code></pre></div>
+<p>A monotonic counter, shared by <code>Arc</code> between a handle and the registry.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Adds <code>n</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">inc</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Adds one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">value</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>The current value.</p>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code></p>
+<h3 id="struct-gauge"><code>struct Gauge</code><a class="headerlink" href="#struct-gauge" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Gauge</span>
+</span></code></pre></div>
+<p>A gauge, shared by <code>Arc</code> between a handle and the registry.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">adjust</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">delta</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Adjusts by <code>delta</code>, keeping the value from underflowing zero.</p>
+<p>A compare-and-exchange loop rather than a single <code>try_update</code>: a <code>try_update</code> whose closure
+sees contention reports that contention to a caller who would have to decide what to do with
+it, and discarding that <code>Result</code> is exactly the silent update-loss this loop is written to
+rule out. Here the loop re-reads and retries until an update lands, and the clamp to zero is
+<code>saturating_add_signed</code> - a number, not a silently-inspected <code>unwrap_or</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Sets a value.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">value</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>The current value.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code></p>
+<h3 id="struct-floatsum"><code>struct FloatSum</code><a class="headerlink" href="#struct-floatsum" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FloatSum</span>
+</span></code></pre></div>
+<p>A fractional sum, shared by <code>Arc</code> between a histogram's handle and the registry.</p>
+<p>The Prometheus histogram <code>_sum</code> is a float - a duration is fractional, and a histogram over
+durations must not round it to integer seconds or the sum stops meaning anything. The float is
+stored as its bit pattern in an <code>AtomicU64</code> and accumulated with a compare-and-exchange loop, so
+every observation lands and fractional parts survive.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Adds <code>value</code>, which must be finite and non-negative.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">value</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">f64</span>
+</span></code></pre></div>
+<p>The current sum.</p>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code></p>
+<h3 id="struct-label"><code>struct Label</code><a class="headerlink" href="#struct-label" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Label</span>
+</span></code></pre></div>
+<p>One process-lifetime label value.</p>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The value, for rendering and for a key lookup.</p>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-registrybuilder"><code>struct RegistryBuilder</code><a class="headerlink" href="#struct-registrybuilder" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RegistryBuilder</span>
+</span></code></pre></div>
+<p>Collects every series at boot, and freezes them into an immutable <code>Registry</code>.</p>
+<p><code>docs/adr/0015</code>'s scrape contract - <strong>a scrape takes no request-path lock and registration is
+boot-only</strong> - is held by shape rather than by convention. Registration the registry hands out
+after <code>build</code> would need a <code>&amp;mut</code> into shared state or a lock; <code>Registry</code> has neither, so the
+only way to add a series is through this builder, and once <code>build</code> has run the set is closed.</p>
+<p>The caller owns the builder until it consumes it. The type is neither <code>Clone</code> nor <code>Copy</code>, so
+one builder cannot produce two independently registered views by accident. This does not make
+the registry process-global: two builders can deliberately create two registries.</p>
+<h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Registry</span>
+</span></code></pre></div>
+<p>Freezes the collected series into a <code>Registry</code> that only render (and a reader) touches.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">counter</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Counter</span>
+</span></code></pre></div>
+<p>Registers a counter and returns the handle.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">gauge</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Gauge</span>
+</span></code></pre></div>
+<p>Registers a gauge and returns the handle.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">histogram</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="p">[</span><span class="kt">f64</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Histogram</span>
+</span></code></pre></div>
+<p>Registers a histogram with ascending upper bounds and returns the handle.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">labeled_counter</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">keys</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="p">[</span><span class="n">Label</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LabeledCounter</span>
+</span></code></pre></div>
+<p>Registers a labeled counter (closed literal keys) and returns the handle.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">labeled_gauge</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">keys</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="p">[</span><span class="n">Label</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LabeledGauge</span>
+</span></code></pre></div>
+<p>Registers a labeled gauge (closed literal keys) and returns the handle.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Default</code></p>
+<h3 id="struct-registry"><code>struct Registry</code><a class="headerlink" href="#struct-registry" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Registry</span>
+</span></code></pre></div>
+<p>The registry: every series a deployment exports, held in one place.</p>
+<p>Built via <code>RegistryBuilder::build</code> and handed to observers and a renderer. Handles share their
+atomics with the registry by <code>Arc</code>, so a handle and the registry it came from read the same
+value. The type does not enforce one registry per process; that ownership belongs to its caller.</p>
+<p><strong>Immutable after <code>RegistryBuilder::build</code>:</strong> the series set is a plain <code>Vec</code>, closed at
+boot, so <code>Self::render</code> reads atomics and fixed strings and takes no lock and registers
+nothing.</p>
+<h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>An empty registry.</p>
+<p>For a test that renders a single series family in isolation, and for the <code>Default</code> shape an
+immutable set takes. It registers nothing and cannot have series added to it - that is the
+builder's, and only its.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>Every series, in Text Exposition format, one family per section.</p>
+<p><strong>The whole point of the registry.</strong> <code>O(series)</code> and constant-time per series - atomic loads
+and fixed strings only. It takes no lock the request path holds - it takes no lock at all.
+It acquires no admission permit, and reaches no other crate's state.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Default</code></p>
+<h3 id="struct-labeledcounter"><code>struct LabeledCounter</code><a class="headerlink" href="#struct-labeledcounter" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LabeledCounter</span>
+</span></code></pre></div>
+<p>A handle to a labeled counter family, sharing the registry's atomics.</p>
+<h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">inc</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nc">Label</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Increments the series for a closed key.</p>
+<p>An unknown key is ignored: the registry only ever renders keys it was built with, so a caller
+asking for an unknown key is a defect rather than a way to mint a label.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="struct-labeledgauge"><code>struct LabeledGauge</code><a class="headerlink" href="#struct-labeledgauge" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LabeledGauge</span>
+</span></code></pre></div>
+<p>A handle to a labeled gauge family.</p>
+<h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nc">Label</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Sets the series for a closed key.</p>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="struct-histogram"><code>struct Histogram</code><a class="headerlink" href="#struct-histogram" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Histogram</span>
+</span></code></pre></div>
+<p>A handle to a histogram, sharing the registry's buckets.</p>
+<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">observe</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Records one observation (a duration or a row count, as <code>f64</code>).</p>
+<p>Each bucket below stores the count of observations <em>in that bound's exclusive range</em>; the
+renderer turns those into cumulative counts. A value lands in exactly the first bucket whose
+upper bound it meets. The sum keeps its fractional part: it is a float, not a count rounded
+to integers.</p>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="fn-label"><code>fn label</code><a class="headerlink" href="#fn-label" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">label</span><span class="p">(</span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Label</span>
+</span></code></pre></div>
+<p>Builds a <code>Label</code> from a literal.</p>
+<h1 id="request-text-does-not-flow-directly-into-a-label_1">Request text does not flow directly into a label<a class="headerlink" href="#request-text-does-not-flow-directly-into-a-label_1" title="Permanent link">&para;</a></h1>
+<p>The parameter is <code>&amp;'static str</code>, so a value a request produced cannot be one:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a>let from_a_request = String::from("metric_unknown");
+</span><span id="__span-49-2"><a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a>let _ = sutura_runtime::metrics::label(&amp;from_a_request);
+</span></code></pre></div>
+<p>And the twin that must compile, so the snippet above is a statement about the lifetime rather
+than a broken example:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a>assert_eq!(sutura_runtime::metrics::label("metric_unknown").as_str(), "metric_unknown");
 </span></code></pre></div>
 <h2 id="module-panics">Module <code>panics</code><a class="headerlink" href="#module-panics" title="Permanent link">&para;</a></h2>
 <p>A panic that reaches the log rather than only the terminal.</p>
@@ -2799,7 +3048,7 @@ nothing in the collected log looks, from the outside, exactly like one that was 
 <p>The previous hook is kept and called afterwards, so the default rendering and any backtrace
 still appear. Replacing it outright would trade one loss for another.</p>
 <h3 id="fn-install_panic_hook"><code>fn install_panic_hook</code><a class="headerlink" href="#fn-install_panic_hook" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install_panic_hook</span><span class="p">()</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install_panic_hook</span><span class="p">()</span>
 </span></code></pre></div>
 <p>Makes every subsequent panic emit a <code>tracing</code> error before the default hook runs.</p>
 <p>Call it before the first thread is spawned and after the subscriber is installed. Before the
@@ -2826,7 +3075,7 @@ but the panic it was installed for would be the one that is lost.</p>
 and that is what makes this testable: a test triggers the same value a signal would, with no
 process-wide side effect and nothing to install.</p>
 <h3 id="enum-shutdownreason"><code>enum ShutdownReason</code><a class="headerlink" href="#enum-shutdownreason" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ShutdownReason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ShutdownReason</span>
 </span></code></pre></div>
 <p>Why the process is stopping.</p>
 <h4 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h4>
@@ -2835,30 +3084,30 @@ process-wide side effect and nothing to install.</p>
 <li><code>Terminate</code> - A termination request. An orchestrator is replacing this process, and a deadline is running.</li>
 <li><code>Requested</code> - Something in this process asked for it - a fatal error on a path that is not the server, or a test.</li>
 </ul>
-<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<h4 id="methods_12">Methods<a class="headerlink" href="#methods_12" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-shutdown"><code>struct Shutdown</code><a class="headerlink" href="#struct-shutdown" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Shutdown</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Shutdown</span>
 </span></code></pre></div>
 <p>A shared "stop now" flag that remembers why.</p>
 <p>Cloneable and cheap, so the server, the signal listener and anything else that has to wind down
 all hold the same one. Built on a <code>watch</code> channel rather than a cancellation token from a
 utility crate: the channel is in <code>tokio</code> already, and carrying the <em>reason</em> in the value is
 what makes the log line at the end say something.</p>
-<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grace_period</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<h4 id="methods_13">Methods<a class="headerlink" href="#methods_13" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grace_period</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>The whole budget for stopping, from the moment stopping is asked for.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A fresh, untriggered shutdown with the default grace period.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">ShutdownReason</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">ShutdownReason</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The reason, if shutdown has been asked for.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">remaining_grace</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">remaining_grace</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>What is left of that budget.</p>
 <p><strong>The connection drain is not the whole of stopping, and this is the difference.</strong> Dropping
@@ -2876,26 +3125,26 @@ answer and means the budget is spent: whatever waits on it should not wait at al
 is racing is an orchestrator's kill timer, which is wall time, and what consumes it is
 <code>tokio::runtime::Runtime::shutdown_timeout</code>, which is also wall time. A test-controllable
 clock here would make the two disagree in exactly the deployment where it matters.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">requested</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ShutdownReason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">requested</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ShutdownReason</span>
 </span></code></pre></div>
 <p>Resolves when shutdown has been asked for.</p>
 <p>Checks the current value before waiting, which is the bug this shape exists to avoid: a
 <code>watch</code> receiver created after the send marks that value as already seen, so a naive
 <code>changed().await</code> on a shutdown that has <em>already</em> happened waits for a second one that
 never comes.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">trigger</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="nc">ShutdownReason</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">trigger</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="nc">ShutdownReason</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Asks for shutdown, and logs why.</p>
 <p><strong>The first reason wins, and a second call is a no-op.</strong> A <code>SIGINT</code> arriving while a
 <code>SIGTERM</code> drain is already running should not restart the clock or rewrite the record of
 what started it.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_grace</span><span class="p">(</span><span class="n">grace</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_grace</span><span class="p">(</span><span class="n">grace</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A fresh shutdown with an explicit grace period. What a test uses.</p>
-<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Default</code></p>
 <h3 id="fn-listen"><code>fn listen</code><a class="headerlink" href="#fn-listen" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">listen</span><span class="p">(</span><span class="n">shutdown</span><span class="p">:</span><span class="w"> </span><span class="nc">Shutdown</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">listen</span><span class="p">(</span><span class="n">shutdown</span><span class="p">:</span><span class="w"> </span><span class="nc">Shutdown</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Waits for the first operating-system shutdown signal and triggers <code>shutdown</code>.</p>
 <p>Spawned as a task by the composition root. It returns once it has triggered, so a caller can
@@ -2916,7 +3165,7 @@ spelling of this, an <em>invalid</em> <code>RUST_LOG</code> is an error rather t
 a discarded filter means the process logs at some other level and nothing says so, which is the
 failure mode a filter exists to prevent.</p>
 <h3 id="enum-telemetrynotinstalled"><code>enum TelemetryNotInstalled</code><a class="headerlink" href="#enum-telemetrynotinstalled" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TelemetryNotInstalled</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TelemetryNotInstalled</span>
 </span></code></pre></div>
 <p>Why the log could not be set up.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
@@ -2924,10 +3173,10 @@ failure mode a filter exists to prevent.</p>
 <li><code>Filter</code> - A filter directive would not parse. Either the configured one or <code>RUST_LOG</code>; <code>source</code> says which, because they fail for different reasons and only one of them is in a file.</li>
 <li><code>FilterNotUnicode</code> - <code>RUST_LOG</code> held bytes that are not text.</li>
 </ul>
-<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-subscriber"><code>fn subscriber</code><a class="headerlink" href="#fn-subscriber" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">subscriber</span><span class="o">&lt;</span><span class="n">Sink</span><span class="o">&gt;</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">,</span><span class="w"> </span><span class="n">sink</span><span class="p">:</span><span class="w"> </span><span class="nc">Sink</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">BuiltSubscriber</span><span class="p">,</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">subscriber</span><span class="o">&lt;</span><span class="n">Sink</span><span class="o">&gt;</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">,</span><span class="w"> </span><span class="n">sink</span><span class="p">:</span><span class="w"> </span><span class="nc">Sink</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">BuiltSubscriber</span><span class="p">,</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds the subscriber for these settings, writing to <code>sink</code>.</p>
 <p>Boxed, and that is what lets the two arms be one type: a pretty formatter and a bunyan
@@ -2936,7 +3185,7 @@ is paid once, at startup.</p>
 <p>Generic in the sink so a test can build both arms over a buffer and assert on the bytes. That
 is the only way to test this: installing a subscriber is process-global and happens once.</p>
 <h3 id="fn-install"><code>fn install</code><a class="headerlink" href="#fn-install" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Installs the subscriber for these settings as the process-wide one, writing to standard output.</p>
 <p>Standard output rather than standard error, for both formats: a collector reads one stream, and
@@ -2973,21 +3222,21 @@ has the same problem and a second copy of a writer is a second thing to keep in 
 helpers that build a subscriber around it stay <code>cfg(test)</code>: they use <code>expect</code>, which is denied
 outside test code, so a feature that exposed them would make <code>--all-features</code> fail to lint.</p>
 <h3 id="struct-capture"><code>struct Capture</code><a class="headerlink" href="#struct-capture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Capture</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Capture</span>
 </span></code></pre></div>
 <p>A writer that keeps what was written.</p>
 <p><code>std::sync::Mutex</code> is on the workspace's disallowed list, and the reason recorded there is that
 an async task holding one across an <code>await</code> can deadlock the executor. Neither half applies
 here: <code>MakeWriter</code> and <code>io::Write</code> are synchronous traits that cannot await, the guard is taken
 and dropped inside one statement, and no runtime is involved in the tests that use this.</p>
-<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">contents</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<h4 id="methods_14">Methods<a class="headerlink" href="#methods_14" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">contents</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>Everything written so far, as text.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>An empty buffer, teeing to standard output if <code>TEE_VARIABLE</code> is set.</p>
-<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Default</code>, <code>MakeWriter&lt;'a&gt;</code>, <code>Write</code></p>
 <h3 id="constant-tee_variable"><code>constant TEE_VARIABLE</code><a class="headerlink" href="#constant-tee_variable" title="Permanent link">&para;</a></h3>
 <p>Set this to anything non-empty to have a captured log also reach standard output.</p>

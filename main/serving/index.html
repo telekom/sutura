@@ -662,6 +662,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#the-metrics-endpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The metrics endpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#a-refusal-carries-a-status" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2827,6 +2838,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#the-metrics-endpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The metrics endpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#a-refusal-carries-a-status" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3133,6 +3155,14 @@ them one at a time.</p>
 <td>the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds</td>
 </tr>
 <tr>
+<td><code>GET /metrics</code> reachable with no <code>security.metrics_token</code>, in production or on a non-loopback bind</td>
+<td>the endpoint is on the same listener as the API, so the same argument applies to what a scrape can read. Set <code>security.metrics_token</code></td>
+</tr>
+<tr>
+<td>a <code>security.metrics_token</code> equal to <code>security.access_token</code></td>
+<td>one token behind both surfaces hands the monitoring system every ability a holder of the deployment token has, and nothing at runtime would show it. Use a different value for each</td>
+</tr>
+<tr>
 <td>a <code>security.inbound</code> block with no <code>mode</code></td>
 <td>both defaults are wrong in opposite directions - <code>direct</code> makes a deployment behind a gateway reject every caller, and <code>behind-gateway</code> makes a directly exposed one accept a proof anybody can forge. See <a href="#who-is-asking">who is asking</a></td>
 </tr>
@@ -3415,6 +3445,11 @@ bound that surface exactly as they bound this one.</p>
 <td>One certified question. <code>200</code> only when it was answered; a refusal carries its own status - see <a href="#a-refusal-carries-a-status">A refusal carries a status</a>. <code>503 at_capacity</code> when no execution slot is free - see <a href="#capacity">Capacity</a></td>
 </tr>
 <tr>
+<td><code>GET /metrics</code></td>
+<td>its own token, never <code>security.access_token</code></td>
+<td>This process's counters, in the Prometheus text exposition format. <code>401</code> without the metrics credential. Outside the version prefix and outside the capacity bound - see <a href="#the-metrics-endpoint">the metrics endpoint</a></td>
+</tr>
+<tr>
 <td><code>GET /openapi.json</code></td>
 <td>yes, when one is configured</td>
 <td>The generated interface description</td>
@@ -3433,6 +3468,40 @@ unauthenticated caller can always reach - so every field it might have is a fiel
 who can route a packet.</p>
 <p>The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.</p>
+<h3 id="the-metrics-endpoint">The metrics endpoint<a class="headerlink" href="#the-metrics-endpoint" title="Permanent link">&para;</a></h3>
+<p><code>GET /metrics</code> renders this service state's counters in the Prometheus text exposition format. The
+shipped server constructs one state per process; separately embedded states do not share a registry.
+The endpoint has <strong>its own credential</strong>, <code>security.metrics_token</code>, and the deployment token is refused there: a holder of
+the API token can read the whole catalog and ask any question the catalog certifies, and a scrape
+needs none of that. Configuring the two to the same value is a startup refusal - see
+<a href="#what-it-will-not-start-with">What it will not start with</a>.</p>
+<p><strong>One listener, and the trade-off belongs to the operator.</strong> <code>/metrics</code> is mounted on the same
+listener as <code>/health</code> and the versioned API, outside the version prefix so a scrape configuration
+survives a version bump. It is not a second listener: a second bind address would be a second drain
+to keep in agreement, a second TLS decision and a second load-balancer path. <strong>The cost is real</strong> -
+the endpoint is reachable wherever the API is, and the credential is what defends it. A deployment
+that must expose the API on a routable address while keeping <code>/metrics</code> on a cluster-internal
+interface has only the network as its control today; a second listener is the change that would
+express it (<code>docs/adr/0015</code>, Decision 2).</p>
+<p><strong>A scrape does not make the service work.</strong> The handler holds the registry and nothing else - no
+<code>Surface</code>, no catalog, no engine, no data system - so it cannot load a catalog or execute a question
+even by mistake. Rendering reads atomics and fixed strings, takes no lock any request path holds, and
+is deliberately outside the capacity bound: a scrape keeps answering while every execution slot is
+full, which is exactly when an operator is watching. It sits behind its own rate-limit tier, so a
+wrong-credential scrape costs a bucket cell rather than being free.</p>
+<p><strong>Every label is a closed, static value</strong>, chosen from this transport's own fixed failure codes and
+its three limiter tier names. No question text, metric or dimension name, source name, caller
+address, credential or definition digest can become a label, because a label value is a <code>&amp;'static
+str</code> and none of those is one. The rendered exposition is asserted byte for byte in
+<code>crates/sutura-http/src/harness/metrics.rs</code>, so a series or label added anywhere is a failing test
+rather than a silent change.</p>
+<p><strong>What it is not.</strong> Not an access log and not an audit record: a scrape sees counters, nothing that
+names a caller and nothing that names a question, and this endpoint writes no audit record. Four
+families specified by <code>docs/adr/0015</code> are deliberately not exported: <code>sutura_build_info</code>,
+whose labels would have to carry per-deploy version strings the label type cannot hold, and three
+engine-pool families, which stay absent rather than zero because the pool bounds the engine's own
+operators and not process memory. Scrapes use the shared info-level request trace, so the endpoint is
+excluded from question counters but not from request logs.</p>
 <h3 id="a-refusal-carries-a-status">A refusal carries a status<a class="headerlink" href="#a-refusal-carries-a-status" title="Permanent link">&para;</a></h3>
 <p><code>POST /v1/query</code> answers <code>200</code> when the question was <strong>answered</strong> and nothing else. A refusal carries
 an explicit status, the stable <code>code</code> it always carried, and a sentence saying what to change - all
@@ -3800,6 +3869,11 @@ selects which file is layered, so a file that could change it would be self-refe
 <td><code>security.access_token</code></td>
 <td>absent</td>
 <td>An RFC 6750 <code>b64token</code>, at least 32 characters. Required in production and on a non-loopback bind, <strong>unless <code>security.inbound</code> is declared</strong></td>
+</tr>
+<tr>
+<td><code>security.metrics_token</code></td>
+<td>absent</td>
+<td>An RFC 6750 <code>b64token</code>, at least 32 characters, gating <code>GET /metrics</code> and nothing else. Required in production and on a non-loopback bind, like the access token; equal to <code>security.access_token</code> is a refusal. See <a href="#the-metrics-endpoint">the metrics endpoint</a></td>
 </tr>
 <tr>
 <td><code>security.tls_termination</code></td>
@@ -4426,9 +4500,12 @@ transcript nobody runs goes stale silently, and a suite cannot.</p>
   first thing that can become unready <em>after</em> startup.</li>
 <li><strong>No CORS.</strong> A browser is not a client of this surface, and an allow-list nobody needs is an
   allow-list somebody widens.</li>
-<li><strong>No metrics or trace export.</strong> A span per request exists and is rendered into the log, which is
-  what makes one request's lines findable. Exporting it is a decision about a backend, a sampling
-  rate and an egress path, and none of those has been made.</li>
+<li><strong>No trace export, and this bullet is narrower than it used to be.</strong> It used to say no metrics or trace
+  export, and the metrics half is now built: <code>GET /metrics</code> renders this process's counters - see
+  <a href="#the-metrics-endpoint">the metrics endpoint</a>. A span per request also exists and is rendered into
+  the log, which is what makes one request's lines findable. What does not exist is a trace
+  exporter, which is a decision about a backend, a sampling rate and an egress path none of which has
+  been made.</li>
 <li><strong>No CONFIGURABLE client TLS, and this bullet is narrower than it used to be.</strong> It used to say no
   crate here holds an HTTP client, and that stopped being true: <code>sutura-exec-bigquery</code>'s default-off
   <code>wire</code> feature holds one - <code>ureq</code> over rustls, with a compiled-in root set and <code>https_only</code> - so
@@ -4474,7 +4551,7 @@ process.</p>
 <p>An unauthenticated caller can reach <code>/health</code> and learn that the process is up, and can learn which
 paths exist - a path under the version prefix that matches no route answers <code>404</code> without holding a
 credential. The paths are in the published interface description in any case. Every path that
-resolves to a handler holds a credential.</p>
+resolves to a handler holds a credential: the API's, or <code>/metrics</code>'s own.</p>
 <p>A caller with the token can occupy every execution slot and shed everybody else, inside their own
 rate limit, by asking questions that each cost more than the request timeout. The <code>503</code> the others
 get is honest and the backlog is bounded, but the <em>sharing</em> is not fair and is not made fair here.
