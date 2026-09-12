@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 
 use super::{TOKEN, production_overlay, variables};
+use crate::inbound::{InvalidInboundValue, ResourceIdentifier};
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
@@ -124,21 +125,34 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     assert_eq!(inbound.requirement().location().to_string(), "x-transit-proof");
 }
 
-fn assert_direct_resource_is_refused(resource: &str) {
+fn direct_resource_refusal(resource: &str) -> InvalidInboundValue {
     let inbound = DIRECT_INBOUND.replacen("https://sutura.example.com", resource, 1);
     let sources = Sources::defaults(Environment::Development).with_overlay(format!("security:\n{inbound}"));
     let error = Settings::load(&sources).expect_err("a malformed resource identifier is refused");
-    assert!(matches!(error.reason(), SettingsError::InboundValue { .. }), "{error:?}");
+    let SettingsError::InboundValue { cause } = error.reason() else {
+        panic!("expected a typed inbound-value refusal, got {error:?}");
+    };
+    cause.clone()
+}
+
+fn malformed_resource_refusal() -> InvalidInboundValue {
+    let refusal =
+        ResourceIdentifier::parse("https://example.com:not-a-port/tenant").expect_err("a non-numeric port is a malformed URL");
+    assert!(
+        !matches!(refusal, InvalidInboundValue::NotHttps { .. }),
+        "an https URL with malformed structure is not a scheme refusal"
+    );
+    refusal
 }
 
 #[test]
 fn an_https_scheme_without_an_authority_does_not_start() {
-    assert_direct_resource_is_refused("https://");
+    assert_eq!(direct_resource_refusal("https://"), malformed_resource_refusal());
 }
 
 #[test]
 fn a_resource_path_cannot_stand_in_for_an_https_authority() {
-    assert_direct_resource_is_refused("https:///tenant");
+    assert_eq!(direct_resource_refusal("https:///tenant"), malformed_resource_refusal());
 }
 
 #[test]
@@ -150,7 +164,7 @@ fn malformed_https_urls_do_not_start() {
         "https://[::1/tenant",
         "https://example.com/%",
     ] {
-        assert_direct_resource_is_refused(resource);
+        assert_eq!(direct_resource_refusal(resource), malformed_resource_refusal());
     }
 }
 

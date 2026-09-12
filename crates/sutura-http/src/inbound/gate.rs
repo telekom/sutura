@@ -19,11 +19,12 @@
 //! # What a refused request is told, and what it is not
 //!
 //! A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
-//! validating deployment is its own resource identifier. When the request URL identifies that exact
-//! resource, its `resource_metadata` parameter is the absolute URL of the public RFC 9728 document
-//! built from the same token requirement as the validator. It is omitted for any other request,
-//! because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A gateway assertion
-//! arrives somewhere other than `Authorization: Bearer`, so that mode offers no Bearer challenge.
+//! validating deployment is its own resource identifier. When an origin-form target and raw `Host`
+//! reproduce that exact resource, its `resource_metadata` parameter is the absolute URL of the public
+//! RFC 9728 document built from the same token requirement as the validator. It is omitted for any
+//! other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
+//! gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode offers no
+//! Bearer challenge.
 //!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
 //! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -171,8 +172,10 @@ impl InboundGate {
     /// makes: a description would have to say which check failed to be worth anything, and that is the
     /// one thing a caller must not learn.
     ///
-    /// Both request parts are required because origin-form HTTP carries the authority in `Host`, while
-    /// an absolute-form request carries it in the URI.
+    /// Both request parts are required because an origin-form target carries its path in the URI and
+    /// its authority in the raw `Host` value. Absolute form deliberately gets no metadata parameter:
+    /// `http::Uri` canonicalises standard schemes, so it cannot prove the configured identifier's
+    /// byte-exact spelling.
     #[must_use]
     pub fn challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> Option<String> {
         if !self.bearer_prefixed {

@@ -497,7 +497,7 @@ fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboun
     };
     let authority = after_scheme.split_once('/').map_or(after_scheme, |(authority, _)| authority);
     if authority.is_empty() {
-        return Err(InvalidInboundValue::NotHttps { key });
+        return Err(InvalidInboundValue::MalformedUrl { key });
     }
     for (position, character) in trimmed.chars().enumerate() {
         if character == '#' || character == '?' {
