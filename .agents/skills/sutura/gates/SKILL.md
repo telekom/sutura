@@ -472,6 +472,13 @@ panic-free.
   `checks.nextest` is not `apps.nextest`, and nine transcriptions of nextest's version survived
   the branch's first sweep until they were removed by hand. **So the gate is a ratchet, not a
   proof that no copy is left**, and a green run means no copy the harvest can SEE.
+  **One uncompared claim has FOUR carriers, and only the first is refusable by a text scan:**
+  the version itself, the qualifier *the pinned X*, the TENSE - `reads` asserts a standing
+  property where the measurement was one observation - and *at the resolved version*. Each
+  says *this is true of what is pinned now* and nothing compares any of them, so removing
+  only the digits moves the claim rather than settling it. Keep a currency claim in any of
+  the four shapes only where a measurement was taken against what is pinned NOW; otherwise
+  state what was observed, and date it.
   **The trailing tag on a SHA-pinned action is out of scope by OWNER DECISION - dependabot
   maintains its own tags - and nobody here reproduced what dependabot writes.** It is implemented
   structurally, by a `#` breaking adjacency rather than by a list of those lines, so the exclusion
