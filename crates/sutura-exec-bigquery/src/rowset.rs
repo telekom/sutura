@@ -21,11 +21,11 @@ where
 {
     let column = || String::from(field.name());
     let text = match value {
-        // A null is a null whatever the column is declared as, so it is answered before the
-        // type is read - which is why the schema is checked by [`mappable`] before any row
-        // is read. This arm is the belt: it cannot fire for a result that came through `rows`,
-        // and it stays because `cell` is reachable from a test on its own and because a
-        // null-answered type would be a wrong number rather than a refusal.
+        // A null is a null whatever the column is declared as, so it is answered before the type is
+        // read - which is why the schema is checked by [`mappable`] before any row is read. This arm
+        // is the belt: it cannot fire for a result that came through `rows`, and it stays because a
+        // null-answered type would be a wrong number rather than a refusal. It is exercised through
+        // `rows` and not directly: `cell` is private to this module, so no test can reach it.
         Cell::Null => return Ok(Value::Null),
         Cell::Text(text) => text,
     };

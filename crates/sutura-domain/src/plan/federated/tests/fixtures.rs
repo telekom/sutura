@@ -80,7 +80,7 @@ pub(super) fn leaf(position: usize) -> String {
 }
 
 /// The link key of a leg: the internal label over the physical join column `customer_key`.
-pub(super) fn link_key(table_name: &str) -> PlanKey {
+fn link_key(table_name: &str) -> PlanKey {
     PlanKey::new(
         ResultLabel::internal(InternalLabel::Link),
         PlanColumn::new(table(table_name), column("customer_key")),

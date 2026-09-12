@@ -44,7 +44,8 @@ it costs; the two reasons it was absent are answered rather than repealed:
    decision a composition root makes in a manifest line.
 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
-   service-account key. **What that one is, exactly:** one hand-built `SUM` over a two-column
+   service-account key - the first statement this repository generated to be accepted by
+   `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column
    fixture, so it says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or
    `ISOWEEK` - and the last is one of the two constructs `docs/adr/0017` measured the parse check
    to be blind about. **The corpus-wide leg is `tests/corpus.rs`**, behind the default-off
@@ -53,7 +54,8 @@ it costs; the two reasons it was absent are answered rather than repealed:
    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 
 So nothing here may be cited as an invariant. `sutura-serve` DOES link this adapter and dispatch
-`kind: bigquery` behind its default-off `bigquery` feature. A default build links none of it, and
+`kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
+records the day the last *not wired* was spent. A default build links none of it, and
 the `data_systems:` axis of the golden matrix gains no entry - because a cell in that registry
 runs inside `just test` and this one cannot: the nix sandbox has no network, so acceptance is a
 `nix run` app and not a `checks.*` output.
@@ -70,10 +72,13 @@ the composition root that links this adapter, which is the half `docs/implementa
 describes as not wired.
 
 **ONE of the two subject shapes, and the other is refused rather than degraded.** A
-`Presented::SubjectPrincipal` is a principal the data system switches to, and `BigQuery` has no
-such mechanism; it is the same POSTURE as a subject token, so `Presented::agrees_with` passes it
+`Presented::SubjectPrincipal` is a principal the data system switches to on a connection the
+DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
+subject token, so `Presented::agrees_with` passes it
 and only this adapter can say it has nowhere to put it. `BigQueryError::NoPrincipalSwitch` is
-that refusal and carries why it has to be one.
+that refusal, and the reason it is a refusal is the reason the whole-shape `NoPlaceForASubject`
+it replaced existed: a leg accepted here would be submitted under the transport's own credential
+while provenance, read off this source's posture, reported the answer as impersonated.
 
 **What no version of this is:** a deployment where a served source executes as its asker.
 `sutura-serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
@@ -132,6 +137,8 @@ an owned `#[source]`.
 pub struct BigQueryWarehouse<T>
 ```
 
+A `BigQuery` dataset, behind the `Warehouse` port.
+
 Generic in its transport rather than holding a boxed one: there is one per process, it is chosen at
 composition, and a generic keeps the transport's own error type visible in `BigQueryError`.
 
@@ -149,6 +156,9 @@ Removes one table from the connection's dataset.
 expiration, because `panic = "abort"` means a cancelled runner never reaches this method and
 the expiration is what still cleans up after it.
 
+It takes a table name and never a statement, for the same reason `load_fixture` does: the
+statement is rendered from a name that parsed, and *no arbitrary SQL entry point* stays true.
+
 Behind the same `fixtures` feature and in the same impl block, for `load_fixture`'s reasons.
 
 ```rust
@@ -157,17 +167,19 @@ pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<
 
 Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
 
-**A relational data system has to be GIVEN tables before a corpus can be run against it, and
-the example models are files.** The differences from the Postgres shape are in
+**The mirror of #78's `PostgresWarehouse::load_csv`, and it exists for the reason that one
+does: a relational data system has to be GIVEN tables before a corpus can be run against it,
+and the example models are files.** The differences from the Postgres shape are in
 `crate::importer`'s header - there is no `COPY`, so the rows travel inside the statement and
 every cell is re-rendered from a parsed value.
 
-**Behind the `fixtures` feature, so no shipped build holds it.** What that buys over a
-`#[cfg(test)]` helper is that the acceptance leg is an INTEGRATION target - a separate crate -
-which cannot reach a test-gated item here.
+**Behind the `fixtures` feature, so no shipped build holds it.** `Cargo.toml` carries that
+argument. What it buys over a `#[cfg(test)]` helper is that the acceptance leg is an
+INTEGRATION target - a separate crate - which cannot reach a test-gated item here.
 
 It takes a table name and a path and never a statement, which is what keeps *no arbitrary SQL
-entry point* true of this crate.
+entry point* true of this crate: the statement is rendered from names that parsed and cells
+that parsed.
 
 **In THIS impl block rather than in the module that renders the statement**, because
 `clippy::multiple_inherent_impl` is denied here and it is right to be: a type whose inherent
@@ -201,14 +213,17 @@ that bearer to IS the identity the source executed under - and asking the source
 asserting it is the difference between evidence and a comment. `docs/adr/0008` names
 `SESSION_USER()` as the primitive; `SESSION_USER` is the only statement this can issue.
 
-It goes through `Self::deliverable` like every other credential-taking method. The
-`SessionUser` answer redacts under `Debug`; explicit access and `Display` still reveal it.
-Neither this read nor its return type establishes how the bearer was obtained.
+It goes through `Self::deliverable` like every other credential-taking method, so a leg
+whose credential disagrees with the source's posture is refused here too rather than being
+answered by a read that looks harmless. The `SessionUser` answer redacts under `Debug`;
+explicit access and `Display` still reveal it. Neither this read nor its return type
+establishes how the bearer was obtained.
 
 **Not part of the `Warehouse` port, and that is a decision rather than an omission.** No
 other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
 process under one identity, so a defaulted method would answer *the process* and read as
-though it had asked.
+though it had asked. An inherent method is reachable by the one venue that needs it and by
+nothing that federates.
 
 # Errors
 
