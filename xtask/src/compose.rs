@@ -58,39 +58,57 @@ use sutura_dev::scope::{SERVICES, Scope};
 use crate::Verdict;
 use crate::repo;
 
-/// What `--with` asked for.
+const ONLY_PROFILE: &str = "demo";
+
+/// What `--with` or `--only` asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Requested {
     /// The profiles to activate, in the order given. Empty means the default set only.
     Profiles(Vec<&'static str>),
+    /// An exclusive profile request; execution accepts [`ONLY_PROFILE`] alone.
+    Only(&'static str),
+    /// Both additive and exclusive selection were requested.
+    Conflict,
     /// A profile name no service declares. Refused rather than ignored: a typo that silently
     /// started nothing would look exactly like a service that failed to come up.
     Unknown(String),
-    /// `--with` with nothing after it.
+    /// A flag with nothing after it.
     Missing,
 }
 
-/// Read `--with <profile>`, repeatable, against the profiles services actually declare.
-///
-/// Validated against the declaration rather than a literal list here, so a service that gains a
-/// profile needs no edit in this file - and a name nothing declares cannot be quietly accepted.
+/// Read repeatable `--with` or one `--only`, validating names against declared profiles.
 pub(crate) fn requested(args: &[String], known: &[&'static str]) -> Requested {
     let mut chosen: Vec<&'static str> = Vec::new();
+    let mut only: Option<&'static str> = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
-        if arg != "--with" {
+        let exclusive = arg == "--only";
+        if !exclusive && arg != "--with" {
             continue;
         }
         let Some(name) = rest.next() else {
             return Requested::Missing;
         };
-        match known.iter().find(|profile| *profile == name) {
-            Some(profile) if !chosen.contains(profile) => chosen.push(profile),
-            Some(_) => {}
+        let found: Option<&'static str> = known.iter().copied().find(|profile| *profile == name.as_str());
+        match found {
+            Some(profile) if exclusive => {
+                if !chosen.is_empty() || only.is_some_and(|already| already != profile) {
+                    return Requested::Conflict;
+                }
+                only = Some(profile);
+            }
+            Some(profile) => {
+                if only.is_some() {
+                    return Requested::Conflict;
+                }
+                if !chosen.contains(&profile) {
+                    chosen.push(profile);
+                }
+            }
             None => return Requested::Unknown(name.clone()),
         }
     }
-    Requested::Profiles(chosen)
+    only.map_or(Requested::Profiles(chosen), Requested::Only)
 }
 
 /// The services this invocation will start: the default set, plus any whose profile was asked for.
@@ -176,13 +194,47 @@ fn absent(task: &str, missing: docker::Missing, requirement: Requirement) -> Ver
     }
 }
 
+/// Active profiles, expected services, and an optional exclusive service selection.
+type UpSelection = (Vec<&'static str>, Vec<&'static str>, Option<Vec<&'static str>>);
+
+fn exclusively_selected(profile: &'static str) -> Option<Vec<&'static str>> {
+    (profile == ONLY_PROFILE).then(|| sutura_dev::scope::discoverable_services_of(profile))
+}
+
 /// `dev-up`: bring this worktree's services up, wait for them to be healthy, write the endpoints.
 pub(crate) fn run_up(args: &[String]) -> Verdict {
     let known = sutura_dev::scope::profiles();
-    let active = match requested(args, &known) {
-        Requested::Profiles(chosen) => chosen,
+    let (active, expected, named): UpSelection = match requested(args, &known) {
+        Requested::Profiles(chosen) => {
+            let expected = expected_services(&chosen);
+            (chosen, expected, None)
+        }
+        Requested::Only(profile) => {
+            let Some(selected) = exclusively_selected(profile) else {
+                eprintln!(
+                    "xtask dev-up: `--only` is defined only for `{ONLY_PROFILE}`; use `--with \
+                     {profile}` to add another profile to the default tier"
+                );
+                return Verdict::Usage;
+            };
+            if selected.is_empty() {
+                eprintln!(
+                    "xtask dev-up: `--only {profile}` selects no service; this file declares \
+                         {known:?}"
+                );
+                return Verdict::Usage;
+            }
+            (vec![profile], selected.clone(), Some(selected))
+        }
+        Requested::Conflict => {
+            eprintln!("xtask dev-up: `--with` and `--only` select differently and cannot be combined");
+            return Verdict::Usage;
+        }
         Requested::Missing => {
-            eprintln!("xtask dev-up: `--with` needs a profile name; this file declares {known:?}");
+            eprintln!(
+                "xtask dev-up: `--with` / `--only` needs a profile name; this file declares \
+                     {known:?}"
+            );
             return Verdict::Usage;
         }
         Requested::Unknown(name) => {
@@ -216,15 +268,21 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
         }
     };
 
-    let expected = expected_services(&active);
     println!("xtask dev-up: {} in {}", scope.project(), root.display());
     println!("  services  {}", expected.join(", "));
     if active.is_empty() {
         println!("  profiles  none - `--with <profile>` adds one of {known:?}");
+    } else if named.is_some() {
+        println!("  profiles  {} (only - the default set is not started)", active.join(", "));
     } else {
         println!("  profiles  {}", active.join(", "));
     }
-    let path = match tier::with_endpoints_forgotten("dev-up", &scope, || tier::provision(&root, &scope, &active, &expected)) {
+    let provision = || tier::provision(&root, &scope, &active, &expected, named.as_deref());
+    let path = named.as_deref().map_or_else(
+        || tier::with_endpoints_forgotten("dev-up", &scope, provision),
+        |services| tier::with_selected_endpoints_forgotten("dev-up", &scope, services, provision),
+    );
+    let path = match path {
         Ok(path) => path,
         Err(verdict) => return verdict,
     };
@@ -237,9 +295,46 @@ pub(crate) fn run_up(args: &[String]) -> Verdict {
     Verdict::Pass
 }
 
-/// `dev-down`: remove this worktree's project, and nothing else. `--dry-run` says what it would do.
+/// Remove the worktree project, or only the demo; `--dry-run` changes nothing.
 pub(crate) fn run_down(args: &[String]) -> Verdict {
     let dry_run = args.iter().any(|a| a == "--dry-run");
+    let known = sutura_dev::scope::profiles();
+    let selection = match requested(args, &known) {
+        Requested::Profiles(chosen) if chosen.is_empty() => None,
+        Requested::Only(profile) => {
+            let Some(services) = exclusively_selected(profile) else {
+                eprintln!(
+                    "xtask dev-down: `--only` is defined only for `{ONLY_PROFILE}`; use a bare \
+                     `dev-down` to remove the whole worktree project"
+                );
+                return Verdict::Usage;
+            };
+            if services.is_empty() {
+                eprintln!("xtask dev-down: `--only {profile}` selects no discoverable service");
+                return Verdict::Usage;
+            }
+            Some((profile, services))
+        }
+        Requested::Profiles(_) => {
+            eprintln!(
+                "xtask dev-down: `--with` is not how a destroy is scoped; use `--only \
+                 {ONLY_PROFILE}` for the demo, or no flag to remove the whole worktree project"
+            );
+            return Verdict::Usage;
+        }
+        Requested::Conflict => {
+            eprintln!("xtask dev-down: `--with` and `--only` select differently and cannot be combined");
+            return Verdict::Usage;
+        }
+        Requested::Missing => {
+            eprintln!("xtask dev-down: `--only` needs a profile name; this file declares {known:?}");
+            return Verdict::Usage;
+        }
+        Requested::Unknown(name) => {
+            eprintln!("xtask dev-down: no service declares the profile `{name}`; there is {known:?}");
+            return Verdict::Usage;
+        }
+    };
     let Ok(scope) = scope_here() else {
         return Verdict::Fail;
     };
@@ -247,68 +342,10 @@ pub(crate) fn run_down(args: &[String]) -> Verdict {
     if let Err(verdict) = require_docker("dev-down") {
         return verdict;
     }
-
-    // Rule 2: the lock is taken BEFORE the listing that decides the plan, and held across the
-    // removal. Reading the listing outside it is the window this closes.
-    let held = match lock::acquire(&scope) {
-        Ok(held) => held,
-        Err(problem) => {
-            eprintln!("xtask dev-down: {problem}");
-            return Verdict::Fail;
-        }
-    };
-
-    let project = scope.project();
-    let plan = teardown::plan(&project, &docker::projects(&root));
-    println!("xtask dev-down: {} in {}", project, root.display());
-    teardown::describe(&plan);
-
-    // EVERY profile, not the ones this invocation asked for - `dev-down` takes no `--with`, and
-    // that is the point. `docker compose down` only considers services in ACTIVE profiles, so a
-    // destroy run without them would leave a profiled service's container and its named volume
-    // behind **while reporting success**. Derived from the declaration, so a new profile is covered
-    // without a second edit here.
-    let every_profile = sutura_dev::scope::profiles();
-    if !every_profile.is_empty() {
-        println!("  profiles  {} (all of them, so nothing survives)", every_profile.join(", "));
-    }
-
-    if dry_run {
-        println!("xtask dev-down: dry run - nothing was removed");
-        drop(held);
-        return Verdict::Pass;
-    }
-
-    // THE RE-CHECK, and it is a second computation rather than a second look at a variable: the
-    // scope is derived again from the filesystem, and the project listing is read again. Deciding
-    // and removing are two moments, so the question gets asked twice - and a target that moved
-    // between them is refused rather than removed, which is the fail-closed direction.
-    //
-    // **What it cannot catch, stated with the claim:** the lock is what closes the window, and this
-    // re-check is what notices if something got through it anyway. A neighbour that respects
-    // neither is not something a check here can see.
-    let Ok(again) = scope_here() else {
-        return Verdict::Fail;
-    };
-    let confirmed = teardown::plan(&again.project(), &docker::projects(&root));
-    if !teardown::still_eligible(&plan, &again.project()) || confirmed.target() != plan.target() {
-        eprintln!("xtask dev-down: the plan changed between deciding and removing - nothing removed");
-        teardown::describe(&confirmed);
-        return Verdict::Fail;
-    }
-
-    // BEFORE the containers, not after: a `down` that was killed, or exited non-zero, returned
-    // above the `forget` that stood here and left a readable file over a tier in an unknown state.
-    let removal = tier::with_endpoints_forgotten("dev-down", &scope, || {
-        plan.target()
-            .map_or(Ok(()), |target| tier::remove(&root, target, &every_profile))
-    });
-    if let Err(verdict) = removal {
-        return verdict;
-    }
-    println!("xtask dev-down: ok");
-    drop(held);
-    Verdict::Pass
+    selection.map_or_else(
+        || tier::down_whole(&scope, &root, dry_run),
+        |(profile, services)| tier::down_scoped(&scope, &root, profile, &services, dry_run),
+    )
 }
 
 /// `dev-endpoints`: print what provisioning bound, from the discovery file and nowhere else.
@@ -417,7 +454,7 @@ mod tests {
         // Three properties, and the first two are what a report that had quietly cleaned up would
         // fail: it names the project whose containers survived, it does not read as if they were
         // removed, and it names the task that removes them.
-        let report = super::tier::abandoned("sutura-dev-aaaa1111");
+        let report = super::tier::abandoned("sutura-dev-aaaa1111", super::teardown::REMOVES_THIS_WORKTREE);
         assert!(
             report.iter().any(|line| line.contains("sutura-dev-aaaa1111")),
             "the report must name the project whose containers survived: {report:?}"
@@ -531,6 +568,30 @@ mod tests {
             super::Requested::Profiles(vec!["identity"])
         );
         assert_eq!(super::requested(&args(&[]), &known), super::Requested::Profiles(Vec::new()));
+
+        // Exclusive and additive selections cannot be combined.
+        assert_eq!(
+            super::requested(&args(&["--only", "demo"]), &["identity", "demo"]),
+            super::Requested::Only("demo")
+        );
+        assert_eq!(
+            super::requested(&args(&["--only", "demo", "--only", "demo"]), &["identity", "demo"]),
+            super::Requested::Only("demo"),
+            "repeating the same selection is not a conflict"
+        );
+        assert_eq!(
+            super::requested(&args(&["--only", "identity", "--with", "identity"]), &known),
+            super::Requested::Conflict
+        );
+        assert_eq!(super::requested(&args(&["--only"]), &known), super::Requested::Missing);
+        assert_eq!(
+            super::requested(&args(&["--only", "identty"]), &known),
+            super::Requested::Unknown(String::from("identty"))
+        );
+        assert_eq!(super::exclusively_selected("demo"), Some(vec!["demo"]));
+        for profile in ["identity", "datahub"] {
+            assert_eq!(super::exclusively_selected(profile), None);
+        }
     }
 
     #[test]
@@ -720,26 +781,23 @@ mod tests {
 
     #[test]
     fn the_compose_file_publishes_no_fixed_host_port() {
-        // The mechanism, read off the file that implements it. A `"5432:5432"` here would give every
-        // worktree the same host port, which is the collision this whole tier is about - and it
-        // would pass every other gate in the repository, because no gate reads a compose file.
-        let Some(root) = crate::repo::root() else {
-            return;
-        };
+        // The mechanism, read off the file that implements it. A fixed host port would make every
+        // worktree collide; long-form ports also require loopback and reject unsupported fields.
+        let Some(root) = crate::repo::root() else { return };
         let path = root.join(super::docker::COMPOSE_FILE);
         let Ok(text) = std::fs::read_to_string(&path) else {
-            panic!("{} is missing", path.display());
+            panic!("{} is missing", path.display())
         };
         if let Some((number, problem)) = first_port_problem(&text) {
             panic!("{}:{number}: {problem}", path.display());
         }
         for (index, line) in text.lines().enumerate() {
             let trimmed = line.trim();
-            let number = index + 1;
             assert!(
                 !trimmed.starts_with("container_name:"),
-                "{}:{number}: a literal container name collides between worktrees",
-                path.display()
+                "{}:{}: a literal container name collides between worktrees",
+                path.display(),
+                index + 1
             );
         }
     }
@@ -750,12 +808,10 @@ mod tests {
     fn first_port_problem(text: &str) -> Option<(usize, &'static str)> {
         let mut ports_indent = None;
         let mut long_port = None;
-
         for (index, line) in text.lines().enumerate() {
             let number = index + 1;
             let trimmed = line.trim();
             let indent = line.len() - line.trim_start().len();
-
             if let Some(parent_indent) = ports_indent {
                 if !trimmed.is_empty() && !trimmed.starts_with('#') && indent <= parent_indent {
                     if let Some((target_line, _, false)) = long_port {
@@ -808,7 +864,6 @@ mod tests {
                     return Some((number, "an unsupported long-form port field evades this guard"));
                 }
             }
-
             if trimmed.starts_with("ports:") {
                 if trimmed != "ports:" {
                     return Some((number, INLINE_PORT));
@@ -816,7 +871,6 @@ mod tests {
                 ports_indent = Some(indent);
             }
         }
-
         let (target_line, _, has_loopback) = long_port?;
         (!has_loopback).then_some((target_line, MISSING_LOOPBACK))
     }

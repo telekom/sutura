@@ -306,26 +306,25 @@ Withdraw every entry THIS provisioner published, and remove the file if nothing 
 Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
 stale file is the one way discovery could hand back a wrong answer instead of an error.
 
-**It used to `remove_file`, and that was the other half of `github.com/telekom/sutura#317`.** A
-nix-native tier merges its entry into this same document, so removing the file withdrew a claim
-over a server that was still running - `just dev-down` did it deliberately, and every failing
-path through `with_endpoints_forgotten` did it by accident. Fail-closed is the right posture
-about *our* entries and is somebody else's data when applied to theirs.
+**It merges rather than deletes, and that is `github.com/telekom/sutura#317`.** A nix-native
+tier writes into this same document, so a `remove_file` withdrew a claim over a server that was
+still running. The last entry out still takes the file with it, because the file's EXISTENCE is
+what discovery reads as *something is provisioned here*.
 
-The last entry out still takes the file with it, because the file's EXISTENCE is what discovery
-reads as *something is provisioned here* - the rule `nix/tier-endpoints.nix`'s `withdraw` holds
-on the other side.
+**The limit, stated with the claim.** A document this module cannot read is refused rather than
+removed, so ANY `Malformed` variant refuses both `just dev-up` and `just dev-down` before
+either touches the tier, and nothing repairs the file automatically - the price of never
+destroying state that cannot be attributed, which is why `DiscoveryError` names the delete.
 
-A document this module cannot read is **refused rather than removed**: it publishes nothing a
-harness can use either way, and destroying state that cannot be attributed is the failure this
-function was changed to stop.
+### `fn forget_services`
 
-**The limit that widened with it, stated with the claim.** The `remove_file` this replaced
-healed an unreadable document by deleting it. Attribution needs the document parsed first, so
-ANY `Malformed` variant - not merely one about an entry - now refuses both `just dev-up` and
-`just dev-down` before either touches the tier, and nothing repairs the file automatically. That
-is the trade taken deliberately: state that cannot be attributed is not destroyed, and the price
-is a manual delete, which is why `DiscoveryError`'s message names it.
+```rust
+pub fn forget_services(scope: &crate::scope::Scope, services: &[&str]) -> Result<(), DiscoveryError>
+```
+
+Withdraw the NAMED services' entries that THIS provisioner published, and nothing else.
+
+A scoped teardown that called `forget` would also withdraw a Docker tier it left running.
 
 ## Module `issuer`
 
@@ -1262,6 +1261,25 @@ considers services in ACTIVE profiles, so a destroy that forgot one would leave 
 container and named volume behind **while reporting success** - the same silent-success failure
 the teardown contract below is about. Derived rather than listed, so adding a profile does not
 need a second edit somewhere else to stay correct.
+
+### `fn discoverable_services_of`
+
+```rust
+pub fn discoverable_services_of(profile: &str) -> Vec<&'static str>
+```
+
+The DISCOVERABLE services assigned to one profile, and nothing else.
+
+**Not `profiles`, and the difference is the point.** `crate::scope::profiles` names every
+profile any discoverable service declares, so a teardown can activate all of them and leave
+nothing behind. This selection is narrower still: helper containers that publish no endpoint
+are deliberately absent from `SERVICES`, so this is NOT an inventory of every Compose block.
+The exclusive lifecycle accepts only the self-contained `demo` profile and starts it with
+`--no-deps`; widening that policy requires a source of truth for those helper containers first.
+
+Derived from `SERVICES` rather than listed, so a service added to a profile joins its
+lifecycle without a second edit. A name no service declares selects nothing, which the caller
+refuses rather than treating as an empty success.
 
 ### `constant SERVICES`
 

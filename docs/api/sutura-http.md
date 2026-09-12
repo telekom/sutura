@@ -2473,6 +2473,14 @@ The whole document: the derived shell plus one fragment per version.
 A `v2` adds one line here and nothing else, which is what makes versioning additive: the
 fragment carries its own absolute paths because the prefix is applied by the `nest` below.
 
+**It describes the GOVERNED operations and nothing else.** Liveness is mounted on its own
+router (`crate::router`) and deliberately left out: it is a property of the process rather than
+an operation of the API (`crate::constants::HEALTH_PATH` says so), and every operation this
+document lists becomes a tool a client such as a chat interface may offer its model. A probe in
+that list is a tool nothing should call. The set is exhaustive in both directions - a route the
+document describes that `crate::capability::governed` does not name, and a governed route it
+omits, are each a failure (`tests/operations.rs`).
+
 ### `fn document_json`
 
 ```rust

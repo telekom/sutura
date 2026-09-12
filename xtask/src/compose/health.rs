@@ -56,10 +56,10 @@ fn deadline() -> Duration {
 /// **Why it is not `Failed::left_running`'s answer:** that one answers for the CALL, and a status
 /// query starts nothing. What started containers here is the RUN, which only the caller that
 /// issued the provision knows about - so it is said once, at this gate's failure exit.
-fn tier_is_up(project: &str) -> [String; 2] {
+fn tier_is_up(project: &str, removal: &str) -> [String; 2] {
     [
         format!("the containers are already up - `docker compose --project-name {project} ps` says what state they are in"),
-        String::from(super::teardown::REMOVES_THIS_WORKTREE),
+        String::from(removal),
     ]
 }
 
@@ -68,7 +68,13 @@ fn tier_is_up(project: &str) -> [String; 2] {
 /// A health GATE and not a sleep. The distinction is what happens when it is wrong: a sleep that was
 /// too short surfaces as a connection refused inside somebody's test; this says which service never
 /// became healthy and stops.
-pub(crate) fn wait_until_healthy(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&str]) -> Result<(), Verdict> {
+pub(crate) fn wait_until_healthy(
+    root: &Path,
+    scope: &Scope,
+    profiles: &[&str],
+    expected: &[&str],
+    removal: &str,
+) -> Result<(), Verdict> {
     let project = scope.project();
     poll_until_ready(expected, deadline(), &project, || {
         docker::compose(root, &project, profiles, &["ps", "--all", "--format", "json"])
@@ -79,7 +85,7 @@ pub(crate) fn wait_until_healthy(root: &Path, scope: &Scope, profiles: &[&str], 
     // it missed the arm most likely to be reached - the deadline expiring - which also leaves the
     // tier up.
     .inspect_err(|_| {
-        for line in tier_is_up(&project) {
+        for line in tier_is_up(&project, removal) {
             eprintln!("  {line}");
         }
     })
@@ -214,13 +220,13 @@ mod tests {
         // `up --detach` returned ok before this gate ran, so the containers exist whatever the gate
         // then decided - and the reader was being handed a wedged-daemon remedy and nothing else.
         // Read off the value rather than off the comment, the way `abandoned`'s report is.
-        let report = super::tier_is_up("sutura-dev-aaaa1111");
+        let report = super::tier_is_up("sutura-dev-aaaa1111", "`just dev-down-demo` removes it");
         assert!(
             report.iter().any(|line| line.contains("sutura-dev-aaaa1111")),
             "the report must name the project whose containers are up: {report:?}"
         );
         assert!(
-            report.iter().any(|line| line.contains("just dev-down")),
+            report.iter().any(|line| line.contains("just dev-down-demo")),
             "the report must name the task that removes them: {report:?}"
         );
     }

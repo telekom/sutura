@@ -1,23 +1,20 @@
 # The local chat demo, as demo-only packaging.
 #
-# TWO STAGES, and the first is the point. The shipped `sutura-serve` image holds ONE executable and
-# no shell (`nix/oci.nix` builds it that way on purpose), so it cannot supervise the chat client and
-# cannot answer a `CMD-SHELL` probe. The second stage is the chat client's own image with that
-# binary, a `python3` probe and the supervisor added - the least that can do both.
+# The shipped Linux-musl `sutura-serve` package holds ONE executable, so it cannot supervise the
+# chat client or answer a shell probe. `demo/start.sh` passes that Nix store path as the read-only
+# `sutura-server` build context; no global intermediate image tag exists for another worktree to
+# replace. The chat client's image supplies the shell and Python around that release binary.
 #
 # NOT a release artifact. `just demo` builds this locally from the two images below; a release
-# publishes the server image on its own. `demo/start.sh` loads the server image first and passes the
-# tag in, because a compose service may not build here (see `no_service_in_the_tier_is_built_here`).
-ARG SUTURA_SERVE_IMAGE=sutura-serve:latest
+# publishes the server image on its own. A compose service may not build here (see
+# `no_service_in_the_tier_is_built_here`), so `demo/start.sh` still owns this derived build.
 ARG SUTURA_DEMO_BASE_IMAGE=docker.io/openwebui/open-webui:0.11.3
-
-FROM ${SUTURA_SERVE_IMAGE} AS server
 
 FROM ${SUTURA_DEMO_BASE_IMAGE}
 
 # The shipped server executable, at the path the supervisor below calls. Copied OUT of the image
 # rather than rebuilt, so what the demo drives is the same binary a release publishes.
-COPY --from=server /bin/sutura-serve /usr/local/bin/sutura-serve
+COPY --from=sutura-server /bin/sutura-serve /usr/local/bin/sutura-serve
 
 # The demo's own code, and the read-only corpus it serves. COPIED rather than bind-mounted: a host
 # bind mount belongs to the machine and every worktree would share it, which the compose tier

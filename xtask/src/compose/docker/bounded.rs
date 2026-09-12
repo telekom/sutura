@@ -172,6 +172,16 @@ pub(crate) struct Budget {
 }
 
 impl Budget {
+    /// The short answer budget for a Docker command that only reads daemon state.
+    pub(crate) fn query() -> Self {
+        Self::for_call(Call::Query)
+    }
+
+    /// The long provisioning budget for a Docker command that changes daemon state.
+    pub(crate) fn provision() -> Self {
+        Self::for_call(Call::Provision)
+    }
+
     /// The budget a compose invocation's arguments call for, on this host.
     ///
     /// **Resolved once per KIND and remembered, and the reason is the readiness loop.** It issues a
@@ -181,10 +191,15 @@ impl Budget {
     /// `set_var` is `unsafe` and the workspace forbids `unsafe_code`, so nothing in this process
     /// writes one.
     pub(crate) fn of(extra: &[&str]) -> Self {
+        Self::for_call(Call::of(extra))
+    }
+
+    /// Resolve and remember one allowance, including for non-Compose Docker commands whose first
+    /// argument is `volume` rather than the operation that determines their budget.
+    fn for_call(call: Call) -> Self {
         static QUERY: OnceLock<Duration> = OnceLock::new();
         static PROVISION: OnceLock<Duration> = OnceLock::new();
 
-        let call = Call::of(extra);
         let remembered = match call {
             Call::Query => &QUERY,
             Call::Provision => &PROVISION,
