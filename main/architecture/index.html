@@ -3047,9 +3047,8 @@ today</strong>, by the plan stage and a golden that builds a two-source catalogu
 the identity reasoning behind it is a design target, because there is no per-leg credential to test
 against.</p>
 <h3 id="what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today, and what the shipped binary actually uses<a class="headerlink" href="#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses" title="Permanent link">&para;</a></h3>
-<p>Three adapters exist. <strong>They are chosen at compile time, in the composition root - there is no
-configuration that names one.</strong> If you are looking for a setting to point sutura at a different
-catalogue or a different data system, there is not one yet.</p>
+<p>The adapters below exist. Which ones a binary can open is chosen at compile time in its composition
+root; within that set, a deployment selects a data system by writing <code>sources.&lt;alias&gt;.kind</code>.</p>
 <table>
 <thead>
 <tr>
@@ -3077,6 +3076,12 @@ catalogue or a different data system, there is not one yet.</p>
 <td><code>sutura-exec-duckdb</code></td>
 <td>A DATA SOURCE. Renders the plan into <code>DuckDB</code> SQL and pushes the statement down</td>
 <td><strong>No.</strong> A development dependency of <code>sutura-app</code></td>
+</tr>
+<tr>
+<td><code>Warehouse</code></td>
+<td><code>sutura-exec-postgres</code></td>
+<td>A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify</td>
+<td><strong>No.</strong> A default-off <code>postgres</code> feature on both composition roots</td>
 </tr>
 </tbody>
 </table>
@@ -3114,6 +3119,16 @@ building: nixpkgs has no musl <code>libduckdb</code>, and the binary never asks 
 statement for <code>DuckDB</code>, Postgres, <code>ClickHouse</code> or <code>BigQuery</code>, and the goldens parse-check each one.
 Rendering <code>ClickHouse</code> SQL is not a claim that a <code>ClickHouse</code> exists anywhere, and there is no
 <code>ClickHouse</code> adapter: the port takes a plan, and rendering is one adapter's private business.</p>
+<p><strong><code>kind: postgres</code> is openable behind its own default-off <code>postgres</code> feature, and the CHANNEL is the
+part that is new.</strong> A Postgres source declares <code>plaintext</code>, <code>verified</code> or <code>mutual</code>; a TLS mode must
+name its trust store, because there is no default to inherit, and a source with no transport security
+and a host that is not a loopback literal is a startup refusal naming the key rather than a
+connection. <code>sutura-exec-postgres</code> connects over <code>rustls</code> with the declared anchors and the handshake
+mandatory. The tier proves a chain is verified, an untrusted issuer is refused, and a
+certificate-authenticated role rejects a client with no certificate. Its served cell loads the
+single-player corpus into the tier, starts the composed binary over verified loopback TLS and pins
+the certified answer and shared-identity provenance. That is a local real-server deployment; it is
+not evidence about a particular external Postgres installation or per-subject execution.</p>
 <p><strong><code>BigQuery</code> is the one where that distinction has a nearer edge, so it is worth stating - and the
 edge moved once, without the distinction moving with it.</strong> A <code>BigQuery</code> adapter <em>does</em> exist,
 <code>sutura-exec-bigquery</code>, and since <a href="../adr/0018-what-the-bigquery-wire-is-built-from/"><code>adr/0018</code></a> it

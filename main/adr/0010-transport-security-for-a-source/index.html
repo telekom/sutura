@@ -2652,7 +2652,8 @@
 
 
 <h1 id="transport-security-for-a-source-and-the-certificate-that-already-rotates">Transport security for a source, and the certificate that already rotates<a class="headerlink" href="#transport-security-for-a-source-and-the-certificate-that-already-rotates" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted. The serving half is already built; the source half is not.</strong></p>
+<p>Status: <strong>accepted. The configuration half and the Postgres channel are built; rotation and the HTTP
+adapters are not.</strong></p>
 <p>Two separate things share this record because they are constantly confused for each other, and the
 confusion is the dangerous part: <strong>mutual TLS authenticates the SERVICE to a source. It does not
 authenticate the subject, and it delivers no part of impersonation.</strong></p>
@@ -2712,8 +2713,10 @@ on public TLS, one local file with no transport at all.</p>
 <li><strong>A partial declaration refuses at load, naming the missing half.</strong> A certificate with no key, or a
    key with no certificate, is the same class as <code>server.tls_certificate</code> without <code>server.tls_key</code>,
    which already refuses. Silence would mean starting up with mTLS quietly disabled.</li>
-<li><strong>The trust store is stated, not inherited.</strong> The serving config deliberately pulls in neither
-   <code>webpki-roots</code> nor <code>rustls-native-certs</code>, because it presents a chain and verifies none. A source
+<li><strong>The trust store is stated, not inherited.</strong> The SERVING side verifies nothing, so it declares no
+   client trust store of its own - <code>rustls-native-certs</code> is absent from the graph for exactly that
+   reason. (<code>webpki-roots</code> is resolved, and it arrived with the networked BigQuery adapter rather
+   than with this configuration - see the correction under Consequences.) A source
    connection is the first thing here that must VERIFY one, so which anchors are trusted becomes a
    decision with a name: the system store, a pinned bundle, or a per-source anchor. Defaulting to
    whatever the host happens to trust is how a source is silently accepted from the wrong issuer.</li>
@@ -2813,18 +2816,27 @@ authenticated.</p>
   "TLS with verification turned off".
 - Nothing here is reachable until a network source exists. This record is written now because the
   configuration shape it implies is easier to get right before there is a source than after.</p>
-<p><strong>Corrected, and this is the most consequential correction in this record - read it as a finding
-  rather than as bookkeeping.</strong> A network source exists: <code>crates/sutura-serve/src/main.rs</code> dispatches
-  <code>SourceKind::BigQuery</code> and opens an adapter over the wire. What has NOT arrived is this record's own
-  shape - <code>SourceTransport</code>, <code>Plaintext</code>, <code>Verified</code>, <code>Mutual</code>, <code>TrustAnchors</code> and <code>ClientIdentity</code>
-  appear nowhere under <code>crates/</code>. <strong>So rule 2 cannot fire.</strong> <em>A source that asks for TLS and names no
-  anchors refuses at load</em> is a decided refusal with no mechanism, because the source kind that dials
-  out has no anchors field to be missing, and nothing in <code>sutura-config</code> can refuse over one. The
-  sentence corrected here is what hid that: while nothing was reachable, an unenforceable rule cost
-  nothing. #125 is where it gets fixed, and it is one pull request with #124 - the declarable
-  Postgres source - because #124 alone ships a source an operator can declare over a connection on
-  which nothing verifies a certificate. <code>crates/sutura-exec-postgres/src/lib.rs</code> connects with
-  <code>NoTls</code> unconditionally and says so on the module.</p>
+<p><strong>Followed through by <code>telekom/sutura#124</code> and #125 as one change, and what it did NOT reach is the
+  part to read.</strong> <code>sutura_config::sources::transport</code> now owns <code>SourceTransport</code>, <code>Plaintext</code>,
+  <code>Verified</code>, <code>Mutual</code>, <code>TrustAnchors</code> and <code>ClientIdentity</code>, so rule 2 fires at load: a TLS mode with
+  no <code>transport_anchors</code> refuses naming the source, and the same parse refuses a source with no
+  transport security and a host a network can reach - <code>plaintext</code> is a word a unix socket or a
+  loopback host may write and nothing else. <code>Postgres</code> is a declarable <code>SourceKind</code> behind
+  <code>sutura-serve</code>'s and <code>sutura-cli</code>'s default-off <code>postgres</code> feature;
+  <code>sutura-exec-postgres::connect_secured</code> connects over <code>tokio-postgres-rustls</code> with the
+  <code>rustls::ClientConfig</code> built from the declared anchor bundle, with the handshake mandatory; and
+  <code>sutura-runtime</code>'s <code>announce_surface</code> prints each declared source's channel, so the mode is
+  readable in the log rather than only in the tree.</p>
+<p><code>TrustAnchors::System</code> is reached only by writing <code>transport_anchors: system</code>; the Postgres
+  adapter then reads the host store once and refuses a partial or empty read rather than silently
+  reducing it. The Postgres tier holds all three transport states: the ordinary corpus uses its
+  unix socket as declared plaintext, the password role connects over verified TLS, and a dedicated
+  certificate-authenticated role refuses a TLS client that presents no certificate before accepting
+  the client identity the tier signed. That certificate authenticates the DEPLOYMENT as one static
+  role, not the caller; it is no evidence for identity leg 2.</p>
+<p><strong>What is still not this record.</strong> Rotation (rule 3) has no client-side implementation - the pool
+  drain it needs is unbuilt. The HTTP adapters do not honour the declaration, so
+  <code>sutura-exec-bigquery</code>'s wire still verifies against whatever <code>ureq</code> is configured to trust.</p>
 
 
 

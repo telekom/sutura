@@ -3038,12 +3038,12 @@ have nothing to do with the question:</p>
   does not name it. Unset it. It is not the environment or the configuration directory, so the
   remedy printed underneath will not point at it.</li>
 </ul>
-<p><code>kind: bigquery</code> is the other kind, and it needs a build that carries it - the published binaries
-deliberately do not link an outbound TLS stack, which <code>checks.shipped-features</code> reads out of each
-released binary rather than out of a manifest. (It is not a build-time saving: <code>docs/adr/0017</code>
-measured the feature at twelve compiled units, under 2% of a cross job.)
-<a href="#building-from-source">Building from source</a> is how to get one, and the same command then submits
-the plan to a dataset.</p>
+<p><code>kind: bigquery</code> and <code>kind: postgres</code> are the two network kinds, and each needs a build carrying its
+default-off feature - the published binaries deliberately link neither, which
+<code>checks.shipped-features</code> reads out of each released binary rather than out of a manifest. (That is
+an artifact decision, not a build-time saving.) <a href="#building-from-source">Building from source</a> is how
+to get one. The BigQuery block below is the cloud variant; the Postgres declaration, verified and
+mutual TLS modes, and least-authority role grants are in <a href="../serving/#a-postgres-source-least-authority-and-its-channel">Serving</a>.</p>
 <p><strong>The <code>security:</code> block above is still required</strong> - the snippet below replaces the <code>sources:</code> block
 and nothing else. Any non-empty <code>sources:</code> with no <code>security.identity</code> is refused at startup, naming
 that key; it is the same refusal a deployment gets, which is the point of there being one settings
