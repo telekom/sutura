@@ -2499,21 +2499,18 @@ it costs; the two reasons it was absent are answered rather than repealed:</p>
 <li><strong>Nothing in CI can verify it; a developer's own project now has.</strong> On 2026-08-30 the three
    <code>#[ignore]</code>d tests in <code>tests/acceptance.rs</code> passed against a real dataset under a
    service-account key - the first statement this repository generated to be accepted by
-   <code>BigQuery</code>. <strong>What that one is, exactly:</strong> one hand-built <code>SUM</code> over a two-column fixture, so it
-   says nothing about a join, <code>COUNT(DISTINCT</code>, <code>CASE WHEN</code>, a <code>NULLIF</code> ratio or <code>ISOWEEK</code> - and
-   the last is one of the two constructs <code>docs/adr/0017</code> measured the parse check to be blind
-   about. <strong>The corpus-wide leg that record specifies is <code>tests/corpus.rs</code>, beside it</strong>, behind the
-   default-off <code>fixtures</code> feature: it loads the example fixtures into four tables through
+   <code>BigQuery</code>. <strong>What that one is, exactly:</strong> one hand-built <code>SUM</code> over a two-column
+   fixture, so it says nothing about a join, <code>COUNT(DISTINCT</code>, <code>CASE WHEN</code>, a <code>NULLIF</code> ratio or
+   <code>ISOWEEK</code> - and the last is one of the two constructs <code>docs/adr/0017</code> measured the parse check
+   to be blind about. <strong>The corpus-wide leg is <code>tests/corpus.rs</code></strong>, behind the default-off
+   <code>fixtures</code> feature: it loads the example fixtures into four tables through
    <code>BigQueryWarehouse::load_fixture</code>, runs the corpus questions, and compares its rows with the
    engine's for the same plan. That is where the join, the ratio and <code>ISOWEEK</code> are reached.</li>
 </ol>
 <p>So nothing here may be cited as an invariant. <code>sutura-serve</code> DOES link this adapter and dispatch
 <code>kind: bigquery</code> behind its default-off <code>bigquery</code> feature - <code>docs/adr/0017</code>'s second amendment
-records the day the last <em>not wired</em> was spent, and the two sentences that used to stand here
-said the opposite. What is still true is that a default build links none of it,
-and the <code>data_systems:</code> axis of the golden matrix still gains no entry - <strong>and the reason for that
-last one has changed rather than gone away.</strong> It was <em>a cell that has never executed reads as
-coverage</em>; the corpus leg executes, so what keeps the entry out now is that a cell in that registry
+records the day the last <em>not wired</em> was spent. A default build links none of it, and
+the <code>data_systems:</code> axis of the golden matrix gains no entry - because a cell in that registry
 runs inside <code>just test</code> and this one cannot: the nix sandbox has no network, so acceptance is a
 <code>nix run</code> app and not a <code>checks.*</code> output.</p>
 <h1 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h1>
@@ -2525,14 +2522,14 @@ shared posture. Per-subject execution still needs a broker that mints a per-leg 
 a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
 the composition root that links this adapter, which is the half <code>docs/implementation-plan-bigquery.md</code>
 describes as not wired.</p>
-<p><strong>ONE of the two subject shapes, and the other is refused rather than degraded.</strong> The domain's
+<p><strong>ONE of the two subject shapes, and the other is refused rather than degraded.</strong> A
 <code>Presented::SubjectPrincipal</code> is a principal the data system switches to on a connection the
 DEPLOYMENT authenticated, and <code>BigQuery</code> has no such mechanism; it is the same POSTURE as a
-subject token, so <code>Presented::agrees_with</code> passes it and only this adapter can say it has
-nowhere to put it. <code>BigQueryError::NoPrincipalSwitch</code> is that refusal, and the reason it is a
-refusal is the reason the whole-shape <code>NoPlaceForASubject</code> it replaced existed: a leg accepted
-here would be submitted under the transport's own credential while provenance, read off this
-source's posture, reported the answer as impersonated.</p>
+subject token, so <code>Presented::agrees_with</code> passes it
+and only this adapter can say it has nowhere to put it. <code>BigQueryError::NoPrincipalSwitch</code> is
+that refusal, and the reason it is a refusal is the reason the whole-shape <code>NoPlaceForASubject</code>
+it replaced existed: a leg accepted here would be submitted under the transport's own credential
+while provenance, read off this source's posture, reported the answer as impersonated.</p>
 <p><strong>What no version of this is:</strong> a deployment where a served source executes as its asker.
 <code>sutura-serve</code> refuses an <code>impersonation-at-source</code> <code>bigquery</code> entry by name, because no broker
 that exchanges is attached to a served source yet - see that crate's <code>build_bigquery</code>.</p>
@@ -2590,7 +2587,7 @@ expiration, because <code>panic = "abort"</code> means a cancelled runner never 
 the expiration is what still cleans up after it.</p>
 <p>It takes a table name and never a statement, for the same reason <code>load_fixture</code> does: the
 statement is rendered from a name that parsed, and <em>no arbitrary SQL entry point</em> stays true.</p>
-<p>Behind the same <code>fixtures</code> feature and in the same impl block, for the same two reasons.</p>
+<p>Behind the same <code>fixtures</code> feature and in the same impl block, for <code>load_fixture</code>'s reasons.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_fixture</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">csv</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Loaded</span><span class="o">&lt;&lt;</span><span class="n">T</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Replaces one table in the connection's dataset with the rows of a committed fixture CSV.</p>
@@ -2629,9 +2626,9 @@ asserting it is the difference between evidence and a comment. <code>docs/adr/00
 <code>SESSION_USER()</code> as the primitive; <code>SESSION_USER</code> is the only statement this can issue.</p>
 <p>It goes through <code>Self::deliverable</code> like every other credential-taking method, so a leg
 whose credential disagrees with the source's posture is refused here too rather than being
-answered by a read that looks harmless.
-The <code>SessionUser</code> answer redacts under <code>Debug</code>; explicit access and <code>Display</code> still
-reveal it. Neither this read nor its return type establishes how the bearer was obtained.</p>
+answered by a read that looks harmless. The <code>SessionUser</code> answer redacts under <code>Debug</code>;
+explicit access and <code>Display</code> still reveal it. Neither this read nor its return type
+establishes how the bearer was obtained.</p>
 <p><strong>Not part of the <code>Warehouse</code> port, and that is a decision rather than an omission.</strong> No
 other adapter can answer it - <code>sutura-exec-datafusion</code> and <code>sutura-exec-duckdb</code> execute in
 process under one identity, so a defaulted method would answer <em>the process</em> and read as
