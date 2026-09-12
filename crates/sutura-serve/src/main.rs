@@ -254,7 +254,11 @@ fn run() -> Result<(), String> {
     // between this root's two loads is caught below on `files` and is not caught at all on
     // `bigquery`.
     if let Some(attached) = attached {
-        boot::refuse_unattached(&boot::served_tables(service.definitions()), &attached)?;
+        sutura_app::preflight::refuse_unattached(
+            &sutura_app::preflight::served_tables(service.definitions()),
+            &attached,
+        )
+        .map_err(|changed| changed.to_string())?;
     }
     tracing::info!(
         definition_version = %pinned.version(),
@@ -516,7 +520,7 @@ enum OpenedSources {
     /// A `BigQuery` dataset per source, reached over the wire.
     ///
     /// Nothing is attached, so there is no table set beside it - see the note at the call site of
-    /// [`boot::refuse_unattached`], which states what that costs.
+    /// [`sutura_app::preflight::refuse_unattached`], which states what that costs.
     #[cfg(feature = "bigquery")]
     BigQuery(sutura_app::Warehouses<BigQuerySource>),
 }
@@ -570,7 +574,7 @@ where
 /// and a CSV has to be sniffed.
 ///
 /// The set of tables comes back with the engine because it is evidence rather than bookkeeping: it is
-/// what [`boot::refuse_unattached`] compares the SERVED bundle against, and the two bundles are two loads.
+/// what [`sutura_app::preflight::refuse_unattached`] compares the SERVED bundle against, and the two bundles are two loads.
 ///
 /// **`with_worker_threads` and not `new`, and that is the whole of what `runtime.engine_worker_threads`
 /// does.** The engine drives its own runtime and every request `block_on`s it from a blocking-pool

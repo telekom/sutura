@@ -227,58 +227,6 @@ Keyed by each adapter's own `Warehouse::source` rather than by a name the caller
 alongside it, so the key and the adapter cannot disagree about which source this is - the same
 reason `PinnedDefinitions::pin` computes its digest from the definitions it stores.
 
-## `use BootIdentity`
-
-The process's own static root identity, under which boot-time trust runs.
-
-The deployment's own word for who it is - `Subject::TheDeploymentItself` in the domain - and the
-identity `verify_anchor` and the shared-service-user legs run as. A marker rather than a
-credential, and deliberately a unit: there is one deployment, one value, and no way to confuse
-it with a caller. `BootRoot` holds exactly one of these, and nothing on the request path can
-mint one.
-
-## `use BootRoot`
-
-The single root of trust boot holds: the validated bundle and nothing a request needs.
-
-## A caller's assertion cannot make it in
-
-The constructor's second argument is the deployment's OWN identity, so a `RequestContext` is a
-compile error wherever a `BootRoot` is being built - the root cannot be handed, or repurposed
-to answer as, a caller.
-
-```compile_fail
-use sutura_app::{BootIdentity, BootRoot};
-use sutura_domain::identity::RequestContext;
-use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
-use sutura_domain::warehouse::Warehouse;
-
-// No parameter takes a caller's assertion: the second argument is the root's own identity.
-fn _boot<W: Warehouse>(
-    pinned: PinnedDefinitions,
-    context: RequestContext,
-    warehouses: &sutura_app::Warehouses<W>,
-) -> Result<BootRoot, NotValidated> {
-    BootRoot::validate(pinned, context, warehouses)
-}
-```
-
-The twin, with the root's only other argument:
-
-```
-use sutura_app::{BootIdentity, BootRoot};
-use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
-use sutura_domain::warehouse::Warehouse;
-
-fn _boot<W: Warehouse>(
-    pinned: PinnedDefinitions,
-    identity: BootIdentity,
-    warehouses: &sutura_app::Warehouses<W>,
-) -> Result<BootRoot, NotValidated> {
-    BootRoot::validate(pinned, identity, warehouses)
-}
-```
-
 ## `use Capability`
 
 One thing this surface can be asked to do.
@@ -1481,6 +1429,24 @@ root that composed the adapter is the one that can flatten it.
 - `Refused` - The data system refused to be asked: this identity may not list it.
 - `Unverified` - The data system could not be asked, for a reason that is not a refusal.
 
+#### Methods
+
+```rust
+pub fn boot_policy(self) -> Result<Notice<E>, Refusal<E>>
+```
+
+Splits this verdict the one way both composition roots split it.
+
+Exhaustive over `Verdict`, so a variant added to the port's answer is a compile error here
+- at the one place that has to decide which side of the boot policy it falls on - rather
+than a silently-served outcome in whichever root forgot it.
+
+# Errors
+
+The four outcomes this deployment does not start on: a refused listing, a table the data
+system does not hold, an unreadable inventory, and an inventory that did not account for
+itself.
+
 #### Implements
 
 `Debug`
@@ -1528,6 +1494,69 @@ The absent tables and the models behind each, for a root that renders its own sh
 
 `Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
 
+### `enum Refusal`
+
+```rust
+pub enum Refusal<E>
+```
+
+The boot policy over one `Verdict`: this deployment refuses, or it carries on and says so.
+
+**The partition is the thing that was held by recall in two composition roots.** Each root
+matched all seven verdicts and decided per arm which ones return an error, and the two agreed
+only because someone kept them agreeing - so a source whose outcome one root refused and the
+other served was a two-file edit away. Stating it once makes the two roots' boot behaviour the
+same fact rather than the same intention.
+
+**`Err` for a refusal here, and that is not the query path's rule inverted.** A governance
+refusal lives inside the `Ok` where a CALLER could mistake it for a hiccup and retry; this is
+boot, the outcome is that the process does not start, and both roots already returned
+`Result<(), String>` with exactly these four outcomes in the `Err`. What changed is that the
+four are now a type.
+
+**The limit, stated with the claim.** This is a type saying which outcomes refuse. It does not
+confine a root to asking: `Verdict` is still public, because *what the data system answered*
+and *what this deployment does about it* are two questions, and the port's own answer is what an
+adapter's suite asserts on. A future root that matches `Verdict` directly and re-decides the
+split is what review has to catch; no type here stops it.
+
+Which outcome belongs on which side is `Verdict`'s own documentation, and changing it is
+`telekom/sutura#141`'s decision rather than a call site's.
+
+#### Variants
+
+- `Refused` - The data system refused to be listed: this identity may not ask.
+- `Absent` - Asked, answered, and these tables are not there - with the models that named them.
+- `UnreadableInventory` - An unreadable inventory established neither presence nor absence for these tables.
+- `Unaccounted` - The answer did not account for every table the data system said it holds.
+
+#### Implements
+
+`Debug`
+
+### `enum Notice`
+
+```rust
+pub enum Notice<E>
+```
+
+The boot policy's other side: this deployment serves, and a root says what was established.
+
+**Every one of these is a line a root emits, including the two clean ones.** `NotReported` is
+the outcome meaning *nothing verified this*, so a root that printed nothing for it would make it
+indistinguishable from a data system that really looked - which is why silence is not one of the
+shapes here.
+
+#### Variants
+
+- `Present` - Asked, and every table is there. Carries how many, for a line that says so.
+- `NotReported` - The adapter did not report - `TablesPresent::NotAsked`, the port's default.
+- `Unverified` - The data system could not be asked, for a reason that is not a refusal.
+
+#### Implements
+
+`Debug`
+
 ### `struct Asked`
 
 ```rust
@@ -1564,6 +1593,46 @@ What it answered.
 
 `Debug`
 
+### `struct TablesChanged`
+
+```rust
+pub struct TablesChanged
+```
+
+The bundle being served names tables that are not the ones attached behind it.
+
+**A type rather than the `String` both roots built**, and the two sets rather than a rendered
+sentence: a caller that wants to act on which tables moved can read them, and the sentence is
+`Display` for the roots that only want to print it. Both roots printed the SAME
+sentence - measured byte-identical - so it is not wording that belongs to a transport, and it
+moved with the comparison instead of being copied a third time.
+
+Non-empty by construction: `refuse_unattached` is the only constructor and returns `Ok` when
+both sets are empty, so a mismatch that names nothing is unrepresentable rather than checked.
+
+**The limit, stated with the claim.** What this compares is TABLE NAMES between two loads of one
+catalog directory. It does not establish that a table which is attached holds the columns a
+model names, and it says nothing about a data system a root never attached anything for - the
+pre-flight above is that half, for the sources that can answer it.
+
+#### Methods
+
+```rust
+pub const fn extra(&self) -> &BTreeSet<TableName>
+```
+
+Tables attached for a model the bundle being served no longer names.
+
+```rust
+pub const fn missing(&self) -> &BTreeSet<TableName>
+```
+
+Tables the bundle being served names with no table attached behind them.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `fn ask`
 
 ```rust
@@ -1587,3 +1656,40 @@ printed would not be assertable.
 
 The order is the registry's, which is the source name's - so two roots asking the same question
 report it in the same order, and a test can name the answer it expects rather than search for it.
+
+### `fn served_tables`
+
+```rust
+pub fn served_tables(served: &sutura_domain::pinned::PinnedDefinitions) -> std::collections::BTreeSet<sutura_domain::model::TableName>
+```
+
+Every table the bundle's models sit behind, whichever data system holds it.
+
+A pure query over a `sutura-domain` type, here rather than in each composition root for
+`models_by_table`'s reason: it names nothing an operator reads. Both roots compared the result
+against what their engine attached, from a body that was byte-identical in the two of them.
+
+### `fn refuse_unattached`
+
+```rust
+pub fn refuse_unattached(serving: &std::collections::BTreeSet<sutura_domain::model::TableName>, attached: &std::collections::BTreeSet<sutura_domain::model::TableName>) -> Result<(), TablesChanged>
+```
+
+The tables the bundle being served names, against the tables the engine actually holds.
+
+**One home for a comparison both composition roots made from byte-identical bodies.** The two
+sets come from two `load()` calls on the same catalog directory; a model added between them is
+refused here rather than served with no table behind it, which would fail the first question
+against it at query time.
+
+Two sets rather than a bundle and an engine, so the comparison is unit-testable without a digest,
+a knowledge declaration or a data system - `served_tables` is the other half and is one map
+over a public accessor.
+
+Both directions are refused, and the second is not pedantry: a table attached for a model the
+served bundle no longer names means the catalog directory changed between two loads seconds
+apart, and whatever else moved with it is the part nobody has looked at.
+
+# Errors
+
+Either set holding a table the other does not, as a `TablesChanged` carrying both differences.

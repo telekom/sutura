@@ -19,7 +19,6 @@ use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
-use super::boot::refuse_unattached;
 use super::{ENGINE_SOURCE, Opened, OpenedSources, open_engine};
 
 fn tables(names: &[&str]) -> BTreeSet<TableName> {
@@ -852,53 +851,6 @@ fn a_model_with_no_file_behind_it_starts_nothing() {
     assert!(error.contains("fct_order.csv"), "the CSV path is missing: {error}");
     assert!(error.contains("fct_order.parquet"), "the Parquet path is missing: {error}");
     assert!(error.contains("table fct_order"), "the table is not named: {error}");
-}
-
-#[test]
-fn a_model_the_engine_has_no_table_for_stops_the_process() {
-    // The startup sequence loads the catalog TWICE - the engine is opened for the first bundle
-    // and the service validates and serves the second - so a model added to the catalog
-    // directory between the two calls was served with nothing attached behind it. `answer`
-    // cannot catch that: its only check on the engine is that the source NAME matches, so the
-    // first question about the new metric came back as an error from the engine rather than as a
-    // refusal at startup.
-    let err = refuse_unattached(
-        &tables(&["fact_subscription", "dim_customer"]),
-        &tables(&["fact_subscription"]),
-    )
-    .expect_err("a served model with no attached table does not serve");
-    assert!(err.contains("Served with no table attached: [dim_customer]"), "{err}");
-    assert!(err.contains("Attached and no longer served: []"), "{err}");
-    assert!(err.contains("the catalog changed while this process was starting"), "{err}");
-}
-
-#[test]
-fn a_table_attached_for_a_model_no_longer_served_stops_it_too() {
-    // The other direction, and not pedantry: it means the catalog directory changed between two
-    // loads seconds apart. This one would answer every question correctly, which is exactly why
-    // it has to be loud - whatever else moved in that edit is the part nobody has looked at.
-    let err = refuse_unattached(
-        &tables(&["fact_subscription"]),
-        &tables(&["fact_subscription", "dim_customer"]),
-    )
-    .expect_err("an attached table for nothing served does not serve");
-    assert!(err.contains("Served with no table attached: []"), "{err}");
-    assert!(err.contains("Attached and no longer served: [dim_customer]"), "{err}");
-}
-
-#[test]
-fn the_two_bundles_agreeing_is_the_ordinary_case_and_starts() {
-    // The check has to be silent when nothing changed, which is every start. An empty catalog is
-    // already refused earlier, by `open_engine`, so the empty pair is not a case this decides.
-    refuse_unattached(&tables(&["fact_subscription"]), &tables(&["fact_subscription"])).expect("two bundles that agree start");
-    assert!(
-        refuse_unattached(
-            &tables(&["dim_customer", "fact_subscription"]),
-            &tables(&["fact_subscription", "dim_customer"])
-        )
-        .is_ok(),
-        "the comparison is over sets, so declaration order is not a difference"
-    );
 }
 
 #[test]

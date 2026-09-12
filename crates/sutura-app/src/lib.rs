@@ -81,16 +81,14 @@ pub mod assemble;
 pub mod capability;
 
 // Asking every open data system whether it holds the tables the bundle names, once, for both
-// composition roots that ask it. Here for `warehouses`' reason applied one step on: the DECISION is
-// application logic - which data systems to ask, what a set of absent tables means, and which of two
-// failures is a refusal - while the sentence an operator reads and the sink it goes to belong to the
-// root, which is why nothing in this module prints. Review measured the alternative: the two helpers
-// under it were byte-identical in the two roots.
+// composition roots that ask it - and comparing the bundle being served against what was actually
+// attached behind it. Here for `warehouses`' reason applied one step on: the DECISION is
+// application logic - which data systems to ask, what a set of absent tables means, and which of
+// two failures is a refusal - while the sentence an operator reads and the sink it goes to belong
+// to the root, which is why nothing in this module prints. Review measured the alternative every
+// time something moved in: each helper underneath was byte-identical in the two roots first.
 pub mod preflight;
 
-mod boot_root;
-
-pub use crate::boot_root::{BootIdentity, BootRoot};
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
 

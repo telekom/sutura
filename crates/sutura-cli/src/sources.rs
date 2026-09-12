@@ -45,7 +45,8 @@
 //!
 //! A declaration says where a data system is. It does **not** say the files there hold the data the
 //! bundle certifies, and nothing in this module tree checks that: the only thing that does is an ANCHOR,
-//! `sutura_app::verify_anchors` walks `pinned.anchored_metrics()`, and [`refuse_unattached`] compares
+//! `sutura_app::verify_anchors` walks `pinned.anchored_metrics()`, and
+//! [`sutura_app::preflight::refuse_unattached`] compares
 //! table NAMES and never content. So a bundle whose metrics declare no anchor is answered under its
 //! real digest out of whatever directory the entry points at. That is parity with `sutura-serve`
 //! rather than a hole this module opened - and it is stated here because this is the change that
@@ -84,7 +85,7 @@ mod bigquery;
 /// The pre-flight that closes issue 120 for this binary's serving surface.
 ///
 /// Re-exported rather than reached as `bigquery::refuse_absent_tables`, so [`crate::mcp`] names it
-/// beside [`refuse_unattached`] - the two halves of one question, one per kind of source - and so
+/// beside [`sutura_app::preflight::refuse_unattached`] - the two halves of one question, one per kind of source - and so
 /// the `bigquery` module stays private the way the dispatch expects.
 #[cfg(feature = "bigquery")]
 pub(crate) use bigquery::refuse_absent_tables;
@@ -94,8 +95,9 @@ pub(crate) use bigquery::refuse_absent_tables;
 ///
 /// **Its own file for the reason `bigquery`'s is** - `cargo xtask max-lines` fails at 1000 lines
 /// rather than warning, and this file crosses it if either kind lives here. What stays is what
-/// belongs to NEITHER kind: the shared shapes, the settings door, the `kind:` dispatch and the
-/// two-load table check both kinds' callers run.
+/// belongs to NEITHER kind: the shared shapes, the settings door and the `kind:` dispatch. The
+/// two-load table check both kinds' callers run is `sutura_app::preflight::refuse_unattached`,
+/// which is inward of both roots rather than in either - it was byte-identical in the two.
 mod files;
 
 /// The data system this command declares for itself, and the name it answers to.
@@ -140,7 +142,7 @@ pub(crate) struct OpenedWith<W> {
     ///
     /// `None` is not an empty set: an empty set means nothing was registered and the served bundle
     /// had better name nothing either, while `None` means the tables live in the data system and this
-    /// process cannot enumerate them. [`refuse_unattached`] is skipped for the second, and the caller
+    /// process cannot enumerate them. [`sutura_app::preflight::refuse_unattached`] is skipped for the second, and the caller
     /// states that narrowing at its own call site.
     pub(crate) attached: Option<BTreeSet<TableName>>,
     /// The broker that mints for whatever was opened above.
@@ -354,45 +356,6 @@ fn from_the_registry(
     }
 }
 
-/// Every table the served bundle's models sit behind.
-pub(crate) fn served_tables(served: &PinnedDefinitions) -> BTreeSet<TableName> {
-    served
-        .definitions()
-        .models()
-        .values()
-        .map(|model| model.table_name().clone())
-        .collect()
-}
-
-/// The tables the served bundle names, against the tables the engine actually holds.
-///
-/// Copied from `sutura-serve`'s function of the same name, because the two composition roots are
-/// separate binaries and neither may depend on the other. The two sets come from two `load()` calls
-/// on the same directory; a model added between them is refused here rather than served with no
-/// table behind it, which would fail the first question against it at query time.
-///
-/// # Errors
-///
-/// Either set holding a table the other does not.
-pub(crate) fn refuse_unattached(serving: &BTreeSet<TableName>, attached: &BTreeSet<TableName>) -> Result<(), String> {
-    let missing = names(serving.difference(attached));
-    let extra = names(attached.difference(serving));
-    if missing.is_empty() && extra.is_empty() {
-        return Ok(());
-    }
-    Err(format!(
-        "the catalog changed while this process was starting: the engine was opened for the bundle \
-         loaded first, and the bundle being served names different tables. Served with no table \
-         attached: [{missing}]. Attached and no longer served: [{extra}]. Refusing to serve a model \
-         whose questions would fail at query time"
-    ))
-}
-
-/// One line of table names, for a message an operator has to act on.
-fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
-    tables.map(TableName::as_str).collect::<Vec<&str>>().join(", ")
-}
-
 /// The working-set ceiling this command bounds the engine with.
 ///
 /// **`runtime.working_set_max_bytes` from the tree, not the embedded constant** - which is a review
@@ -580,7 +543,6 @@ fn wif() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
 
     use sutura_domain::model::{MetricName, TableName};
@@ -589,7 +551,7 @@ mod tests {
 
     use super::{
         BUILT_IN_SOURCE, Opened, OpenedWith, bundle_naming, bundle_over, declaring, declaring_bigquery, open_engine,
-        overlay_remedy, refuse_unattached, runtime, served_tables, timeout, unservable,
+        overlay_remedy, runtime, timeout, unservable,
     };
 
     /// The files registry `open_engine` produced, or a failure saying which arm it took instead.
@@ -731,7 +693,12 @@ mod tests {
                 .attached
                 .as_ref()
                 .map(|tables| tables.iter().map(TableName::as_str).collect::<Vec<&str>>()),
-            Some(served_tables(&pinned).iter().map(TableName::as_str).collect::<Vec<&str>>()),
+            Some(
+                sutura_app::preflight::served_tables(&pinned)
+                    .iter()
+                    .map(TableName::as_str)
+                    .collect::<Vec<&str>>()
+            ),
             "the attached set is what the served bundle names"
         );
     }
@@ -899,31 +866,6 @@ mod tests {
         .map(|_| ())
         .expect_err("a catalog with no models opens nothing");
         assert!(error.contains("declares no models"), "{error}");
-    }
-
-    #[test]
-    fn a_catalog_that_changed_between_two_loads_is_refused() {
-        // The check the `mcp` command runs after `LocalService::start` re-loads the catalog: the two
-        // loads are two `read_all()` calls over one directory, and a model added between them would
-        // be served with no table behind it and fail its first question at query time.
-        let set = |tables: &[&str]| -> BTreeSet<TableName> {
-            tables
-                .iter()
-                .map(|raw| TableName::parse(raw).expect("a test table is a table"))
-                .collect()
-        };
-        let serving = set(&["orders", "customers"]);
-        let attached = set(&["orders"]);
-        let error = refuse_unattached(&serving, &attached)
-            .expect_err("a table served but never attached is the whole point of the check");
-        assert!(error.contains("customers"), "the missing table is named: {error}");
-        // Both directions, so a silently dropped model is caught too - the "extra" arm exists because
-        // whatever else drifted is the part nobody has looked at.
-        let error =
-            refuse_unattached(&attached, &serving).expect_err("an attached table no longer served is a bundle that changed");
-        assert!(error.contains("customers"), "the extra table is named: {error}");
-        // And the two agreeing is not an error.
-        refuse_unattached(&serving, &serving).expect("matching sets are fine");
     }
 
     #[test]
