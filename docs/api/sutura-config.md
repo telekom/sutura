@@ -1181,7 +1181,16 @@ that exists in a record rather than in a linked crate is still a word an operato
 #### Variants
 
 - `Markdown` - A directory of markdown documents with YAML frontmatter, read by `sutura-catalog-local`.
+
+  The only kind either composition root can OPEN in this build: the markdown adapter is
+  linked by `sutura-serve` and is what `sutura-cli` puts behind its directory argument.
 - `Datahub` - A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
+
+  **A declarable kind that no binary this repository ships can open yet, and that is
+  deliberate.** The vocabulary of kinds is the vocabulary of adapters *this repository has*
+  in its records, and the composition root refuses this kind by name for exactly the reason
+  `SourceKind::BigQuery` is refused: an operator who writes the word must be told the truth
+  (the adapter is not linked) rather than sent looking for a typo.
 
 #### Methods
 
@@ -1618,6 +1627,11 @@ whether a deployment decided to accept every class of token.
 - `Exactly` - A token whose `typ` is this, compared after the signature verified.
 - `Any` - Any class of token the issuer signed for this audience.
 
+  **Not a default anywhere.** In the `direct` mode it is written as `token_type: "any"`; in
+  `behind-gateway` as `transit_token_type: "any"`, where it is also the only way to say "this
+  component sets no `typ`". Either way `InboundIdentity::type_check` renders a sentence the
+  startup log prints, so a deployment running with it is visible on every boot.
+
 #### Methods
 
 ```rust
@@ -1731,6 +1745,13 @@ posture must not be satisfiable by silence.
 
 - `Direct` - This deployment is the resource server. It validates the caller's token itself: signature, issuer, expiry, and an audience matching its own resource identifier.
 - `BehindGateway` - A fronting component authenticated the caller. This deployment validates a **signed identity assertion** the component issued, and derives the subject from that assertion's own claims rather than from a string somebody set.
+
+  **The wording used to say "a short-lived proof that the request transited that component", and
+  review showed the code did not deliver either half.** The lifetime was the component's to choose
+  and nothing capped it, and nothing bound an assertion to a request - so replaying the identical
+  token worked for as long as its `exp` allowed. `docs/adr/0014` now says the same thing this doc
+  comment does; the lifetime half is fixed by `ProofLifetime`, and the binding half is a stated
+  limit rather than a claim.
 
 #### Methods
 
@@ -2246,7 +2267,16 @@ and the crate that acts on it owns the type that acts.
 #### Variants
 
 - `Quoted` - Quoted in, with `> ` at the start of every line and the trust boundary named above the block. The default.
+
+  **A description is untrusted content and this is not a claim that it is safe.** A per-line
+  prefix stops catalog text from reaching column zero, so it cannot emit a heading or close a
+  block; it does nothing about prose that persuades without escaping. `SECURITY.md` treats
+  catalog content as untrusted, and `sutura_app::prompt` states the residual gap.
 - `Omitted` - Left out. For a deployment whose catalog authors are not the people who decide what its agents are told.
+
+  The prompt then says the descriptions exist and were not included, rather than rendering a
+  list of metric names with no meaning attached: silence is what makes an agent infer a
+  definition from a name.
 
 #### Methods
 
@@ -2322,6 +2352,11 @@ Why the prompt configuration is not usable.
 #### Variants
 
 - `EmptyPath` - The path was present and empty.
+
+  Empty is not absent: an unset variable in a shell arrives as `""`, and an empty path resolves
+  to the process working directory, so this would read a *directory* as an instructions file on
+  whichever host the process happens to be on. Absent means "no operator text"; empty means
+  somebody meant to write a path.
 
 #### Implements
 
@@ -3001,9 +3036,25 @@ Why a string is not usable as an access token.
 #### Variants
 
 - `TooShort` - Shorter than `AccessToken::MIN_LENGTH`.
+
+  Carries the length and never the value. A token quoted into an error message reaches
+  stderr, a log collector and whatever reads that log, which is a longer life than the
+  operator intended for it.
 - `TooLong` - Longer than `AccessToken::MAX_LENGTH`.
+
+  An unbounded configured string is an availability surface, and a bearer token has no reason
+  to reach this size. Carries the length and never the value, as `Self::TooShort` does.
 - `Untrimmed` - Whitespace at either end, which is almost always a copy-paste artefact and would otherwise make every request fail for a reason nobody can see in a log.
 - `NotRepresentableOnTheWire` - A character no `Authorization` header could carry to us.
+
+  **This is the variant that closes a service which starts and can never authenticate.** The
+  gate reads the header with `HeaderValue::to_str`, which accepts visible ASCII and nothing
+  else, so a token holding anything outside that set is one no request can present: the
+  process boots, every call is a `401`, and nothing anywhere says why. Refusing it at startup
+  turns a silent outage into a message.
+
+  Carries the position and never the character, for the same reason `Self::TooShort`
+  carries the length and never the value.
 
 #### Implements
 
@@ -3157,6 +3208,11 @@ configuration or a subject arrives per request.
 - `StaticCredentials` - Static credentials, one user, one host - the `single-user` mode. Carries the operator's own reason, so the mode is unreachable by leaving a key out.
 - `SubjectPerRequest` - A subject per request, established by the transport - the `multi-user` mode.
 
+  **Nothing establishes one today** - the bearer gate authenticates the deployment - so this mode
+  is currently a statement of intent whose only mechanical effect is that every shared source has
+  to be acknowledged on its own entry. That is the honest description and it is worth having: the
+  acknowledgements are what a deployment needs in place *before* a subject arrives, not after.
+
 #### Methods
 
 ```rust
@@ -3220,6 +3276,10 @@ Why a deployment mode declaration is not usable.
 
 - `Unknown`
 - `SingleUserWithoutAReason` - Single-user mode with no reason written.
+
+  The reason is what makes the mode a declaration rather than a word: a single-user deployment
+  serves every source under one identity, and the operator's own sentence for why is what a
+  reviewer reads and what a shared source borrows as its acknowledgement.
 - `ReasonWithoutSingleUser` - A single-user reason on a multi-user deployment, where nothing would read it.
 - `Reason`
 
@@ -3536,6 +3596,16 @@ Why a bound is not a bound.
 - `TooLarge` - Above the ceiling this type declares.
 - `AboveAvailableMemory` - Above the memory this process can actually reach.
 
+  **A variant of its own rather than a `Self::TooLarge` with the machine's number as the
+  limit, because the two send an operator to different places.** `TooLarge` means "this type
+  does not accept a number that big"; this means "the type would, and your machine will not".
+  One is a key to change and the other is a container to resize or a key to lower, and a message
+  saying only *the maximum is N* cannot tell which of the two produced it.
+
+  The reason it refuses rather than clamping is `panic = "abort"`: a ceiling above what the
+  process can reach is not a generous bound, it is the unbounded case with a number written next
+  to it, and the allocation failure it permits ends the process for every caller in flight.
+
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
@@ -3592,6 +3662,10 @@ Why a pair of paths is not usable TLS material.
 #### Variants
 
 - `OnlyOneHalf` - One half was given and the other was not.
+
+  Refused rather than half-configured: a certificate with no key cannot start a listener, and
+  the silent alternative is a service that either falls back to plaintext or fails at the
+  first handshake.
 - `EmptyPath` - A path was given as an empty string, which is not a path.
 
 #### Implements
@@ -3711,7 +3785,28 @@ legitimate one.
 
 - `Files` - A directory of CSV or Parquet files, read by the in-process engine.
 - `BigQuery` - A `BigQuery` dataset, queried by rendering the plan into `GoogleSQL` and pushing it down.
+
+  **A declarable kind that no shipped binary can open yet, and that is deliberate rather than an
+  oversight.** The vocabulary of kinds is the vocabulary of adapters *this repository has*, and
+  `sutura-exec-bigquery` exists; what does not exist is a composition root that links it, so
+  `sutura-serve` refuses this kind by name. The alternative was to leave the word out, which
+  would refuse the same deployment with `kind` does not name a data system this build can open -
+  a message that sends an operator looking for a typo instead of telling them the truth.
+
+  It is here now rather than with the impersonation step because the billing project has to be
+  declared somewhere, and putting the declaration one step early is what keeps the per-subject
+  step to one change: how a connection is authenticated.
 - `Postgres` - A `PostgreSQL` database, queried by rendering the plan into that dialect and pushing it down.
+
+  **A declarable kind that no shipped binary opens yet, and the refusal is at startup rather
+  than at parse, naming the `postgres` feature** - the same shape `BigQuery`'s entry uses the
+  other way around. The vocabulary of kinds is the vocabulary of adapters this repository has;
+  which adapter a given BUILD linked is a property of its features, so an entry for a kind whose
+  adapter is not linked is a startup refusal naming the `--features` that would link it, not a
+  spelling error.
+
+  The static-credential half: one connection under the deployment's declared identity. Per-subject
+  Postgres over SASL OAUTHBEARER is `telekom/sutura#126` and is deliberately not this shape.
 
 #### Methods
 
@@ -3841,22 +3936,66 @@ convenience, and nothing needs to clone a startup refusal.
 
 - `Alias` - The key is not a name a model could write in its `source:` field.
 - `DuplicateAlias` - Two entries name one source.
+
+  **Reachable, and that is why the check exists.** A source name is trimmed when it is parsed -
+  case is preserved, whitespace is not - so `local` and `" local"` are two distinct keys in a YAML
+  mapping and one `SourceName`. Whichever entry lost would be the one nobody opened, with the
+  deployment configured as though it had been, and nothing anywhere would say so.
 - `NoDataDirectory` - The entry names no file location.
+
+  Refused rather than defaulted to `catalog.data_dir`: a source that inherited the catalog's
+  data directory would be a second source reading the first one's files, which is a
+  configuration nobody wrote and cannot see.
 - `RelativeDataDirectory` - The path is relative, so it resolves against the process working directory.
+
+  A different directory on every host and never the one the operator meant. `catalog.data_dir`
+  tolerates a relative path because it is resolved beside a command somebody typed; a source in a
+  registry is read by a service whose working directory is whatever its supervisor chose.
 - `RelativePath` - A path a kind requires is relative, so it resolves against the process working directory.
+
+  The same fact as `Self::RelativeDataDirectory` about a different key, and a second variant
+  rather than a widened first one: `data_dir` is the only key whose absence has a refusal of its
+  own - `Self::NoDataDirectory` - so folding them would make one message stand for two checks
+  that are not the same. This one names the key.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
+
+  **This is where "a source this build cannot open" is refused now**, and it is a parse error
+  rather than a startup one because the vocabulary is closed: the set of kinds is the set of
+  adapters, so a word outside it is a value no build could honour rather than a value this build
+  cannot. Which adapter opens a declared kind is then an exhaustive match in the composition root,
+  so a second kind is a compile error there rather than a case that falls through.
 - `Text` - A piece of operator-written text on this entry is not usable.
 - `Conflict` - The entry's two identity declarations contradict each other.
 - `MissingForKind` - A key this kind requires was not written.
 - `KeyNotForKind` - A key was written that means nothing for this kind.
+
+  **Refused rather than ignored**, because a key an operator wrote and a deployment reads past is
+  a configuration nobody can see - see `parse_placement` for the argument in full.
 - `ResourceName` - A declared cloud resource name is not usable.
 - `Host` - A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
 - `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
+
+  A source that executes as the asking subject has to say WHICH provider exchanges the subject's
+  token - there is nothing this build could guess, and a per-caller credential has to come out of
+  a declaration rather than a default that pretends one exists.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
+
+  Refused rather than ignored, for the reason every key a kind has no use for is refused: a
+  declaration that does nothing is a configuration nobody can see.
 - `WorkloadIdentity` - The declared workload-identity value is not usable.
 - `Transport` - The declared transport of a source was not usable.
+
+  The transport is the whole channel a source is reached over, so its refusals (an unknown
+  `transport_mode` word, TLS with no anchors, a partial client certificate, a relative path) surface
+  here as a single parse refusal naming the source. The `cause` names the key.
 - `RemoteWithoutTls` - A source a network can reach was declared with no transport security.
+
+  Issue 124's fail-closed rule, and the reason `plaintext` is a written WORD rather than the
+  absence of a setting: a unix socket or a loopback host may declare it, and anything reachable
+  from another machine may not - so a deployment cannot send a password and a whole result set
+  in clear text by leaving a key out. The key named is `transport_mode`, because declaring a TLS
+  mode and its anchors is the remedy.
 
 #### Implements
 
@@ -4045,6 +4184,10 @@ places to keep one set of sentences.
 - `Empty` - Nothing was written, or only whitespace was.
 - `Length` - Outside the length the name may be.
 - `Character` - A character that is not in the accepted set.
+
+  **The position is carried and the VALUE is not**, which is this workspace's habit for a
+  refusal about operator-written text: a message that quoted the whole value would put a
+  project id into a log, and a project id is one of the things this repository does not print.
 - `Boundary` - The first or last character is one the shape does not allow there.
 
 ##### Implements
@@ -4161,7 +4304,29 @@ be skipped" look like the same sentence and are not.
 
 - `Files` - A directory of CSV or Parquet files, read by the in-process engine.
 - `BigQuery` - A `BigQuery` dataset, plus the project its jobs are billed to.
+
+  **The limit, worth stating because the deployment it cannot describe is the one this file's
+  other argument names:** the dataset's OWN project is unrepresentable. The endpoint's
+  `defaultDataset` resolves an omitted project in the request's project - the billing one - so
+  this placement can only describe a dataset that lives inside the project paying for the job. A
+  dataset owned by a different project than the payer is precisely the case where payer and data
+  owner are different parties because they are different projects, which is the same argument
+  `BillingProject` makes for existing. `location` is the same question one size smaller: a
+  dataset outside the two multi-regions needs it on the endpoint's result-paging call. Neither a
+  `project` nor a `location` field is added yet because this seam has no transport consuming
+  them; the limit is also stated in `docs/adr/0017`, and the change that adds the wire is the one
+  that decides the fields.
 - `Postgres` - A `PostgreSQL` database, reached over a connection the deployment declares.
+
+  **The static-credential half of Postgres: one connection under the declared identity.** The
+  password never appears in the settings tree - it is declared as a FILE, and there is no
+  `password` key at all: `crate::raw::RawSource` is `deny_unknown_fields`, so an inlined literal
+  is refused as an unknown key rather than read and redacted. Reading the file is the adapter's
+  job, at boot, once.
+
+  `host` and `port` are the network dial; when the source sits on a unix socket, `unix_socket`
+  is written instead. The two cannot both be set, and which one an operator chooses is what
+  decides whether a non-loopback host must have TLS declared - see `PostgresDial`.
 
 ##### Methods
 
@@ -4334,8 +4499,15 @@ value that would be cloned is a path, which is fine to own here.
 - `UnknownTransport`
 - `PlaintextWithMaterial` - A `plaintext` channel also named anchors or a client identity, which nothing would read.
 - `TlsWithoutAnchors` - A source declared TLS and named no trust anchors.
+
+  Rule 2 of `docs/adr/0010`: the trust store is stated, not inherited, so there is no value to
+  fall back to. `TrustAnchors` has no `Default` for exactly this refusal's sake.
 - `MissingHalf` - A client certificate was written without its key, or the reverse.
 - `MutualWithoutIdentity` - A `mutual` channel declared no client identity at all.
+
+  Distinct from `Self::MissingHalf`, which names the half a written pair left out: here
+  nothing was written, so a message that said one half was present would be false. `mutual`
+  promises this deployment presents a certificate, so the refusal says which keys to write.
 - `RelativePath` - A path a transport declares is relative.
 
 ##### Implements

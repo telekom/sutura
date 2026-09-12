@@ -1096,6 +1096,10 @@ Why a scope string is not one.
 - `TooMany`
 - `NotAScopeToken` - A character RFC 6749's `scope-token` production does not allow.
 
+  The position and never the value, like every other refusal in this crate: a scope is caller
+  text, and the character classes that matter most here - a control character, an invisible one -
+  are exactly the ones that would print as nothing.
+
 ##### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
@@ -1563,6 +1567,10 @@ Why a string is not a key identifier.
 - `TooLong`
 - `NotPrintable` - Anything outside printable ASCII.
 
+  The position and never the value, for the reason every refusal in this crate names a position:
+  a `kid` is caller-supplied, and echoing one into a message puts caller text into a log. A
+  newline in particular would append a line nobody wrote, in the record whose job is attribution.
+
 ##### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
@@ -1580,12 +1588,36 @@ Why a document is not a usable key set.
 - `NotAJwkSet`
 - `NoUsableKey`
 - `KeyWithoutAnId` - A key with no `kid`.
+
+  Refused rather than skipped, and the difference matters: a key set whose keys have no ids
+  cannot be looked up by the id a token carries, so a deployment reading one would fall back to
+  "try every key" - which is what makes a rotation invisible and what makes an unknown key id
+  indistinguishable from a wrong signature.
 - `UnusableKeyId`
 - `DuplicateKeyId` - Two keys under one id.
+
+  **Refused rather than last-wins, which is what review found here.** A map insert made the last
+  entry silently displace the first, so a key set holding two keys under one `kid` decided which
+  one verifies by its position in a JSON array - and a rotation performed by *appending* the new
+  key under the old id would then work, while the same document written the other way round
+  would not. There is no reading of a JWK set in which two keys share an id on purpose.
 - `SymmetricKey` - A symmetric key.
+
+  **The second place algorithm confusion dies, and it is here rather than only in the pinned
+  algorithms because the two guard different halves.** A pinned list cannot name `HS256` - the
+  enum has no such variant - and a key set holding an `oct` key would still hand this library a
+  key of the HMAC family, whose *shared secret* is a value the issuer published. Both have to be
+  closed for the attack to be closed.
 - `UnsupportedKeyFamily`
 - `UnusableKey`
 - `NoKeyOfThePinnedFamily` - Not one key of the family the pinned algorithms need.
+
+  **The refusal review asked for, and the failure it prevents is a deployment that starts and
+  answers `401` to everybody.** The library verifies a token with one key and refuses a
+  permitted-algorithm list whose family disagrees with that key, so a key set of RSA keys under
+  `algorithms: ["ES256"]` cannot verify anything - and every request would be a `401` with
+  nothing in the log connecting the two. `sutura_config::InvalidAlgorithms::MixedFamilies`
+  refuses the same shape from the configuration side; this is the half that reads the keys.
 
 ##### Implements
 
@@ -1668,6 +1700,12 @@ either a rotation this deployment has not caught up with or a caller guessing.
 ##### Variants
 
 - `RefetchRateLimited` - The id is not in the set, and it is too soon to look again.
+
+  **This is the rate limit firing, and it is a refusal rather than a wait.** Blocking the request
+  until the window opens would make the denial-of-service primitive a slow one instead of
+  removing it: N forged key ids would hold N request tasks. The caller is told it is
+  unauthenticated, which is true, and the retry window is on the log line rather than in the
+  response - a caller does not need to know when this deployment will next talk to its issuer.
 - `UnknownKeyId` - The id is not in the set after a fresh read.
 - `SourceUnavailable`
 
@@ -1690,10 +1728,27 @@ rather than logging a rejection once per interval forever.
 ##### Variants
 
 - `Unchanged` - The document is byte-for-byte the one the last look examined.
+
+  **It does not mean the keys in use came from it.** A rejected candidate is recorded as
+  examined, so the look after one is `Unchanged` over bytes this deployment refused - which is
+  why the freshness stamp is decided by the candidate's own parse and not by this variant. See
+  `Self::Rejected`.
 - `Unavailable` - **The source could not be looked at**, or the look did not finish.
+
+  A variant of its own rather than folded into `Self::Unchanged`, which is what it used to
+  be - and that fold is half of why the revocation bound excluded a failing refresh. *"The
+  source says these are still the keys"* and *"the source said nothing"* are the same fact
+  about the keys and opposite facts about freshness; only the first one stamps
+  `Cached::last_success`.
 - `Rotated` - A new document parsed, held a key of the pinned family, and is now in use.
 - `Rejected` - A new document was read and is NOT usable. The previous key set keeps verifying.
 - `NotDue` - **The source was not looked at**, because the window has not opened or another caller already reserved this look.
+
+  A fourth variant rather than folding into `Self::Unchanged`, and the distinction is the whole
+  point of the guard it reports: "the document did not change" is a fact about the source, and
+  "nobody looked" is a fact about this deployment. Collapsing them would make the bound that
+  `KeySetCache::reserve` enforces unobservable, and a bound nothing can observe is one nothing
+  can test - which is how the concurrent case got past the first round.
 
 ##### Implements
 
@@ -1961,21 +2016,59 @@ and an error is not a place for credential material.
 ##### Variants
 
 - `Absent` - No token where this deployment reads one.
+
+  Its own variant rather than folded into a malformed token, because the two mean different
+  things to whoever is debugging: one is a client that has not been configured, the other is a
+  client whose token is wrong.
 - `NotABearerToken` - A header with some other authentication scheme.
+
+  **Its own variant because it used to be `Self::Absent`, and that was the wrong diagnostic.** A
+  client sending `Basic` or `Negotiate` here is a client configured for a different service, and a
+  log saying nothing was presented sends whoever reads it looking for a missing header. The scheme
+  itself is not rendered: it is caller text.
 - `TooLong`
 - `UnreadableHeader` - The header is not a JWT header, or names no key.
 - `NoKeyId` - No `kid`.
+
+  Required rather than optional, and that is a decision: a token with no key id can only be
+  verified by trying every key in the set, which makes an unknown key indistinguishable from a
+  bad signature and makes rotation invisible. Every authorization server that publishes a key set
+  sets it.
 - `UnusableKeyId`
 - `NoKey`
 - `NotVerified` - The signature, the expiry, the issuer, the audience - or the claims failing to deserialize.
+
+  **All four crypto failures in one variant, and that is deliberate rather than lazy.** The
+  library reports which, and it goes to the log through the inner `#[source]`; what must not
+  happen is a *response* that distinguishes them, because "the signature is fine and the
+  audience is wrong" tells a caller which half of a forgery to fix. A caller is told it is
+  unauthenticated. The claims-not-deserializing case is split out as `NotVerified::Json`,
+  because a serde message embeds the raw claim value - see that variant for why it carries no
+  `#[source]`.
 - `UnusableSubject` - A `sub` this workspace will not write into a record.
 - `UnusableActor`
 - `TooManyActors` - More nesting in `act` than `MAX_ACTORS` allows.
 - `UnusableScope`
 - `WrongTokenType` - The token is of a class this deployment does not accept.
+
+  **The refusal that closes cross-JWT substitution.** It carries the required type - a configured
+  value, so safe to render - and the presented one only when that presented value **passed
+  `TokenType::parse`**, which bounds its length and its character set. A `typ` is caller-adjacent
+  text, so the rule about not putting caller text in a message applies; a value that has been
+  through a parse is the workspace's own answer to that, the same way a `KeyId` is.
 - `NoIssuedAt` - A transit proof with no `iat`.
+
+  Its own variant rather than folded into `Self::NotVerified`, because the library cannot
+  require `iat` - `required_spec_claims` honours `exp`, `nbf`, `aud`, `iss` and `sub` and nothing
+  else - so this is a check of ours and a reader should be able to tell. Only the
+  `behind-gateway` mode requires it: without an `iat` there is no lifetime to bound, and the
+  lifetime is the only thing standing between an intercepted assertion and an unbounded replay.
 - `LifetimeTooLong` - A transit proof declaring a longer life than this deployment will call short-lived.
 - `IssuedInTheFuture` - An `iat` in the future by more than the leeway.
+
+  A separate refusal from an expiry, because it says something different: a proof issued in the
+  future is a clock that disagrees or a claim somebody wrote, and either way the lifetime bound
+  above cannot be trusted to mean what it says.
 
 ##### Implements
 
@@ -1994,7 +2087,15 @@ The split exists because one of the two halves carries a message a log must not 
 ##### Variants
 
 - `Crypto` - The signature, the expiry, the issuer or the audience.
+
+  The library's message for these is a fixed sentence - no claim value names itself - so it is
+  safe to let it reach an operator's log through `#[source]`.
 - `Json` - The claims in the presented token did not deserialize.
+
+  Deliberately no `#[source]`: a serde message embeds the raw claim value, which is
+  caller-chosen text a log must not carry. The failure is named without the text that caused
+  it - the same rule that keeps a rejected filter value out of a message, applied to the one
+  place a claim value could have reached a log.
 
 ##### Implements
 
@@ -2595,15 +2696,59 @@ come from the variant, so two handlers cannot answer the same situation with dif
 #### Variants
 
 - `Unauthorized` - A credential is required and was absent, malformed or wrong.
+
+  One variant for all three, deliberately: telling a caller which of the three they got wrong
+  is telling them whether the secret they tried was close.
 - `InsufficientScope` - The caller is authenticated and was not granted the capability this route needs.
+
+  **`403` and not `401`, and the difference is the whole point.** A `401` says *present a
+  credential*; this says *the credential you presented is valid and does not carry this*. A
+  client told `401` re-authenticates and gets the same token back, forever.
+
+  **It names the scope, which is the one place in this module a refusal is deliberately more
+  informative than the others**, and RFC 6750 section 3.1 is why: `insufficient_scope` is defined
+  to carry the scope required, because the caller here is a client an operator configured and the
+  fix is a grant at an authorization server. Without it, a deployment that switched
+  `security.inbound` on before authoring scopes gets an empty tool list and a `403` with nothing
+  to act on. The scope strings are `sutura_app::Capability::scope`'s own literals - published, and
+  the same for every deployment - so this leaks a capability's existence and nothing about *this*
+  deployment.
+
+  `&'static str` rather than a `String`: the value can only be a capability's own literal, and a
+  type that could hold caller text is a type somebody reflects caller text through.
 - `NotAQuestion` - The body is not a question. Carries a message naming the field.
 - `TooLarge` - The body is larger than the configured bound.
+
+  Separate from `Self::NotAQuestion` even though both arrive as the same extractor
+  rejection: a caller who sent something too big has a different thing to fix than one who
+  sent the wrong shape, and only the status tells them which.
 - `RateLimited` - Too many requests from this address, too quickly.
 - `Timeout` - The request took longer than the configured bound.
 - `Internal` - Something on our side went wrong. Carries nothing.
 - `Unavailable` - The data system did not answer. Distinguished from `Self::Internal` because it is the one failure that is worth retrying, and a caller cannot tell from a 500.
 - `IdentityUnavailable` - The credential broker did not answer, so nothing could be executed as the asking subject.
+
+  **Shares the status with `Self::Unavailable` and not the code.** Both are worth retrying, and
+  the two are diagnosed in different places: one is a data system that is unwell and this is the
+  authorization server the identity path depends on. `docs/adr/0014` states the requirement that
+  the two stay distinguishable - a caller told the same sentence for both retries an outage that
+  will clear the same way it retries one that will not.
+
+  Carries nothing. Which issuer this deployment talks to is not the caller's business.
 - `AtCapacity` - Every execution slot was taken for the whole admission window, so the question was shed.
+
+  **`503` and not `429`, and the two say different things.** A `429` is "you personally asked
+  too often", which is a claim about the caller - and the rate limiter already makes it, keyed
+  on an address. This is "the service has no capacity right now", which is a claim about the
+  deployment and is true whoever asked. A caller inside their own rate limit can reach this,
+  and telling them to slow down would be advice they cannot act on.
+
+  Shares the status with `Self::Unavailable` and not the code, because the two are retried
+  the same way and diagnosed differently: one is a data system that is unwell, the other is
+  this service being full. `code` is what a client branches on, and the pair of them is why
+  the code exists at all.
+
+  Carries how long to wait, already known: the admission window just spent waiting it out.
 
 #### Implements
 
@@ -2705,8 +2850,29 @@ Why the router could not be assembled.
 
 - `Limiter`
 - `Reaper` - The housekeeping thread for the limiter's keyed state would not start.
+
+  A refusal and not a warning, for the reason every refusal in this codebase is one: the
+  alternative is a process that runs with a keyed store nothing ever sweeps, which is a slow
+  leak that no request will ever reveal.
 - `InboundIdentityNotAttached` - The settings declare an inbound identity and the state carries no gate to establish it.
+
+  **The mechanism that makes attaching leg 1 unforgettable.** `crate::inbound::InboundGate` is
+  built by the composition root, because building it reads a key set - so there is a state in
+  which a deployment has declared `security.inbound` and nothing is verifying anything. Without
+  this refusal that deployment would serve, answer every question as
+  `sutura_domain::identity::Subject::TheDeploymentItself`, and log a startup line saying it
+  establishes a caller identity. It fails to assemble instead.
 - `RouteNotGoverned` - A route under the version prefix that `crate::capability::governed` names no capability for.
+
+  **The mechanism that makes the capability gate unforgettable**, and it is deliberately a
+  refusal to assemble rather than a refusal at request time. The gate is a layer, so a handler
+  cannot forget to call it; what is left to forget is a row in the table, and a route with no row
+  would either be refused to every caller or - if the layer fell open - be reachable by every
+  caller. Neither is something to discover from a request.
+
+  It reads the generated interface description, which is generated from the handlers' own
+  `#[utoipa::path]` attributes - so it is checked against the routes the router actually mounts
+  and not against a second list somebody kept in step.
 
 #### Implements
 
@@ -2817,6 +2983,10 @@ Why the server stopped, other than being asked to.
 - `Bind`
 - `Serve`
 - `Tls` - The configured certificate and key are not usable.
+
+  Returned before the socket is bound, which is the property that matters: TLS was asked for
+  and could not be established, so there is no listener at all rather than a plaintext one on
+  a port somebody configured to be encrypted.
 
 #### Implements
 
@@ -3117,10 +3287,24 @@ is bound.
 - `Unreadable` - The file could not be read at all: absent, or not readable by this process.
 - `NoCertificate` - The file was read and held no PEM certificate.
 - `NoKey` - The file was read and held no PEM private key.
+
+  Also what a key file that is not UTF-8 is reported as, and that is not a widened meaning: PEM
+  is ASCII-armoured by definition, so bytes that are not text are not a PEM private key.
 - `TooLarge` - The file is larger than any certificate chain or private key is.
+
+  See `MAX_MATERIAL_BYTES`. The refusal names the cap rather than the size found, because the
+  size found is one byte past the cap and nothing else is known about the file.
 - `Malformed` - A PEM block was found and did not parse.
 - `KeyDoesNotMatch` - The key does not belong to the certificate.
+
+  **The variant this whole module is careful about.** rustls will build a `ServerConfig` from a
+  mismatched pair without complaint; what fails is every handshake, at the client, with a
+  signature error that says nothing about a configuration file. Checked here so it is a startup
+  refusal - or, on a reload, a rejected candidate and a listener that keeps working.
 - `NotConfigurable` - The server configuration itself would not build.
+
+  Unreachable from a pair that got this far, and an error rather than a panic for the reason
+  `crate::middleware::LimiterNotBuilt` is one.
 
 #### Implements
 
@@ -3382,6 +3566,15 @@ free text.
 - `Dimension`
 - `FilterDimension`
 - `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS`.
+
+  **The one variant with no `#[source]`, and the omission is the point.** Every other cause in
+  this enum either carries no caller text or carries text that already failed an identifier
+  parse, which is a few dozen ASCII bytes.
+  `sutura_domain::catalog::InvalidDimensionValue` carries the offending input, because it exists
+  for the author of a catalog - and a 400 body reaches a log, a UI and an agent's context, which
+  is the one place `sutura_domain::query::RefusalReason` is explicit that a caller's own text
+  must not arrive. So the field and the index are reported and the cause is dropped: the same
+  answer `DimensionValueNotAllowed` gives, at the boundary that now catches it earlier.
 
 #### Implements
 

@@ -55,10 +55,58 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 ### Variants
 
 - `Compile` - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.
+
+  **Both are our own side being wrong, which is what keeps them out of a refusal.**
+  `telekom/sutura#338` is the second one's report: it used to arrive as
+  `RefusalReason::FederationNotExecutable`, which is what a build whose adapter type does not
+  declare `Warehouse::EXECUTES_LEGS` is told, so a wiring defect was indistinguishable from a
+  build that cannot run a leg. `sutura_semantic::CompileFailure` keeps them apart and keeps the
+  typed cause.
 - `Warehouse`
 - `Federated` - The federated combiner could not assemble the two legs' rows.
+
+  **An internal defect rather than a refusal, for every arm but the two `answer_federated`
+  maps by name.** A correctly split and certified question should not make the combiner fail: a
+  missing column or a malformed result is a bug in the splitter, an adapter or the combiner, so
+  it leaves as a failure the transport answers like a data-system outage. The two the answer
+  path turns into refusals are the two governance outcomes - `FederatedFailure::ResourcesExhausted`,
+  refused as `RefusalReason::ResourcesExhausted`, and the row cap, refused as
+  `RefusalReason::ResultTooLarge`.
 - `Broker` - The credential broker could not mint. Nothing about the question was wrong.
+
+  **Its own variant rather than a refusal, and its own variant rather than sharing the one
+  above.** A refusal would let a client library retry a governance decision until something
+  works, which is what `sutura_domain::query::ToolOutcome` exists to prevent. And sharing
+  `Warehouse` would collapse two causes a caller has to act on differently: `docs/adr/0014`
+  makes the point that a caller told "unavailable, retry" against an authorization-server
+  outage will retry successfully, while one told the same against a bound that fires again
+  retries forever.
 - `Posture` - The broker's answer does not agree with the request it was made for.
+
+  **A wiring defect between the broker and the request, so an `Err` and not a refusal** - the
+  question was fine. Four things can be wrong and the domain's own enum names them: the grant
+  was minted for a different subject, it covers a different set of sources, its deadline had
+  already passed, or the refusal named a source nobody asked about.
+
+  **It used to carry one of them**, a bare "nothing was granted for this source", and the other
+  three were not checked at all. Widening the cause rather than adding three variants is the
+  shape of the fix: they are one question asked once, and a transport that had to tell them
+  apart would be a transport making a judgement about our own wiring.
+
+  Executing anyway is the alternative this variant exists to remove, and it is the one that
+  would have run the leg as somebody other than the asker.
+  The leg the broker minted disagrees with the posture the adapter was opened with.
+
+  **Its own variant because the two values come from different places, and that is the whole of
+  what the comparison is worth.** The broker read the settings tree; the registry holds what the
+  composition root opened. A leg that says "the deployment's own identity" against a source
+  declared `impersonation-at-source` means one of those two is wrong about this deployment, and
+  executing anyway is the case that is silent: provenance is read off the ADAPTER's posture, so
+  the answer would have been reported as impersonated while it ran as the process.
+
+  Both shipped adapters make this comparison too, and this variant does not replace theirs - an
+  adapter is the last thing before a driver and may not assume who called it. What it replaces is
+  the assumption that every FUTURE adapter will remember to.
 - `Credentials`
 
 ### Implements
@@ -564,9 +612,42 @@ means rather than a field added to one.
 #### Variants
 
 - `Compile` - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.
+
+  **The message names neither, and that is deliberate since `telekom/sutura#338`.** The three
+  sentences on this variant's path - this `Display`, the HTTP sink's log line and the MCP tool
+  result a model reads - each blamed the bundle, which was true of the only cause this could
+  carry and stopped being true when `sutura_semantic::CompileFailure` gained its second arm: an
+  assembly failure is a defect in this workspace's own wiring, not a bundle that fails to hold
+  what it names. The cause is kept as a `#[source]` and says which, so the sentence does not
+  have to guess. **No sentence on this variant's path blames the pinned bundle**, and that is
+  registered in `xtask`'s `ABSENCES` table rather than left to review - all three wordings are
+  scanned for across every crate's library source.
+
+  **The limit, next to the claim:** nothing drives this variant through either transport. No
+  test builds a bundle that will not compile, or a plan that will not assemble, and asks for it
+  over HTTP or MCP - so the `500` an assembly failure now gets and the sentence a caller reads
+  with it are held by the code and by no cell. What IS measured is one layer in:
+  `crates/sutura-app/tests/differential/federated.rs` sees an assembly failure as a failure
+  rather than as a refusal.
 - `Warehouse`
 - `Broker` - The credential broker did not answer, so nothing could be executed as the asking subject.
+
+  **Its own variant because the two outages are retried differently**, which `docs/adr/0014`
+  states as a requirement rather than a preference: an authorization server that is down comes
+  back, and a caller told the same sentence for both will retry a data-system outage the same
+  way and learn nothing. A transport chooses a different code for it.
 - `Miswired` - Credentials came back that do not fit the request: a wiring defect on this side.
+
+  Not a refusal - the question was fine - and not `Self::Broker` either, because a broker that
+  answered and a broker that could not be reached are different things to whoever is paged. A
+  caller can do nothing about it, so what it becomes on the wire is an internal failure.
+
+  **What it covers grew, and the variant did not**, deliberately: the grant naming another
+  subject, covering another source set, carrying a deadline that had passed, or a refusal naming
+  a source nobody asked about are one thing to a transport - this deployment is wrong about its
+  own identity wiring - and four things to whoever reads the log line, which is where the typed
+  cause is. Splitting them here would ask each transport to pick a status code for a distinction
+  that changes nothing a caller can do.
 
 #### Implements
 
@@ -585,6 +666,10 @@ Why a service could not be started.
 - `Catalog` - A catalog adapter could not produce a bundle.
 - `Composition` - The catalog contributions do not compose: two sources define one element, certify different versions, or one of them supplies a kind its declaration does not.
 - `NotValidated` - The bundle loaded and an anchor did not reproduce the number its author certified, or could not be run at all.
+
+  **This is the readiness gate, and it is a startup failure rather than a degraded mode.** A
+  bundle whose anchors do not hold is a set of definitions that no longer computes the numbers
+  somebody signed off on; serving it would answer questions with figures nobody certified.
 
 #### Implements
 
@@ -1298,7 +1383,14 @@ deterministic.
 #### Variants
 
 - `DescribeCatalog` - Read the pinned bundle: which metrics exist, at which grains, with which dimensions and which filter values.
+
+  `crate::surface::Surface::definitions`. Descriptive content only - the catalog port takes no
+  request context and cannot be given one - but a listing of what a deployment measures is
+  business information even with no row of data in it, which is why it is a capability at all
+  rather than something public.
 - `AskMetric` - Answer one governed question about one certified metric.
+
+  `crate::surface::Surface::answer`.
 
 #### Methods
 
@@ -1494,9 +1586,19 @@ root that composed the adapter is the one that can flatten it.
 
 - `Present` - Asked, and every table is there. Carries how many, for a line that says so.
 - `NotReported` - The adapter did not report - `TablesPresent::NotAsked`, the port's default.
+
+  **Not readable as verified**, which is the property the port's own answer type exists to
+  keep: a root that printed nothing here would make the one outcome meaning *nothing checked
+  this* indistinguishable from a data system that really looked.
 - `Absent` - Asked, and these tables are not there. A refusal, and the models to name in it.
 - `UnreadableInventory` - An unreadable inventory established neither presence nor absence for these tables. A refusal without a count or model names: no catalog declaration was shown wrong.
 - `Unaccounted` - Asked, answered, and the answer did not account for every table the data system said it holds - so these tables are neither established present nor established absent.
+
+  **It names tables and not the models behind them, which is the one place this verdict
+  deliberately says less than `Self::Absent`.** A model is what an operator opens to fix a
+  `table:` that is wrong, and nothing here says a `table:` is wrong: the catalog may be
+  entirely right and the data system's own answer incomplete. Naming models would send an
+  operator to exactly the file `telekom/sutura#275` is about them being sent to wrongly.
 - `Refused` - The data system refused to be asked: this identity may not list it.
 - `Unverified` - The data system could not be asked, for a reason that is not a refusal.
 

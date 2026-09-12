@@ -125,6 +125,12 @@ throw away the only description of the fault that exists.
 ### Variants
 
 - `Handshake` - The peer never completed the protocol handshake.
+
+  Boxed, and the reason is a lint this workspace keeps on deliberately: the SDK's own
+  initialize error is nearly five hundred bytes, and `result_large_err` is denied here because
+  *"a service whose public surface is `ToolOutcome::Refusal` wants to know when the error half
+  of every `Result` grows"*. The indirection costs an allocation on a path that has already
+  failed, and `Box<E>` is still an `Error`, so the `#[source]` chain is unchanged.
 - `Interrupted` - The task driving the session did not finish.
 
 ### Implements
@@ -613,6 +619,12 @@ free text.
 - `Dimension`
 - `FilterDimension`
 - `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS`.
+
+  **The one variant with no `#[source]`, and the omission is the point.**
+  `sutura_domain::catalog::InvalidDimensionValue` carries the offending input, because it
+  exists for the author of a catalog - and this error reaches a log and a model's own context,
+  which is the one place `sutura_domain::query::RefusalReason` is explicit that a caller's own
+  text must not arrive. So the field and the index are reported and the cause is dropped.
 
 #### Implements
 

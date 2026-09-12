@@ -68,11 +68,38 @@ finer split is a cheap change if a caller ever needs the branch.
 - `IdentifyKind`
 - `Metric`
 - `Description` - The prose of a definition document is not a usable description.
+
+  **The variant that did not exist, and its absence was the hole.** A model's and a metric's
+  prose used to reach `sutura_domain::catalog` as `String::from(split.body())` - no character
+  check, no length check, nothing - while the prose of a note beside it went through
+  `NoteBody`. So the one channel that carried reviewed prose into an agent's context without a
+  parse was the definitional one, which is the prose an agent is most likely to act on. It is a
+  separate variant from `Self::NoteBody` for the same reason that one is separate from
+  `Self::Frontmatter`: the remedy is a different part of a different file.
 - `NoteBody` - The prose of a knowledge document is not a usable note body: nothing at all, or more of it than a note may carry.
+
+  Its own variant rather than folded into `Self::Frontmatter`, because it is a failure of the
+  BODY and the path is not enough to find it: a reader told "could not read the frontmatter"
+  would go and look at the frontmatter, which is fine.
 - `Inconsistent`
 - `UncheckableKnowledge` - The notes do not hold together with the definitions they are about.
+
+  Separate from `Self::Inconsistent` because they are two checks over two halves of the
+  bundle, and the remedies are different documents: one sends a reader to a metric, the other to
+  a glossary entry that names a value the metric does not permit.
+
+  The cause carries no path, and that is a real limit rather than an oversight. A note's
+  inconsistency is a fact about the note AND the definitions together, so it is found after both
+  have been read - and by then this adapter no longer knows which file each note came from. What
+  the message does carry is the note's own name or term, which is unique across the catalog and
+  is what a `grep` finds.
 - `Empty`
 - `Digest` - The domain could not hash the definitions.
+
+  One variant rather than the two this used to have. Those two - the canonical form failing to
+  serialize, and the resulting hex failing to parse as a digest - are now both inside the
+  domain's own hashing, and neither is a fact about reading a directory. The chain still says
+  which one happened.
 
 ### Implements
 
@@ -163,6 +190,10 @@ which is what keeps "which directory is this in" from becoming part of the forma
 - `Glossary` - One entry of the business glossary.
 - `Caveat` - Something a reader has to know before trusting a number.
 - `NotDefined` - A term this catalog deliberately does not define.
+
+  The word an author writes is `not_defined`, which says what they are doing; the domain type
+  is `Absence`, which says what the thing is. Two names for two audiences, and the format's one
+  is the one that appears in an error about a file.
 - `Example` - A worked question: how somebody asked it, and what to send.
 
 #### Methods
@@ -353,7 +384,28 @@ happened.
 
 - `Computation` - The document wrote neither computation key, or wrote both.
 - `Inconsistent` - The domain refused the metric this document describes.
+
+  Transparent, because the domain's own message names the metric and the fault and this layer
+  has nothing to add - what it adds is the path, and `LocalCatalogError::Metric` is where that
+  is attached. Reaching `LocalCatalogError::Inconsistent` instead would drop the path, which is
+  the one thing a reader of a directory of files needs.
+
+  **Boxed, and the box is what buys the path.** `clippy::result_large_err` is denied here for
+  the reason `sutura_domain::plan::tables` states, and unboxing this reported
+  `LocalCatalogError` at *at least 128 bytes* against a threshold of 128 in seven of its own
+  signatures - because `InconsistentDefinitions`'s widest variants carry four name newtypes,
+  and a `PathBuf` plus that plus two discriminants does not fit. The house remedy is to trim
+  the variant rather than allow the lint, and there is nothing here to trim: the path is the
+  point of this variant and the cause is a type the domain owns. So it is boxed for the reason
+  `sutura_exec_bigquery::wire::WireError` boxes `ureq::Error` - much larger than every other
+  variant, and the alternative was losing information. The typed cause survives, which is what
+  separates this from a `Box<dyn Error>`.
 - `AnchorValue` - The anchor's `value:` is not text a number can be checked against.
+
+  The metric is named here and the character fault is the `source`, which is the arrangement
+  `sutura_domain::pinned::NotValidated::AnchorNotExecuted` already uses: this variant says
+  which document to open, and whoever renders it walks the chain for which character to look
+  for. Reported per metric rather than per field because a metric document declares one anchor.
 
 #### Implements
 
@@ -491,7 +543,14 @@ Why a document could not be split.
 #### Variants
 
 - `Unfenced` - The document does not open with a fence.
+
+  Required rather than inferred. A document with no frontmatter is prose, and treating prose
+  as an empty definition would load a metric that declares nothing and refuse every question
+  about it, which is a confusing way to report a misplaced file.
 - `Unterminated` - The opening fence is never closed.
+
+  The failure this catches is a missing second fence swallowing the whole prose body into the
+  YAML, which then fails to parse with a message about the prose.
 
 #### Implements
 

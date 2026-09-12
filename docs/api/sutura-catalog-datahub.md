@@ -120,13 +120,32 @@ reader back to all of them.
 ### Variants
 
 - `Read` - The source did not produce a snapshot.
+
+  An owned boxed cause, the `ErasedCause` shape this repository's boundary errors use: the
+  concrete failure belongs to whichever reader is installed, and the chain still walks.
 - `UnknownPlatform` - A model named a platform this deployment declared no `sources.<alias>` for.
+
+  A `sources.<alias>` entry per platform is what lets a model's data system be opened at all -
+  `docs/adr/0016` decision 7 - and the mapping is the deployment's, not this adapter's. A model
+  on an unmapped platform is refused rather than guessed.
 - `CardinalityUnrepresentable` - A relationship carries no cardinality, or one this adapter cannot represent.
+
+  `docs/adr/0016` decision 5: a relationship reaches a dimension only where cardinality is
+  declared and representable, and absent or many-to-many is refused naming the relationship
+  rather than defaulted in either direction - `ManyToOne` as a default assumes the fan-out away,
+  and `OneToMany` refuses every dimension.
 - `Identifier` - A name on a snapshot did not parse as the identifier kind it claims to be.
 - `Sutura` - The `sutura` structured property's scalar value is not the metric content it claims to be.
 - `Description` - Prose on a snapshot is not a usable description.
 - `Inconsistent` - The models, relationships and columns did not hold together.
 - `Knowledge` - The bundle's knowledge does not hold together.
+
+  This adapter declares no knowledge capability, so any knowledge content it were handed would
+  be refused here (the `UndeclaredContent` guard) rather than dropped or forwarded. Today no
+  snapshot produces knowledge - a `Snapshot` has no knowledge aspect to read at all - so
+  this stays the wiring for content that cannot occur in the standalone deployment. Since
+  issue #202 the reason is no longer that no metric exists for a `Referent` to name: a
+  standalone bundle carries a certified metric.
 - `Digest`
 
 ### Implements
