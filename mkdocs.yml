@@ -182,6 +182,7 @@ nav:
   - Serve it:
       - Serving over HTTP: serving.md
       - Verifying a release: verifying-a-release.md
+      - The local chat demo: demo.md
   - Reference:
       - Architecture: architecture.md
       - Where each identity claim is proven: where-identity-is-proven.md
@@ -213,6 +214,7 @@ nav:
           - What a Scorecard zero says about this repository: adr/0025-what-a-scorecard-zero-says-about-this-repository.md
           - No third-party binary cache: adr/0026-no-third-party-binary-cache.md
           - An OSS binary cache for this repository's own paths: adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths.md
+          - Who may see a metric: adr/0028-who-may-see-a-metric.md
       - API:
           - api/index.md
           - sutura-domain: api/sutura-domain.md

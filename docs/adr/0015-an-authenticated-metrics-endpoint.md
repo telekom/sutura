@@ -175,6 +175,9 @@ Three series - reserved bytes, the limit, and refusals - are specified and **mus
 so DataFusion installs its unbounded pool. `SessionContext::new()` and `new_with_config` are the two
 construction sites and neither sets one.
 
+**Both of those absences are corrected further down this section, and the word *Verified* above is
+why the pointer is here rather than only there:** a reader who stops at it does not go looking.
+
 So a gauge reading `0` would be a lie an operator builds an alert on. **Register the series only when a
 pool is configured: absent, not zero.**
 

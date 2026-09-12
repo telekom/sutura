@@ -16,7 +16,7 @@
 # `rust-mcp-32core` and `rust-mcp-16core` beside the older `rust-mcp`, and which machine a bare
 # `runs-on: rust-mcp` lands on is not something this repository can read - so a timing taken under
 # it is a timing on an unknown host, which is what made the label unusable for a comparison. Every
-# `runs-on:` in `.github/workflows` therefore names its host: `rust-mcp-32core` where Rust is
+# `runs-on:` in `.github/workflows` therefore names its host: a larger runner where Rust is
 # compiled, `ubuntu-latest` where nothing is.
 #
 # `rust-mcp` is gone from the list below so that a drift back to it FAILS rather than lands: a
@@ -25,9 +25,15 @@
 # runs `actionlint` against this file - inside `ci`, the one required context. The refusal is
 # `label "rust-mcp" is unknown. available labels are ...`.
 #
-# `rust-mcp-16core` is absent for the same reason rather than by omission: this list is what is IN
-# USE, so adding a label here is the same decision as putting a job on it. It is added by whatever
-# change first measures it.
+# `rust-mcp-16core` IS in use, and now carries two kinds of job on two different arguments. #614
+# moved the mostly-cached ones, measured at the same median wall as the 32-core label. The
+# cache-writer jobs in `cachix-push.yml` followed, and that median explicitly does NOT carry them -
+# they do compile; the argument recorded in that file is that they gate nothing and that one cold
+# crane-clippy realise left the 32-core host 77% idle on average. The writers' multi-root workload is
+# unmeasured. What is left on `rust-mcp-32core`
+# is the set the owner's rule keeps there: fuzz, release, release-performance, and the runner probe
+# whose whole purpose is to characterise that host.
 self-hosted-runner:
   labels:
     - rust-mcp-32core
+    - rust-mcp-16core
