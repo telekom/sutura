@@ -218,6 +218,10 @@ async fn a_challenge_points_at_metadata_only_for_an_exact_origin_form_resource()
         Some(spelled_bare),
         "a normalized Host is not the configured resource spelling"
     );
+    let metadata = asked(&spelled_app, "GET", "/.well-known/oauth-protected-resource/v1/query", None).await;
+    assert_eq!(metadata.status, StatusCode::OK);
+    let document: serde_json::Value = serde_json::from_str(&metadata.body).expect("the metadata is JSON");
+    assert_eq!(document["resource"], spelled_resource);
 
     let root = an_issuer();
     assert_eq!(
