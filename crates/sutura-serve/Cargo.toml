@@ -50,6 +50,18 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # and nothing about a feature no shipped binary enables.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
+# The Postgres adapter, and with it the outbound TLS the source channel verifies against.
+#
+# **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
+# decision `bigquery` above carries. `sutura-exec-postgres` is pure Rust, but `tokio-postgres-rustls`
+# pulls the rustls closure with `ring` in it; keeping this feature off leaves that out of the
+# published binary until a deployment asks for it. `checks.shipped-features` already asserts `ring`
+# is absent from both shipped binaries, so turning this on is an entry there rather than a drift.
+#
+# It requires no wire feature of its own - unlike `bigquery`, there is no HTTP stack here, only the
+# rustls connector the driver links.
+postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
+
 [dependencies]
 # For `sources`: which data systems a bundle reads from, so the engine is opened for the ones the
 # catalog actually names rather than for a guess.
@@ -65,6 +77,14 @@ sutura-http = { workspace = true }
 # For `axum::Router` in one signature. The router is BUILT by `sutura-http`; this crate only names
 # the type on its way to `serve`.
 axum = { workspace = true }
+# The Postgres adapter, behind the `postgres` feature above. Optional is what makes the dependency
+# ABSENT from the default build rather than merely unused, which is the property the cross builds need.
+sutura-exec-postgres = { workspace = true, optional = true }
+# The driver config used by the served-e2e loader, behind the same feature. Normal composition maps
+# the declaration into `sutura_exec_postgres::connection`, so it names no driver type; the fixture
+# loads the example corpus into the real tier before starting the composed binary and needs `Config`
+# for that one setup connection. The adapter owns all TLS types, so this root needs no TLS crate.
+tokio-postgres = { workspace = true, optional = true }
 sutura-runtime = { workspace = true }
 # `enable_all` needs `net` and `time` to exist as methods, `rt-multi-thread` is the server runtime,
 # `signal` is the shutdown listener and `sync` is what the shutdown flag is built on. No `macros`:

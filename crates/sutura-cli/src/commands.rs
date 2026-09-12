@@ -383,6 +383,8 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
             crate::sources::Opened::Files(opened) => answered(&catalog, &question, opened, settings.runtime()),
             #[cfg(feature = "bigquery")]
             crate::sources::Opened::BigQuery(opened) => answered(&catalog, &question, opened, settings.runtime()),
+            #[cfg(feature = "postgres")]
+            crate::sources::Opened::Postgres(opened) => answered(&catalog, &question, opened, settings.runtime()),
         }
     })())
 }

@@ -590,8 +590,18 @@ selects which file is layered, so a file that could change it would be self-refe
 | `catalog.dir`                                   | `catalog`                            |                                                                                                                                                                                                                                                                                                                                                |
 | `catalog.data_dir`                              | `data`                               | **Printed by the startup banner and read by nothing that opens a data system.** A served source's files come from its own `sources.<alias>.data_dir`, and the `sutura` command reads that same entry or else the directory on its command line                                                                                                 |
 | `catalog.version`                               | `unversioned`                        | A commit id or a build number. What identifies the snapshot                                                                                                                                                                                                                                                                                    |
-| `sources.<alias>.kind`                          | absent                               | `files` is the only kind this build has an adapter for. Required, with no default                                                                                                                                                                                                                                                              |
+| `sources.<alias>.kind`                          | absent                               | `files`, or `bigquery`/`postgres` when that default-off feature was built in. Required, with no default                                                                                                                                                                                                                                        |
 | `sources.<alias>.data_dir`                      | absent                               | Where that source's files are. Required, and absolute                                                                                                                                                                                                                                                                                          |
+| `sources.<alias>.host`                          | absent                               | Postgres only. A DNS name or IP address. Exactly one of `host` and `unix_socket`                                                                                                                                                                                                                                                               |
+| `sources.<alias>.unix_socket`                   | absent                               | Postgres only. An absolute socket directory. Exactly one of `unix_socket` and `host`                                                                                                                                                                                                                                                           |
+| `sources.<alias>.port`                          | absent                               | Postgres only. Required; no guessed `5432`                                                                                                                                                                                                                                                                                                     |
+| `sources.<alias>.database`                      | absent                               | Postgres only. Required                                                                                                                                                                                                                                                                                                                        |
+| `sources.<alias>.user`                          | absent                               | Postgres only. The one role every caller reaches this source as                                                                                                                                                                                                                                                                                |
+| `sources.<alias>.password_file`                 | absent                               | Postgres only. Absolute, read at startup; secret text is refused in the settings tree                                                                                                                                                                                                                                                          |
+| `sources.<alias>.transport_mode`                | absent                               | Postgres only. `plaintext`, `verified` or `mutual`; required, with no default                                                                                                                                                                                                                                                                  |
+| `sources.<alias>.transport_anchors`             | absent                               | Postgres TLS only. `system` as an explicit choice, or an absolute PEM bundle path                                                                                                                                                                                                                                                              |
+| `sources.<alias>.client_certificate`            | absent                               | Postgres mutual TLS only. Absolute PEM chain; both client identity halves or neither                                                                                                                                                                                                                                                           |
+| `sources.<alias>.client_key`                    | absent                               | Postgres mutual TLS only. Absolute PEM private key; both client identity halves or neither                                                                                                                                                                                                                                                     |
 | `sources.<alias>.posture`                       | absent                               | `shared-service-user` or `impersonation-at-source`. Required, with no default                                                                                                                                                                                                                                                                  |
 | `sources.<alias>.acknowledged_because`          | absent                               | The operator's reason. Required for a shared source in `multi-user` mode                                                                                                                                                                                                                                                                       |
 | `sources.<alias>.verification_identity`         | absent                               | The identity that re-runs that source's anchors. Only on an impersonating source                                                                                                                                                                                                                                                               |
@@ -619,7 +629,7 @@ security:
 
 sources:
   local:
-    # `files` or `bigquery`. Required, with no default - and which of them a given BINARY can
+    # `files`, `bigquery` or `postgres`. Required, with no default - and which of them a given BINARY can
     # actually open is a second question, answered below.
     kind: "files"
     # Absolute. A relative path resolves against whatever working directory the supervisor chose.
@@ -688,6 +698,64 @@ Two facts, declared by two different parties, and conflating them gives the mode
 The boot check compares them. A source configured to impersonate on an adapter that cannot does not
 start, and there is no fallback.
 
+### A `postgres` source, least authority, and its channel
+
+Postgres is behind the default-off `postgres` feature on both binaries. A default build refuses the
+entry by name and tells the operator which feature is absent; current published artifacts leave it
+off. A source build enables it explicitly with `--features postgres`, the same shape as
+`--features bigquery` above; no `just` task and no nix package builds it, and release packaging
+chooses the default set.
+
+One remote, server-verified source is declared like this:
+
+```yaml
+security:
+  identity: "multi-user"
+
+sources:
+  warehouse:
+    kind: "postgres"
+    host: "db.example.com"
+    port: 5432
+    database: "analytics"
+    user: "sutura_reader"
+    password_file: "/etc/sutura/postgres-password"
+    transport_mode: "verified"
+    # An explicit choice, never a default. Use `system` to read the host store instead.
+    transport_anchors: "/etc/sutura/database-ca.pem"
+    posture: "shared-service-user"
+    acknowledged_because: "the reporting role is intentionally the same for every caller"
+```
+
+The password file contains only the password and should be readable by the service account alone.
+The process reads and trims it at startup; an unreadable or empty file stops the process. The source
+entry cannot contain the password itself. No host or port is inferred, and `host` and `unix_socket`
+are mutually exclusive.
+
+`transport_mode` has three states, not a verification flag:
+
+- `plaintext` uses no TLS. It is accepted only with an absolute unix-socket directory or a loopback
+  IP literal; a hostname or non-loopback address is a startup refusal.
+- `verified` requires `transport_anchors` and requires the TLS handshake. `system` means the host's
+  trust store because the operator wrote it; an absolute path means that PEM bundle alone.
+- `mutual` adds `client_certificate` and `client_key`, both absolute and both required. The source
+  still verifies the server against `transport_anchors`. The client certificate identifies this
+  deployment, not the caller, so it does not change the `shared-service-user` posture.
+
+Create a login role with only the database and objects this catalog names. In ordinary PostgreSQL
+terms that means `CONNECT` on the database, `USAGE` on the selected schemas, and `SELECT` on the
+named tables (plus equivalent grants for future tables only if the deployment actually needs them).
+Do not make the role an owner, superuser, creator, or `BYPASSRLS`. If row-level security is meant to
+separate callers, this static source cannot deliver it: every question uses the same role and sees
+the same policy result. Per-subject Postgres credentials are separate work.
+
+The gate-backed example loads `examples/single-player/data/*.csv` into the provisioned Postgres tier,
+starts the real `sutura-serve` binary with the declaration above over verified loopback TLS, and asks
+the example's certified June revenue question over HTTP. Run it with `just test`, which is where the
+tier is provisioned - `just serve-e2e` scopes `cargo nextest` to `sutura-serve` alone and does not
+source `nix/with-tier.sh`, so run from a shell with no tier up it returns without asserting. No fixed
+fixture port is involved either way.
+
 | Posture                   | What it means                                                          | What decides what a subject sees                                                |
 | ------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `shared-service-user`     | Every query reaches the source under one identity the deployment holds | that identity's grants. Every caller sees the same rows                         |
@@ -716,9 +784,9 @@ fact leg and a lookup leg, and `answer` either executes it or refuses it as `fed
 while no adapter can execute a leg - so the split is never served as a partial or a half-executed
 answer. Three or more sources refuse at plan time as `plan_spans_too_many_sources`.
 
-*The limit, because it decides what is worth configuring today:* the only adapter this build links is
-the in-process engine, so two configured sources are two engines over two directories. A data system
-across a network arrives with its own adapter.
+*The limit, because it decides what is worth configuring today:* the default build links only the
+in-process engine. Builds enabling `bigquery` or `postgres` add that one network adapter, and one
+process still opens one KIND of data system at a time.
 
 ### Address families
 
@@ -1063,21 +1131,11 @@ Named rather than implied, because an absence that reads as an oversight gets as
   the log, which is what makes one request's lines findable. What does not exist is a trace
   exporter, which is a decision about a backend, a sampling rate and an egress path none of which has
   been made.
-- **No CONFIGURABLE client TLS, and this bullet is narrower than it used to be.** It used to say no
-  crate here holds an HTTP client, and that stopped being true: `sutura-exec-bigquery`'s default-off
-  `wire` feature holds one - `ureq` over rustls, with a compiled-in root set and `https_only` - so
-  outbound TLS to a data source exists and works. What does not exist is any way for a deployment to
-  *configure* it: no trust-store setting, no client certificate, no pinning, and no configuration
-  group at all. Two reasons, and the second is why it is not simply an omission. There is little to
-  attach one to: the crate is linked and `kind: bigquery` dispatches behind a default-off feature,
-  so what a default build can open still reads local files. **Both clauses that used to stand here -
-  *no composition root links that crate* and *`sutura-serve` refuses `kind: bigquery` by name* - are
-  spent**, which `docs/adr/0017`'s second amendment recorded. And for that endpoint
-  the *absence* of configuration is the safer default - a compiled-in root set means the same binary
-  trusts the same authorities on every machine, and a settable host is a settable place to send a
-  bearer token, which `docs/adr/0018` records as a deliberate trade against local testability. A
-  configuration group arrives with the first networked adapter a deployment can actually open, and
-  the parsing and validation the inbound listener already does is what it will be built out of.
+- **No configurable client TLS for HTTP adapters.** Postgres now has a per-source three-state
+  declaration, explicit anchors, and an optional client identity. The BigQuery wire does not honour
+  it: `ureq` still verifies its fixed endpoint against its compiled-in root set and accepts no client
+  certificate. Sharing the declaration with HTTP adapters and defining certificate rotation remain
+  separate work; Postgres reading its files once at startup is not rotation.
 - **No mutual TLS inbound either.** The listener above presents a certificate and verifies no
   client. Client-certificate authentication would be an identity, and this service has none to
   attach one to - see the first section.

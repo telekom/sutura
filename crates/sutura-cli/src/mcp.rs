@@ -87,6 +87,13 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
                 refuse_absent_tables(&pinned, &opened.engines)?;
                 serve(&catalog, opened, &settings)
             }
+            #[cfg(feature = "postgres")]
+            Opened::Postgres(opened) => {
+                // A `postgres` source attaches nothing and reports no table inventory, so
+                // `refuse_absent_tables` has nothing to add - the same reasoning `sutura-serve`'s own
+                // arm carries. A mistyped `table:` is caught on the first question against it.
+                serve(&catalog, opened, &settings)
+            }
         }
     })())
 }
@@ -278,6 +285,8 @@ mod tests {
             crate::sources::Opened::Files(opened) => Some(opened),
             #[cfg(feature = "bigquery")]
             crate::sources::Opened::BigQuery(_) => None,
+            #[cfg(feature = "postgres")]
+            crate::sources::Opened::Postgres(_) => None,
         }
         .expect("the example declares a files source");
         (catalog, opened, settings)

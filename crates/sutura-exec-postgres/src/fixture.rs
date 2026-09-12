@@ -27,9 +27,11 @@
 //! **The provisioner publishes them, and it is not the compose file.** There is no Postgres
 //! service in `compose.services.yaml` at all - this tier is nixpkgs' `postgresql_18`, started by
 //! `nix/postgres-tier.nix`, which now generates a password per worktree and prints the three
-//! exports from `sutura-postgres-tier credentials`. `nix/with-tier.sh` evaluates them exactly where
-//! it already exports `SUTURA_DEV_REQUIRE_TIER`, so *the server is there* and *the client knows how
-//! to log in* cannot come apart, and `checks.postgres-tier` drives that subcommand's two answers.
+//! credential exports from `sutura-postgres-tier credentials`, plus the loopback listener's CA and
+//! client pair. Those are read by the TLS cells rather than here.
+//! `nix/with-tier.sh` evaluates them exactly where it already exports `SUTURA_DEV_REQUIRE_TIER`, so
+//! *the server is there* and *the client knows how to log in* cannot come apart, and
+//! `checks.postgres-tier` drives that subcommand's two answers.
 //!
 //! The variables are `SUTURA_POSTGRES_TIER_*` rather than the old `SUTURA_DEV_*`: the names were
 //! shared with the compose fixture credential while nothing in that file provisions a Postgres, and

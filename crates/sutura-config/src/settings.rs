@@ -749,6 +749,16 @@ fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result
             acknowledged_because: source.acknowledged_because.as_deref(),
             verification_identity: source.verification_identity.as_deref(),
             workload_identity: source.workload_identity.clone(),
+            host: source.host.as_deref(),
+            unix_socket: source.unix_socket.as_deref(),
+            port: source.port,
+            database: source.database.as_deref(),
+            user: source.user.as_deref(),
+            password_file: source.password_file.as_deref(),
+            transport_mode: source.transport_mode.as_deref(),
+            transport_anchors: source.transport_anchors.as_deref(),
+            client_certificate: source.client_certificate.as_deref(),
+            client_key: source.client_key.as_deref(),
         })
         .collect();
     SourceRegistry::parse(&entries, mode).map_err(|cause| SettingsError::Sources { cause })

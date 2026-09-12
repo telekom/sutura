@@ -143,7 +143,9 @@ pub use crate::settings::{
     CONFIG_DIR_VARIABLE, ConfigLayers, ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, SettingsLoadError, Sources,
     VARIABLE_PREFIX, VARIABLE_SEPARATOR, config_dir_from_process, configuration_variables_from_process, environment_from_process,
 };
-pub use crate::sources::placement::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
+pub use crate::sources::placement::{
+    BillingProject, DatasetId, HostName, InvalidHostName, InvalidResourceName, PostgresDial, SourcePlacement,
+};
 pub use crate::sources::{
     ConfiguredSource, InvalidSourceRegistry, SourceKind, SourceRegistry, UnknownPosture, UnknownSourceKind,
 };

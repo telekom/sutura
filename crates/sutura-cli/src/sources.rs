@@ -81,6 +81,12 @@ use crate::commands::render;
 /// reads as a false *green against base*.
 mod bigquery;
 
+/// The POSTGRES half of this module: one declared connection, secured as the source declares.
+///
+/// **Its own file for the reason `bigquery`'s is** - `cargo xtask max-lines` fails at 1000 lines
+/// rather than warning, and this file crosses it if a second kind lives here. It is a child module
+/// that reaches shared helpers through the parent, the same shape `bigquery` uses.
+mod postgres;
 /// The pre-flight that closes issue 120 for this binary's serving surface.
 ///
 /// Re-exported rather than reached as `bigquery::refuse_absent_tables`, so [`crate::mcp`] names it
@@ -119,6 +125,9 @@ pub(crate) enum Opened {
     /// A `BigQuery` dataset, reached over the wire.
     #[cfg(feature = "bigquery")]
     BigQuery(OpenedWith<bigquery::BigQuerySource>),
+    /// A `PostgreSQL` database, reached over the declared channel.
+    #[cfg(feature = "postgres")]
+    Postgres(OpenedWith<postgres::PostgresSource>),
 }
 
 /// What a command opened over one adapter: the registry a plan is looked up in, what was attached,
@@ -350,6 +359,17 @@ fn from_the_registry(
                 ));
             }
             bigquery::open(source, configured, registry, request_timeout)
+        }
+        sutura_config::SourceKind::Postgres => {
+            if let Some(given) = data {
+                return Err(format!(
+                    "`sources.{source}` is a Postgres database, and {} was given on the command line \
+                     as a data directory - a database has none, so the argument selects nothing. Drop \
+                     it; the database that entry declares is what will be read",
+                    given.display()
+                ));
+            }
+            postgres::open(source, configured, registry)
         }
     }
 }
@@ -601,6 +621,8 @@ mod tests {
             Opened::Files(opened) => Some(opened),
             #[cfg(feature = "bigquery")]
             Opened::BigQuery(_) => None,
+            #[cfg(feature = "postgres")]
+            Opened::Postgres(_) => None,
         }
         .expect("this fixture declares a files source")
     }
