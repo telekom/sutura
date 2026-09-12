@@ -665,50 +665,35 @@ postgres-tier *args:
 dev-up:
     cargo run -q -p xtask -- dev-up
 
-# The same, plus the identity provider. Off by default because nothing here can use one yet:
-# `CredentialBroker` does not exist. It is no longer the slowest thing in this tier - the DataHub
-# stack below is - but that was never the argument for the profile. The reasoning lives beside the
-# service in compose.services.yaml.
+# Off by default because nothing here can use one yet: `CredentialBroker` does not exist. The
+# reasoning lives beside the service in compose.services.yaml.
+# The same, plus the identity provider.
 dev-up-identity:
     cargo run -q -p xtask -- dev-up --with identity
 
-# The same, plus the DataHub metadata platform: five containers, of which one - `datahub`, its GMS -
-# is the endpoint the discovery file carries. Off by default because it COSTS: three JVMs and a
-# migration job that creates the topics, the schema and the indices before GMS will start. This is
-# what `crates/sutura-catalog-datahub` is read against when a test wants a real instance rather than
-# the recorded fixture; the reasoning lives beside the stack in compose.services.yaml.
+# Five containers, of which one - `datahub`, its GMS - is the endpoint the discovery file carries.
+# Off by default because it COSTS: three JVMs and a migration job that creates the topics, the
+# schema and the indices before GMS will start. The reasoning lives in compose.services.yaml.
+# The same, plus the DataHub metadata platform.
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
-# The demo profile, built and started but not supervised.
-#
-# The sibling of `dev-up-identity` and `dev-up-datahub` above, and it exists for the reason they do:
-# a service behind a profile is brought up by the task named after that profile, and the tier's own
+# The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
+# service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived
-# image, and that (plus the model configuration the container refuses to start without) lives in
-# `demo/start.sh`, so one owner shapes the validation and the build rather than two that can drift.
-#
-# `just demo` is the walkthrough: it prints the URL, supervises, and removes everything on exit.
+# image, which lives in `demo/start.sh` so one owner shapes the build and the validation.
+# The demo profile, built and started but not supervised. `just demo` is the walkthrough.
 dev-up-demo:
     bash demo/start.sh --up-only
 
+# A named task rather than a cell in the default suite, and the venue is the whole reason: `just
+# test` sets `SUTURA_DEV_REQUIRE_TIER=1`, the DataHub profile costs three JVMs and a migration job,
+# and the nix sandbox has no docker socket at all. `.sutura-dev/endpoints.json` has two writers and
+# both halves of the clobbering are gone (#317) - each merges per ENTRY and leaves keys it did not
+# write. THE LIMIT ON THAT REPAIR: nothing compares the two writers' shapes, so they agree by review
+# and a THIRD writer would be held by neither. It brings the profile up first, because asking for
+# the fail-closed direction against a tier nobody started is a confusing way to spell an error.
 # The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
-#
-# A named task rather than a cell in the default suite, and NOT because a network is missing - the
-# `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers
-# and BOTH HALVES OF THE CLOBBERING ARE NOW GONE (#317): every nix-native tier merges its own
-# service through `nix/tier-endpoints.nix`, and `xtask dev-up` goes through
-# `sutura_dev::discovery::publish`, which merges per ENTRY and leaves every key it did not write -
-# so neither provisioner's `start` erases the other's address, and a `dev-down` withdraws only what
-# it published. What keeps this task out of the default suite is the venue alone: `just test` sets
-# `SUTURA_DEV_REQUIRE_TIER=1`, the DataHub profile costs three JVMs and a migration job, and the
-# nix sandbox has no docker socket at all. The reasoning lives in
-# `crates/sutura-catalog-datahub/tests/provisioned.rs`, whose header carries the same account. The
-# limit on the repair: nothing compares the two writers' shapes, so they agree by review and a
-# THIRD writer would be held by neither.
-#
-# It brings the profile up first, because a task that asked for the fail-closed direction against a
-# tier nobody started would just be a confusing way to spell an error.
 datahub-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -725,9 +710,8 @@ datahub-acceptance:
 dev-endpoints:
     cargo run -q -p xtask -- dev-endpoints
 
-# One service's host:port, on stdout and nothing else, so a shell can substitute it:
-# `PORT="${$(just dev-endpoint clickhouse)##*:}"`. Anyone following `examples/` uses this instead
-# of learning what a scope or an ephemeral port is. `just dev-endpoints` is the readable table.
+# One service's host:port on stdout and nothing else, so a shell can substitute it: `PORT="${$(just
+# dev-endpoint clickhouse)##*:}"`. `just dev-endpoints` is the readable table.
 @dev-endpoint service:
     cargo run -q -p xtask -- dev-endpoint {{ service }}
 
@@ -739,12 +723,9 @@ dev-down:
 dev-down-dry:
     cargo run -q -p xtask -- dev-down --dry-run
 
-# The local chat demo: the sutura server and a chat client over `examples/single-player`, from a
-# clean checkout, with the browser URL read out of the discovery file rather than written down.
-#
 # NOT a gate, deliberately - the plan's own rule and #595's: a demo that fails a gate gets disabled,
-# and a disabled demo holds nothing. It needs a language model, which no gate has. The
-# configuration, the acknowledgement, the image build and the supervision are in `demo/start.sh`;
-# this recipe is only the name. `docs/demo.md` is the walkthrough.
+# and a disabled demo holds nothing. It needs a language model, which no gate has. The configuration,
+# image build and supervision are in `demo/start.sh`; `docs/demo.md` is the walkthrough.
+# The local chat demo: the sutura server and a chat client over `examples/single-player`.
 demo:
     bash demo/start.sh
