@@ -37,9 +37,9 @@ fn physical_schema() -> PinnedDefinitions {
 
 /// The prompt half of the RDBMS-catalog deliverable.
 ///
-/// The trigger is bundle content plus its digest-covered capability declaration, not the adapter's
-/// crate name: a physical schema with no semantic metric gets the same truthful ramp whichever
-/// declaring adapter produced it. No structured database name reaches the text.
+/// The trigger is bundle content, not the adapter's crate name: a physical schema with no semantic
+/// metric gets the same truthful ramp whichever declaring adapter produced it. No structured
+/// database name reaches the text.
 #[test]
 fn physical_structure_without_a_metric_gets_the_semantic_promotion_ramp() {
     let bundle = physical_schema();

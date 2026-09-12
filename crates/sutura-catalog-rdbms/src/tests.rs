@@ -42,6 +42,7 @@ fn foreign_key(
     origin_column: &str,
     target_table: &str,
     target_column: &str,
+    target_uniqueness: Option<SingleColumnTargetUniqueness>,
 ) -> Relationship {
     Relationship::new(
         name.map(str::to_owned),
@@ -49,6 +50,7 @@ fn foreign_key(
         origin_column.to_owned(),
         public(target_table),
         target_column.to_owned(),
+        target_uniqueness,
     )
 }
 
@@ -158,16 +160,14 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
             table("orders", vec!["order_id".to_owned(), "customer_id".to_owned()], None),
             table("customers", vec!["customer_id".to_owned()], None),
         ],
-        vec![
-            foreign_key(
-                Some("orders_customer_fk"),
-                "orders",
-                "customer_id",
-                "customers",
-                "customer_id",
-            )
-            .with_target_uniqueness(SingleColumnTargetUniqueness::UniqueConstraint),
-        ],
+        vec![foreign_key(
+            Some("orders_customer_fk"),
+            "orders",
+            "customer_id",
+            "customers",
+            "customer_id",
+            Some(SingleColumnTargetUniqueness::UniqueConstraint),
+        )],
     ));
     let pinned = RdbmsCatalog::new(name(), version(), fk_only)
         .load()
@@ -233,10 +233,14 @@ fn an_unnamed_relationship_with_long_endpoints_gets_a_bounded_deterministic_name
             table(origin_table, vec![origin_column.to_owned()], None),
             table(target_table, vec![target_column.to_owned()], None),
         ],
-        vec![
-            foreign_key(None, origin_table, origin_column, target_table, target_column)
-                .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
-        ],
+        vec![foreign_key(
+            None,
+            origin_table,
+            origin_column,
+            target_table,
+            target_column,
+            Some(SingleColumnTargetUniqueness::PrimaryKey),
+        )],
     ));
 
     let catalog = RdbmsCatalog::new(name(), version(), reader);
@@ -278,6 +282,7 @@ fn a_relationship_requires_single_column_target_uniqueness_evidence() {
             "customer_id",
             "customers",
             "customer_id",
+            None,
         )],
     ));
     assert!(matches!(
@@ -426,6 +431,59 @@ fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
         RdbmsCatalog::new(name(), version(), table_with_space).load(),
         Err(RdbmsError::TableName { table, .. }) if table == "public.orders "
     ));
+
+    // The schema part is exercised the same way: an edge space would silently become a different
+    // schema once the shared parser trimmed it.
+    let schema_with_space = SparseReader(Dictionary::new(
+        vec![Table::new(
+            "orders".to_owned(),
+            TableAddress::new(None, " public".to_owned(), "orders".to_owned()),
+            vec!["order_id".to_owned()],
+            None,
+        )],
+        Vec::new(),
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), schema_with_space).load(),
+        Err(RdbmsError::SchemaName { schema, .. }) if schema == " public"
+    ));
+
+    // And the catalog part, the outermost qualifier a three-part address carries.
+    let catalog_with_space = SparseReader(Dictionary::new(
+        vec![Table::new(
+            "orders".to_owned(),
+            TableAddress::new(Some(" warehouse".to_owned()), "public".to_owned(), "orders".to_owned()),
+            vec!["order_id".to_owned()],
+            None,
+        )],
+        Vec::new(),
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), catalog_with_space).load(),
+        Err(RdbmsError::CatalogName { catalog, .. }) if catalog == " warehouse"
+    ));
+
+    // A relationship column is a physical identifier too, resolved by the same helper as the table
+    // and schema parts above, and it was previously unmeasured.
+    let relationship_column_with_space = SparseReader(Dictionary::new(
+        vec![
+            table("orders", vec!["customer_id ".to_owned()], None),
+            table("customers", vec!["customer_id".to_owned()], None),
+        ],
+        vec![foreign_key(
+            Some("orders_customer_fk"),
+            "orders",
+            "customer_id ",
+            "customers",
+            "customer_id",
+            Some(SingleColumnTargetUniqueness::PrimaryKey),
+        )],
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), relationship_column_with_space).load(),
+        Err(RdbmsError::ColumnName { table, column, .. })
+            if table == "public.orders" && column == "customer_id "
+    ));
 }
 
 #[test]
@@ -439,33 +497,6 @@ fn a_physical_column_identifier_that_would_be_trimmed_is_refused() {
         Err(RdbmsError::ColumnName { table, column, .. })
             if table == "public.orders" && column == "order_id "
     ));
-}
-
-/// `DuckDB` keeps edge whitespace inside double-quoted identifiers.
-///
-/// This pins the target behaviour behind the adapter refusal above: the exact quoted names select
-/// the object, while their trimmed spellings do not name that table or column.
-#[test]
-fn duckdb_preserves_edge_whitespace_in_quoted_identifiers() {
-    let connection = duckdb::Connection::open_in_memory().expect("an in-memory DuckDB opens");
-    connection
-        .execute_batch(
-            r#"CREATE TABLE "orders " ("order_id " INTEGER);
-               INSERT INTO "orders " VALUES (7);"#,
-        )
-        .expect("DuckDB accepts edge whitespace in quoted identifiers");
-    let value: i32 = connection
-        .query_row(r#"SELECT "order_id " FROM "orders ""#, [], |row| row.get(0))
-        .expect("the exact quoted spellings resolve");
-    assert_eq!(value, 7);
-    assert!(
-        connection.prepare(r#"SELECT "order_id " FROM "orders""#).is_err(),
-        "the trimmed table spelling must not resolve"
-    );
-    assert!(
-        connection.prepare(r#"SELECT "order_id" FROM "orders ""#).is_err(),
-        "the trimmed column spelling must not resolve"
-    );
 }
 
 /// Error wrappers keep their structured causes in the standard error chain.
@@ -535,16 +566,16 @@ fn repeated_constraint_names_are_namespaced_by_their_endpoints() {
                 "customer_id".to_owned(),
                 address("sales", "customers"),
                 "customer_id".to_owned(),
-            )
-            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
+                Some(SingleColumnTargetUniqueness::PrimaryKey),
+            ),
             Relationship::new(
                 Some("orders_customer_fk".to_owned()),
                 address("support", "orders"),
                 "customer_id".to_owned(),
                 address("support", "customers"),
                 "customer_id".to_owned(),
-            )
-            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
+                Some(SingleColumnTargetUniqueness::PrimaryKey),
+            ),
         ],
     ));
 
@@ -578,24 +609,42 @@ fn duplicate_physical_table_addresses_are_refused() {
 }
 
 /// A relationship endpoint is resolved by physical identity, never guessed from a bare table name.
+///
+/// Both endpoints are exercised: an absent TARGET table (`customers` here, with `orders` present)
+/// and an absent ORIGIN table (`orders` here, with `customers` present). A conversion that resolved
+/// the origin by falling back to some other model in the map - rather than refusing - would still
+/// pass the target-only half of this test, so both halves are asserted.
 #[test]
 fn a_relationship_to_an_unknown_physical_table_is_refused() {
-    let unknown = SparseReader(Dictionary::new(
+    let unknown_target = SparseReader(Dictionary::new(
         vec![table("orders", vec!["customer_id".to_owned()], None)],
-        vec![
-            foreign_key(
-                Some("orders_customer_fk"),
-                "orders",
-                "customer_id",
-                "customers",
-                "customer_id",
-            )
-            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
-        ],
+        vec![foreign_key(
+            Some("orders_customer_fk"),
+            "orders",
+            "customer_id",
+            "customers",
+            "customer_id",
+            Some(SingleColumnTargetUniqueness::PrimaryKey),
+        )],
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), unknown_target).load(),
+        Err(RdbmsError::UnknownRelationshipTable { table }) if table == "public.customers"
     ));
 
+    let unknown_origin = SparseReader(Dictionary::new(
+        vec![table("customers", vec!["customer_id".to_owned()], None)],
+        vec![foreign_key(
+            Some("orders_customer_fk"),
+            "orders",
+            "customer_id",
+            "customers",
+            "customer_id",
+            Some(SingleColumnTargetUniqueness::PrimaryKey),
+        )],
+    ));
     assert!(matches!(
-        RdbmsCatalog::new(name(), version(), unknown).load(),
-        Err(RdbmsError::UnknownRelationshipTable { table }) if table == "public.customers"
+        RdbmsCatalog::new(name(), version(), unknown_origin).load(),
+        Err(RdbmsError::UnknownRelationshipTable { table }) if table == "public.orders"
     ));
 }

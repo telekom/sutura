@@ -14,10 +14,6 @@ sutura-domain = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-# The data system fact behind the physical-identifier refusal: DuckDB keeps edge whitespace inside
-# a quoted table or column name, so the catalog may not pass one through a parser that trims it.
-# Dev-only, so no native database driver enters the catalog adapter's library closure.
-duckdb = { workspace = true }
 # The compiler: the acceptance suite proves a dictionary bundle answers no certified question
 # because no metric is defined, which requires `sutura-semantic::compile` to reach `MetricUnknown`.
 # Dev-only, so the library closure stays domain + thiserror.

@@ -20,8 +20,7 @@ that deployment's story continues; this page is the catalog half of it.
 
 This page describes the converter's contract and the intended boundary of a future production
 reader. The runtime prompt does not consume connector-specific text from this page. It derives the
-same guidance from a pinned bundle: non-empty physical structure, a `Structure` declaration, and
-zero metrics.
+same guidance from a pinned bundle directly: non-empty physical structure and zero metrics.
 
 ## What this source is, and what it is not
 
@@ -33,7 +32,10 @@ explicitly:
 - **Descriptions** - table comments.
 - **Relationships** - the join a foreign key records, in the safe direction: the referenced column
   must be the sole column of a primary or unique constraint before the join maps to `ManyToOne`.
-  Membership in a composite constraint does not qualify.
+  Membership in a composite constraint does not qualify. The reader records which single-column
+  evidence it found; the converter checks only that evidence is present and does not re-derive it
+  from the constraint. A composite (multi-column) foreign key cannot be represented at all, so a
+  reader must refuse or omit it before the converter ever sees it.
 
 And nothing else. There is **no measure, no grain, no definitional filter, no value allowlist, no
 anchor and no cardinality** - a human declares those in a semantic layer. A bundle from this source

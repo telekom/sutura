@@ -21,11 +21,11 @@ This crate implements the dictionary conversion from `github.com/telekom/sutura#
 reader remains outside it; the runtime prompt derives the zero-metric physical-schema guidance
 from the pinned bundle rather than coupling the application to this adapter.
 
-# What a real dictionary yields (the spike, `spike/read-a-dictionary`)
+# What a real dictionary yields
 
 ADR 0016's method, applied here: read a real dictionary before writing the adapter. A throwaway
-reader pointed at this worktree's provisioned `postgresql_18` reported the following against a
-representative schema (two tables, a primary key each, one foreign key, and table comments):
+reader, measured once against a two-table Postgres 18 schema (two tables, a primary key each, one
+foreign key, and table comments), reported the following:
 
 | What | Count |
 | --- | --- |
@@ -52,7 +52,8 @@ Three findings, and two of them are the declaration's content:
    reader must supply a `SingleColumnTargetUniqueness` before the foreign key maps to
    `JoinType::ManyToOne`. Membership in a composite constraint is not evidence that one column
    is unique. Without the single-column evidence, loading refuses rather than asserting the
-   relationship.
+   relationship. The variant records what the reader found; this converter does not re-derive
+   it from the constraint itself.
 
 # The declaration, and what it means for the bundle
 
@@ -92,6 +93,12 @@ reads `information_schema` / `pg_catalog`, decodes into `Dictionary`, and maps i
 into `RdbmsError::Read`. A port rather than a method on `RdbmsCatalog` for the same reason
 the warehouse port exists: a catalog that could be swapped for a live source without the
 conversion changing is the point.
+
+A `Relationship` carries exactly one origin column and one target column, so a composite
+(multi-column) foreign key is not representable in it. A real implementor must therefore either
+refuse the whole read or omit that one foreign key when it encounters one, and must document
+which of the two it does - the conversion below never sees a foreign key that a reader omitted,
+so it cannot enforce or even detect either choice.
 
 ## `enum RdbmsError`
 
@@ -282,6 +289,10 @@ pub enum SingleColumnTargetUniqueness
 
 Why the target column of a foreign key is known to be individually unique.
 
+This variant records what the reader found in the dictionary; it carries no constraint name and
+no column list, so this converter checks only that a variant is present and cannot re-derive or
+verify that the underlying constraint is truly single-column.
+
 ### Variants
 
 - `PrimaryKey` - The target column is the sole column of a primary key.
@@ -312,12 +323,12 @@ pub fn name(&self) -> Option<&str>
 The foreign key's name, if the dictionary named it.
 
 ```rust
-pub const fn new(name: Option<String>, origin_table: TableAddress, origin_column: String, target_table: TableAddress, target_column: String) -> Self
+pub const fn new(name: Option<String>, origin_table: TableAddress, origin_column: String, target_table: TableAddress, target_column: String, target_uniqueness: Option<SingleColumnTargetUniqueness>) -> Self
 ```
 
-A relationship's endpoints, without uniqueness evidence.
+A relationship's endpoints, with target-key evidence if the reader has any.
 
-Loading refuses this value until `Self::with_target_uniqueness` records the target key.
+Loading refuses this value when `target_uniqueness` is `None`.
 
 ```rust
 pub fn origin_column(&self) -> &str
@@ -343,12 +354,6 @@ pub const fn target_table(&self) -> &TableAddress
 
 The table the foreign key points to.
 
-```rust
-pub const fn with_target_uniqueness(self, evidence: SingleColumnTargetUniqueness) -> Self
-```
-
-Records why the target column is unique.
-
 ### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
@@ -361,10 +366,10 @@ This is the only `crate::DictionaryReader` implementor today, and it is the **fa
 tested against - a recorded dictionary, not mocked SQL (`github.com/telekom/sutura#151`'s thing 4).
 Until a real reader exists this is what a `crate::RdbmsCatalog` reads.
 
-The corpus mirrors exactly what the spike's `spike/read-a-dictionary` measured against this
-worktree's provisioned Postgres: two tables (one fact, one lookup), a column set per table,
-table comments, and one foreign key from the fact table to the lookup. There are **no
-metrics** - that is the whole point of the narrowest metadata source, and what makes
+The corpus mirrors exactly what a throwaway reader measured once against a two-table Postgres
+18 schema: two tables (one fact, one lookup), a column set per table, table comments, and one
+foreign key from the fact table to the lookup. There are **no metrics** - that is the whole
+point of the narrowest metadata source, and what makes
 `a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question` pass.
 
 ### `struct FixtureReader`

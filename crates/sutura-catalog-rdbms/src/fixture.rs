@@ -4,10 +4,10 @@
 //! tested against - a recorded dictionary, not mocked SQL (`github.com/telekom/sutura#151`'s thing 4).
 //! Until a real reader exists this is what a [`crate::RdbmsCatalog`] reads.
 //!
-//! The corpus mirrors exactly what the spike's `spike/read-a-dictionary` measured against this
-//! worktree's provisioned Postgres: two tables (one fact, one lookup), a column set per table,
-//! table comments, and one foreign key from the fact table to the lookup. There are **no
-//! metrics** - that is the whole point of the narrowest metadata source, and what makes
+//! The corpus mirrors exactly what a throwaway reader measured once against a two-table Postgres
+//! 18 schema: two tables (one fact, one lookup), a column set per table, table comments, and one
+//! foreign key from the fact table to the lookup. There are **no metrics** - that is the whole
+//! point of the narrowest metadata source, and what makes
 //! `a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question` pass.
 
 use sutura_domain::model::SourceName;
@@ -54,16 +54,14 @@ pub fn corpus() -> Dictionary {
                 Some("Customer reference data.".to_owned()),
             ),
         ],
-        vec![
-            Relationship::new(
-                Some("orders_customer_fk".to_owned()),
-                public("orders"),
-                "customer_id".to_owned(),
-                public("customers"),
-                "customer_id".to_owned(),
-            )
-            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
-        ],
+        vec![Relationship::new(
+            Some("orders_customer_fk".to_owned()),
+            public("orders"),
+            "customer_id".to_owned(),
+            public("customers"),
+            "customer_id".to_owned(),
+            Some(SingleColumnTargetUniqueness::PrimaryKey),
+        )],
     )
 }
 
