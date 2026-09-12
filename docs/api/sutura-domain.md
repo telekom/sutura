@@ -6411,8 +6411,8 @@ None of the three things downstream then refuses it, which is what makes the pai
 
 # Order is half of it, and that half is a wrong number rather than an error
 
-Three of the four dialects `sutura_sql` renders for write a POSITIONAL placeholder - a bare `?`
-- so the Nth placeholder in the statement takes the Nth value in the list; only Postgres writes a
+Three of the four dialects `sutura_sql` renders for write a POSITIONAL placeholder, a bare `?`,
+so the Nth placeholder in the statement takes the Nth value in the list; only Postgres writes a
 NUMBERED `$n` that names its value. The renderer emits predicates in filter order and a
 positional adapter binds the list in list order, so those two agree only while the indices run
 `0, 1, .. n-1` down the filters. Read off the shipped adapters rather than reasoned about:
@@ -6457,9 +6457,9 @@ a number that is too large, a number in the wrong place, and a value nothing rea
 
 ##### Variants
 
-- `ParamOutOfRange` - A predicate binds a parameter the list does not hold.
-- `ParamOutOfOrder` - A predicate binds a parameter out of placeholder order.
-- `ParamNeverRead` - The set carries a parameter no predicate binds.
+- `OutOfRange` - A predicate binds a parameter the list does not hold.
+- `OutOfPlaceholderOrder` - A predicate binds a parameter out of placeholder order.
+- `NeverRead` - The set carries a parameter no predicate binds.
 
 ##### Implements
 
@@ -6488,7 +6488,7 @@ pub fn filters(&self) -> &[PlanFilter]
 The predicates this set applies, in the order a statement emits them.
 
 ```rust
-pub fn into_parts(self) -> (Vec<PlanFilter>, Vec<ParamValue>)
+pub fn into_parts(self) -> (Vec<crate::plan::PlanFilter>, Vec<crate::warehouse::ParamValue>)
 ```
 
 The two lists, for a constructor that stores them apart.
