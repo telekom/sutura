@@ -54,7 +54,7 @@ rcgen = { workspace = true }
 # THE FIXTURE-TIER CREDENTIAL, AND THE CONNECTION CONFIG OVER IT. Default-off, and the reason is the
 # ARTEFACT rather than build time: `nix/shipped.nix` builds cargo's DEFAULT feature set, so nothing a
 # release publishes contains `src/fixture.rs` or `PostgresWarehouse::local_config`. Both callers are
-# tests - `tests/conformance.rs` here and `crates/sutura-app/tests/adapters/mod.rs` - so nothing
+# tests - `tests/conformance.rs` here and `crates/sutura-app/tests/adapters/adapters.rs` - so nothing
 # shipped loses anything, and `github.com/telekom/sutura#455` is a `pub fn` whose only guard against
 # a consumer reaching it was its name.
 #

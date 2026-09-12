@@ -381,7 +381,7 @@ capability declaration without touching a pack body.
 - A new dev-only workspace crate holds the packs and the macro. It is never shipped, and it depends on
   the domain's ports rather than on any adapter.
 - **The harness duplication this would have extracted does not exist on this branch yet.** An earlier
-  draft cited `crates/sutura-cli/tests/federation.rs` and about ninety duplicated lines "at two
+  draft cited a `federation.rs` under `crates/sutura-cli/tests` and about ninety duplicated lines "at two
   corpora, so this is the third". That file is not here - `crates/sutura-cli/tests` holds `example.rs`
   and its snapshots - and the claim came from a branch that was never merged. What is true: the golden
   and refusal corpora in `sutura-app/tests` are the first corpora, and the shared module is therefore
@@ -398,7 +398,7 @@ capability declaration without touching a pack body.
 - The existing `tests/adapters` registry becomes the place an adapter is registered for the matrix,
   and the macro invocation is what registers it for the packs. One registration, not two - **and as
   built it was two, with nothing relating them.** A data system is named in
-  `crates/sutura-app/tests/adapters/mod.rs` and bound again in its own crate's
+  `crates/sutura-app/tests/adapters/adapters.rs` and bound again in its own crate's
   `tests/conformance.rs`, and no gate compared the two lists: deleting a binding left every check
   green.
 

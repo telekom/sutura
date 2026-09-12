@@ -201,7 +201,7 @@ The fixture tier's credential - a value that cannot exist unconfigured.
 
 **Behind the default-off `fixtures` feature**, because both callers are tests
 (`crates/sutura-exec-postgres/tests/conformance.rs` and
-`crates/sutura-app/tests/adapters/mod.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
+`crates/sutura-app/tests/adapters/adapters.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
 no artefact a release publishes contains this module or the connection config over it, which
 deletes the *reachable from a consumer* half rather than hardening it. `--all-features` compiles,
 lints and tests it on every run.

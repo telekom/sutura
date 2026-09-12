@@ -692,7 +692,7 @@ plan and it closes a real gap.
 
 **Touches.** `crates/sutura-config` (a keyed source structure beside `catalog.data_dir`),
 `crates/sutura-app/src/surface.rs` (a service over many warehouses rather than one),
-`crates/sutura-app/tests/adapters/mod.rs` (the registry the matrix reads).
+`crates/sutura-app/tests/adapters/adapters.rs` (the registry the matrix reads).
 
 **Adds.** A source declaration carrying an alias, a posture (`SharedServiceUser` or
 `ImpersonationAtSource`), declared capabilities, the operator's acknowledgement key and its stated
@@ -1037,7 +1037,7 @@ adapter that provides part of a model is the first thing that needs it.
 
 **Touches.** `sutura-domain`'s `SemanticCatalog`, which today is an associated `Error` and `load` and
 declares nothing. `sutura-catalog-local`, which gains one line saying it provides everything.
-`crates/sutura-app/tests/adapters/mod.rs`, where the declaration joins `posture` as part of what a
+`crates/sutura-app/tests/adapters/adapters.rs`, where the declaration joins `posture` as part of what a
 registration is.
 
 **Adds.** A closed capability vocabulary for the metadata side - structure, descriptions,
@@ -1151,7 +1151,7 @@ line each and is the better outcome**; harvesting them is the failure mode this 
 arranged against.
 
 **Touches.** A new `sutura-catalog-datahub` crate, and the registry in
-`crates/sutura-app/tests/adapters/mod.rs`.
+`crates/sutura-app/tests/adapters/adapters.rs`.
 
 **The read path.** An HTTP client written here, because DataHub publishes Python and Java SDKs and no
 Rust one. **Which surface is settled by DataHub's own guidance** and 0016 records why: its GraphQL API

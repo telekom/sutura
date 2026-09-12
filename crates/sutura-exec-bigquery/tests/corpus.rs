@@ -33,7 +33,7 @@
 //!   which are one identity for everybody who asks. `BigQueryWarehouse::IMPERSONATION` reads
 //!   `NoPlaceForASubject`, and a green here is *accepted, and correct for that identity*.
 //! - **A registered data system.** The `data_systems:` axis of
-//!   `crates/sutura-app/tests/adapters/mod.rs` still gains no entry, and that registry's own rule is
+//!   `crates/sutura-app/tests/adapters/adapters.rs` still gains no entry, and that registry's own rule is
 //!   why: a cell in it runs inside `just test`, and this one cannot - the nix sandbox has no network.
 //! - **That a SHIPPED binary would do any of this.** The branch below this one gives the adapter a
 //!   composition root, so *nothing links the crate* has stopped being true - but it is behind a
@@ -172,7 +172,7 @@
 
 // The corpus reaches OUTSIDE this crate, into `examples/single-player`. The source filter in
 // `flake.nix` names `crates/*/tests` and `examples/` separately, so this leg depends on BOTH clauses -
-// the same dependency `crates/sutura-app/tests/adapters/mod.rs` documents. It does not matter for a
+// the same dependency `crates/sutura-app/tests/adapters/adapters.rs` documents. It does not matter for a
 // nix CHECK, since acceptance is a `nix run` app reading the real tree, but it would the day somebody
 // tried to make it one.
 
