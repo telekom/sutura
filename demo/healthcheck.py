@@ -19,6 +19,15 @@ import sys
 import urllib.error
 import urllib.request
 
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
+NO_REDIRECT = urllib.request.build_opener(_RefuseRedirects())
+
+
 # The two operations the served document must describe, and the method each is reached by. The demo
 # exposes exactly these; a document that stopped carrying one is a demo that cannot answer, however
 # alive its sockets look.
@@ -98,6 +107,7 @@ def webui_tools_are_registered(port: int) -> None:
     ):
         fail("the chat client's tool registry does not list server:sutura")
 
+
 def main() -> None:
     sutura_port = int(os.environ.get("SUTURA_DEMO_SUTURA_PORT", "9000"))
     webui_port = int(os.environ.get("SUTURA_DEMO_WEBUI_PORT", "8080"))
@@ -127,9 +137,18 @@ def main() -> None:
             f"the served interface description did not read back: {type(problem).__name__}"
         )
     paths = document.get("paths", {})
-    for route, method in OPERATIONS:
-        if method not in paths.get(route, {}):
-            fail(f"the served document does not describe {method.upper()} {route}")
+    declared = {
+        (route, method)
+        for route, operations in paths.items()
+        if isinstance(operations, dict)
+        for method in operations
+    }
+    expected = set(OPERATIONS)
+    if declared != expected:
+        fail(
+            f"the served document operations were {sorted(declared)!r}, "
+            f"expected {sorted(expected)!r}"
+        )
 
     # The chat client last, so the two failures that are the demo's own are reported first.
     try:
@@ -138,6 +157,8 @@ def main() -> None:
         fail(f"the chat client did not answer /health: {problem}")
     if json.loads(body).get("status") is not True:
         fail("the chat client answered /health without status true")
+    model_endpoint_is_reachable()
+    webui_tools_are_registered(webui_port)
 
     print(
         "healthcheck: the sutura server, its two operations and the chat client are all up"
