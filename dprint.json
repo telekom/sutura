@@ -1,0 +1,56 @@
+{
+  // Markdown, YAML and TOML. OPTIONS ONLY: the plugins arrive as nix store paths from
+  // `nix/dprint.nix`, passed with `--plugins`, so no version and no path is written here.
+  // `nix/format-text.sh` is the only caller.
+  "markdown": {
+    // NO REWRAPPING. `cargo xtask check-guidance` pins phrases and counts them, and a reflow
+    // that moves a line break inside a pinned sentence breaks it silently - measured: a wrapped
+    // sentence defeats a line-based matcher entirely. `maintain` is also the plugin default;
+    // it is written out because the whole gate depends on it.
+    "textWrap": "maintain",
+    // The default is `underscores`, which rewrites every `*word*` to `_word_` - an edit to the
+    // same pinned prose, one character at a time. This repository writes asterisks.
+    "emphasisKind": "asterisks"
+  },
+  "toml": {
+    // The Cargo conventions SORT `[workspace] members`, and every comment in that array
+    // documents the entry under it - sorting left each one above a different crate. Measured on
+    // the root manifest: 18 more files rewritten, and the prose in them made false.
+    "cargo.applyConventions": false
+  },
+  "yaml": {
+    // 80 broke `compose.services.yaml`'s healthcheck commands across three lines each. 120 is
+    // what this tree's YAML already fits in.
+    "printWidth": 120
+  },
+  // Each of these is owned by a mechanism that a reformat would break, not by taste.
+  "excludes": [
+    // `VENDOR.md` records deliberately vendored third-party source; the readable diff against
+    // upstream is the whole point of vendoring, and formatting it destroys that.
+    "vendor/**",
+    // Content-hash-locked imports (`.agents/skills.lock.json`). `cargo xtask check-skills`
+    // reported 23 of them as local forks the one time dprint was pointed at this tree.
+    ".agents/**",
+    // Generated from rustdoc and byte-compared against a fresh generation by
+    // `cargo xtask check-api-docs`. A formatted page can never match a generated one.
+    "docs/api/**",
+    // FIXTURE DATA, not prose: the markdown catalog a `SemanticCatalog` reads, whose whole content
+    // is pinned by a digest in `crates/sutura-app/tests/golden/catalogs.rs`. Measured: dprint's
+    // only change to these files is ONE BLANK LINE after the YAML frontmatter, not a word, and the
+    // digest moved anyway - so what that test's own comment claims about a reformat is overstated,
+    // and the snapshot beside it is what an agent is told. Excluded rather than re-pinned: a
+    // formatter must not change what the prompt renders from.
+    "examples/single-player/catalog/**",
+    // THESE THREE PAGES HAVE TABLE ROWS THAT A GATE MATCHES AS AN EXACT LINE -
+    // `check-gate-classification` over the first, `check-venues` over the other two, and all
+    // three fail CLOSED when they cannot find the row. dprint pads table cells to align the
+    // pipes, so the row stops matching; and the padding width is a function of the WIDEST cell,
+    // so pinning the padded form instead would break again the next time a row is added. The
+    // page is excluded rather than the constant rewritten.
+    "docs/implementation-plan-identity-and-services.md",
+    "docs/where-identity-is-proven.md",
+    "test-infra/README.md"
+  ],
+  // Empty on purpose: `nix/dprint.nix` supplies the three plugins as store paths.
+  "plugins": []
+}

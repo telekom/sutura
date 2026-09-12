@@ -77,8 +77,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      actions: write        # delete cache entries
-      pull-requests: read   # decide which pull requests are still open
+      actions: write # delete cache entries
+      pull-requests: read # decide which pull requests are still open
     steps:
       - name: Delete caches belonging to closed pull requests and queue refs
         env:

@@ -45,8 +45,7 @@ also how a developer on Windows points at it.
 
 **Which project, dataset or location a developer works against is not written down here and will not
 be.** A developer names it in their own environment: `.envrc` already sources a file under the user's
-own configuration directory for exactly this class of value, and [building without direct
-egress](enterprise-mirrors.md) is the generic form of the same split. This repository is public, so
+own configuration directory for exactly this class of value, and [building without direct egress](enterprise-mirrors.md) is the generic form of the same split. This repository is public, so
 the value belongs on the machine and only the hook belongs here.
 
 **This is tooling availability and not the adapter.** No Rust dependency, nothing in
@@ -124,14 +123,14 @@ nothing has to be written from scratch, and the cost is the corpus:
   it against the client's actual request shape, not against the dialect layer's rendering, because the
   two are separately capable of being right.
 
-    **Decided: `Question`, and no third variant.** Verified against the REST reference rather than
-    inferred - the request body carries `parameterMode`, positional parameters are written `?` and
-    supplied as an ORDERED array whose entries omit `name`, and a query may use one form or the other
-    and not both. A `GeneratedQuery` already carries an ordered list of values and no names, because a
-    parameter's identity in a plan IS its position, so positional matches end to end. Named would need
-    a name invented per parameter, a third `PlaceholderStyle` and a map on `GeneratedQuery` - three new
-    things with nothing in the domain to fill them. `transport::JobRequest::PARAMETER_MODE` is where
-    the adapter states it.
+  **Decided: `Question`, and no third variant.** Verified against the REST reference rather than
+  inferred - the request body carries `parameterMode`, positional parameters are written `?` and
+  supplied as an ORDERED array whose entries omit `name`, and a query may use one form or the other
+  and not both. A `GeneratedQuery` already carries an ordered list of values and no names, because a
+  parameter's identity in a plan IS its position, so positional matches end to end. Named would need
+  a name invented per parameter, a third `PlaceholderStyle` and a map on `GeneratedQuery` - three new
+  things with nothing in the domain to fill them. `transport::JobRequest::PARAMETER_MODE` is where
+  the adapter states it.
 
 - **The generated statement needs no dataset qualifying, and that was the other thing to check.** The
   job request carries a `defaultDataset`, so a bare backticked table name resolves there - confirmed
@@ -208,17 +207,18 @@ any of this.** The change that wrote the wire could NOT run it: the machine had 
 application-default credential and no project. So a leg exists at
 `crates/sutura-exec-bigquery/tests/acceptance.rs`, three `#[ignore]`d tests behind
 `just bigquery-acceptance`, and **it is unexecuted**. **It is also narrower than what 0017 specifies**
+
 - one hand-built `SUM` over a two-column table, exercising none of the constructs the parse check was
-measured to be blind about, so a green run of it would close a smaller gap than the records first
-claimed; the wider leg is #78's importer shape pointed at a dataset. **Two of the three clauses
-that used to end this paragraph are spent**: a composition root DOES link the crate and
-`sutura-serve` DOES dispatch `kind: bigquery`, both behind its default-off `bigquery` feature, which
-`docs/adr/0017`'s second amendment recorded. What survives is the third - the `data_systems:` axis
-still gains no entry. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
-five mechanisms can tell, and ONE has now been run.** On 2026-08-30 the leg passed against a real
-dataset under a service-account key - a statement generated here accepted by `BigQuery`, answered as one
-complete page, with the fixture's own numbers - and `docs/adr/0017`'s amendment puts the repeat of it in
-CI, in its own job, against a GitHub environment whose secrets a fork's pull request cannot see.
+  measured to be blind about, so a green run of it would close a smaller gap than the records first
+  claimed; the wider leg is #78's importer shape pointed at a dataset. **Two of the three clauses
+  that used to end this paragraph are spent**: a composition root DOES link the crate and
+  `sutura-serve` DOES dispatch `kind: bigquery`, both behind its default-off `bigquery` feature, which
+  `docs/adr/0017`'s second amendment recorded. What survives is the third - the `data_systems:` axis
+  still gains no entry. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
+  five mechanisms can tell, and ONE has now been run.** On 2026-08-30 the leg passed against a real
+  dataset under a service-account key - a statement generated here accepted by `BigQuery`, answered as one
+  complete page, with the fixture's own numbers - and `docs/adr/0017`'s amendment puts the repeat of it in
+  CI, in its own job, against a GitHub environment whose secrets a fork's pull request cannot see.
 
 **What the per-subject step below inherits is therefore narrower and more useful than before.** The
 credential path works and reads both kinds; what is still absent is the corpus-wide comparison against
