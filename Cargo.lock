@@ -3714,6 +3714,7 @@ dependencies = [
 name = "sutura-catalog-rdbms"
 version = "0.5.1"
 dependencies = [
+ "duckdb",
  "sutura-domain",
  "sutura-semantic",
  "thiserror 2.0.20",

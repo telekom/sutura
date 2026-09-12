@@ -1,6 +1,7 @@
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::InvalidDescription;
+use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
+use sutura_domain::definitions::{DefinitionDigest, NotDigestible};
 use sutura_domain::knowledge::KnowledgeCapabilities;
 use sutura_domain::model::{Grain, JoinType, MetricName, ModelName, SourceName};
 use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
@@ -402,6 +403,95 @@ fn schema_qualified_tables_keep_distinct_model_and_physical_identities() {
         [String::from("sales.orders"), String::from("support.orders")]
             .into_iter()
             .collect()
+    );
+}
+
+/// Physical identifiers are references to database objects, so parsing may not change them.
+///
+/// The shared domain parser trims before checking the identifier grammar. That is appropriate for
+/// authored semantic names, but not for a dictionary spelling: a generated statement always quotes
+/// these names, and the database resolves the whitespace as part of the quoted identifier.
+#[test]
+fn a_physical_table_identifier_that_would_be_trimmed_is_refused() {
+    let table_with_space = SparseReader(Dictionary::new(
+        vec![Table::new(
+            "orders".to_owned(),
+            public("orders "),
+            vec!["order_id".to_owned()],
+            None,
+        )],
+        Vec::new(),
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), table_with_space).load(),
+        Err(RdbmsError::TableName { table, .. }) if table == "public.orders "
+    ));
+}
+
+#[test]
+fn a_physical_column_identifier_that_would_be_trimmed_is_refused() {
+    let column_with_space = SparseReader(Dictionary::new(
+        vec![table("orders", vec!["order_id ".to_owned()], None)],
+        Vec::new(),
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), column_with_space).load(),
+        Err(RdbmsError::ColumnName { table, column, .. })
+            if table == "public.orders" && column == "order_id "
+    ));
+}
+
+/// `DuckDB` keeps edge whitespace inside double-quoted identifiers.
+///
+/// This pins the target behaviour behind the adapter refusal above: the exact quoted names select
+/// the object, while their trimmed spellings do not name that table or column.
+#[test]
+fn duckdb_preserves_edge_whitespace_in_quoted_identifiers() {
+    let connection = duckdb::Connection::open_in_memory().expect("an in-memory DuckDB opens");
+    connection
+        .execute_batch(
+            r#"CREATE TABLE "orders " ("order_id " INTEGER);
+               INSERT INTO "orders " VALUES (7);"#,
+        )
+        .expect("DuckDB accepts edge whitespace in quoted identifiers");
+    let value: i32 = connection
+        .query_row(r#"SELECT "order_id " FROM "orders ""#, [], |row| row.get(0))
+        .expect("the exact quoted spellings resolve");
+    assert_eq!(value, 7);
+    assert!(
+        connection.prepare(r#"SELECT "order_id " FROM "orders""#).is_err(),
+        "the trimmed table spelling must not resolve"
+    );
+    assert!(
+        connection.prepare(r#"SELECT "order_id" FROM "orders ""#).is_err(),
+        "the trimmed column spelling must not resolve"
+    );
+}
+
+/// Error wrappers keep their structured causes in the standard error chain.
+#[test]
+fn an_inconsistent_definition_failure_exposes_its_source() {
+    let error = RdbmsError::Inconsistent {
+        cause: InconsistentDefinitions::DuplicateModel {
+            model: ModelName::parse("orders").expect("a test model name is a name"),
+        },
+    };
+    assert!(
+        std::error::Error::source(&error).is_some(),
+        "the wrapper must retain its typed cause: {error:?}"
+    );
+}
+
+#[test]
+fn a_digest_failure_exposes_its_source() {
+    let error = RdbmsError::Digest {
+        cause: NotDigestible::NotADigest {
+            cause: DefinitionDigest::parse("not-a-digest").expect_err("the fixture is not a digest"),
+        },
+    };
+    assert!(
+        std::error::Error::source(&error).is_some(),
+        "the wrapper must retain its typed cause: {error:?}"
     );
 }
 

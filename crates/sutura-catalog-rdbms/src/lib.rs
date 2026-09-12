@@ -77,8 +77,8 @@ use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, Metada
 use sutura_domain::catalog::{Definitions, Description, Model, Relationship as DomainRelationship};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
-    ColumnName, DatasetName, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName, TableName,
-    TableQualifier,
+    ColumnName, DatasetName, InvalidIdentifier, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName,
+    TableName, TableQualifier,
 };
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
@@ -91,6 +91,17 @@ type ConvertedModel = (QualifiedTable, Model);
 
 /// Leaves room for `__` and a 16-character fingerprint under the 63-character name limit.
 const MAX_RELATIONSHIP_PREFIX_LEN: usize = 45;
+
+/// Refuses whitespace before the shared parser can trim it from a physical identifier.
+fn exact_physical_identifier(raw: &str) -> Result<&str, InvalidIdentifier> {
+    if let Some(offending) = raw.chars().find(|character| character.is_whitespace()) {
+        return Err(InvalidIdentifier::IllegalCharacter {
+            value: String::from(raw),
+            offending,
+        });
+    }
+    Ok(raw)
+}
 
 /// Where a dictionary's records come from.
 ///
@@ -184,11 +195,13 @@ pub enum RdbmsError {
     /// The assembled definitions did not hold together.
     #[error("the dictionary definitions do not hold together: {cause}")]
     Inconsistent {
+        #[source]
         cause: sutura_domain::catalog::InconsistentDefinitions,
     },
     /// Pinning failed.
     #[error("the dictionary bundle could not be pinned: {cause}")]
     Digest {
+        #[source]
         cause: sutura_domain::definitions::NotDigestible,
     },
 }
@@ -254,11 +267,13 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             .columns
             .iter()
             .map(|column| {
-                ColumnName::parse(column).map_err(|cause| RdbmsError::ColumnName {
-                    table: physical_table.to_string(),
-                    column: column.clone(),
-                    cause,
-                })
+                exact_physical_identifier(column)
+                    .and_then(ColumnName::parse)
+                    .map_err(|cause| RdbmsError::ColumnName {
+                        table: physical_table.to_string(),
+                        column: column.clone(),
+                        cause,
+                    })
             })
             .collect::<Result<BTreeSet<ColumnName>, _>>()?;
         let description = table
@@ -277,21 +292,27 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
 
     fn convert_table_address(address: &TableAddress) -> Result<QualifiedTable, RdbmsError> {
         let rendered = address.to_string();
-        let table = TableName::parse(address.table()).map_err(|cause| RdbmsError::TableName {
-            table: rendered.clone(),
-            cause,
-        })?;
-        let schema = DatasetName::parse(address.schema()).map_err(|cause| RdbmsError::SchemaName {
-            table: rendered.clone(),
-            schema: address.schema().to_owned(),
-            cause,
-        })?;
-        let qualifier = if let Some(catalog) = address.catalog() {
-            let catalog = ProjectName::parse(catalog).map_err(|cause| RdbmsError::CatalogName {
-                table: rendered,
-                catalog: catalog.to_owned(),
+        let table = exact_physical_identifier(address.table())
+            .and_then(TableName::parse)
+            .map_err(|cause| RdbmsError::TableName {
+                table: rendered.clone(),
                 cause,
             })?;
+        let schema = exact_physical_identifier(address.schema())
+            .and_then(DatasetName::parse)
+            .map_err(|cause| RdbmsError::SchemaName {
+                table: rendered.clone(),
+                schema: address.schema().to_owned(),
+                cause,
+            })?;
+        let qualifier = if let Some(catalog) = address.catalog() {
+            let catalog = exact_physical_identifier(catalog)
+                .and_then(ProjectName::parse)
+                .map_err(|cause| RdbmsError::CatalogName {
+                    table: rendered,
+                    catalog: catalog.to_owned(),
+                    cause,
+                })?;
             TableQualifier::in_project(catalog, schema)
         } else {
             TableQualifier::in_dataset(schema)
@@ -329,16 +350,20 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             .ok_or_else(|| RdbmsError::UnknownRelationshipTable {
                 table: target_table.to_string(),
             })?;
-        let origin_column = ColumnName::parse(relationship.origin_column()).map_err(|cause| RdbmsError::ColumnName {
-            table: origin_table.to_string(),
-            column: relationship.origin_column().to_owned(),
-            cause,
-        })?;
-        let target_column = ColumnName::parse(relationship.target_column()).map_err(|cause| RdbmsError::ColumnName {
-            table: target_table.to_string(),
-            column: relationship.target_column().to_owned(),
-            cause,
-        })?;
+        let origin_column = exact_physical_identifier(relationship.origin_column())
+            .and_then(ColumnName::parse)
+            .map_err(|cause| RdbmsError::ColumnName {
+                table: origin_table.to_string(),
+                column: relationship.origin_column().to_owned(),
+                cause,
+            })?;
+        let target_column = exact_physical_identifier(relationship.target_column())
+            .and_then(ColumnName::parse)
+            .map_err(|cause| RdbmsError::ColumnName {
+                table: target_table.to_string(),
+                column: relationship.target_column().to_owned(),
+                cause,
+            })?;
         let name = Self::relationship_name(
             relationship.name(),
             &origin_table,
