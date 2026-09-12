@@ -446,9 +446,9 @@ where
     /// yield - and nothing else.
     ///
     /// `Structure` is unconditional; descriptions and relationships are declared-and-conditional.
-    /// A relationship is emitted only when the reader supplies single-column primary or unique-key
-    /// evidence for its target, while a schema with no foreign key carries no relationship
-    /// lawfully.
+    /// A foreign key whose target lacks single-column primary or unique-key evidence refuses the
+    /// whole load with [`RdbmsError::TargetUniquenessUnknown`] rather than being dropped; a schema
+    /// with no foreign key lawfully carries no relationship.
     ///
     /// What is declared is nothing more. No
     /// [`Cardinality`](sutura_domain::capabilities::DefinitionKind::Cardinality) - a foreign key

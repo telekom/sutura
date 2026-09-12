@@ -12,11 +12,11 @@ description: What a database dictionary can contribute as metadata, what it cann
 
 The crate implements the conversion half of issue #151 and
 `docs/adr/0011-pluggable-by-declaration.md`'s RDBMS row. It is intended for a metadata source that
-reads a database's own dictionary - `information_schema` plus whatever table comments a human wrote
-- and declares **structure and prose** and nothing else. It is the narrowest
-declaration this repository makes, and it exists because a database with DDL and comments and no
-semantic layer is where every adoption starts. [A raw SQL tool](adr/0013-a-raw-sql-tool-off-by-default.md)
-is the ramp that deployment's story continues; this page is the catalog half of it.
+reads a database's own dictionary - `information_schema` plus whatever table comments a human
+wrote - and declares **structure and prose** and nothing else. It is the narrowest declaration this
+repository makes, and it exists because a database with DDL and comments and no semantic layer is
+where every adoption starts. [A raw SQL tool](adr/0013-a-raw-sql-tool-off-by-default.md) is the ramp
+that deployment's story continues; this page is the catalog half of it.
 
 This page describes the converter's contract and the intended boundary of a future production
 reader. The runtime prompt does not consume connector-specific text from this page. It derives the
