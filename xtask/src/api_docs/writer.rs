@@ -1,34 +1,46 @@
-//! Does `just api` hand rustdoc the same flags this gate does?
+//! Does `just api` ask rustdoc the same question this gate does?
 //!
 //! The parent module's header states that the gate and the writer are ONE CODE PATH, so the fix a
 //! failure names - `just api` - produces what the gate compares against. Two things carried that
-//! claim and neither was a mechanism: the `cargo rustdoc` line here and the one in
+//! claim and neither was a mechanism: the `cargo doc` line here and the one in
 //! `nix/api-docs.nix` are two hand-written copies of one invocation, in two languages.
+//!
+//! **Two halves, because the question has two halves.** The rustdoc FLAGS decide what rustdoc
+//! looks at; the cargo SELECTION decides which units it runs over and - through feature
+//! unification - what those units contain. A copy that agrees on one and not the other still
+//! produces pages the gate never judged.
 //!
 //! **A flag on one side only is invisible, and the two directions fail differently.** A flag the
 //! gate passes and the writer does not makes `just api` unable to see what turned the gate red;
 //! a flag the writer passes and the gate does not makes the pages regenerate from JSON the gate
-//! never judged. `check-api-links` holds one list of URL schemes across the same two languages
-//! for the same reason, and this is that shape over the invocation.
+//! never judged.
 //!
-//! **Why it matters more than a style rule.** Without `--document-private-items` rustdoc never
-//! runs the link-resolution pass over a private item, so `broken_intra_doc_links` - `forbid` in
-//! the root manifest, and armed on every member per [`lints`](crate::api_docs::lints) - reports **nothing** about a
-//! private module's doc comments. Measured on a two-file crate: one unresolvable link inside a
-//! private module is exit 0 without the flag and exit 101 with it, same tree, same lint level.
-//! `github.com/telekom/sutura#327` is that hole; the flag is what closes it, and this module is
-//! what keeps it closed in both venues.
+//! **Why the flags matter more than a style rule.** Without `--document-private-items` rustdoc
+//! never runs the link-resolution pass over a private item, so `broken_intra_doc_links` -
+//! `forbid` in the root manifest, and armed on every member per
+//! [`lints`](crate::api_docs::lints) - reports **nothing** about a private module's doc comments.
+//! Measured on a two-file crate: one unresolvable link inside a private module is exit 0 without
+//! the flag and exit 101 with it, same tree, same lint level. `github.com/telekom/sutura#327` is
+//! that hole; the flag is what closes it, and this module is what keeps it closed in both venues.
+//!
+//! **Why the selection matters just as much.** `--workspace --all-features` resolves features
+//! once over every member. `-p <one> --all-features` resolves them for one, which is a different
+//! set for every shared dependency - so a writer that documented packages one at a time could
+//! hand the generator JSON the gate's own run would never produce, and the byte comparison would
+//! be against the wrong build. It is also the resolution `sutura-deps` is built under, which is
+//! what makes the warm artifacts reusable; that is a cost argument rather than a correctness one
+//! and is recorded in `flake.nix`, not here.
 //!
 //! **The limits, next to the claim.**
 //!
-//! * It compares the flags AFTER `--`, the ones rustdoc itself reads. The cargo arguments before
-//!   it legitimately differ - the writer selects `"$lib"` from a shell loop and takes the profile
-//!   literally, the gate selects a package name and reads the profile from an environment
-//!   variable - so requiring those to match would refuse a correct tree.
+//! * It compares the rustdoc flags exactly, and the cargo line only for the three arguments that
+//!   decide scope and features. The rest legitimately differs - the writer takes the profile
+//!   literally, the gate reads it from an environment variable - so requiring the whole line to
+//!   match would refuse a correct tree.
 //! * It reads the writer's TEXT, not a run of it. That the flags then reached rustdoc is what the
 //!   rustdoc child in the parent module proves by exiting non-zero on a link it cannot resolve.
 //! * It says nothing about `flake.nix`'s `checks.api-docs`, which invokes this gate rather than
-//!   rustdoc, so it has no third copy to drift.
+//!   cargo, so it has no third copy to drift.
 
 use std::path::Path;
 
@@ -43,7 +55,27 @@ const WRITER: &str = "nix/api-docs.nix";
 /// Anchored, because the same two words appear in that file's own header comment - a substring
 /// search finds two "invocations" and has to pick one, which is the class of defect
 /// `../gates` records against reading `flake.nix` as text.
-const INVOCATION: &str = "cargo rustdoc";
+const INVOCATION: &str = "cargo doc";
+
+/// How the writer hands rustdoc its flags, at the start of a line.
+///
+/// `cargo doc` documents many units, so it takes no trailing rustdoc arguments the way
+/// `cargo rustdoc` did - there is no single unit for them to belong to. The environment is the
+/// only channel left, which is why this is a second anchor rather than a suffix of the first.
+const ASSIGNMENT: &str = "export RUSTDOCFLAGS=";
+
+/// The environment variable both venues pass the rustdoc flags through.
+///
+/// Named once and read by the parent module's child process, so the gate cannot set a variable
+/// this parser is not looking for.
+pub(super) const RUSTDOCFLAGS: &str = "RUSTDOCFLAGS";
+
+/// The cargo arguments that decide which units are documented, and under which features.
+///
+/// Not the whole line: these three are the ones a difference in would change the JSON itself.
+/// `--no-deps` is in the list because without it `--workspace` documents the entire dependency
+/// closure, which is a different job at a different cost.
+const SELECTION: &[&str] = &["--workspace", "--no-deps", "--all-features"];
 
 /// Everything rustdoc is handed, in order, by BOTH venues.
 ///
@@ -59,42 +91,64 @@ pub(super) const RUSTDOC_ARGS: &[&str] = &[
     "--document-private-items",
 ];
 
-/// The writer's one `cargo rustdoc` line, with its shell continuations joined.
-fn invocation(text: &str) -> Result<String, String> {
+/// The writer's one line starting with `prefix`, with its shell continuations joined.
+///
+/// Exactly one, or a refusal. Zero means the shape this parser was written for is gone; more than
+/// one means the parser has to guess which line `just api` runs, and a gate that guesses is a
+/// gate that can guess wrong quietly.
+fn one_line(text: &str, prefix: &str) -> Result<String, String> {
     let joined = text.replace("\\\n", " ");
-    let lines: Vec<&str> = joined
+    let lines: Vec<String> = joined
         .lines()
         .map(str::trim_start)
-        .filter(|line| line.starts_with(INVOCATION))
+        .filter(|line| line.starts_with(prefix))
+        .map(String::from)
         .collect();
     match lines.as_slice() {
         [] => Err(format!(
-            "{WRITER} has no line starting with `{INVOCATION}` - the two invocations cannot be compared"
+            "{WRITER} has no line starting with `{prefix}` - the two invocations cannot be compared"
         )),
-        [only] => Ok(String::from(*only)),
+        [only] => Ok(only.clone()),
         many => Err(format!(
-            "{WRITER} starts {} lines with `{INVOCATION}` - which one does `just api` run?",
+            "{WRITER} starts {} lines with `{prefix}` - which one does `just api` run?",
             many.len()
         )),
     }
 }
 
-/// What the writer hands rustdoc: the tokens after the `--` separator.
+/// What the writer hands rustdoc: the tokens of its `RUSTDOCFLAGS` assignment.
 fn flags(text: &str) -> Result<Vec<String>, String> {
-    let line = invocation(text)?;
-    let mut tokens = line.split_whitespace().skip_while(|token| *token != "--");
-    if tokens.next().is_none() {
-        return Err(format!(
-            "{WRITER}'s `{INVOCATION}` line has no `--` separator, so it passes rustdoc nothing"
-        ));
-    }
-    let found: Vec<String> = tokens.map(String::from).collect();
+    let line = one_line(text, ASSIGNMENT)?;
+    // `strip_prefix` and not a byte range: `clippy::string_slice` is denied, because indexing a
+    // `str` by a length panics on a multi-byte character - unreachable here only while
+    // `one_line` keeps filtering on this exact prefix, which is why the fallback is the line.
+    let value = line.strip_prefix(ASSIGNMENT).unwrap_or(line.as_str()).trim();
+    let quoted = value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .ok_or_else(|| format!("{WRITER}'s `{ASSIGNMENT}` line is not a double-quoted value: {value}"))?;
+    let found: Vec<String> = quoted.split_whitespace().map(String::from).collect();
     if found.is_empty() {
         return Err(format!(
-            "{WRITER}'s `{INVOCATION}` line ends at `--` and names no rustdoc flag"
+            "{WRITER} assigns {RUSTDOCFLAGS} an empty value, so it passes rustdoc nothing"
         ));
     }
     Ok(found)
+}
+
+/// Does the writer document the same units, under the same features, as this gate?
+fn selection(text: &str) -> Result<(), String> {
+    let line = one_line(text, INVOCATION)?;
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    let missing: Vec<&str> = SELECTION.iter().copied().filter(|want| !tokens.contains(want)).collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{WRITER}'s `{INVOCATION}` line is missing {missing:?}, so `just api` documents a \
+         different set of units than this gate - or resolves their features differently, which \
+         changes the JSON the pages are rendered from. Change both, or neither."
+    ))
 }
 
 /// `Ok` with the flags both venues pass, or why the two cannot be shown to agree.
@@ -103,6 +157,7 @@ fn flags(text: &str) -> Result<Vec<String>, String> {
 /// rustdoc run whose flags nobody checked are pages compared against an unknown question.
 pub(super) fn check(root: &Path) -> Result<Vec<String>, String> {
     let text = std::fs::read_to_string(root.join(WRITER)).map_err(|error| format!("could not read {WRITER}: {error}"))?;
+    selection(&text)?;
     let theirs = flags(&text)?;
     let mine: Vec<String> = RUSTDOC_ARGS.iter().map(|flag| String::from(*flag)).collect();
     if theirs == mine {
@@ -121,7 +176,7 @@ pub(super) fn check(root: &Path) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RUSTDOC_ARGS, WRITER, check, flags};
+    use super::{RUSTDOC_ARGS, WRITER, check, flags, selection};
     use crate::repo;
 
     /// THE PARITY ASSERTION, over the real file rather than a fixture.
@@ -150,16 +205,26 @@ mod tests {
     }
 
     #[test]
-    fn the_flags_are_read_from_a_continued_shell_line() {
+    fn the_flags_are_read_from_the_assignment_and_not_from_the_cargo_line() {
         let text = concat!(
-            "  # cargo rustdoc is named in this comment\n",
-            "  cargo rustdoc -q -p \"$lib\" --profile ci -- \\\n",
-            "    -Z unstable-options --output-format json\n"
+            "  # RUSTDOCFLAGS is named in this comment\n",
+            "  export RUSTDOCFLAGS=\"-Z unstable-options --output-format json\"\n",
+            "  cargo doc -q --no-deps --workspace --all-features --profile ci\n"
         );
         assert_eq!(
-            flags(text).expect("one invocation"),
+            flags(text).expect("one assignment"),
             ["-Z", "unstable-options", "--output-format", "json"]
         );
+    }
+
+    /// A writer that documents one package at a time resolves features differently, so its pages
+    /// are not the pages this gate compares - even with identical rustdoc flags.
+    #[test]
+    fn a_writer_that_documents_one_package_at_a_time_is_a_refusal() {
+        let per_package = "  cargo doc -q --no-deps -p sutura-domain --all-features --profile ci\n";
+        assert!(selection(per_package).is_err(), "a per-package selection must refuse");
+        let whole = "  cargo doc -q --no-deps --workspace --all-features --profile ci\n";
+        assert!(selection(whole).is_ok(), "the shipped selection must pass");
     }
 
     /// FAIL CLOSED on every shape that leaves nothing to compare. A comparison with an empty or
@@ -167,12 +232,21 @@ mod tests {
     #[test]
     fn a_writer_this_cannot_read_is_a_refusal_rather_than_agreement() {
         for (text, why) in [
-            ("pkgs.writeShellApplication { }\n", "no invocation"),
-            ("cargo rustdoc -p a -- --x\ncargo rustdoc -p b -- --y\n", "two invocations"),
-            ("cargo rustdoc -q -p x --all-features\n", "no separator"),
-            ("cargo rustdoc -q -p x --\n", "nothing after the separator"),
+            ("pkgs.writeShellApplication { }\n", "no assignment"),
+            (
+                "export RUSTDOCFLAGS=\"--a\"\nexport RUSTDOCFLAGS=\"--b\"\n",
+                "two assignments",
+            ),
+            ("export RUSTDOCFLAGS=--output-format\n", "unquoted"),
+            ("export RUSTDOCFLAGS=\"\"\n", "empty"),
         ] {
             assert!(flags(text).is_err(), "{why} must refuse");
+        }
+        for (text, why) in [
+            ("pkgs.writeShellApplication { }\n", "no invocation"),
+            ("cargo doc --workspace\ncargo doc --no-deps\n", "two invocations"),
+        ] {
+            assert!(selection(text).is_err(), "{why} must refuse");
         }
     }
 }
