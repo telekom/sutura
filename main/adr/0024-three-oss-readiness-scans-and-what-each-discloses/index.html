@@ -3149,9 +3149,10 @@ half. Making it public was necessary and not sufficient.</p>
 </span></code></pre></div>
 <p>Retried three times, then a warning, and <strong>the step exited 0</strong>. So no amount of visibility or
   permission fixes this: the label is the blocker, and the exception is a requirement of the tool.</p>
-<p><strong>A deliberate exception, not drift.</strong> Every other <code>runs-on:</code> in <code>.github/</code> stayed on the larger
-  Rust runner - <code>rust-mcp</code> when this was written, <code>rust-mcp-32core</code> since that label was pinned and
-  the jobs that compile nothing were moved to <code>ubuntu-latest</code> alongside this one: the
+<p><strong>A deliberate exception, not drift.</strong> Every other <code>runs-on:</code> in <code>.github/</code> stayed on a larger
+  Rust runner - <code>rust-mcp</code> when this was written, a pinned size since (<code>rust-mcp-32core</code> or
+  <code>rust-mcp-16core</code>, chosen per job and argued where the job lives), while the jobs that compile
+  nothing were moved to <code>ubuntu-latest</code> alongside this one: the
   custom runner exists to build the Rust, and these two jobs build nothing - <code>score</code> is checkout, a
   third-party container action and upload-artifact; <code>published</code> is one <code>gh api</code> read and one
   <code>curl</code>. <strong>A metadata scanner needs none of the build environment</strong>, which is the whole
