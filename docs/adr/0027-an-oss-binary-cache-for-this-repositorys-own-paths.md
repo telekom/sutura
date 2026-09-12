@@ -92,7 +92,8 @@ named is not accepted. The gate's job is to keep the *set of named keys* honest.
 
 ## The write credential, and why an environment rather than an `if:`
 
-Writes happen only from a push to the default branch. That is enforced **twice, deliberately**:
+The main-store publishing workflow writes only from a push to the default branch. That is enforced
+**twice, deliberately**; this does not cover the separate pull-request cache path:
 
 - the publishing workflow triggers on nothing else, and
 - the credential is an **environment secret** whose deployment-branch policy admits only that branch.

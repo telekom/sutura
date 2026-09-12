@@ -11,8 +11,8 @@ name: cachix-push
 # separate PR/mixed credentials require independent scope verification.
 #
 # **Two independent restrictions, deliberately.** The trigger admits only a push to the default
-# branch, AND this workflow's environment deployment-branch policy admits only that branch. The trigger is
-# in this file and a pull request could edit it; the policy is held by the forge and a pull request
+# branch, AND the `cachix-push` workflow's environment deployment-branch policy admits only that branch.
+# The trigger is in this file and a pull request could edit it; the policy is held by the forge and a pull request
 # cannot. Belt and braces, and the braces are the half that is not ours to weaken.
 #
 # **THE LIMIT, stated where a reader meets it:** no gate in this repository can verify that policy.
