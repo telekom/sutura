@@ -30,7 +30,11 @@
 //! # What this does not hold
 //!
 //! Nothing here reports how close any file is to refusing, so the next near-cap file is as
-//! invisible as this one was - and `main.rs` at 992 was only the sixth tightest.
+//! invisible as this one was - and `main.rs` was never the tightest. Counted on the base of this
+//! change, EIGHT files under `crates/` or `xtask/` were longer than its 992, one of them at
+//! exactly 1000 with nothing to spare. A rank is the wrong shape for that - it moves with the
+//! scope you measure - so this records the count at a fixed commit and leaves the live answer to
+//! `just hygiene`, which is the only thing that cannot go stale.
 //!
 //! It does not make the table cheaper to merge: two sessions adding a gate to the same area still
 //! collide, one file further down. The split narrows that to an area rather than removing it.
@@ -54,6 +58,10 @@ use crate::registry::Task;
 /// An area module left out of this list does not silently drop its rows: its `TASKS` becomes
 /// unreachable and `-D dead_code` refuses the build. That is the mechanism `crate::conformance`
 /// measured when a gate's own entry was deleted - 61 errors, not a green run.
+///
+/// Falsified here rather than assumed: deleting the `dev::TASKS` line gave exit 101 and, by
+/// rustc's own tally, `due to 301 previous errors` - the area carried the `hygiene` row, so its
+/// removal orphaned everything reachable only through it.
 const AREAS: &[&[Task]] = &[
     architecture::TASKS,
     files::TASKS,
