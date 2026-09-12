@@ -83,6 +83,9 @@ pub enum InferenceError {
     /// A header was not a column name.
     #[error(transparent)]
     InvalidIdentifier(#[from] InvalidIdentifier),
+    /// Quoted CSV syntax has reader-specific semantics and is outside the shared fixture grammar.
+    #[error("quoted CSV syntax is unsupported in fixtures")]
+    UnsupportedQuotedSyntax,
     /// A fixed-point value or possible subtotal was wider than the exact shared type.
     #[error("column {column} contains fixed-point values this build cannot carry exactly")]
     DecimalNotCarryable { column: String },
@@ -103,11 +106,16 @@ const CANDIDATES: &[FixtureType] = &[
 
 /// Infers the type of each column of a fixture CSV.
 ///
-/// The header names are parsed as [`ColumnName`]s first, so a column that maps to a DDL statement
-/// (the `DuckDB` `types` argument, the engine's Arrow schema, Postgres's `CREATE TABLE`) cannot
-/// carry a quote or other unparseable spelling. A malformed name is [`InvalidIdentifier`], the same
-/// refusal the Postgres importer made.
+/// Quoted syntax is refused before splitting, because the three readers do not give it one meaning.
+/// Header names are then parsed as [`ColumnName`]s, so a column that maps to a DDL statement (the
+/// `DuckDB` `types` argument, the engine's Arrow schema, Postgres's `CREATE TABLE`) cannot carry
+/// another unparseable spelling. A malformed name is [`InvalidIdentifier`], the same refusal the
+/// Postgres importer made.
 pub fn infer(text: &str) -> Result<Vec<Column>, InferenceError> {
+    if text.contains('"') {
+        return Err(InferenceError::UnsupportedQuotedSyntax);
+    }
+
     let mut lines = text.lines();
     let header = lines.next().unwrap_or_default();
     let names = split_row(header);
@@ -181,7 +189,7 @@ impl FixtureType {
             // value stays exact instead of being widened to a double. A column of ONLY integers is
             // claimed by `Integer` first, so an integer value here is never the deciding one.
             Self::Decimal { .. } => !matches!(decimal_shape(value), DecimalShape::NotDecimal),
-            Self::Real => value.parse::<f64>().is_ok(),
+            Self::Real => is_shared_real(value),
             Self::Date => is_date(value),
             // Text is the fallback and can hold anything; chosen only after every narrower type has
             // been ruled out for at least one value in the column.
@@ -230,6 +238,17 @@ impl FixtureType {
             kind => Some(kind),
         }
     }
+}
+
+fn is_shared_real(value: &str) -> bool {
+    let Ok(parsed) = value.parse::<f64>() else {
+        return false;
+    };
+    let has_nonzero_mantissa = value
+        .bytes()
+        .take_while(|byte| !matches!(byte, b'e' | b'E'))
+        .any(|byte| matches!(byte, b'1'..=b'9'));
+    parsed.is_finite() && (parsed != 0.0 || !has_nonzero_mantissa)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -395,6 +414,24 @@ mod tests {
     }
 
     #[test]
+    fn quoted_syntax_is_refused_before_it_can_change_cell_meaning() {
+        for text in ["value\n\"\"\n", "value\n\"1,2\"\n", "\"value\"\n1\n"] {
+            assert!(matches!(infer(text), Err(super::InferenceError::UnsupportedQuotedSyntax)));
+        }
+    }
+
+    #[test]
+    fn a_real_must_stay_finite_and_not_underflow_across_readers() {
+        for value in ["1e309", "1e-999"] {
+            let columns = infer(&format!("amount\n{value}\n")).expect("a valid header");
+            assert_eq!(columns[0].kind, FixtureType::Text, "`{value}`");
+        }
+
+        let columns = infer("amount\n0e-999\n").expect("an exact zero is shared");
+        assert_eq!(columns[0].kind, FixtureType::Real);
+    }
+
+    #[test]
     fn arrow_boolean_shorthands_are_text() {
         let columns = infer("flag\nt\nf\n").expect("a valid header");
         assert_eq!(columns[0].kind, FixtureType::Text);
@@ -409,7 +446,6 @@ mod tests {
     #[test]
     fn an_unparseable_header_is_refused() {
         infer("orders.amount\n1\n").expect_err("a qualified header is not a column name");
-        infer("\"quoted\"\n1\n").expect_err("a quoted header is not a column name");
     }
 
     #[test]

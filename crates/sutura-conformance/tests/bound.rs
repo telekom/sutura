@@ -782,4 +782,85 @@ mod corpus_shape {
              the fractional class is only ever reached through a division"
         );
     }
+
+    #[test]
+    fn a_fixed_point_total_exceeds_i64_without_losing_exactness() {
+        let cases = corpus::cases();
+        let wide = cases
+            .iter()
+            .find(|case| case.name() == "wide-total-by-day")
+            .expect("the wide fixed-point case exists");
+        let measure = wide
+            .expected()
+            .columns()
+            .iter()
+            .position(|label| label == "wide_amount_total")
+            .expect("the wide total is the aggregate column");
+
+        assert!(wide.expected().rows().iter().any(|row| {
+            matches!(
+                row.get(measure),
+                Some(Value::Text(value))
+                    if value.parse::<i128>().is_ok_and(|value| value > i128::from(i64::MAX))
+            )
+        }));
+        assert!(
+            wide.expected()
+                .rows()
+                .iter()
+                .any(|row| matches!(row.get(measure), Some(Value::Integer(_))))
+        );
+    }
+
+    #[test]
+    fn an_integer_sum_crosses_i64_without_wrapping() {
+        let cases = corpus::cases();
+        let overflow = cases
+            .iter()
+            .find(|case| case.name() == "overflowing-integer-total-by-day")
+            .expect("the overflowing integer sum case exists");
+        let measure = overflow
+            .expected()
+            .columns()
+            .iter()
+            .position(|label| label == "overflow_amount_total")
+            .expect("the overflowing sum is the aggregate column");
+
+        assert!(overflow.expected().rows().iter().any(|row| {
+            matches!(
+                row.get(measure),
+                Some(Value::Text(value)) if value == "9223372036854775808"
+            )
+        }));
+        assert!(
+            overflow
+                .expected()
+                .rows()
+                .iter()
+                .any(|row| matches!(row.get(measure), Some(Value::Integer(6))))
+        );
+    }
+
+    #[test]
+    fn a_fixed_point_sum_keeps_its_fractional_spelling() {
+        let cases = corpus::cases();
+        let decimal = cases
+            .iter()
+            .find(|case| case.name() == "decimal-total-by-day")
+            .expect("the decimal case exists");
+        let measure = decimal
+            .expected()
+            .columns()
+            .iter()
+            .position(|label| label == "decimal_amount_total")
+            .expect("the decimal total is the aggregate column");
+
+        assert!(
+            decimal
+                .expected()
+                .rows()
+                .iter()
+                .all(|row| { matches!(row.get(measure), Some(Value::Text(value)) if value.contains('.')) })
+        );
+    }
 }

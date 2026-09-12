@@ -8944,6 +8944,7 @@ Why a fixture column could not be classified.
 ##### Variants
 
 - `InvalidIdentifier` - A header was not a column name.
+- `UnsupportedQuotedSyntax` - Quoted CSV syntax has reader-specific semantics and is outside the shared fixture grammar.
 - `DecimalNotCarryable` - A fixed-point value or possible subtotal was wider than the exact shared type.
 - `RowWidth` - A data row did not have exactly the number of cells declared by the header.
 
@@ -8959,10 +8960,11 @@ pub fn infer(text: &str) -> Result<Vec<Column>, InferenceError>
 
 Infers the type of each column of a fixture CSV.
 
-The header names are parsed as `ColumnName`s first, so a column that maps to a DDL statement
-(the `DuckDB` `types` argument, the engine's Arrow schema, Postgres's `CREATE TABLE`) cannot
-carry a quote or other unparseable spelling. A malformed name is `InvalidIdentifier`, the same
-refusal the Postgres importer made.
+Quoted syntax is refused before splitting, because the three readers do not give it one meaning.
+Header names are then parsed as `ColumnName`s, so a column that maps to a DDL statement (the
+`DuckDB` `types` argument, the engine's Arrow schema, Postgres's `CREATE TABLE`) cannot carry
+another unparseable spelling. A malformed name is `InvalidIdentifier`, the same refusal the
+Postgres importer made.
 
 ### Module `preflight`
 
