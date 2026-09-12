@@ -41,7 +41,7 @@ resolves nowhere and a THIRD-PARTY crate fails to compile in a check that change
 regenerates output naming a directory it no longer sits in. **What it does not reach:** a generated
 file naming some OTHER absolute directory, or a path written into a compiled artifact rather than
 the output directory's bytes. The sibling `$unitDir/output` is also outside the search, but stale
-directive bytes alone are not a broken compiler input: pinned Cargo rewrites the previous literal
+directive bytes alone are not a broken compiler input: Cargo rewrites the previous literal
 `OUT_DIR` in parsed directive values. The script header records the source, independent probe and
 its limits, plus a closure scan whose detection time is NOT rebuild cost. None establishes general
 relocation safety. The existing four-unit actual-script fixture checks the unit AND its fingerprint
@@ -464,8 +464,9 @@ panic-free.
   and the changelog, where a dated record and an upstream provenance are what the page is for.
   **A figure followed by a UNIT is not a version either** - `s`, `%`, `GB`, `core-hours` and the
   rest - because a measurement beside the name of the thing it was measured on is exactly the
-  content this check protects, and no file holds a measurement. That retreat cost zero refusals
-  tree-wide. **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
+  content this check protects, and no file holds a measurement. Measured, that retreat spares TWO
+  lines in the whole tree, and both are inside `UNITS`' own doc comment - so it costs no refusal
+  over any prose a person wrote. **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
   dependency keys, flake inputs, `apps.<name>`, pixi dependency tables, compose image names and
   the `nix/` module basenames, so **a tool named only as a nix CHECK is outside all six** -
   `checks.nextest` is not `apps.nextest`, and nine transcriptions of nextest's version survived
@@ -474,8 +475,10 @@ panic-free.
   **The trailing tag on a SHA-pinned action is out of scope by OWNER DECISION - dependabot
   maintains its own tags - and nobody here reproduced what dependabot writes.** It is implemented
   structurally, by a `#` breaking adjacency rather than by a list of those lines, so the exclusion
-  is broader than the ruling: any version in a comment whose nearest token is punctuation is
-  spared, dependabot's or not.
+  is broader than the ruling: a version whose neighbouring token is ENTIRELY punctuation is
+  spared, dependabot's or not. Punctuation ATTACHED to a name spares nothing, because the token
+  reader strips it off the name too - a COMMA between a pinned name and a version leaves it
+  refused, and only a neighbour that reduces to nothing (a table pipe, a `#`) breaks adjacency.
 - **The gate that fails a false claim carried one, and the reason generalises.** Its scope is prose
   files, so it never read its own source: the *remedy* a claim prints - the sentence handed to a
   reader as the correction - said a transport surface was absent for as long as it took a person to

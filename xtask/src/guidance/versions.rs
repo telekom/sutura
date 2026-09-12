@@ -564,6 +564,13 @@ mod tests {
         // THE REVIEW FINDING, asserted on the FIGURE rather than on a table row: the row below
         // was saved by its pipes, so it never covered this. A unit is what separates a
         // measurement from a version, and no file holds a measurement.
+        // THE FIXTURE THAT HOLDS THE RETREAT, and the only one here that does: the name sits
+        // IMMEDIATELY before the figure, so adjacency alone would refuse it and only the unit
+        // spares it. The four below each put a word in between, so they are green with the
+        // retreat deleted - green for the pre-existing rule's reason, not for this one's. Proved
+        // in review by deleting the retreat and watching them all stay green.
+        assert!(!fires("duckdb 11.1 s"));
+        assert!(!fires("duckdb 99.9 %"));
         assert!(!fires("the duckdb cell passed in 11.1 s"));
         assert!(!fires("duckdb answered 99.9 % of the time"));
         assert!(!fires("prek pulled 3.65 GB and left 2.7 MiB to fetch"));

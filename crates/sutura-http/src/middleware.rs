@@ -435,7 +435,7 @@ fn layer(metrics: &Metrics, quota: Quota, tier: Label, key: ClientAddress) -> Bu
 
 /// Gives up on a request that outran the configured bound, with the documented body.
 ///
-/// **Written here rather than taken from `tower_http`, and the reason is a body.** Pinned
+/// **Written here rather than taken from `tower_http`, and the reason is a body.**
 /// `tower-http` implements `TimeoutLayer::with_status_code` as
 /// `Response::new(B::default())` - the status and an *empty* body - so the `408` this surface
 /// documents, and which `problem.rs` promises carries a [`crate::problem::ProblemBody`] like every
