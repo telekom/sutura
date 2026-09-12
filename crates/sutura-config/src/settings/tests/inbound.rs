@@ -142,6 +142,19 @@ fn a_resource_path_cannot_stand_in_for_an_https_authority() {
 }
 
 #[test]
+fn malformed_https_urls_do_not_start() {
+    for resource in [
+        "https://user@/tenant",
+        "https://:443/tenant",
+        "https://example.com:not-a-port/tenant",
+        "https://[::1/tenant",
+        "https://example.com/%",
+    ] {
+        assert_direct_resource_is_refused(resource);
+    }
+}
+
+#[test]
 fn a_deployment_token_and_the_direct_mode_are_refused_because_they_share_one_header() {
     // The collision found by building this rather than by reading the record. RFC 6750 puts an access
     // token in `Authorization: Bearer` and an OAuth client has no option to put it elsewhere, so a

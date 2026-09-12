@@ -741,9 +741,10 @@ read as the process through.
 
 **The HTTP transport is here now**, and this sentence used to say it was not: an axum surface with a
 versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
-description, rate limiting, a bearer gate and optional in-process TLS. What it does **not** carry is a
-per-caller identity - the token authenticates the deployment - so none of the identity claims above
-are made true by its arrival.
+description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
+the deployment; `security.inbound` instead establishes the caller in `direct` or `behind-gateway`
+mode. Neither makes a data system execute as that caller: leg 2 remains absent from every published
+adapter.
 
 Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
 the row cap and the ten-year span. The spliced-statement path is designed, documented above, and

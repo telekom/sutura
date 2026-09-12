@@ -1256,10 +1256,11 @@ header.
 # What a refused request is told, and what it is not
 
 A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
-validating deployment is its own resource identifier. Its `resource_metadata` parameter is the
-absolute URL of the public RFC 9728 document built from the same token requirement as the
-validator. A gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode
-offers no Bearer challenge.
+validating deployment is its own resource identifier. When the request URL identifies that exact
+resource, its `resource_metadata` parameter is the absolute URL of the public RFC 9728 document
+built from the same token requirement as the validator. It is omitted for any other request,
+because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A gateway assertion
+arrives somewhere other than `Authorization: Bearer`, so that mode offers no Bearer challenge.
 
 What the response does **not** say is which check failed. The log says - through the `#[source]`
 chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -1283,7 +1284,7 @@ attach one a startup failure rather than an open door.
 ##### Methods
 
 ```rust
-pub fn challenge(&self) -> Option<String>
+pub fn challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> Option<String>
 ```
 
 The RFC 6750 challenge a refused request carries, where one is meaningful.
@@ -1298,6 +1299,9 @@ read.
 **No `error_description`** in the direct case, and that is the same decision the response body
 makes: a description would have to say which check failed to be worth anything, and that is the
 one thing a caller must not learn.
+
+Both request parts are required because origin-form HTTP carries the authority in `Host`, while
+an absolute-form request carries it in the URI.
 
 ```rust
 pub async fn describe_keys(&self) -> (usize, Vec<String>)
@@ -2462,8 +2466,8 @@ under the version prefix without also applying to the liveness probe merged in b
 matches no route skips the gate and falls through to the top-level `404`. So an unauthenticated
 caller can learn which paths exist, though not what is behind them - and the paths are in the
 published interface description anyway. Apart from liveness and the direct-only protected-resource
-document, every path that resolves to a handler does hold a credential. There is a test on each
-half of that.
+document, every path that resolves to a handler does hold a credential when one is configured.
+There is a test on each half of that.
 
 # Why this returns a `Result`
 

@@ -48,8 +48,8 @@
 //! matches no route skips the gate and falls through to the top-level `404`. So an unauthenticated
 //! caller can learn which paths exist, though not what is behind them - and the paths are in the
 //! published interface description anyway. Apart from liveness and the direct-only protected-resource
-//! document, every path that resolves to a handler does hold a credential. There is a test on each
-//! half of that.
+//! document, every path that resolves to a handler does hold a credential when one is configured.
+//! There is a test on each half of that.
 //!
 //! # Why this returns a `Result`
 //!

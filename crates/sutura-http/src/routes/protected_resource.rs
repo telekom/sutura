@@ -1,9 +1,9 @@
 //! RFC 9728 metadata for a deployment that directly validates its callers' access tokens.
 //!
-//! The document, the route and the challenge are built from one [`ProtectedResource`] at startup.
-//! Both values therefore read the same [`sutura_config::TokenRequirement`] the validator does, and
-//! the challenge cannot point at a route assembled from a second resource string.
+//! The document and route are built from one [`ProtectedResource`] at startup. The challenge points
+//! at them only when the request URL identifies that same resource, as RFC 9728 section 3.3 requires.
 
+use axum::http::{HeaderMap, Uri};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
@@ -21,8 +21,10 @@ struct MetadataDocument {
 
 /// One direct inbound declaration rendered as a route, a document and its absolute URL.
 pub(crate) struct ProtectedResource {
+    authority: String,
     document: MetadataDocument,
     path: String,
+    resource_path: Option<String>,
     url: String,
 }
 
@@ -46,13 +48,16 @@ impl ProtectedResource {
         let mut url = String::from("https://");
         url.push_str(authority);
         url.push_str(&path);
+        let resource_path = resource_path.map(|path| format!("/{path}"));
 
         Some(Self {
+            authority: String::from(authority),
             document: MetadataDocument {
                 resource: String::from(resource),
                 authorization_servers: [String::from(requirement.issuer().as_str())],
             },
             path,
+            resource_path,
             url,
         })
     }
@@ -60,6 +65,23 @@ impl ProtectedResource {
     /// The exact absolute URL placed in the Bearer challenge.
     pub(crate) fn url(&self) -> &str {
         &self.url
+    }
+
+    /// Whether the request can use this document under RFC 9728 section 3.3.
+    ///
+    /// An origin-form request carries its authority in `Host`; an absolute-form request carries it in
+    /// the URI. The configured identifier supplies the `https` scheme when origin form omits it.
+    pub(crate) fn describes(&self, uri: &Uri, headers: &HeaderMap) -> bool {
+        let authority = uri.authority().map(axum::http::uri::Authority::as_str).or_else(|| {
+            let value = headers.get(axum::http::header::HOST)?;
+            value.to_str().ok()
+        });
+        authority.is_some_and(|authority| authority == self.authority)
+            && self
+                .resource_path
+                .as_deref()
+                .is_some_and(|resource_path| uri.path_and_query().is_some_and(|path| path.as_str() == resource_path))
+            && uri.scheme().is_none_or(|scheme| *scheme == axum::http::uri::Scheme::HTTPS)
     }
 
     /// The public route, outside both the versioned and capability-gated subtrees.

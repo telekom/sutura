@@ -19,10 +19,11 @@
 //! # What a refused request is told, and what it is not
 //!
 //! A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
-//! validating deployment is its own resource identifier. Its `resource_metadata` parameter is the
-//! absolute URL of the public RFC 9728 document built from the same token requirement as the
-//! validator. A gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode
-//! offers no Bearer challenge.
+//! validating deployment is its own resource identifier. When the request URL identifies that exact
+//! resource, its `resource_metadata` parameter is the absolute URL of the public RFC 9728 document
+//! built from the same token requirement as the validator. It is omitted for any other request,
+//! because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A gateway assertion
+//! arrives somewhere other than `Authorization: Bearer`, so that mode offers no Bearer challenge.
 //!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
 //! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -33,6 +34,7 @@ use std::time::Instant;
 
 use axum::extract::{Request, State};
 use axum::http::HeaderMap;
+use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
 use sutura_config::{InboundIdentity, TokenLocation};
@@ -168,17 +170,25 @@ impl InboundGate {
     /// **No `error_description`** in the direct case, and that is the same decision the response body
     /// makes: a description would have to say which check failed to be worth anything, and that is the
     /// one thing a caller must not learn.
+    ///
+    /// Both request parts are required because origin-form HTTP carries the authority in `Host`, while
+    /// an absolute-form request carries it in the URI.
     #[must_use]
-    pub fn challenge(&self) -> Option<String> {
+    pub fn challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> Option<String> {
         if !self.bearer_prefixed {
             return None;
         }
-        let protected_resource = self.protected_resource.as_ref()?;
-        Some(format!(
-            "Bearer realm=\"{}\", error=\"invalid_token\", resource_metadata=\"{}\"",
-            self.realm,
-            protected_resource.url()
-        ))
+        let mut challenge = format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm);
+        if let Some(protected_resource) = self
+            .protected_resource
+            .as_ref()
+            .filter(|protected_resource| protected_resource.describes(request_uri, headers))
+        {
+            challenge.push_str(", resource_metadata=\"");
+            challenge.push_str(protected_resource.url());
+            challenge.push('"');
+        }
+        Some(challenge)
     }
 
     /// The discovery document this gate built, only in the direct mode.
@@ -277,7 +287,7 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
             drop(request.extensions_mut().insert(caller));
             next.run(request).await
         }
-        Err(rejected) => refused(&gate, &rejected),
+        Err(rejected) => refused(&gate, &rejected, request.uri(), &headers),
     }
 }
 
@@ -286,7 +296,7 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
 /// A function of its own so the middleware above stays a branch rather than a body: two log fields, a
 /// header that may not build and a response to return was over the cognitive-complexity threshold in
 /// `clippy.toml`, and the split puts the whole "what a refused caller is told" decision in one place.
-fn refused(gate: &InboundGate, rejected: &TokenRejected) -> Response {
+fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, headers: &HeaderMap) -> Response {
     // The cause chain, not the variant alone: which of signature, expiry, issuer and audience failed is
     // what an operator needs, and it goes here rather than to the caller.
     tracing::warn!(
@@ -296,7 +306,7 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected) -> Response {
         "no verified caller: the presented token did not establish one"
     );
     let mut response = Failure::Unauthorized.into_response();
-    if let Some(challenge) = gate.challenge() {
+    if let Some(challenge) = gate.challenge(request_uri, headers) {
         challenged(&mut response, &challenge);
     }
     response

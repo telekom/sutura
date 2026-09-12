@@ -167,15 +167,17 @@ What the checks are, in both modes:
 | `scope` | Parsed, bounded, and **read** - it decides which of this surface's operations the caller may invoke. See *What a scope grants* below. A per-caller ceiling derived from a scope is still not built |
 
 A refused request in the `direct` mode gets `401` with a `WWW-Authenticate: Bearer
-realm="<your resource identifier>", error="invalid_token", resource_metadata="<absolute metadata
-URL>"`. It deliberately does **not** say which check failed: "the signature verified and the audience
-did not" tells a caller which half of a forgery to fix. The log says, in the cause chain, where an
-operator can read it.
+realm="<your resource identifier>", error="invalid_token"`. When the request URL is the exact
+configured resource identifier, the challenge also carries `resource_metadata="<absolute metadata
+URL>"`. RFC 9728 requires clients to discard metadata naming any other resource, so the parameter is
+absent on other paths. The challenge deliberately does **not** say which check failed: "the signature
+verified and the audience did not" tells a caller which half of a forgery to fix. The log says, in the
+cause chain, where an operator can read it.
 
 The metadata URL is public and needs no token. It serves RFC 9728 JSON whose `resource` is the exact
 configured resource identifier and whose one `authorization_servers` entry is the exact configured
-issuer. For `https://sutura.example.com/tenant`, the route is
-`GET /.well-known/oauth-protected-resource/tenant`; a resource with no path uses
+issuer. For `https://sutura.example.com/v1/query`, the route is
+`GET /.well-known/oauth-protected-resource/v1/query`; a resource with no path uses
 `GET /.well-known/oauth-protected-resource`. It is outside `/v1` and capability authorization, uses
 the probe rate limit, and exists only in `direct` mode. Authorization-server metadata remains the
 authorization server's document, not one served here.
@@ -1075,7 +1077,7 @@ An unauthenticated caller can reach `/health` and learn that the process is up. 
 can also read the protected-resource metadata that tells clients which authorization server governs
 the resource. A path under the version prefix that matches no route answers `404` without holding a
 credential. The paths are in the published interface description in any case. Every other path that
-resolves to a handler holds a credential.
+resolves to a handler holds a credential when one is configured.
 
 A caller with the token can occupy every execution slot and shed everybody else, inside their own
 rate limit, by asking questions that each cost more than the request timeout. The `503` the others

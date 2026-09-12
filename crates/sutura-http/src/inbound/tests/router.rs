@@ -118,11 +118,11 @@ async fn the_versioned_surface_needs_a_verified_caller_when_one_is_declared() {
 
 #[tokio::test]
 async fn an_unauthenticated_client_reads_direct_metadata_and_the_challenge_points_at_it() {
-    let resource = "https://sutura.example.com/tenant";
+    let resource = "https://sutura.example.com/v1/query";
     let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
         .expect("a mock issuer generates a key pair");
     let app = app_verifying(&issuer);
-    let path = format!("{METADATA_PATH}/tenant");
+    let path = format!("{METADATA_PATH}/v1/query");
     let metadata = asked(&app, "GET", &path, None).await;
     assert_eq!(metadata.status, StatusCode::OK, "the metadata route is public");
     let document: serde_json::Value = serde_json::from_str(&metadata.body).expect("the metadata is JSON");
@@ -134,17 +134,34 @@ async fn an_unauthenticated_client_reads_direct_metadata_and_the_challenge_point
         })
     );
 
-    let refused = call(&app, None).await;
+    let refused = asked(&app, "POST", resource, None).await;
     assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
     assert_eq!(
         refused.challenge.as_deref(),
         Some(
-            "Bearer realm=\"https://sutura.example.com/tenant\", error=\"invalid_token\", \
-             resource_metadata=\"https://sutura.example.com/.well-known/oauth-protected-resource/tenant\""
+            "Bearer realm=\"https://sutura.example.com/v1/query\", error=\"invalid_token\", \
+             resource_metadata=\"https://sutura.example.com/.well-known/oauth-protected-resource/v1/query\""
         )
     );
     assert!(!refused.challenge.unwrap_or_default().contains("error_description"));
     assert_eq!(crate::capability_of(&axum::http::Method::GET, &path), None);
+}
+
+#[tokio::test]
+async fn a_challenge_does_not_point_at_metadata_for_a_different_resource() {
+    let resource = "https://sutura.example.com/v1/query";
+    let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
+        .expect("a mock issuer generates a key pair");
+
+    let app = app_verifying(&issuer);
+    for requested in ["https://sutura.example.com/v1/catalog", "https://other.example.com/v1/query"] {
+        let refused = asked(&app, "GET", requested, None).await;
+        assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            refused.challenge.as_deref(),
+            Some("Bearer realm=\"https://sutura.example.com/v1/query\", error=\"invalid_token\"")
+        );
+    }
 }
 
 #[tokio::test]
