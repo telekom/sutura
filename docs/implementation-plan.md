@@ -590,6 +590,15 @@ indistinguishable from a dead data system - a caller told to retry against a bou
 wildcard-free match will refuse to compile until the new variant is given a status, a code and a
 sentence, which is also what makes it safe as a metric label.
 
+**Corrected: the engine half of this step has landed, so the two absences it argues from are
+present.** `crates/sutura-exec-datafusion/src/pool.rs` builds a `RuntimeEnv` whose pool is sized
+from the configured ceiling, both `SessionContext` sites construct through `new_with_config_rt`
+rather than `new`/`new_with_config`, and `ResourcesExhausted` exists as a `RefusalReason` that is
+raised and carries a status. **The same two sentences stand in
+[an authenticated metrics endpoint](adr/0015-an-authenticated-metrics-endpoint.md) under the word
+*Verified*, and are corrected there** - which is the whole reason this copy is worth correcting
+rather than leaving: a reader who stops at that word never reaches either note.
+
 **Adds.** Two newtypes with **provisional** defaults - **1 GB working set, three-minute deadline**.
 Provisional is the operative word: nobody has measured them, so this step measures them on the corpus
 and the numbers in the record are a starting point rather than a finding. Two refusal variants, each
