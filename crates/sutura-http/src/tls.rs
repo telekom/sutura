@@ -79,11 +79,13 @@
 
 pub mod listener;
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use sutura_config::TlsMaterial;
+use sutura_domain::identity::Secret;
 use sutura_runtime::Shutdown;
 use tokio::sync::watch;
 use tokio_rustls::rustls::crypto::CryptoProvider;
@@ -102,6 +104,15 @@ pub use crate::tls::listener::TlsListener;
 /// horizon at which a certificate rotation is urgent - an issuer plans one days ahead - and far
 /// above the cost of reading two small files.
 pub const RENEWAL_INTERVAL: Duration = Duration::from_secs(30);
+
+/// The most either file may be, checked before the bytes are allocated.
+///
+/// A read that happens once at boot and then again every [`RENEWAL_INTERVAL`] for the life of the
+/// process, so an unbounded one is a denial-of-service primitive whatever else it is - availability
+/// is a security property here. Sixty-four kibibytes is far above any real pair: a chain of a dozen
+/// certificates with 4096-bit keys is under half of it, and a PKCS#8 key is a couple of kilobytes.
+/// The number is a constant rather than a setting for the reason [`RENEWAL_INTERVAL`] is one.
+const MAX_MATERIAL_BYTES: usize = 64 * 1024;
 
 /// The one protocol this surface speaks, advertised.
 ///
@@ -130,8 +141,17 @@ pub enum TlsNotUsable {
     #[error("{path} contains no PEM certificate")]
     NoCertificate { path: PathBuf },
     /// The file was read and held no PEM private key.
+    ///
+    /// Also what a key file that is not UTF-8 is reported as, and that is not a widened meaning: PEM
+    /// is ASCII-armoured by definition, so bytes that are not text are not a PEM private key.
     #[error("{path} contains no PEM private key")]
     NoKey { path: PathBuf },
+    /// The file is larger than any certificate chain or private key is.
+    ///
+    /// See [`MAX_MATERIAL_BYTES`]. The refusal names the cap rather than the size found, because the
+    /// size found is one byte past the cap and nothing else is known about the file.
+    #[error("{what} at {path} is larger than the {cap} byte cap")]
+    TooLarge { what: &'static str, path: PathBuf, cap: usize },
     /// A PEM block was found and did not parse.
     #[error("{what} at {path} is not valid PEM")]
     Malformed {
@@ -164,24 +184,56 @@ pub enum TlsNotUsable {
     },
 }
 
-/// The raw bytes of a certificate and key, as read.
+/// A certificate chain and a private key, as read.
 ///
 /// Kept so a reload can tell "the files changed" from "the files are the same" by comparing content,
 /// which is the question, rather than by comparing a timestamp, which is a proxy for it. See the
 /// module documentation on polling.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// **Only the key half is a [`Secret`]**, and the asymmetry is the point: a certificate is published
+/// to every client that connects, while the key is the one value in this module that a formatter must
+/// not be able to reach. Held that way rather than redacted by a hand-written `Debug` because
+/// `docs/adr/0020` decided this workspace prefers unrepresentable to checked - and because the
+/// derived `Debug` on a `Vec<u8>` prints key material as a numeric vector, which is a rendering a
+/// check written against the PEM *text* would walk straight past.
+///
+/// No `PartialEq` derive: [`Secret`] has none, deliberately. [`Self::same_as`] is the comparison.
+#[derive(Debug)]
 struct Pem {
     certificate: Vec<u8>,
-    key: Vec<u8>,
+    key: Secret,
 }
 
 impl Pem {
-    /// Reads both files.
+    /// Reads both files, each bounded.
     fn read(material: &TlsMaterial) -> Result<Self, TlsNotUsable> {
         Ok(Self {
             certificate: read_file("the TLS certificate chain", material.certificate())?,
-            key: read_file("the TLS private key", material.key())?,
+            // The `FromUtf8Error` is dropped rather than carried as a cause, because it owns the
+            // bytes it rejected - which for this file is the private key.
+            key: Secret::new(
+                String::from_utf8(read_file("the TLS private key", material.key())?).map_err(|_not_text| {
+                    TlsNotUsable::NoKey {
+                        path: material.key().to_path_buf(),
+                    }
+                })?,
+            ),
         })
+    }
+
+    /// The same content as the last look?
+    ///
+    /// Written out because [`Secret`] has no `PartialEq` - a derived comparison on credential
+    /// material returns at the first differing byte, which is a timing oracle wherever the other
+    /// side is caller-supplied. **It is not one here**, which is why this is a plain comparison and
+    /// not a constant-time one: both sides are content this process read off its own disk, so there
+    /// is no caller whose input the timing could be a signal about.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "change detection over this process's own files: the exposure IS the comparison, and neither side is caller-supplied"
+    )]
+    fn same_as(&self, other: &Self) -> bool {
+        self.certificate == other.certificate && self.key.expose_secret() == other.key.expose_secret()
     }
 
     /// Parses, loads the key and checks the two halves belong together.
@@ -201,7 +253,12 @@ impl Pem {
                 path: material.certificate().to_path_buf(),
             });
         }
-        let key = PrivateKeyDer::from_pem_slice(&self.key).map_err(|cause| match cause {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "handing the key to rustls's PEM reader is what the material was read for; the value goes to the provider and to no formatter"
+        )]
+        let pem = self.key.expose_secret().as_bytes();
+        let key = PrivateKeyDer::from_pem_slice(pem).map_err(|cause| match cause {
             // `NoItemsFound` is a readable file with nothing in it that is a key, which is a
             // different mistake from a mangled one and worth a different sentence: it is what
             // pointing at the certificate twice looks like.
@@ -228,13 +285,30 @@ impl Pem {
     }
 }
 
-/// One file, with the path in the error.
+/// One file, bounded, with the path in the error.
+///
+/// `take` rather than a `metadata` length check, so the bound is on what was actually read: a file
+/// that grows between the two calls is not a case this has to reason about. One byte past the cap is
+/// read on purpose - that is what distinguishes "too large" from "exactly the cap". The same shape
+/// `sutura_exec_bigquery::wire::credential::Credential::read` uses, for the same reason.
 fn read_file(what: &'static str, path: &Path) -> Result<Vec<u8>, TlsNotUsable> {
-    std::fs::read(path).map_err(|cause| TlsNotUsable::Unreadable {
+    let unreadable = |cause| TlsNotUsable::Unreadable {
         what,
         path: path.to_path_buf(),
         cause,
-    })
+    };
+    let opened = std::fs::File::open(path).map_err(unreadable)?;
+    let mut bytes = Vec::new();
+    let bound = u64::try_from(MAX_MATERIAL_BYTES).unwrap_or(u64::MAX).saturating_add(1);
+    opened.take(bound).read_to_end(&mut bytes).map_err(unreadable)?;
+    if bytes.len() > MAX_MATERIAL_BYTES {
+        return Err(TlsNotUsable::TooLarge {
+            what,
+            path: path.to_path_buf(),
+            cap: MAX_MATERIAL_BYTES,
+        });
+    }
+    Ok(bytes)
 }
 
 /// The certificate this listener presents, as rustls asks for it.
@@ -358,7 +432,7 @@ impl Renewal {
         let Some(found) = self.reread() else {
             return Renewed::Unchanged;
         };
-        if found == self.seen {
+        if found.same_as(&self.seen) {
             return Renewed::Unchanged;
         }
         let outcome = match found.certify(&self.material, &self.provider) {
@@ -438,7 +512,22 @@ impl Renewal {
 async fn poll_until_shutdown(mut renewal: Renewal, interval: Duration, shutdown: Shutdown) {
     loop {
         tokio::select! {
-            () = tokio::time::sleep(interval) => { let _outcome = renewal.poll_once(); }
+            () = tokio::time::sleep(interval) => {
+                match reloaded(renewal).await {
+                    Ok((handed_back, _outcome)) => renewal = handed_back,
+                    // The renewal went into the closure and does not come back, so there is nothing
+                    // left to poll the files with. Loud, and then stop - the pair in use keeps being
+                    // presented, because the resolver reads the channel and not this task.
+                    Err(cause) => {
+                        tracing::error!(
+                            error = %cause,
+                            "the TLS renewal watch is stopping: a look at the TLS material did not complete. \
+                             The certificate in use is still presented and will NOT rotate again until restart"
+                        );
+                        return;
+                    }
+                }
+            }
             reason = shutdown.requested() => {
                 tracing::debug!(%reason, "the TLS renewal watch is stopping");
                 return;
@@ -447,128 +536,41 @@ async fn poll_until_shutdown(mut renewal: Renewal, interval: Duration, shutdown:
     }
 }
 
+/// One look at the files, off the executor.
+///
+/// Every step of a look is synchronous - two file reads, a PEM parse, and a signature check of the
+/// key against the certificate through the crypto provider. Run inline on the timer's task, all of
+/// it sits on an executor thread that is also serving requests. `sutura_runtime::spawn_carrying_span`
+/// is this workspace's one span-carrying wrapper over the blocking pool, so the lines a rejected
+/// rotation writes still belong to this watch rather than to no span at all.
+///
+/// **By value and handed back, rather than behind a lock.** [`Renewal::poll_once`] needs `&mut` and
+/// the closure has to be `'static`; a mutex here would be a lock held across the whole read for the
+/// benefit of no second reader.
+///
+/// **Shutdown is observed at the next `select!`, not during the look**, and that is deliberate rather
+/// than overlooked: `tokio` documents that a started blocking task cannot be aborted - which
+/// `spawn_carrying_span`'s own documentation restates - so racing shutdown against this would not
+/// stop the work. It would only let this task return while the closure went on to replace the
+/// presented pair behind it. The look is bounded instead, by [`MAX_MATERIAL_BYTES`] on each read.
+async fn reloaded(mut renewal: Renewal) -> Result<(Renewal, Renewed), tokio::task::JoinError> {
+    sutura_runtime::spawn_carrying_span(move || {
+        let outcome = renewal.poll_once();
+        (renewal, outcome)
+    })
+    .await
+}
+
+#[cfg(test)]
+mod fixture;
+
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
-
     use sutura_config::TlsMaterial;
-    use tokio_rustls::rustls::pki_types::pem::PemObject as _;
-    use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
-    use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+    use tokio_rustls::rustls::pki_types::ServerName;
 
+    use super::fixture::{Pair, SUBJECT, Scratch, a_body_line, as_a_byte_vector, client_trusting, generate, get_over_tls, write};
     use super::{Renewed, Termination, TlsListener};
-
-    /// The name every generated certificate is issued for, and the name the client asks for.
-    const SUBJECT: &str = "localhost";
-
-    /// A generated self-signed pair, as PEM.
-    struct Pair {
-        certificate: String,
-        key: String,
-    }
-
-    /// Generates a pair. A different one every call, which is what the mismatch test needs.
-    fn generate() -> Pair {
-        let issued = rcgen::generate_simple_self_signed([String::from(SUBJECT)]).expect("a self-signed pair generates");
-        Pair {
-            certificate: issued.cert.pem(),
-            key: issued.signing_key.serialize_pem(),
-        }
-    }
-
-    /// Writes a pair into a directory and returns the material pointing at it.
-    ///
-    /// Written through a temporary name and renamed, because that is how a certificate manager
-    /// replaces one and it is the case the reload path has to survive: a reader must never see half
-    /// a file.
-    fn write(directory: &Path, pair: &Pair) -> TlsMaterial {
-        let certificate = directory.join("chain.pem");
-        let key = directory.join("key.pem");
-        atomically(&certificate, pair.certificate.as_bytes());
-        atomically(&key, pair.key.as_bytes());
-        TlsMaterial::parse(certificate.to_str(), key.to_str())
-            .expect("a written pair is a pair")
-            .expect("a written pair is material")
-    }
-
-    fn atomically(path: &Path, bytes: &[u8]) {
-        let staged = path.with_extension("staged");
-        let mut file = std::fs::File::create(&staged).expect("a test file is creatable");
-        file.write_all(bytes).expect("a test file is writable");
-        file.sync_all().expect("a test file syncs");
-        drop(file);
-        std::fs::rename(&staged, path).expect("a test file renames");
-    }
-
-    /// A directory of this test's own, removed when the test ends.
-    struct Scratch(PathBuf);
-
-    impl Scratch {
-        fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("sutura-tls-{name}-{}", std::process::id()));
-            std::fs::create_dir_all(&path).expect("a scratch directory is creatable");
-            Self(path)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            // A failure here would mask the assertion that failed first, and a leftover directory
-            // under the temporary directory is not a problem worth that.
-            let _ignored = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    /// A client that trusts exactly the certificate it was given, and nothing else.
-    ///
-    /// A real verifier over a root store of one, rather than a verifier that accepts anything: the
-    /// point of the handshake test is that the chain the listener presents is the chain this pair
-    /// describes, and a client that skips verification could not tell.
-    fn client_trusting(certificate: &str) -> Arc<ClientConfig> {
-        let mut roots = RootCertStore::empty();
-        for entry in CertificateDer::pem_slice_iter(certificate.as_bytes()) {
-            roots
-                .add(entry.expect("a generated certificate parses"))
-                .expect("a generated certificate is a root");
-        }
-        Arc::new(
-            ClientConfig::builder_with_provider(Arc::new(tokio_rustls::rustls::crypto::ring::default_provider()))
-                .with_safe_default_protocol_versions()
-                .expect("the default protocol versions are safe")
-                .with_root_certificates(roots)
-                .with_no_client_auth(),
-        )
-    }
-
-    /// Speaks HTTP/1.1 over a TLS connection, by hand, and returns what came back.
-    ///
-    /// By hand because this crate has no HTTP client and does not need one for this: the assertion
-    /// is that a real handshake completed and that the bytes on the other side of it are a real
-    /// response, and thirty lines of `write_all` prove that better than a client library would.
-    async fn get_over_tls(port: u16, path: &str, certificate: &str) -> String {
-        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-
-        let connector = tokio_rustls::TlsConnector::from(client_trusting(certificate));
-        let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
-            .await
-            .expect("the listener is accepting");
-        let name = ServerName::try_from(SUBJECT).expect("the subject is a server name");
-        let mut tls = connector.connect(name, tcp).await.expect("the TLS handshake completes");
-        tls.write_all(format!("GET {path} HTTP/1.1\r\nHost: {SUBJECT}\r\nConnection: close\r\n\r\n").as_bytes())
-            .await
-            .expect("the request is writable");
-        tls.flush().await.expect("the request flushes");
-        let mut answer = Vec::new();
-        // `read_to_end` terminates because the request asked for `Connection: close`.
-        tls.read_to_end(&mut answer).await.expect("the response is readable");
-        String::from_utf8_lossy(&answer).into_owned()
-    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_real_client_completes_a_handshake_and_gets_an_answer_over_tls() {
@@ -734,6 +736,18 @@ mod tests {
             Renewed::Unchanged,
             "a rejected pair must not be re-reported every tick"
         );
+
+        // And a good pair AFTER a rejected one still rotates. Without this the suite proved a rejection
+        // is survived and not that it is recovered from: the `seen` field records a rejected candidate,
+        // so a bug that also treated it as in-use would wedge the renewal silently.
+        let fourth = generate();
+        let _ignored = write(scratch.path(), &fourth);
+        assert_eq!(
+            renewal.poll_once(),
+            Renewed::Rotated,
+            "a good pair after a rejected one did not rotate"
+        );
+        assert_eq!(renewal.poll_once(), Renewed::Unchanged, "a rotation is announced once");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -790,5 +804,117 @@ mod tests {
             "the listener is still presenting the certificate that was rotated away"
         );
         serving.abort();
+    }
+
+    #[test]
+    fn no_public_debug_shows_the_private_key_or_its_bytes() {
+        // `Termination` and `Renewal` are both public and both reach the material that was read, so
+        // formatting either one is the disclosure. Asserted on the RENDERING, never on this file's
+        // source: a test that greps the source proves nothing about what a derive prints.
+        let scratch = Scratch::new("redaction");
+        let pair = generate();
+        let material = write(scratch.path(), &pair);
+        let termination = Termination::prepare(&material).expect("a generated pair is usable material");
+
+        let whole = format!("{termination:?}");
+        let (_config, renewal) = termination.into_parts();
+        let half = format!("{renewal:?}");
+
+        let line = a_body_line(&pair.key);
+        let bytes = as_a_byte_vector(line);
+        for shown in [&whole, &half] {
+            assert!(!shown.contains(line), "a public Debug printed the private key: {shown}");
+            assert!(
+                !shown.contains(&bytes),
+                "a public Debug printed the private key as a byte vector: {shown}"
+            );
+            assert!(shown.contains("REDACTED"), "nothing said the key was withheld: {shown}");
+        }
+
+        // The control, and it is what stops the three assertions above from passing vacuously: the
+        // CERTIFICATE is still printed, as a byte vector, from the same struct. So the rendering does
+        // reach the material - one field of it is withheld and the other is not.
+        assert!(
+            whole.contains(&as_a_byte_vector(a_body_line(&pair.certificate))),
+            "the rendering never reached the material, so the key's absence proves nothing: {whole}"
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "the `select!` macro expands through remainder arithmetic to pick a poll order, the same reason `poll_until_shutdown` carries this; `biased` is what decides the order here"
+    )]
+    fn a_look_at_the_files_runs_off_the_executor_so_another_task_keeps_making_progress() {
+        // A current-thread runtime, so the executor is exactly this thread, and a blocking pool of
+        // exactly ONE thread, which this test holds. A look handed to that pool therefore cannot
+        // start, while a look run inline on the timer's task finishes regardless of the pool. That is
+        // the whole separation and it needs no wall clock: `biased` polls the look FIRST, so the
+        // assertion is about a look that HAS been polled rather than one never reached.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .build()
+            .expect("a current-thread runtime builds");
+        runtime.block_on(async {
+            let scratch = Scratch::new("offload");
+            let first = generate();
+            let material = write(scratch.path(), &first);
+            let (_config, renewal) = Termination::prepare(&material)
+                .expect("the first pair is usable")
+                .into_parts();
+
+            // Hold the pool's only thread on a synchronous receive, so it is genuinely unavailable
+            // rather than merely busy. Its arrival is awaited, so the hold is in place before the
+            // look is asked for.
+            let (arrived, has_arrived) = tokio::sync::oneshot::channel();
+            let (release, released) = std::sync::mpsc::channel::<()>();
+            let occupier = sutura_runtime::spawn_carrying_span(move || {
+                arrived.send(()).expect("the test is waiting for the pool");
+                let _closed = released.recv();
+            });
+            has_arrived.await.expect("the occupier reached the pool");
+
+            // A genuine rotation on disk, and a look asked for.
+            let second = generate();
+            let _same_paths = write(scratch.path(), &second);
+            let mut look = std::pin::pin!(super::reloaded(renewal));
+
+            let unrelated = async {
+                tokio::task::yield_now().await;
+                7_u8
+            };
+            tokio::select! {
+                biased;
+                _finished = &mut look => panic!("the look finished while the pool's only thread was held: it ran on the executor"),
+                value = unrelated => assert_eq!(value, 7, "the unrelated task did not run"),
+            }
+
+            // Let the pool go. The same look, never restarted, lands the rotation - so holding it was
+            // a delay and not a loss.
+            drop(release);
+            occupier.await.expect("the occupier finished");
+            let (_renewal, outcome) = look.await.expect("the pool ran the look");
+            assert_eq!(outcome, Renewed::Rotated);
+        });
+    }
+
+    #[test]
+    fn a_file_past_the_cap_is_refused_before_its_bytes_are_allocated() {
+        // The bound, asserted through the file system rather than reasoned about. Padded past the cap
+        // with text that is not PEM at all, so a refusal naming the cap is proof the SIZE decided it -
+        // a parse would have rejected this content for a different reason.
+        let scratch = Scratch::new("oversized");
+        let material = write(
+            scratch.path(),
+            &Pair {
+                certificate: "#".repeat(super::MAX_MATERIAL_BYTES.saturating_add(1)),
+                key: generate().key,
+            },
+        );
+        let error = Termination::prepare(&material).expect_err("a file past the cap is not material");
+        assert!(
+            matches!(error, super::TlsNotUsable::TooLarge { cap, .. } if cap == super::MAX_MATERIAL_BYTES),
+            "{error:?}"
+        );
     }
 }

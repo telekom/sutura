@@ -1365,6 +1365,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "serde_json",
+ "sutura-config",
  "sutura-domain",
  "sutura-http",
  "sutura-sql",

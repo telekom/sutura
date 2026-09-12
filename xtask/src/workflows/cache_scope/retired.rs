@@ -292,12 +292,12 @@ pub(super) fn retired(files: &[(String, String)]) -> Vec<String> {
             }) {
                 // cachix-action is permitted in its one write workflow as before, OR in a ci.yml
                 // pull-request job that declares environment `cachix-push-pr` - the PR write half.
-                // Both are bounded by the credential's environment policy, which the gate cannot
-                // verify but the forge holds. The other HOSTED entries stay refused everywhere.
+                // The main workflow's credential policy is owner-held; the PR credential scope is
+                // unverified here. The other HOSTED entries stay refused everywhere.
                 let here = publisher == PUBLISH.0 && (label.ends_with(PUBLISH.1) || in_pr_publish_job(text, step.line));
                 if !here {
                     out.push(format!(
-                        "{label}:{}  {publisher} publishes to a store outside this repository. Only `{}` may, and only in `{}` (or a pull_request ci.yml job declaring environment `{PUBLISH_PRS}`), whose trigger admits one branch and whose credential is an environment secret - see docs/adr/0027",
+                        "{label}:{}  {publisher} publishes to a store outside this repository. Only `{}` may, and only in `{}` (or a pull_request ci.yml job declaring environment `{PUBLISH_PRS}`); credential scope is owner-held and not repository-verifiable - see docs/adr/0027",
                         step.line, PUBLISH.0, PUBLISH.1
                     ));
                 }
