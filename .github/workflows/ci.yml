@@ -485,7 +485,6 @@ jobs:
       - name: Licensing
         run: nix build .#checks.x86_64-linux.reuse -L
 
-
       - name: Format
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.fmt -L

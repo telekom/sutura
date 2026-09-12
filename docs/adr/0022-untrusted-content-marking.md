@@ -60,7 +60,7 @@ the encoder's.
 boundary once (the `UNTRUSTED_CATALOG_NOTICE`), and each value is either escaped (`OutcomeContent`)
 or quoted per line or omitted (`CatalogContent`). The marking that matters is the escaping, not a
 label: a line an encoder did not write cannot reach column zero because every line a decoder wrote is
-`> `-prefixed, and the marker is the prefix.
+`>`-prefixed, and the marker is the prefix.
 
 **When a marker becomes necessary, it is when an envelope exists - and the added cost is what this
 decision protects.** `docs/adr/0009`'s *what is not decided* names Arrow envelopes and result
@@ -80,7 +80,7 @@ number, so a detected hostile value is refused, not silently altered.** That is 
 The honest and important half: **the current text half does no detection at all.** Escaping is
 unconditional - a `\t` is rendered `\t` whether or not it was hostile - and quoting is unconditional,
 so there is no detected-then-edited path and therefore no silent alteration to refuse. The structural
-escapes are re-representable: an agent reading `\t` knows a tab was there, and `> ` quoted prose is
+escapes are re-representable: an agent reading `\t` knows a tab was there, and `>` quoted prose is
 the author's own words with the boundary made visible. Nothing is dropped and nothing is invented.
 The refusal half of this decision becomes live only when a surface DETECTS rather than escapes - a
 raw tool that must refuse an un-processable statement is the first such surface, and Decision 3
@@ -123,7 +123,7 @@ The accepted core is built and tested, per surface:
 
 - `sutura_mcp::wire::OutcomeContent::as_text` escapes `\t`, `\n`, `\r` in every cell, so a cell
   cannot open a column, a row or the provenance trailer. Two tests assert the two forgeries.
-- `sutura_mcp::wire::CatalogContent::as_text` quotes every description line with `> ` (`push_prose`),
+- `sutura_mcp::wire::CatalogContent::as_text` quotes every description line with `>` (`push_prose`),
   names the boundary (`UNTRUSTED_CATALOG_NOTICE`), and under `catalog_prose: omitted` drops the prose
   and says so (`CATALOG_PROSE_OMITTED_NOTICE`) - the same setting the prompt honours, so an operator
   who does not trust catalog authors ships no prose on either text surface - and, per the second

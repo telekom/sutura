@@ -278,7 +278,7 @@ pub(super) fn trusted_stores(label: &str, text: &str) -> Vec<String> {
 /// gone. Keyed on (file, job): the same workflow's OTHER jobs stay covered, which is what keeps a
 /// blanket per-file escape out of reach.
 type Blind = (&'static str, &'static str, &'static str);
-const BLIND: [Blind; 5] = [
+const BLIND: [Blind; 6] = [
     (
         ".github/workflows/runner-probe.yml",
         "reference",
@@ -303,6 +303,11 @@ const BLIND: [Blind; 5] = [
         ".github/workflows/version-bump.yml",
         "bump",
         "`nix run .#git-cliff` and `.#cargo`, both nixpkgs; it builds no first-party derivation",
+    ),
+    (
+        ".github/workflows/format.yml",
+        "format",
+        "`nix run .#dprint` and `.#ruff`, both nixpkgs and one trivial wrapper over them; no path this repository publishes is in the closure",
     ),
 ];
 

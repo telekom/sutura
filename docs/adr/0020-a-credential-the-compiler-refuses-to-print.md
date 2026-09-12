@@ -47,12 +47,12 @@ pub struct Secret(SecretString);
 `Deserialize`. So four things that used to compile no longer do, and each is pinned by a
 `compile_fail` doctest with a compiling twin beside it that differs by one token:
 
-| Accident | Compiler's reason, from unmarking the doctest |
-| --- | --- |
-| `format!("token={token}")` | `E0277: Secret doesn't implement std::fmt::Display` - *"cannot be formatted with the default formatter"* |
-| a `Display` bound, which is what `%` desugars to | `E0277: Secret doesn't implement std::fmt::Display`, at the `impl Display` parameter |
-| `a == b` | `E0369: binary operation == cannot be applied to type Secret` |
-| `serde_json::from_str::<Secret>(..)` | `E0277: the trait bound Secret: serde::Deserialize<'de> is not satisfied` |
+| Accident                                         | Compiler's reason, from unmarking the doctest                                                            |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `format!("token={token}")`                       | `E0277: Secret doesn't implement std::fmt::Display` - *"cannot be formatted with the default formatter"* |
+| a `Display` bound, which is what `%` desugars to | `E0277: Secret doesn't implement std::fmt::Display`, at the `impl Display` parameter                     |
+| `a == b`                                         | `E0369: binary operation == cannot be applied to type Secret`                                            |
+| `serde_json::from_str::<Secret>(..)`             | `E0277: the trait bound Secret: serde::Deserialize<'de> is not satisfied`                                |
 
 The real macro is pinned separately, in `sutura_http::inbound` - the one module holding caller-supplied
 token material *and* a `tracing` dependency. `tracing::info!(token = %token, ..)` fails with
@@ -125,12 +125,12 @@ failed on. Checked with `cargo deny`, not assumed.
 
 Two costs are real and are not on that list:
 
-* **`zeroize` contains `unsafe`** - volatile writes and a compiler fence. That is precisely why it is a
+- **`zeroize` contains `unsafe`** - volatile writes and a compiler fence. That is precisely why it is a
   dependency rather than sixty local lines: `unsafe_code` is `forbid` across this workspace, the
   guarantee is that the writes are not optimised away, and a test cannot observe whether they were.
   The same argument already carries `sha2` and `subtle` into this tree. `secrecy` itself is
   `forbid(unsafe_code)`.
-* **`secrecy 0.10.3` was published 2024-10-09** and is the newest release; it has not moved in nearly
+- **`secrecy 0.10.3` was published 2024-10-09** and is the newest release; it has not moved in nearly
   two years. For a ~330-line crate whose whole content is three trait impls and a `Drop`, "finished"
   is a reasonable reading of that - but it is a maintenance bet, and the newtype is what makes it a
   cheap one to unwind: `Secret`'s public surface is `new`, `expose_secret`, `Debug` and `Clone`, so
@@ -147,11 +147,11 @@ xtask check-boundaries: FAILED - sutura-domain reaches crates it may not:
 ```
 
 - because that gate walks the whole-workspace resolve graph rather than deciding which optional edges
-a feature resolver would really enable. `zeroize`'s `derive` feature is off, nothing in this workspace
-turns it on, and `cargo tree -p sutura-domain --all-features` does not list `zeroize_derive`; it is an
-entry of the over-broad kind that list already documents, and its own tree - `proc-macro2`, `quote`,
-`syn` - is the serde derives' tree, already allowed. The domain's walked tree is 31 crates, all
-allowlisted.
+  a feature resolver would really enable. `zeroize`'s `derive` feature is off, nothing in this workspace
+  turns it on, and `cargo tree -p sutura-domain --all-features` does not list `zeroize_derive`; it is an
+  entry of the over-broad kind that list already documents, and its own tree - `proc-macro2`, `quote`,
+  `syn` - is the serde derives' tree, already allowed. The domain's walked tree is 31 crates, all
+  allowlisted.
 
 ## What was considered instead
 
@@ -182,21 +182,21 @@ drop.
 
 **Not claimed.**
 
-* **The wipe covers the buffer this type holds, and no copy made before the value reached it.** A
+- **The wipe covers the buffer this type holds, and no copy made before the value reached it.** A
   settings file read into a `String`, a `serde`-deserialized `Option<String>` on a wire document, and
   the `String` `Secret::new` consumes are ordinary allocations - and `String::into_boxed_str`
   reallocates whenever capacity exceeds length, freeing the original buffer unwiped. Shortening that
   window means parsing into `Secret` closer to where bytes are read, not a stronger claim here.
-* **There is no test for the wipe.** Observing it means reading memory after free, which is undefined
+- **There is no test for the wipe.** Observing it means reading memory after free, which is undefined
   behaviour. What is tested is that the type composes; the property is `zeroize`'s.
-* **`{secret:?}` still compiles**, and is safe only because that `Debug` cannot render the value. A
+- **`{secret:?}` still compiles**, and is safe only because that `Debug` cannot render the value. A
   call site can still write `token.expose_secret()` into a log, which is why that method is named to
   be conspicuous in a grep rather than relied upon to be absent.
-* **The BigQuery `Debug` removals are held by review**, not by a mechanism. Said again here because
+- **The BigQuery `Debug` removals are held by review**, not by a mechanism. Said again here because
   the rest of this record is about mechanisms.
-* **Nothing about `Serialize`.** `Secret` has none and never had one, and no doctest pins that
+- **Nothing about `Serialize`.** `Secret` has none and never had one, and no doctest pins that
   separately - the `Deserialize` one is the half a request could reach.
-* **Only two of the five `compile_fail` doctests are red against the base behaviour**, and this file
+- **Only two of the five `compile_fail` doctests are red against the base behaviour**, and this file
   says which rather than letting five look like five. The `{}` one and the two `Display`-bound ones -
   the domain's and the real `tracing` macro in `sutura_http::inbound` - all PASS on base, which is a
   failure for a `compile_fail` test, because the old type had a `Display`; that was demonstrated by

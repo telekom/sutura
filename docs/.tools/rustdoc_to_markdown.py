@@ -155,7 +155,9 @@ def render_type(ty) -> str:
         head = "&" + (f"{lifetime} " if lifetime else "") + mutable
         return head + render_type(val["type"])
     if kind == "raw_pointer":
-        return ("*mut " if val.get("is_mutable") else "*const ") + render_type(val["type"])
+        return ("*mut " if val.get("is_mutable") else "*const ") + render_type(
+            val["type"]
+        )
     if kind == "tuple":
         return "(" + ", ".join(render_type(t) for t in val) + ")"
     if kind == "slice":
@@ -166,7 +168,8 @@ def render_type(ty) -> str:
         return "impl " + " + ".join(render_bound(b) for b in val)
     if kind == "dyn_trait":
         traits = " + ".join(
-            t["trait"]["path"] + render_args(t["trait"].get("args")) for t in val.get("traits") or []
+            t["trait"]["path"] + render_args(t["trait"].get("args"))
+            for t in val.get("traits") or []
         )
         lifetime = val.get("lifetime")
         return "dyn " + traits + (f" + {lifetime}" if lifetime else "")
@@ -204,7 +207,9 @@ def render_generics(generics) -> str:
             rendered = " + ".join(render_bound(b) for b in bounds)
             params.append(param["name"] + (f": {rendered}" if rendered else ""))
         elif which == "const":
-            params.append(f"const {param['name']}: {render_type(kind['const']['type'])}")
+            params.append(
+                f"const {param['name']}: {render_type(kind['const']['type'])}"
+            )
         else:
             raise Unsupported(f"generic param `{which}`")
     return "<" + ", ".join(params) + ">" if params else ""
@@ -225,7 +230,11 @@ def render_function(name: str, inner: dict) -> str:
         rendered = render_type(arg_type)
         # `self` arrives as a normal input whose type is Self or a reference to it.
         if arg_name == "self":
-            inputs.append(rendered.replace("Self", "self") if rendered.endswith("Self") else "self")
+            inputs.append(
+                rendered.replace("Self", "self")
+                if rendered.endswith("Self")
+                else "self"
+            )
         else:
             inputs.append(f"{arg_name}: {rendered}")
     output = sig.get("output")
@@ -381,7 +390,14 @@ def struct_or_enum_body(doc: Doc, page: Page, item: dict, level: int) -> None:
         if variants:
             page.heading(level, "Variants")
             for variant in variants:
-                page.add(f"- `{variant['name']}`" + (f" - {one_line(variant.get('docs'))}" if variant.get("docs") else ""))
+                page.add(
+                    f"- `{variant['name']}`"
+                    + (
+                        f" - {one_line(variant.get('docs'))}"
+                        if variant.get("docs")
+                        else ""
+                    )
+                )
             page.add()
 
     methods: list[dict] = []
@@ -438,7 +454,9 @@ def render_module(doc: Doc, page: Page, module_id: str, level: int) -> None:
     children = [c for c in children if c and doc.is_public(c)]
 
     submodules = [c for c in children if item_kind(c) == "module"]
-    types = [c for c in children if item_kind(c) in ("struct", "enum", "union", "trait")]
+    types = [
+        c for c in children if item_kind(c) in ("struct", "enum", "union", "trait")
+    ]
     functions = [c for c in children if item_kind(c) == "function"]
     others = [c for c in children if c not in submodules + types + functions]
 
@@ -586,12 +604,18 @@ def selftest() -> None:
 def main(argv: list[str]) -> int:
     if "--self-test" in argv:
         selftest()
-        print("rustdoc_to_markdown: ok - a public re-export renders its name and target docs")
+        print(
+            "rustdoc_to_markdown: ok - a public re-export renders its name and target docs"
+        )
         return 0
     if len(argv) < 2:
         print(__doc__)
         return 2
-    out_dir = pathlib.Path(argv[-1]) if len(argv) > 2 and not argv[-1].endswith(".json") else pathlib.Path("docs/api")
+    out_dir = (
+        pathlib.Path(argv[-1])
+        if len(argv) > 2 and not argv[-1].endswith(".json")
+        else pathlib.Path("docs/api")
+    )
     inputs = [pathlib.Path(a) for a in argv[1:] if a.endswith(".json")]
     if not inputs:
         raise SystemExit("no rustdoc JSON file given")
