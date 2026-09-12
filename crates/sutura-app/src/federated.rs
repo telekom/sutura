@@ -301,7 +301,7 @@ mod tests {
     use super::answer_federated;
     use crate::Warehouses;
     use crate::tests::{asked_by_a_person, bundle, june, metric, shared};
-    use crate::tests_support::{DryRunOutcome, FixedBroker, LegPreflightWarehouse};
+    use crate::tests_support::{AdapterFailure, DryRunOutcome, FixedBroker, LegPreflightWarehouse};
     use sutura_domain::model::{Grain, SourceName};
     use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
     use sutura_domain::warehouse::{RowSet, Value};
@@ -625,6 +625,106 @@ mod tests {
                 .expect("facts is registered")
                 .executions(),
             1
+        );
+        assert_eq!(
+            warehouses
+                .get(&SourceName::parse("geo").expect("a test source"))
+                .expect("geo is registered")
+                .executions(),
+            0
+        );
+    }
+
+    #[test]
+    fn a_federated_fact_preflight_failure_keeps_its_warehouse_cause_and_no_partial_answer() {
+        let shared = shared();
+        let fact = LegPreflightWarehouse::new(
+            SourceName::parse("facts").expect("a test source"),
+            shared.clone(),
+            federated_fact_rows(),
+            DryRunOutcome::TransientFailure,
+        );
+        let lookup = LegPreflightWarehouse::new(
+            SourceName::parse("geo").expect("a test source"),
+            shared,
+            federated_lookup_rows(),
+            DryRunOutcome::Accepted,
+        );
+        let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
+        let failure = answer_federated(
+            &bundle(),
+            &federated_plan(),
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            FEDERATED_BUDGET,
+        )
+        .expect_err("a transient pre-flight failure remains a warehouse error");
+        assert!(matches!(
+            failure,
+            super::ServiceError::Warehouse {
+                cause: AdapterFailure::Statement {
+                    cause: super::super::tests_support::DriverFailure
+                }
+            }
+        ));
+        assert_eq!(
+            warehouses
+                .get(&SourceName::parse("facts").expect("a test source"))
+                .expect("facts is registered")
+                .executions(),
+            0
+        );
+        assert_eq!(
+            warehouses
+                .get(&SourceName::parse("geo").expect("a test source"))
+                .expect("geo is registered")
+                .executions(),
+            0,
+            "the failed fact leg cannot leave a partial answer or execute the lookup"
+        );
+    }
+
+    #[test]
+    fn a_federated_lookup_preflight_failure_keeps_warehouse_error_and_discards_fact_rows() {
+        let shared = shared();
+        let fact = LegPreflightWarehouse::new(
+            SourceName::parse("facts").expect("a test source"),
+            shared.clone(),
+            federated_fact_rows(),
+            DryRunOutcome::Accepted,
+        );
+        let lookup = LegPreflightWarehouse::new(
+            SourceName::parse("geo").expect("a test source"),
+            shared,
+            federated_lookup_rows(),
+            DryRunOutcome::TransientFailure,
+        );
+        let warehouses = Warehouses::of(fact).and(lookup).expect("two sources, one registry");
+        let failure = answer_federated(
+            &bundle(),
+            &federated_plan(),
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            FEDERATED_BUDGET,
+        )
+        .expect_err("a transient pre-flight failure remains a warehouse error");
+        assert!(matches!(
+            failure,
+            super::ServiceError::Warehouse {
+                cause: AdapterFailure::Statement {
+                    cause: super::super::tests_support::DriverFailure
+                }
+            }
+        ));
+        assert_eq!(
+            warehouses
+                .get(&SourceName::parse("facts").expect("a test source"))
+                .expect("facts is registered")
+                .executions(),
+            1,
+            "the completed fact leg is discarded when lookup pre-flight fails"
         );
         assert_eq!(
             warehouses

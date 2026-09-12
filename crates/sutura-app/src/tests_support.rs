@@ -54,6 +54,8 @@ pub(crate) enum AdapterFailure {
 pub(crate) enum DryRunOutcome {
     Accepted,
     SourceRefused,
+    /// The data system could not be reached while checking the statement.
+    TransientFailure,
 }
 
 /// A data system with a declared source and posture, which either answers one fixed result or
@@ -260,6 +262,7 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
         match self.dry_run {
             DryRunOutcome::Accepted => Ok(PreFlight::Accepted),
             DryRunOutcome::SourceRefused => Err(AdapterFailure::RefusedBySource),
+            DryRunOutcome::TransientFailure => Err(AdapterFailure::Statement { cause: DriverFailure }),
         }
     }
 
