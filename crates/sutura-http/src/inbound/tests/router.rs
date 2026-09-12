@@ -183,9 +183,10 @@ async fn a_challenge_points_at_metadata_only_for_an_exact_origin_form_resource()
     assert!(!challenge.contains("error_description"));
 
     for (target, host) in [
-        ("https://sutura.example.com/v1/query", None),
-        ("HTTPS://sutura.example.com/v1/query", None),
-        ("http://sutura.example.com/v1/query", None),
+        ("https://sutura.example.com/v1/query", Some("sutura.example.com")),
+        ("HTTPS://sutura.example.com/v1/query", Some("sutura.example.com")),
+        ("http://sutura.example.com/v1/query", Some("sutura.example.com")),
+        ("https://other.example.com/v1/query", Some("sutura.example.com")),
         ("/v1/query", None),
         ("/v1/query", Some("Sutura.example.com")),
         ("/v1/query", Some("sutura.example.com:443")),

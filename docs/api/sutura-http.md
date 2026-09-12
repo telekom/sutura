@@ -1302,9 +1302,9 @@ makes: a description would have to say which check failed to be worth anything, 
 one thing a caller must not learn.
 
 Both request parts are required because an origin-form target carries its path in the URI and
-its authority in the raw `Host` value. Absolute form deliberately gets no metadata parameter:
-`http::Uri` canonicalises standard schemes, so it cannot prove the configured identifier's
-byte-exact spelling.
+its authority in the raw `Host` value. Absolute-form targets are not matched: `http::Uri`
+canonicalises standard schemes, so a match there would compare against a normalised spelling
+rather than the configured identifier's exact bytes.
 
 ```rust
 pub async fn describe_keys(&self) -> (usize, Vec<String>)

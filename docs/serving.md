@@ -171,9 +171,10 @@ A refused request in the `direct` mode gets `401` with a `WWW-Authenticate: Bear
 realm="<your resource identifier>", error="invalid_token"`. When an origin-form request's raw `Host`
 and request target reproduce the exact configured resource identifier, the challenge also carries
 `resource_metadata="<absolute metadata URL>"`. RFC 9728 requires clients to discard metadata naming
-any other resource, so the parameter is absent for every other spelling. It is also absent for every
-absolute-form request target: the HTTP URI parser canonicalises standard schemes, so the original
-byte-exact spelling cannot be established. The challenge deliberately does **not** say which check
+any other resource, so the parameter is absent for every other spelling. Absolute-form request
+targets are not matched either: the HTTP URI parser canonicalises standard schemes, so a match there
+would compare against a normalised spelling rather than the byte-exact one configured. The challenge
+deliberately does **not** say which check
 failed: "the signature verified and the audience did not" tells a caller which half of a forgery to
 fix. The log says, in the cause chain, where an operator can read it.
 

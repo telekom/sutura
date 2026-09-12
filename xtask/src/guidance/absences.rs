@@ -128,9 +128,10 @@ struct Absence {
 /// numbers derive from iterating it, so they are two counters from one source and collapse together;
 /// the arm that refuses that is what makes them a floor rather than a decoration.
 ///
-/// Each entry is a limit somebody is told to work around - configure a client out of band, do not
-/// alert on a gauge, do not read an accessor as covered - so the day it stops being true is the day
-/// an instruction has to be withdrawn. That is the property held here, not the sentence.
+/// Each entry is a limit somebody is told to work around - do not blame the pinned bundle for an
+/// assembler's own defect, do not alert on a gauge, do not read an accessor as covered - so the day
+/// it stops being true is the day an instruction has to be withdrawn. That is the property held
+/// here, not the sentence.
 ///
 /// **Not here, and deliberately.** The combiner sentence `#370` opens with is corrected rather than
 /// registered: it is already false, so an entry for it would be a gate that fails on landing, and
