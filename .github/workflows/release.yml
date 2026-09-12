@@ -341,10 +341,10 @@ jobs:
     runs-on: rust-mcp-32core
     timeout-minutes: 60
     permissions:
-      contents: write      # create the release, upload assets
-      packages: write      # push to GHCR, and the signatures and attestations that sit beside it
-      id-token: write      # mint the OIDC token Fulcio signs a certificate against
-      attestations: write  # store the SLSA provenance against this repository
+      contents: write # create the release, upload assets
+      packages: write # push to GHCR, and the signatures and attestations that sit beside it
+      id-token: write # mint the OIDC token Fulcio signs a certificate against
+      attestations: write # store the SLSA provenance against this repository
     env:
       # The four targets, in the order the release notes list them: the glibc pair first,
       # because an unqualified `docker pull` and an unqualified download both mean glibc here.

@@ -492,7 +492,10 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // table's founding cause verbatim - a correction that lands in one document and is not
         // carried to its sibling.
         name: "the request path reads a scoped view of the definitions",
-        wordings: &["scoped view"],
+        wordings: &[
+            "dimension validation reads the pinned definitions, not the scoped view",
+            "The scoped view BORROWS the pinned definitions",
+        ],
         // What the request path actually borrows: the pinned bundle itself, handed out whole by
         // the transport's shared state. A view between the two would be this accessor's return
         // type, and it is not.

@@ -99,9 +99,10 @@ you find out on the pull request instead of before it. On a network with no dire
 first: nothing that fetches is hardcoded, and every location is read from the environment.
 
 **The dev shell's bare `cargo` is the nightly toolchain**, the same one every gate and CI use now
+
 - the stable/nightly split is gone, so a bare `cargo clippy` reports the lints CI sees. Run
-`just lint` anyway, because it also adds `-D warnings`. The trap and its siblings are in
-[the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
+  `just lint` anyway, because it also adds `-D warnings`. The trap and its siblings are in
+  [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
 
 ## Using AI-generated code
 
@@ -137,13 +138,13 @@ The `commit-msg` hook runs `cargo xtask commit-msg`, which judges the subject li
 <type>[(scope)][!]: <subject>
 ```
 
-| | |
-| --- | --- |
-| Types | `feat`, `fix`, `refactor`, `chore`, `test`, `docs`, `perf`, `ci`, `build`, `style`, `revert` |
-| Length | at most 72 characters, where `git log --oneline` starts truncating |
-| Breaking | `!` after the type or scope |
-| Shape | a space after the colon, no trailing full stop |
-| Exempt | subjects git writes itself: `Merge `, `Revert `, `fixup!`, `squash!`, `amend!` |
+|          |                                                                                              |
+| -------- | -------------------------------------------------------------------------------------------- |
+| Types    | `feat`, `fix`, `refactor`, `chore`, `test`, `docs`, `perf`, `ci`, `build`, `style`, `revert` |
+| Length   | at most 72 characters, where `git log --oneline` starts truncating                           |
+| Breaking | `!` after the type or scope                                                                  |
+| Shape    | a space after the colon, no trailing full stop                                               |
+| Exempt   | subjects git writes itself: `Merge`, `Revert`, `fixup!`, `squash!`, `amend!`                 |
 
 ```
 feat(semantic): compile a bounded date predicate

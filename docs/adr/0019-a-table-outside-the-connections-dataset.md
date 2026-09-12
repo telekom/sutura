@@ -64,13 +64,13 @@ Three consequences worth stating because each was a decision:
 - **`ProjectName` is the one name shape in this workspace that admits a hyphen, and it is not a
   loosening of the property above.** A `BigQuery` project id is lowercase letters, digits and hyphens
   - the credential this repository's acceptance leg runs under has one, which is how this was found
-  rather than assumed - while a dataset id is letters, digits and underscore, exactly
-  `parse_identifier`'s set. `model::Hyphens` is a flag on **one** parser rather than a second parser,
-  and its documentation states the licence precisely: a hyphen is not `"`, `'` or `` ` ``, so the
-  stripping argument is intact. A variant admitting a quote character, a dot or whitespace would
-  invalidate it, and that is written where the flag is. A legacy domain-scoped project -
-  `example.com:project` - is **refused**, because a `:` or a second `.` inside one part is the defect
-  this module exists to prevent.
+    rather than assumed - while a dataset id is letters, digits and underscore, exactly
+    `parse_identifier`'s set. `model::Hyphens` is a flag on **one** parser rather than a second parser,
+    and its documentation states the licence precisely: a hyphen is not `"`, `'` or `` ` ``, so the
+    stripping argument is intact. A variant admitting a quote character, a dot or whitespace would
+    invalidate it, and that is written where the flag is. A legacy domain-scoped project -
+    `example.com:project` - is **refused**, because a `:` or a second `.` inside one part is the defect
+    this module exists to prevent.
 - **`Serialize` is hand-written to emit the dotted text.** `serde(try_from)` affects `Deserialize`
   alone, and a derived `Serialize` here would write a struct this type's own `Deserialize` refuses -
   the asymmetry that shipped in this workspace on `Date`. It matters because the definition digest is
@@ -113,12 +113,12 @@ It has to be a declaration because **the dialect layer will render three parts f
 `project.dataset.table` rendered for a target with no third position produces a statement that fails
 at the data system or, worse, resolves the leading part as something else.
 
-| Dialect | Resolves | Why that arm |
-| --- | --- | --- |
-| `BigQuery` | `project.dataset.table` | A first-class path. One credential reaches several projects, and a cross-project join is native. This is the reason the feature exists |
-| Postgres | `schema.table` | Cross-*database* is not a thing it does. Its three-part form is accepted only when the leading part is the database already connected to, so rendering one would work or fail on a connection detail no catalog can see |
-| `ClickHouse` | `database.table` | It has databases and no catalog above them. A rendering claim, not an execution one - nothing here executes `ClickHouse` |
-| `DuckDB` | the table alone | **The arm worth reading twice, because it is narrower than what DuckDB can parse.** DuckDB has schemas and attached catalogs. This is declared for what a DuckDB deployment *here* can resolve: `sutura-exec-duckdb` registers one view per model in the default schema and `sutura-exec-datafusion` registers one file per model in its own registry, so a qualified name resolves to nothing in either. Widening this arm is a change to what those adapters attach |
+| Dialect      | Resolves                | Why that arm                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BigQuery`   | `project.dataset.table` | A first-class path. One credential reaches several projects, and a cross-project join is native. This is the reason the feature exists                                                                                                                                                                                                                                                                                                                                |
+| Postgres     | `schema.table`          | Cross-*database* is not a thing it does. Its three-part form is accepted only when the leading part is the database already connected to, so rendering one would work or fail on a connection detail no catalog can see                                                                                                                                                                                                                                               |
+| `ClickHouse` | `database.table`        | It has databases and no catalog above them. A rendering claim, not an execution one - nothing here executes `ClickHouse`                                                                                                                                                                                                                                                                                                                                              |
+| `DuckDB`     | the table alone         | **The arm worth reading twice, because it is narrower than what DuckDB can parse.** DuckDB has schemas and attached catalogs. This is declared for what a DuckDB deployment *here* can resolve: `sutura-exec-duckdb` registers one view per model in the default schema and `sutura-exec-datafusion` registers one file per model in its own registry, so a qualified name resolves to nothing in either. Widening this arm is a change to what those adapters attach |
 
 A path deeper than the target is `GenerateError::QualificationUnsupported`, naming both depths.
 **Never a dropped qualifier** - dropping the part that does not fit is the wrong-number failure at
@@ -190,6 +190,17 @@ unsafe, which is why `Postgres` and `ClickHouse` are declared from documented be
 measured - neither has a server in this repository to ask. What the declaration buys is
 `every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes`, so a variant folding *more* than
 ASCII case fails a test instead of quietly making both comparisons too fine.
+
+**Corrected: both now have a server in this repository, so that reason is spent while the
+declarations are unchanged.** `nix/postgres-tier.nix` provisions Postgres from nixpkgs and
+`clickhouse` is a default service of the docker dev tier `just dev-up` brings up;
+`sutura_sql::Dialect::identifier_case` already carries the Postgres half of this correction.
+**The limit on the other half:** no ClickHouse adapter exists in this workspace -
+`compose.services.yaml` says so beside the service - so asking that server would mean a client
+rather than this renderer. So
+the two are **not yet** measured rather than unmeasurable. **What that does not change is the
+decision**, for the reason the paragraph above gives: a value declared `Sensitive` cannot make a
+bundle unsafe, so measuring either one tightens the self-check and moves no comparison.
 
 ## Decision 5 - two tables whose paths end in one name are refused, not aliased around
 

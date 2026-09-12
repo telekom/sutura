@@ -95,14 +95,14 @@ it**, and the crate's own example does not.
 **What it takes to see it again, in full, so the finding does not rest on a spike nobody else can
 open.** The recipe rather than the code, because the code is six declarations and a `main`:
 
-| Ingredient | Value |
-| --- | --- |
-| `datafusion` | `54.1.0` - the major the federation crate requires, not the `55.0.0` this workspace pins |
-| `datafusion-federation` | `0.5.5`, default features on, plus its SQL sub-crate |
-| `duckdb` | `1.10505.0`, which brings `arrow 58.4.0` |
-| The adapter | `SQLExecutor` implemented as the crate's own example implements it: execute the string, hand the driver's batches straight back, and **do not** reconcile the batch schema against the plan's by name |
-| The table | one DuckDB file, one table, one integer group column and one exact-decimal measure column, so each casts into the other without raising |
-| The question | one aggregate grouped by that integer column |
+| Ingredient              | Value                                                                                                                                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `datafusion`            | `54.1.0` - the major the federation crate requires, not the `55.0.0` this workspace pins                                                                                                              |
+| `datafusion-federation` | `0.5.5`, default features on, plus its SQL sub-crate                                                                                                                                                  |
+| `duckdb`                | `1.10505.0`, which brings `arrow 58.4.0`                                                                                                                                                              |
+| The adapter             | `SQLExecutor` implemented as the crate's own example implements it: execute the string, hand the driver's batches straight back, and **do not** reconcile the batch schema against the plan's by name |
+| The table               | one DuckDB file, one table, one integer group column and one exact-decimal measure column, so each casts into the other without raising                                                               |
+| The question            | one aggregate grouped by that integer column                                                                                                                                                          |
 
 The two column types are the load-bearing part and they are not exotic: an integer group key beside
 an exact decimal measure is the ordinary shape of every metric in this repository's own corpus. Make
@@ -134,26 +134,26 @@ The pins are `Cargo.toml` and `Cargo.lock`; the resolutions are `cargo generate-
 throwaway crates; the DuckDB transcripts are the `duckdb` the dev shell provides, which is the
 version the adapter links.
 
-| Fact | Value |
-| --- | --- |
-| DataFusion, pinned | `55.0.0`, `default-features = false`, features `parquet` and `datetime_expressions` |
-| DataFusion, latest published | `55.0.0` |
-| Arrow, in the lock | `59.2.0` under DataFusion **and** `58.4.0` under duckdb. Two majors, already |
-| duckdb crate, pinned | `1.10505.0`, which requires `arrow ^58`, not optional |
-| DuckDB library | `v1.5.5 (Variegata) d8cdaa33fd` |
-| `sqlparser` in the lock | absent. The dialect layer is `polyglot-sql 0.9.2` |
-| `datafusion-federation`, latest published | `0.5.5`, requiring `datafusion ^54` |
-| `datafusion-federation`, repository main | the same requirement, `54` |
-| `datafusion-table-providers`, latest published | `0.13.1`, requiring `datafusion ^54.0` and `arrow ^58.0` |
-| Its DuckDB provider | requires `duckdb =1.10505.0` - our exact pin - plus `sea-query`, `snafu`, `secrecy`, `r2d2` |
+| Fact                                           | Value                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| DataFusion, pinned                             | `55.0.0`, `default-features = false`, features `parquet` and `datetime_expressions`         |
+| DataFusion, latest published                   | `55.0.0`                                                                                    |
+| Arrow, in the lock                             | `59.2.0` under DataFusion **and** `58.4.0` under duckdb. Two majors, already                |
+| duckdb crate, pinned                           | `1.10505.0`, which requires `arrow ^58`, not optional                                       |
+| DuckDB library                                 | `v1.5.5 (Variegata) d8cdaa33fd`                                                             |
+| `sqlparser` in the lock                        | absent. The dialect layer is `polyglot-sql 0.9.2`                                           |
+| `datafusion-federation`, latest published      | `0.5.5`, requiring `datafusion ^54`                                                         |
+| `datafusion-federation`, repository main       | the same requirement, `54`                                                                  |
+| `datafusion-table-providers`, latest published | `0.13.1`, requiring `datafusion ^54.0` and `arrow ^58.0`                                    |
+| Its DuckDB provider                            | requires `duckdb =1.10505.0` - our exact pin - plus `sea-query`, `snafu`, `secrecy`, `r2d2` |
 
 ### What the resolver does with it, and what the compiler then says
 
-| Probe | Packages | What arrives |
-| --- | --- | --- |
-| The pinned DataFusion and its two features, alone | 239 | no `sqlparser`, no `datafusion-sql`, no `bzip2` |
-| The same, plus `datafusion-federation = "0.5"` | 334 | `datafusion 54.1.0` **and** `55.0.0`; `arrow 58.4.0` **and** `59.2.0`; `datafusion-sql 54.1.0`; `sqlparser 0.62.0`; `bzip2 0.6.1` |
-| DataFusion held at `54.1.0`, federation with `default-features = false` | 286 | one DataFusion, and still `datafusion-sql 54.1.0`, `sqlparser 0.62.0`, `bzip2 0.6.1` |
+| Probe                                                                   | Packages | What arrives                                                                                                                      |
+| ----------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| The pinned DataFusion and its two features, alone                       | 239      | no `sqlparser`, no `datafusion-sql`, no `bzip2`                                                                                   |
+| The same, plus `datafusion-federation = "0.5"`                          | 334      | `datafusion 54.1.0` **and** `55.0.0`; `arrow 58.4.0` **and** `59.2.0`; `datafusion-sql 54.1.0`; `sqlparser 0.62.0`; `bzip2 0.6.1` |
+| DataFusion held at `54.1.0`, federation with `default-features = false` | 286      | one DataFusion, and still `datafusion-sql 54.1.0`, `sqlparser 0.62.0`, `bzip2 0.6.1`                                              |
 
 **Two DataFusion majors resolve rather than conflict, and then do not compile.** Cargo is content:
 they are different semantic majors, so it links both. The compiler is not, and the message is the
@@ -245,12 +245,12 @@ first-party Rust compiled **without optimisation**. That is not a footnote, it i
 column is not a finding: a debug Rust leg against a release C++ leg measures the compiler profile at
 least as much as it measures the route.
 
-| Leg | Built as | Time | Peak resident |
-| --- | --- | --- | --- |
-| Several databases attached to one DuckDB connection | release C++, inside the library | 0.01s | 65 MiB |
-| A provider per source, each pushing its own filters | debug Rust | 0.10s | 123 MiB |
-| The federation layer, at DataFusion 54 | debug Rust | 0.09s | 119 MiB |
-| A provider per source, pulling whole tables | debug Rust | 0.46s | 767 MiB |
+| Leg                                                 | Built as                        | Time  | Peak resident |
+| --------------------------------------------------- | ------------------------------- | ----- | ------------- |
+| Several databases attached to one DuckDB connection | release C++, inside the library | 0.01s | 65 MiB        |
+| A provider per source, each pushing its own filters | debug Rust                      | 0.10s | 123 MiB       |
+| The federation layer, at DataFusion 54              | debug Rust                      | 0.09s | 119 MiB       |
+| A provider per source, pulling whole tables         | debug Rust                      | 0.46s | 767 MiB       |
 
 There are two readings here and only one of them is a measurement.
 
@@ -355,11 +355,11 @@ states only what the route in front of it costs.
 Against that, the three routes are not equivalent, and the difference is structural rather than a
 matter of effort:
 
-| Route | Can a leg ever run as the subject who asked? |
-| --- | --- |
-| Attaching several databases to one connection | **No, structurally.** One process, one connection, one operating-system identity for every attached file. `ATTACH` takes no credential, and a networked scanner's credential would be a connection-global secret rather than a per-request one |
-| A federation layer | **No.** `SQLExecutor::execute` receives a string, a schema and physical filters, and no session. Worse for this purpose: the layer's fusion key is the adapter's `compute_context`, so identity would have to be *inside* that string or two subjects' sub-plans could fuse into one - observed fusing in the spike when two sources shared a context |
-| A source per adapter | **Yes.** A whole plan - never a fragment - crosses the port to one adapter that owns one connection, which is where a per-request credential belongs. ADR 0007 decides which plan shapes those are and the property that matters here holds for all of them: one plan, one source, one credential. Within the engine the same holds by a second route: `TableProvider::scan` receives `state: &dyn Session`, so per-request extensions are reachable. One hazard to design around rather than discover: `ExtensionOptions` requires an `entries` method that renders its values, which is exactly the shape `Secret` exists to prevent |
+| Route                                         | Can a leg ever run as the subject who asked?                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attaching several databases to one connection | **No, structurally.** One process, one connection, one operating-system identity for every attached file. `ATTACH` takes no credential, and a networked scanner's credential would be a connection-global secret rather than a per-request one                                                                                                                                                                                                                                                                                                                                                                                         |
+| A federation layer                            | **No.** `SQLExecutor::execute` receives a string, a schema and physical filters, and no session. Worse for this purpose: the layer's fusion key is the adapter's `compute_context`, so identity would have to be *inside* that string or two subjects' sub-plans could fuse into one - observed fusing in the spike when two sources shared a context                                                                                                                                                                                                                                                                                  |
+| A source per adapter                          | **Yes.** A whole plan - never a fragment - crosses the port to one adapter that owns one connection, which is where a per-request credential belongs. ADR 0007 decides which plan shapes those are and the property that matters here holds for all of them: one plan, one source, one credential. Within the engine the same holds by a second route: `TableProvider::scan` receives `state: &dyn Session`, so per-request extensions are reachable. One hazard to design around rather than discover: `ExtensionOptions` requires an `entries` method that renders its values, which is exactly the shape `Secret` exists to prevent |
 
 **So the cheapest route forecloses the headline property, and the weak posture is the only one it
 could ever declare.** That was survivable while the goal was one person on a laptop, and it stays
@@ -544,18 +544,18 @@ the domain query type and the wire body, with a test that provokes it.
 
 ## What does not change
 
-| Guarantee | Still held by |
-| --- | --- |
-| A plan resolves to exactly one data system | The plan stage's source set, unchanged and untouched by this record |
-| No value from a question reaches the statement as text | Unchanged, and it is the specific thing the declined federation route could not offer: `SQLExecutor::execute` takes a string and no parameter list, while a `GeneratedQuery` keeps statement and parameters in separate fields |
-| The executed SQL is owned by `sutura-sql` | Unchanged, and it is the line ADR 0007 makes load-bearing: DataFusion may combine legs and never generates one |
-| We never translate SQL, and the one thing we parse is parsed at load | Unchanged, and nothing here parses anything. Precise about the declined route: its unparser is a generator rather than a transpiler, so what it would have broken is the ownership of the executed statement, not the transpile ban |
-| A result that hit the row cap is refused, not truncated | Unchanged. Both declined routes would have raised the question of how an intermediate result is bounded; neither is adopted, so neither does. Where that question is answered is [the plan](0009-the-plan-from-one-source-to-many.md), and the answer is a working set in bytes rather than a row count per leg |
-| No result cache | Unchanged. Both declined routes buffer inside this process and the measurements above are how much. **Not a cache**, because nothing is keyed and nothing is reused across questions, and the honest way to say it is that reuse across questions is what would make it one, at which point AGENTS.md's rule applies and it is keyed on subject first or not at all |
-| Adding a data system is a registration, not a test edit | Unchanged, and narrower than it reads: the test matrix's axis is *which adapter*, one warehouse per cell, one source name shared by all of them. A second SOURCE is a signature change on the harness, which is one of the costs ADR 0007 carries |
-| The domain acquires no framework dependency | Unchanged. This record adds no dependency at all |
-| Refusal is a result, not an error | Unchanged. Nothing here adds a refusal or a failure mode |
-| Every query runs as the calling principal | Not held anywhere today, and this record's contribution is to say which routes could *ever* hold it. Attaching cannot, a federation layer cannot, a source per adapter can |
+| Guarantee                                                            | Still held by                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A plan resolves to exactly one data system                           | The plan stage's source set, unchanged and untouched by this record                                                                                                                                                                                                                                                                                                 |
+| No value from a question reaches the statement as text               | Unchanged, and it is the specific thing the declined federation route could not offer: `SQLExecutor::execute` takes a string and no parameter list, while a `GeneratedQuery` keeps statement and parameters in separate fields                                                                                                                                      |
+| The executed SQL is owned by `sutura-sql`                            | Unchanged, and it is the line ADR 0007 makes load-bearing: DataFusion may combine legs and never generates one                                                                                                                                                                                                                                                      |
+| We never translate SQL, and the one thing we parse is parsed at load | Unchanged, and nothing here parses anything. Precise about the declined route: its unparser is a generator rather than a transpiler, so what it would have broken is the ownership of the executed statement, not the transpile ban                                                                                                                                 |
+| A result that hit the row cap is refused, not truncated              | Unchanged. Both declined routes would have raised the question of how an intermediate result is bounded; neither is adopted, so neither does. Where that question is answered is [the plan](0009-the-plan-from-one-source-to-many.md), and the answer is a working set in bytes rather than a row count per leg                                                     |
+| No result cache                                                      | Unchanged. Both declined routes buffer inside this process and the measurements above are how much. **Not a cache**, because nothing is keyed and nothing is reused across questions, and the honest way to say it is that reuse across questions is what would make it one, at which point AGENTS.md's rule applies and it is keyed on subject first or not at all |
+| Adding a data system is a registration, not a test edit              | Unchanged, and narrower than it reads: the test matrix's axis is *which adapter*, one warehouse per cell, one source name shared by all of them. A second SOURCE is a signature change on the harness, which is one of the costs ADR 0007 carries                                                                                                                   |
+| The domain acquires no framework dependency                          | Unchanged. This record adds no dependency at all                                                                                                                                                                                                                                                                                                                    |
+| Refusal is a result, not an error                                    | Unchanged. Nothing here adds a refusal or a failure mode                                                                                                                                                                                                                                                                                                            |
+| Every query runs as the calling principal                            | Not held anywhere today, and this record's contribution is to say which routes could *ever* hold it. Attaching cannot, a federation layer cannot, a source per adapter can                                                                                                                                                                                          |
 
 ## Consequences
 
@@ -618,18 +618,18 @@ the domain query type and the wire body, with a test that provokes it.
   thing to watch was "whether DataFusion 56 moves to Arrow 59" - which the table above already
   contradicts: the pinned `datafusion 55.0.0` is **already** on `arrow 59.2.0`, and a DataFusion 56
   would move nothing here. Corrected, from `Cargo.lock` rather than from memory:
-    - **The Arrow gap is the `duckdb` crate.** It is pinned at `1.10505.0`, it requires `arrow ^58`
-      non-optionally, and that is where `arrow 58.4.0` in the lock comes from. So what removes the
-      bridge problem is **the `duckdb` crate reaching Arrow 59** - or, symmetrically, this workspace
-      holding the engine at 58, which is a downgrade of the thing that executes every query and is not
-      a trade anybody has argued for. That gap constrains one implementation of the built route and
-      nothing about whether the route is right.
-    - **The version skew is `datafusion-federation`.** It requires `datafusion ^54` on the registry and
-      on its repository main alike, while this workspace pins `55.0.0`. What removes that is the crate
-      following DataFusion forward, and it is independent of the Arrow question.
-  Nothing here predicts either, and **the wrong-number finding would still stand after both**: the
-  transposed aggregate is a cast-by-position defect in the layer, not a version mismatch, and it is
-  what the decline actually rests on.
+  - **The Arrow gap is the `duckdb` crate.** It is pinned at `1.10505.0`, it requires `arrow ^58`
+    non-optionally, and that is where `arrow 58.4.0` in the lock comes from. So what removes the
+    bridge problem is **the `duckdb` crate reaching Arrow 59** - or, symmetrically, this workspace
+    holding the engine at 58, which is a downgrade of the thing that executes every query and is not
+    a trade anybody has argued for. That gap constrains one implementation of the built route and
+    nothing about whether the route is right.
+  - **The version skew is `datafusion-federation`.** It requires `datafusion ^54` on the registry and
+    on its repository main alike, while this workspace pins `55.0.0`. What removes that is the crate
+    following DataFusion forward, and it is independent of the Arrow question.
+    Nothing here predicts either, and **the wrong-number finding would still stand after both**: the
+    transposed aggregate is a cast-by-position defect in the layer, not a version mismatch, and it is
+    what the decline actually rests on.
 - **Whether the column-order defect is reported upstream.** The repair is to reconcile by name, and the
   ingredients for rebuilding it are in the recipe above, so a report is a matter of somebody spending
   the afternoon rather than of anything being unknown. Stated as narrowly as this record can honestly

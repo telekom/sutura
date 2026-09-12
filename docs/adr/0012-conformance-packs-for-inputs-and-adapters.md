@@ -86,13 +86,13 @@ nothing to perform, and a green test named `..._is_declared_unsupported_...` ove
 coverage-shaped and measures nothing, which this repository holds to be worse than no test at all. So
 the capabilities are split, and the split is the decision:
 
-| Declared absence | Is there an action? | What the pack does |
-| --- | --- | --- |
-| A pushed aggregate kind | **yes** | Hands the adapter a plan carrying a pushed aggregate of the undeclared kind and asserts a TYPED REFUSAL. Worth having precisely because the planner is supposed to never generate one: this is the only thing that exercises the adapter's own guard, and a guard that silently computed it locally instead would be the failure |
-| A dialect | **yes** | Asks for the plan rendered in a dialect the adapter did not declare, and asserts a typed refusal. A compile-tier pack, so it needs no source |
-| Mutual TLS | **yes** | Constructs the adapter with a `Mutual` transport it did not declare and asserts the construction refuses. It is the same shape [transport security](0010-transport-security-for-a-source.md) already decides one variant down, where a driver that cannot verify at all offers no `Verified` construction and the deployment refuses - so this pack asserts the refusal exists rather than inventing it |
-| Arrow-native access | **no, not yet** | `Warehouse` has one result-bearing method and it returns a `RowSet`, so there is no Arrow entry point to call and nothing an absence could be observed at. Where an Arrow-typed boundary lives is undecided in [the plan](0009-the-plan-from-one-source-to-many.md); the pack arrives with the boundary and not before |
-| Impersonation | **no, and this one is the instructive case** | Nothing. See below |
+| Declared absence        | Is there an action?                          | What the pack does                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A pushed aggregate kind | **yes**                                      | Hands the adapter a plan carrying a pushed aggregate of the undeclared kind and asserts a TYPED REFUSAL. Worth having precisely because the planner is supposed to never generate one: this is the only thing that exercises the adapter's own guard, and a guard that silently computed it locally instead would be the failure                                                                        |
+| A dialect               | **yes**                                      | Asks for the plan rendered in a dialect the adapter did not declare, and asserts a typed refusal. A compile-tier pack, so it needs no source                                                                                                                                                                                                                                                            |
+| Mutual TLS              | **yes**                                      | Constructs the adapter with a `Mutual` transport it did not declare and asserts the construction refuses. It is the same shape [transport security](0010-transport-security-for-a-source.md) already decides one variant down, where a driver that cannot verify at all offers no `Verified` construction and the deployment refuses - so this pack asserts the refusal exists rather than inventing it |
+| Arrow-native access     | **no, not yet**                              | `Warehouse` has one result-bearing method and it returns a `RowSet`, so there is no Arrow entry point to call and nothing an absence could be observed at. Where an Arrow-typed boundary lives is undecided in [the plan](0009-the-plan-from-one-source-to-many.md); the pack arrives with the boundary and not before                                                                                  |
+| Impersonation           | **no, and this one is the instructive case** | Nothing. See below                                                                                                                                                                                                                                                                                                                                                                                      |
 
 **Why impersonation gets no negative pack.** Two candidate actions, and both are wrong. Presenting a
 subject credential to an adapter that declared it cannot impersonate, and asserting that the adapter
@@ -115,10 +115,10 @@ An illustrative name, then, from a row that has an action rather than from the r
 structural point here. Splitting the packs by what they require gives one tier that is hermetic and
 fast and one that is not:
 
-| Pack family | Needs | Pins |
-| --- | --- | --- |
+| Pack family       | Needs                            | Pins                                                                                                         |
+| ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | **Compile packs** | A catalog. No data system at all | The plan's serialized form, the rendered statement per dialect, the bind parameters, and the refusal variant |
-| **Execute packs** | A live source | The ROWS, and that they are identical to every other adapter's rows for the same case |
+| **Execute packs** | A live source                    | The ROWS, and that they are identical to every other adapter's rows for the same case                        |
 
 So a metadata adapter - markdown today, Datahub or OpenMetadata later - is conformance-tested entirely
 by compile packs, against every question in the corpus, with no container anywhere. A data adapter runs
@@ -147,12 +147,12 @@ comparison.** A `RowSet` is compared as the column labels in projection order, t
 each cell against the cell in the same column position. Each cell is reduced to a class and a value,
 and the classes are:
 
-| Class | Which `Value` variants | Canonical value |
-| --- | --- | --- |
-| null | `Null` | none. A null cell equals a null cell and nothing else |
-| exact integer | `Integer` | the integer itself |
-| approximate number | `Real` | the digits rule 2 states |
-| text | `Text` | the bytes, unchanged |
+| Class              | Which `Value` variants | Canonical value                                       |
+| ------------------ | ---------------------- | ----------------------------------------------------- |
+| null               | `Null`                 | none. A null cell equals a null cell and nothing else |
+| exact integer      | `Integer`              | the integer itself                                    |
+| approximate number | `Real`                 | the digits rule 2 states                              |
+| text               | `Text`                 | the bytes, unchanged                                  |
 
 Three things that shape is chosen to avoid, and the first is a defect in the harness this replaces.
 **`Value::render()` alone is not a canonical form for this comparison**, because `Value::Null` renders

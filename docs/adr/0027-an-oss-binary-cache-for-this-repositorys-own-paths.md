@@ -55,10 +55,10 @@ the clear**. The Actions cache is **kept**, because the two carry different thin
 
 ### Why both, and not one
 
-| Carrier | Holds | Unit |
-| --- | --- | --- |
-| the binary cache | nix **store paths** this repository builds | one path, content-addressed, deduplicated across every scope |
-| the Actions cache | the writable cargo target directories the warm start seeds, which are **not** store paths | one tarball per scope, per key |
+| Carrier           | Holds                                                                                     | Unit                                                         |
+| ----------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| the binary cache  | nix **store paths** this repository builds                                                | one path, content-addressed, deduplicated across every scope |
+| the Actions cache | the writable cargo target directories the warm start seeds, which are **not** store paths | one tarball per scope, per key                               |
 
 The Actions entry archives the whole store a job needs - the tier images, the duplicate-detector's
 runtime, the database engine, the coverage tools, the linker - **all of which the upstream cache

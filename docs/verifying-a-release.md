@@ -23,10 +23,10 @@ lock file.** Why that distinction is worth the sentence is under
 **Two binaries, at four target triples each.** Which one you want is the first choice to make, and
 nothing about the file names decides it for you:
 
-| Binary | What it is | Asset | Image tag |
-| --- | --- | --- | --- |
-| `sutura` | the command-line tool: `doctor`, `catalog`, `describe`, `prompt`, `compile`, `query` | `sutura-<triple>.tar.gz` | `:<version>`, `:latest`, `:<version>-musl`, `:latest-musl` |
-| `sutura-serve` | the service: answers certified questions over HTTP | `sutura-serve-<triple>.tar.gz` | `:<version>-serve`, `:latest-serve`, `:<version>-serve-musl`, `:latest-serve-musl` |
+| Binary         | What it is                                                                           | Asset                          | Image tag                                                                          |
+| -------------- | ------------------------------------------------------------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------- |
+| `sutura`       | the command-line tool: `doctor`, `catalog`, `describe`, `prompt`, `compile`, `query` | `sutura-<triple>.tar.gz`       | `:<version>`, `:latest`, `:<version>-musl`, `:latest-musl`                         |
+| `sutura-serve` | the service: answers certified questions over HTTP                                   | `sutura-serve-<triple>.tar.gz` | `:<version>-serve`, `:latest-serve`, `:<version>-serve-musl`, `:latest-serve-musl` |
 
 **One registry repository**, `ghcr.io/telekom/sutura`, and the tag says which binary. The unsuffixed
 tags have always been the command-line tool and they still are: pointing `:latest` at the server
@@ -47,18 +47,18 @@ the two documents answers is under [The licence statement](#the-licence-statemen
 
 ## What is signed
 
-| Artefact | Sigstore bundle | SLSA provenance | Registry signature |
-| --- | --- | --- | --- |
-| the eight binary tarballs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
-| the four musl image tarballs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
-| the sixteen SBOMs | `<asset>.sigstore.json`, attached to the release | yes | n/a |
-| the two licence documents | `<asset>.sigstore.json`, attached to the release | yes | n/a |
-| `image-digests.txt` | `<asset>.sigstore.json`, attached to the release | yes | n/a |
-| the `.sha256` sidecars | no | yes | n/a |
-| the eight leaf images | n/a | no | `cosign sign`, by digest |
-| the four manifest lists | n/a | yes | `cosign sign`, by digest |
-| each leaf image's CycloneDX SBOM | n/a | n/a | `cosign attest --type cyclonedx` |
-| `sutura-provenance.intoto.jsonl` | five existing signed attestation bundles | not recursively attested | n/a |
+| Artefact                         | Sigstore bundle                                  | SLSA provenance          | Registry signature               |
+| -------------------------------- | ------------------------------------------------ | ------------------------ | -------------------------------- |
+| the eight binary tarballs        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the four musl image tarballs     | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the sixteen SBOMs                | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the two licence documents        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| `image-digests.txt`              | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the `.sha256` sidecars           | no                                               | yes                      | n/a                              |
+| the eight leaf images            | n/a                                              | no                       | `cosign sign`, by digest         |
+| the four manifest lists          | n/a                                              | yes                      | `cosign sign`, by digest         |
+| each leaf image's CycloneDX SBOM | n/a                                              | n/a                      | `cosign attest --type cyclonedx` |
+| `sutura-provenance.intoto.jsonl` | five existing signed attestation bundles         | not recursively attested | n/a                              |
 
 Every count in that table is two binaries times four triples, or its consequence. A leaf and the SBOM
 beside it are named by the same key - `<triple>` for `sutura`, `serve-<triple>` for `sutura-serve` -
@@ -242,8 +242,8 @@ runs in CI on every dependency change and weekly regardless - a run, not a prope
 
 The release carries the workspace-wide attribution document beside the per-binary SBOMs.
 
-| Asset | What it is | Generated from |
-| --- | --- | --- |
+| Asset                   | What it is                                                                                      | Generated from                                                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `sutura-attribution.md` | every third-party crate this workspace resolves, with the SPDX expression its manifest declares | `cargo metadata`, generated in the release run from the tagged tree's own `Cargo.lock`. **There is no committed copy** |
 
 It is signed and carries provenance, so it verifies exactly like a binary tarball:
@@ -274,11 +274,11 @@ So the generator is the only owner, and the chain is shorter than it was: the re
 document from the `Cargo.lock` of the tag it is publishing, rather than copying a file from `main`
 that a gate had to keep honest. Three mechanisms hold it:
 
-| Mechanism | What it holds |
-| --- | --- |
-| `cargo xtask check-attribution` | a generation names every third-party package in `Cargo.lock` and carries a **declared licence for each one** - a crate declaring none is a refusal, where the old generator wrote `NOT DECLARED` and passed |
-| `cargo xtask check-attribution-owner` | no committed `ATTRIBUTION.md` comes back, and `release.yml` still generates the asset rather than copying one |
-| the release's own count floor | the generated bytes name at least a hundred crates, asserted against the file that will be signed - which catches a generator that writes a well formed document naming nothing |
+| Mechanism                             | What it holds                                                                                                                                                                                               |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo xtask check-attribution`       | a generation names every third-party package in `Cargo.lock` and carries a **declared licence for each one** - a crate declaring none is a refusal, where the old generator wrote `NOT DECLARED` and passed |
+| `cargo xtask check-attribution-owner` | no committed `ATTRIBUTION.md` comes back, and `release.yml` still generates the asset rather than copying one                                                                                               |
+| the release's own count floor         | the generated bytes name at least a hundred crates, asserted against the file that will be signed - which catches a generator that writes a well formed document naming nothing                             |
 
 **What this arrangement lost, stated plainly.** A new dependency's declared licence no longer shows
 up in a pull-request diff. Nothing here restores that. `cargo deny check` still *refuses* a licence

@@ -20,11 +20,11 @@ make it the cheap answer rather than the resigned one.
 
 `ci.yml` and `cross-link.yml` each carried three pieces of wiring:
 
-| piece | gated on |
-| --- | --- |
-| two `substituters` / `trusted-public-keys` lines in `install-nix-action`'s `extra_nix_config` | `secrets.NIX_CACHE_SUBSTITUTER`, `secrets.NIX_CACHE_PUBLIC_KEY` |
-| a `hosted:` input to `.github/actions/nix-store-cache`, feeding one summary row | `vars.NIX_CACHE_NAME` |
-| a `Populate the binary cache` step (`cachix/cachix-action`) | `github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.NIX_CACHE_NAME != ''` |
+| piece                                                                                         | gated on                                                                                      |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| two `substituters` / `trusted-public-keys` lines in `install-nix-action`'s `extra_nix_config` | `secrets.NIX_CACHE_SUBSTITUTER`, `secrets.NIX_CACHE_PUBLIC_KEY`                               |
+| a `hosted:` input to `.github/actions/nix-store-cache`, feeding one summary row               | `vars.NIX_CACHE_NAME`                                                                         |
+| a `Populate the binary cache` step (`cachix/cachix-action`)                                   | `github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.NIX_CACHE_NAME != ''` |
 
 **None of those four names has ever existed in this repository.** Read on 2026-09-08: the repository
 declares no Actions variables at all (`total_count: 0`). So the two `extra_nix_config` lines
@@ -73,18 +73,18 @@ are exactly what a pull request restores from, and there is no second carrier st
 
 ## What this record does NOT say
 
-* **Not that a binary cache would not help a cold run.** A genuinely cold run - a moved
+- **Not that a binary cache would not help a cold run.** A genuinely cold run - a moved
   `flake.lock` or `Cargo.lock` - still compiles a dependency closure that is one of the largest in
   the ecosystem, and that is what `ci.yml`'s job timeout exists for. A hosted cache is a
   real answer to that case. It is refused here because the case is rare, the gain is unmeasured
   against a 64% spread, and it costs a trusted third-party key.
-* **Not that the Actions cache is fast.** `#490` is explicit that it buys hygiene and legibility.
+- **Not that the Actions cache is fast.** `#490` is explicit that it buys hygiene and legibility.
   The measured hit rate says the closure is reused; it says nothing about seconds.
-* **Not that the entry always fits.** GitHub refuses a single cache entry over 10 GB and this store
+- **Not that the entry always fits.** GitHub refuses a single cache entry over 10 GB and this store
   has never been weighed. If a save is refused, the summary line says so and the next run compiles.
   There is no fallback carrier any more, and that is the cost of this decision, stated here rather
   than left for a reader to discover.
-* **Not a statement about the repository's cache allocation.** `orgs/{org}/actions/cache/usage`
+- **Not a statement about the repository's cache allocation.** `orgs/{org}/actions/cache/usage`
   answers 403 without `admin:org`, so the allocation and its headroom are not re-readable by a
   contributor. The 100 GB figure is `#472`'s measurement.
 
@@ -92,12 +92,12 @@ are exactly what a pull request restores from, and there is no second carrier st
 
 `cargo xtask check-workflows` refuses, over the whole `.github` tree:
 
-* any step naming a hosted binary-cache publisher (`cachix/cachix-action`,
+- any step naming a hosted binary-cache publisher (`cachix/cachix-action`,
   `DeterminateSystems/flakehub-cache-action`) while this record stands;
-* any step in ordinary CI whose `if:` or `save:` reads `secrets.` or `vars.` - repository state the
+- any step in ordinary CI whose `if:` or `save:` reads `secrets.` or `vars.` - repository state the
   workflow cannot observe, so the step's own skip is invisible. `secrets` is not even available to an
   `if:`, and a `vars` test in one is the exact shape that was silently green here;
-* this record being missing or empty, for `sast.rs`'s reason: a refusal enforcing a decision nobody
+- this record being missing or empty, for `sast.rs`'s reason: a refusal enforcing a decision nobody
   wrote down is a rule with no reason.
 
 **Adding a binary cache later is a good change, and it makes this record wrong the moment it lands.**

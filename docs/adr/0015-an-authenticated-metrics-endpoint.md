@@ -36,11 +36,11 @@ there is no length oracle. **One comparison implementation, reused rather than c
 
 Three startup refusals, each preventing a silent collapse of the separation:
 
-| Refused at boot | Why |
-| --- | --- |
-| `metrics_token` equal to `access_token` | Collapses the separation this record exists for, and nothing at runtime would show it |
+| Refused at boot                                                                     | Why                                                                                                                                   |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `metrics_token` equal to `access_token`                                             | Collapses the separation this record exists for, and nothing at runtime would show it                                                 |
 | `/metrics` enabled with no `metrics_token`, in production or on a non-loopback bind | The existing `AccessTokenRequired` argument verbatim: the alternative is an unauthenticated way to read whatever the process can read |
-| Registry initialisation failing | A `200` carrying half the series is worse than a process that did not start |
+| Registry initialisation failing                                                     | A `200` carrying half the series is worse than a process that did not start                                                           |
 
 **The limiter sits OUTSIDE the gate**, as `sutura-http`'s router already requires and for the reason
 recorded there: with the gate outermost a wrong-token attempt never cost a limiter cell, which made a
@@ -134,21 +134,21 @@ that is somebody's choice rather than a caller's. Layer two catches that. **Ther
 
 ## The series
 
-| Metric | Type | Labels | Why an operator needs it |
-| --- | --- | --- | --- |
-| `sutura_questions_total` | counter | `code` | Rate, error rate, and the governance-versus-fault split. **A refusal is a correct outcome and must not page anybody**; `unavailable` and `internal` must. Nothing else separates them |
-| `sutura_question_duration_seconds` | histogram | `outcome` | Whether the deployment is slow. Buckets chosen so the request timeout and the admission window both fall inside |
-| `sutura_execution_slots` | gauge | - | The capacity denominator |
-| `sutura_execution_slots_in_use` | gauge | - | **The most important load number here.** A slot is held until the WORK finishes, not until the caller is answered, so this is true in-flight work - which a request counter is not |
-| `sutura_admission_shed_total` | counter | - | Separates "busy" from "shedding", which is what decides replicas versus bounds |
-| `sutura_admission_wait_seconds` | histogram | - | Eight of eight slots with no wait is healthy; eight of eight with a four-second p99 is about to shed. Slots alone cannot tell you which |
-| `sutura_rate_limited_total` | counter | `tier` | The abuse signal. `docs/serving.md` says deliberately that an unauthenticated caller can consume quota, and this is how an operator sees it |
-| `sutura_rate_limit_buckets` | gauge | `tier` | The limiter's keyed store grows and is swept on an interval. This is its memory signal, and `LimiterHandle::tracked()` already exists and is read by nothing |
-| `sutura_unauthorized_total` | counter | - | Credential problem or attack. **No address label** - that would be an access log |
-| `sutura_answer_rows` | histogram | - | How close answers run to the row cap, which is a real capacity question. A histogram discloses a distribution, never a question |
-| `sutura_catalog_metrics` | gauge | - | The governed-coverage number [the raw SQL tool](0013-a-raw-sql-tool-off-by-default.md) depends on: *coverage is reported* is one of its three ramp mechanisms, and a deployment where it does not rise has learned something |
-| `sutura_engine_worker_threads` | gauge | - | `docs/serving.md` warns the default is `available_parallelism`, which under a CPU quota reports the host's cores and is usually too wide. Today that number exists only in a startup line that has scrolled away |
-| `sutura_build_info` | gauge (=1) | `version`, `catalog_version`, `definition_version`, `environment` | Correlates "the numbers changed" with "the catalog changed" |
+| Metric                             | Type       | Labels                                                            | Why an operator needs it                                                                                                                                                                                                     |
+| ---------------------------------- | ---------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sutura_questions_total`           | counter    | `code`                                                            | Rate, error rate, and the governance-versus-fault split. **A refusal is a correct outcome and must not page anybody**; `unavailable` and `internal` must. Nothing else separates them                                        |
+| `sutura_question_duration_seconds` | histogram  | `outcome`                                                         | Whether the deployment is slow. Buckets chosen so the request timeout and the admission window both fall inside                                                                                                              |
+| `sutura_execution_slots`           | gauge      | -                                                                 | The capacity denominator                                                                                                                                                                                                     |
+| `sutura_execution_slots_in_use`    | gauge      | -                                                                 | **The most important load number here.** A slot is held until the WORK finishes, not until the caller is answered, so this is true in-flight work - which a request counter is not                                           |
+| `sutura_admission_shed_total`      | counter    | -                                                                 | Separates "busy" from "shedding", which is what decides replicas versus bounds                                                                                                                                               |
+| `sutura_admission_wait_seconds`    | histogram  | -                                                                 | Eight of eight slots with no wait is healthy; eight of eight with a four-second p99 is about to shed. Slots alone cannot tell you which                                                                                      |
+| `sutura_rate_limited_total`        | counter    | `tier`                                                            | The abuse signal. `docs/serving.md` says deliberately that an unauthenticated caller can consume quota, and this is how an operator sees it                                                                                  |
+| `sutura_rate_limit_buckets`        | gauge      | `tier`                                                            | The limiter's keyed store grows and is swept on an interval. This is its memory signal, and `LimiterHandle::tracked()` already exists and is read by nothing                                                                 |
+| `sutura_unauthorized_total`        | counter    | -                                                                 | Credential problem or attack. **No address label** - that would be an access log                                                                                                                                             |
+| `sutura_answer_rows`               | histogram  | -                                                                 | How close answers run to the row cap, which is a real capacity question. A histogram discloses a distribution, never a question                                                                                              |
+| `sutura_catalog_metrics`           | gauge      | -                                                                 | The governed-coverage number [the raw SQL tool](0013-a-raw-sql-tool-off-by-default.md) depends on: *coverage is reported* is one of its three ramp mechanisms, and a deployment where it does not rise has learned something |
+| `sutura_engine_worker_threads`     | gauge      | -                                                                 | `docs/serving.md` warns the default is `available_parallelism`, which under a CPU quota reports the host's cores and is usually too wide. Today that number exists only in a startup line that has scrolled away             |
+| `sutura_build_info`                | gauge (=1) | `version`, `catalog_version`, `definition_version`, `environment` | Correlates "the numbers changed" with "the catalog changed"                                                                                                                                                                  |
 
 **`definition_digest` is deliberately not a label.** Sixty-four hex characters that change on every
 catalog edit, leaving a stale series per deploy. It is already in every answer's provenance and in the
@@ -174,6 +174,9 @@ Three series - reserved bytes, the limit, and refusals - are specified and **mus
 **Verified: there is no engine memory pool.** No `RuntimeEnv` is constructed anywhere in the workspace,
 so DataFusion installs its unbounded pool. `SessionContext::new()` and `new_with_config` are the two
 construction sites and neither sets one.
+
+**Both of those absences are corrected further down this section, and the word *Verified* above is
+why the pointer is here rather than only there:** a reader who stops at it does not go looking.
 
 So a gauge reading `0` would be a lie an operator builds an alert on. **Register the series only when a
 pool is configured: absent, not zero.**

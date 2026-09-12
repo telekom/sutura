@@ -37,8 +37,8 @@ thiserror = { workspace = true }
 # manifest's whole point over `docs/adr/0012` and the portability contract: they never reach a data
 # adapter binding the execute packs.
 sutura-semantic = { workspace = true, optional = true }
-sutura-sql       = { workspace = true, optional = true }
-serde_json       = { workspace = true, optional = true }
+sutura-sql = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 # The developer-workflow crate, for ONE test and one reason: `src/lib.rs` spells
 # `SUTURA_DEV_REQUIRE_TIER` and its truthiness a second time, because `not_here` has to judge an

@@ -151,10 +151,10 @@ catalog*. Precisely:
 The mode is what the security argument keys on, and it is the configured one - because that is what
 decides what a caller actually gets.
 
-| Mode | What it means | What decides what a subject sees |
-| --- | --- | --- |
-| `SharedServiceUser` | Every query reaches the source under one identity the deployment holds | That identity's grants. Every caller sees the same rows |
-| `ImpersonationAtSource` | Each query reaches the source as the asking subject | The SOURCE: its IAM, its row and column policies, its own catalog |
+| Mode                    | What it means                                                          | What decides what a subject sees                                  |
+| ----------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `SharedServiceUser`     | Every query reaches the source under one identity the deployment holds | That identity's grants. Every caller sees the same rows           |
+| `ImpersonationAtSource` | Each query reaches the source as the asking subject                    | The SOURCE: its IAM, its row and column policies, its own catalog |
 
 **Sensitivity is not declared here, and that is deliberate.** What a person may see lives in the data
 catalog and in that person's own permissions at the source. Sutura does not carry a per-dataset
@@ -237,19 +237,19 @@ impersonation it has no way to perform.
   time.
 - **No capability negotiated at run time**, and the two sides of that are not the same sentence, which
   an earlier version of this bullet got wrong by generalising.
-    - **The DATA-side mode and capabilities are fixed for the life of the process.** They are
-      configuration, read once at startup, and nothing at run time can widen them. That is what lets
-      the boot check mean anything: a source that gains a capability is a deployment change, and a
-      deployment change is a restart.
-    - **The METADATA-side declaration is under the definition digest and travels with the bundle**, so
-      the TTL refresh above swaps it along with everything else. It does not change *within* a bundle
-      and no request can renegotiate it, but it is not fixed for the life of the process, and a
-      deployment whose catalog stopped declaring a knowledge capability finds out at the next refresh
-      rather than at the next restart. That is deliberate - it is the same swap, and the digest is what
-      makes it visible - but calling it unchanging was simply false.
-  Neither side is negotiated with a caller, which is the property this bullet is actually about: there
-  is no handshake, no probe and no request field that could ask for a capability, so nothing a caller
-  sends changes what a source can do.
+  - **The DATA-side mode and capabilities are fixed for the life of the process.** They are
+    configuration, read once at startup, and nothing at run time can widen them. That is what lets
+    the boot check mean anything: a source that gains a capability is a deployment change, and a
+    deployment change is a restart.
+  - **The METADATA-side declaration is under the definition digest and travels with the bundle**, so
+    the TTL refresh above swaps it along with everything else. It does not change *within* a bundle
+    and no request can renegotiate it, but it is not fixed for the life of the process, and a
+    deployment whose catalog stopped declaring a knowledge capability finds out at the next refresh
+    rather than at the next restart. That is deliberate - it is the same swap, and the digest is what
+    makes it visible - but calling it unchanging was simply false.
+    Neither side is negotiated with a caller, which is the property this bullet is actually about: there
+    is no handshake, no probe and no request field that could ask for a capability, so nothing a caller
+    sends changes what a source can do.
 - **No adapter-specific vocabulary leaking inward.** The real test of pluggability is not the trait,
   it is whether the pinned bundle stays catalog-neutral. The moment a provider's own identifier,
   aspect name or property shape appears in the domain's public types, the port is decorative and the
@@ -288,25 +288,25 @@ the ones that exist today are marked.
 
 **Metadata**, declaring which kinds it provides:
 
-| Connector | State |
-| --- | --- |
-| Wren-style markdown and YAML | ships |
-| OKF-style markdown and YAML | target |
-| Datahub | target, and the one that has been **measured** rather than assumed - [what DataHub can carry](0016-what-datahub-can-carry.md) reads its published model field by field and finds a narrow source, so it is the canonical instance of an adapter that DECLARES rather than of the rich one that needs no declaration. It is also the record that schedules the metadata-side declaration this section describes, and that found composition is not a precondition for a narrow source |
-| OpenMetadata | target |
-| A custom data catalog over an RDBMS | target, and the one specified in full below - including the thing it may NOT do, which is contribute source-level usage prose to the prompt |
-| BPMN | target |
-| RDF | target |
+| Connector                           | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Wren-style markdown and YAML        | ships                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| OKF-style markdown and YAML         | target                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Datahub                             | target, and the one that has been **measured** rather than assumed - [what DataHub can carry](0016-what-datahub-can-carry.md) reads its published model field by field and finds a narrow source, so it is the canonical instance of an adapter that DECLARES rather than of the rich one that needs no declaration. It is also the record that schedules the metadata-side declaration this section describes, and that found composition is not a precondition for a narrow source |
+| OpenMetadata                        | target                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| A custom data catalog over an RDBMS | target, and the one specified in full below - including the thing it may NOT do, which is contribute source-level usage prose to the prompt                                                                                                                                                                                                                                                                                                                                          |
+| BPMN                                | target                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| RDF                                 | target                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 **Data**, declaring a mode and its capabilities:
 
-| Connector | Mode it can declare |
-| --- | --- |
+| Connector                   | Mode it can declare                                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | DataFusion over local files | `SharedServiceUser`, and it is the only one of these that SHIPS: both binaries link it, so it is the first adapter the mode is declared for |
-| DuckDB | `SharedServiceUser`. A development dependency today |
-| PostgreSQL | either, and `ImpersonationAtSource` from 18 through the native OAuth method |
-| BigQuery | either, with impersonation through a federated exchange whose principal is the person |
-| Oracle | either, with impersonation through proxy authentication, which records the chain natively |
+| DuckDB                      | `SharedServiceUser`. A development dependency today                                                                                         |
+| PostgreSQL                  | either, and `ImpersonationAtSource` from 18 through the native OAuth method                                                                 |
+| BigQuery                    | either, with impersonation through a federated exchange whose principal is the person                                                       |
+| Oracle                      | either, with impersonation through proxy authentication, which records the chain natively                                                   |
 
 Two things this list is meant to make obvious. The metadata side is where most of the growth is, and
 none of it touches the query path: a metadata connector answers what a metric MEANS. And the data side
@@ -327,12 +327,12 @@ everything - a full metadata platform provides metrics, descriptions, glossary a
 and a deployment reading only that one needs no composition at all. Composition exists for the NARROW
 sources, and this is the canonical narrow one:
 
-| Provides | Declared |
-| --- | --- |
-| Structure: tables, columns, types | **yes** - this is most of what it has |
-| Comments as descriptions | **yes** - the other part |
-| Relationships, from foreign keys | **yes**, with evidence rather than assertion - see below |
-| Certified metrics, measures, grains, allowed values | **no** - a human declares those elsewhere |
+| Provides                                            | Declared                                                 |
+| --------------------------------------------------- | -------------------------------------------------------- |
+| Structure: tables, columns, types                   | **yes** - this is most of what it has                    |
+| Comments as descriptions                            | **yes** - the other part                                 |
+| Relationships, from foreign keys                    | **yes**, with evidence rather than assertion - see below |
+| Certified metrics, measures, grains, allowed values | **no** - a human declares those elsewhere                |
 
 **And here is the part worth having this connector for.** The root-of-trust file records a real gap:
 *"catalog cardinality is a trusted precondition: nothing checks the declaration against the data"*. A
@@ -404,11 +404,11 @@ no new referent, no new channel.
 **Which leaves the three concrete examples, and two of them were never knowledge to begin with.** That
 is the part the withdrawn claim obscured by calling them all one thing:
 
-| What the draft wanted to say | Where it belongs instead |
-| --- | --- |
+| What the draft wanted to say                                                                                 | Where it belongs instead                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "Search the catalog before selecting anything", "a name must be schema-qualified or the database rejects it" | **First-party prompt text**, in `sutura-app`'s prompt module, beside the bounds and the refusal section it already renders. These are facts about the TOOL SURFACE, not about a catalog's content - they do not vary per catalog, and a catalog is the wrong owner for them. Owned by this repository, in a diff, under the prompt snapshot |
-| "This source carries no certified metric layer" | **Derived from the pinned bundle**, not authored. A bundle with no metrics is a fact the prompt can state from what it was handed, and stating it from content would let a source claim the opposite of what it shipped |
-| What a column or a table MEANS | **Descriptions**, which this connector already declares and which render where descriptions render. This half was always available and is not affected |
+| "This source carries no certified metric layer"                                                              | **Derived from the pinned bundle**, not authored. A bundle with no metrics is a fact the prompt can state from what it was handed, and stating it from content would let a source claim the opposite of what it shipped                                                                                                                     |
+| What a column or a table MEANS                                                                               | **Descriptions**, which this connector already declares and which render where descriptions render. This half was always available and is not affected                                                                                                                                                                                      |
 
 Two things worth being exact about, because this is a withdrawal and a withdrawal that overstates its
 own repair is the same defect in a new place. **The first row is a change to first-party prompt prose
@@ -600,12 +600,12 @@ certified metric is exactly as smooth as the amount already filled in.
 That makes flattening every source to "it provides descriptions" a waste. Some sources know far more,
 and the declaration should be able to say so:
 
-| Source | What it can carry beyond descriptions |
-| --- | --- |
-| DDL and comments | Columns and types; foreign keys as relationships; primary-key and unique constraints as **evidence** for cardinality |
-| An ontology in RDF | Labels and alternative labels as glossary phrases; definitions as descriptions; domain and range as relationships; **functional properties and cardinality restrictions as cardinality evidence**; a class hierarchy as dimension structure |
-| A process model in BPMN | The stages of a process as the **allowed values** of a status dimension, in their real order, each with what it means |
-| A full metadata platform | All of the above, declared as such, so a deployment reading only that one composes nothing |
+| Source                   | What it can carry beyond descriptions                                                                                                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DDL and comments         | Columns and types; foreign keys as relationships; primary-key and unique constraints as **evidence** for cardinality                                                                                                                        |
+| An ontology in RDF       | Labels and alternative labels as glossary phrases; definitions as descriptions; domain and range as relationships; **functional properties and cardinality restrictions as cardinality evidence**; a class hierarchy as dimension structure |
+| A process model in BPMN  | The stages of a process as the **allowed values** of a status dimension, in their real order, each with what it means                                                                                                                       |
+| A full metadata platform | All of the above, declared as such, so a deployment reading only that one composes nothing                                                                                                                                                  |
 
 **One constraint runs through the whole table and is the same one the withdrawal above turns on.** A
 glossary entry carries a `Referent` - `GlossaryEntry` holds `means: Referent`, and there is no

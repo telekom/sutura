@@ -49,13 +49,13 @@ what the pipeline built" from "this is what the page currently serves".
 Concretely, in `publish` - the one job that can write anything and the one job that compiles
 nothing:
 
-| What | Mechanism |
-| --- | --- |
-| every release asset except the `.sha256` sidecars | `cosign sign-blob --bundle`, one `.sigstore.json` per asset, attached |
-| all six image references, four leaves and two lists | `cosign sign`, **by digest** |
-| each leaf image's CycloneDX SBOM | `cosign attest --type cyclonedx`, attached to the image |
-| every asset including the sidecars | `actions/attest-build-provenance`, one call via `subject-checksums` |
-| the two manifest lists | `actions/attest-build-provenance`, one call each via `subject-digest` |
+| What                                                | Mechanism                                                             |
+| --------------------------------------------------- | --------------------------------------------------------------------- |
+| every release asset except the `.sha256` sidecars   | `cosign sign-blob --bundle`, one `.sigstore.json` per asset, attached |
+| all six image references, four leaves and two lists | `cosign sign`, **by digest**                                          |
+| each leaf image's CycloneDX SBOM                    | `cosign attest --type cyclonedx`, attached to the image               |
+| every asset including the sidecars                  | `actions/attest-build-provenance`, one call via `subject-checksums`   |
+| the two manifest lists                              | `actions/attest-build-provenance`, one call each via `subject-digest` |
 
 The tools come from the locked nixpkgs as `apps.cosign` and `apps.syft`, for the reason `apps.deny`
 states at length: `nix run nixpkgs#cosign` resolves through the flake registry to whatever
@@ -327,11 +327,11 @@ Not claimed, and each is a real edge:
 
 Measured on 2026-08-31 against `nix build .#sutura`, the native release binary:
 
-| Reader | Result |
-| --- | --- |
-| `rust-audit-info` | **263 packages**, `datafusion` among them |
-| `syft`, CycloneDX | **241 components** |
-| `syft`, SPDX | **242 ids** - the 241 packages plus the document itself |
+| Reader            | Result                                                  |
+| ----------------- | ------------------------------------------------------- |
+| `rust-audit-info` | **263 packages**, `datafusion` among them               |
+| `syft`, CycloneDX | **241 components**                                      |
+| `syft`, SPDX      | **242 ids** - the 241 packages plus the document itself |
 
 So the section is embedded and the reader the release path uses turns it into an inventory. Both
 halves are observed rather than argued.

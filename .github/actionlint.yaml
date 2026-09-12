@@ -25,9 +25,14 @@
 # runs `actionlint` against this file - inside `ci`, the one required context. The refusal is
 # `label "rust-mcp" is unknown. available labels are ...`.
 #
-# `rust-mcp-16core` IS in use: the mostly-cached jobs moved to it, measured at the same median
-# wall as the 32-core label. The build-and-publish jobs stayed on 32.
-# change first measures it.
+# `rust-mcp-16core` IS in use, and now carries two kinds of job on two different arguments. #614
+# moved the mostly-cached ones, measured at the same median wall as the 32-core label. The
+# cache-writer jobs in `cachix-push.yml` followed, and that median explicitly does NOT carry them -
+# they do compile; the argument recorded in that file is that they gate nothing and that one cold
+# crane-clippy realise left the 32-core host 77% idle on average. The writers' multi-root workload is
+# unmeasured. What is left on `rust-mcp-32core`
+# is the set the owner's rule keeps there: fuzz, release, release-performance, and the runner probe
+# whose whole purpose is to characterise that host.
 self-hosted-runner:
   labels:
     - rust-mcp-32core
