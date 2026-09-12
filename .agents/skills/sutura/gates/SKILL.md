@@ -617,9 +617,11 @@ panic-free.
   silence. The cause was `if let Ok(entries) = read_dir(..)` plus `.flatten()` on the `ReadDir`:
   two silent drops in the DOOR into the tree, one level below every count. **Ask which arm
   DISCOVERS the subject, and read that one before believing any pair of numbers above it.** The
-  same shape is live in `repo.rs`' three shared walkers (`all_files`, `collect_files`,
-  `collect_text_files`, 25 production call sites), where `chmod 000 docs/adr` - the directory
-  holding the ADR this gate's own remedies cite - is still exit 0 and silent.
+  same shape was live one level below, in `repo.rs`' shared walkers, and **the remedy was made
+  there rather than per gate**: every door returns a `Census` and the walk RECORDS what it could
+  not reach instead of returning a shorter list. Measured on this branch with `chmod 000 docs/adr`
+  - the directory holding the ADR this gate's own remedies cite - `check-shipped-binaries` and
+  `check-docs` both refuse at exit 1 naming `docs/adr`, where both were exit 0 and silent.
 - **A FLOOR COMPUTED INSIDE THE THING IT POLICES IS NOT A FLOOR.** The same gate grew a substring
   sighting of its key, subtracted from the lines its parser accounted for, so a spelling the
   parser does not recognise is a verdict rather than a silence - which is what reached

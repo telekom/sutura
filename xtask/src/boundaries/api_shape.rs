@@ -45,14 +45,32 @@ pub(crate) struct Report {
     pub(crate) problems: Vec<String>,
 }
 
-/// Repo-relative `src` directory of every workspace package that produces a library.
-fn library_src_dirs(meta: &serde_json::Value, root: &Path) -> Result<Vec<String>, String> {
+/// Every workspace library, as the source tree it owns and the crate root file inside it.
+///
+/// **`roots` is the [`repo::Census::inspect`] anchor set, and it is DERIVED rather than declared.**
+/// That is `github.com/telekom/sutura#414`'s named residual for this gate: a declared anchor
+/// survives a scope that excludes most of the tree as long as the one named file stays inside it,
+/// while a set taken from `cargo metadata` grows with the workspace, so a member whose source
+/// stops being reached refuses by name.
+#[derive(Debug)]
+struct Libraries {
+    /// Repo-relative `src` directory of every library package.
+    dirs: Vec<String>,
+    /// Repo-relative crate root file of each, in the same derivation.
+    roots: Vec<String>,
+}
+
+/// Read [`Libraries`] off `cargo metadata`.
+fn libraries(meta: &serde_json::Value, root: &Path) -> Result<Libraries, String> {
     let packages = meta
         .get("packages")
         .and_then(|p| p.as_array())
         .ok_or_else(|| String::from("cargo metadata had no `packages` array"))?;
 
-    let mut dirs = Vec::new();
+    let mut found = Libraries {
+        dirs: Vec::new(),
+        roots: Vec::new(),
+    };
     for package in packages {
         let targets = package.get("targets").and_then(|t| t.as_array());
         for target in targets.into_iter().flatten() {
@@ -63,18 +81,22 @@ fn library_src_dirs(meta: &serde_json::Value, root: &Path) -> Result<Vec<String>
                 continue;
             };
             // `src_path` is the crate root file; its directory is the crate's whole source.
-            if let Some(dir) = Path::new(src_path).parent().and_then(|d| repo::relative(root, d)) {
-                dirs.push(dir);
+            let Some(dir) = Path::new(src_path).parent().and_then(|d| repo::relative(root, d)) else {
+                continue;
+            };
+            if let Some(crate_root) = repo::relative(root, Path::new(src_path)) {
+                found.roots.push(crate_root);
             }
+            found.dirs.push(dir);
         }
     }
-    if dirs.is_empty() {
+    if found.dirs.is_empty() {
         // A vacuous pass is the failure mode a gate exists to prevent, so say so instead.
         return Err(String::from(
             "no library target in the workspace - this gate would check nothing",
         ));
     }
-    Ok(dirs)
+    Ok(found)
 }
 
 /// Is this cargo target a library? `rlib` because that is what cargo reports for a plain
@@ -327,28 +349,52 @@ fn is_rust(path: &str) -> bool {
 /// not ours - would fail our gate.
 pub(crate) fn check() -> Result<Report, String> {
     let meta = crate::cargo_metadata(&["--no-deps"])?;
-    let (root, files) = repo::all_files()
-        .and_then(|census| census.into_listing(repo::Unmigrated::Boundaries))
-        .map_err(|why| why.describe())?;
-    let dirs = library_src_dirs(&meta, &root)?;
-    let mut problems = dynamic_error_deps(&meta)?;
+    let root = repo::root().ok_or_else(|| String::from("could not determine the repo root"))?;
+    let census = repo::all_files().map_err(|why| why.describe())?;
+    let libs = libraries(&meta, &root)?;
+    let problems = dynamic_error_deps(&meta)?;
+    scan(census, &libs, problems)
+}
 
-    let mut checked = 0usize;
-    for rel in &files {
-        if !is_rust(rel) || !dirs.iter().any(|dir| rel.starts_with(dir.as_str())) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
-        checked = checked.saturating_add(1);
-        problems.extend(pub_field_violations(rel, &text));
-        problems.extend(stringly_error_violations(rel, &text));
-    }
+/// The per-file half, over a census this function does not mint.
+///
+/// **The read is the census's**, which is `github.com/telekom/sutura#619` for this gate. What stood
+/// here was `let Ok(text) = std::fs::read_to_string(root.join(rel)) else { continue; }` above
+/// `checked = checked.saturating_add(1)`, so an in-scope library file the gate could not open
+/// recorded no finding and left the total one lower than the tree: re-measured on `bf59f9dc` with
+/// `crates/sutura-domain/src/lib.rs` at mode `000`, `228 library source file(s)` became `227`,
+/// both at **exit 0** - and the file used for the measurement is the hexagon's own interior.
+///
+/// **Scope is `is_rust` and the library-directory test is inside the closure**, deliberately.
+/// [`repo::Scope`] is a bare `fn`, so it cannot be handed `libs`; putting the directory test in the
+/// closure means every `.rs` in the tree is READ and only some are judged by the rule. That costs a
+/// read per test file and buys the property: a `.rs` file this gate cannot open refuses whether or
+/// not the rule would have applied to it, and `checked` stays an independent instrument beside the
+/// census's own.
+fn scan(census: repo::Census, libs: &Libraries, mut problems: Vec<String>) -> Result<Report, String> {
+    let anchors: Vec<&str> = libs.roots.iter().map(String::as_str).collect();
+    let mut checked = 0_usize;
+    let scope: repo::Scope = is_rust;
+    census
+        .inspect(&anchors, scope, |rel, bytes| {
+            if !libs.dirs.iter().any(|dir| rel.starts_with(dir.as_str())) {
+                return;
+            }
+            // Lossy rather than a UTF-8 read: a file the census opened is one this gate judges, and
+            // turning a decode failure back into an unread file rebuilds the drop above.
+            let text = String::from_utf8_lossy(bytes);
+            checked = checked.saturating_add(1);
+            problems.extend(pub_field_violations(rel, &text));
+            problems.extend(stringly_error_violations(rel, &text));
+        })
+        .map_err(|why| why.describe())?;
     if checked == 0 {
+        // Kept beside the census's refusals rather than replaced by them: the anchors are
+        // discharged by the census's READ, so a broken library-directory test inside the closure
+        // would leave every anchor satisfied and this count at zero.
         return Err(format!(
-            "found {} library source director(ies) but no .rs file in them",
-            dirs.len()
+            "found {} library source director(ies) but no .rs file judged in them",
+            libs.dirs.len()
         ));
     }
     Ok(Report {
@@ -373,7 +419,7 @@ pub(crate) fn explain() {
 mod tests {
     use std::path::Path;
 
-    use super::{dynamic_error_deps, library_src_dirs, pub_field_violations, result_error_types, stringly_error_violations};
+    use super::{dynamic_error_deps, libraries, pub_field_violations, result_error_types, stringly_error_violations};
 
     /// One library (`lib-crate`) and one binary (`bin-crate`), shaped like `cargo metadata`.
     fn metadata() -> serde_json::Value {
@@ -396,10 +442,105 @@ mod tests {
         .expect("fixture parses")
     }
 
+    /// One scratch library, as [`super::libraries`] would have derived it.
+    fn one_library() -> super::Libraries {
+        super::Libraries {
+            dirs: vec![String::from("crates/thing/src")],
+            roots: vec![String::from("crates/thing/src/lib.rs")],
+        }
+    }
+
+    /// This half's per-file scan, over a scratch tree rather than over the repo.
+    ///
+    /// `repo::collect_files` is an existing census door and it takes a ROOT. Its extension arm does
+    /// not open a file, so a sealed fixture reaches [`super::scan`]'s read and fails there.
+    fn scan_over(tree: &crate::scratch_tree::Tree, libs: &super::Libraries) -> Result<super::Report, String> {
+        super::scan(
+            crate::repo::collect_files(tree.root(), tree.root(), &["png", "rs"]),
+            libs,
+            Vec::new(),
+        )
+    }
+
+    /// Re-measured on `bf59f9dc`: `let Ok(text) = read_to_string(..) else { continue; }` above
+    /// `checked` printed `228 library source file(s)` readable and `227` with
+    /// `crates/sutura-domain/src/lib.rs` at mode `000`, both at **exit 0** - a fail-open on the
+    /// hexagon's own interior, hidden by a denominator taken off the loop that dropped it.
+    #[cfg(unix)]
     #[test]
-    fn only_library_targets_are_in_scope() {
-        let dirs = library_src_dirs(&metadata(), Path::new("/repo")).expect("one library");
-        assert_eq!(dirs, vec![String::from("crates/lib-crate/src")]);
+    fn an_unreadable_library_file_refuses_instead_of_shrinking_the_count() {
+        let libs = one_library();
+        let mut tree = crate::scratch_tree::Tree::of(
+            "api-shape-sealed",
+            &[
+                ("crates/thing/src/lib.rs", b"pub struct Ok(u8);\n"),
+                ("crates/thing/src/other.rs", b"pub struct Fine(u8);\n"),
+            ],
+        );
+        let control = scan_over(&tree, &libs).expect("a readable tree scans");
+        assert_eq!(control.files, 2, "{:?}", control.problems);
+
+        if !tree.seal("crates/thing/src/other.rs") {
+            // Mode bits ignored for this uid; asserting a refusal here would assert nothing.
+            return;
+        }
+        let Err(why) = scan_over(&tree, &libs) else {
+            panic!("an unreadable library file produced a verdict over the rest of the tree");
+        };
+        assert!(
+            why.contains("crates/thing/src/other.rs"),
+            "the refusal has to name the file it could not read: {why}"
+        );
+    }
+
+    /// #412's trap: a PNG beside the source is OUT OF SCOPE rather than unreadable.
+    /// `check-shipped-binaries` reddened a correct tree exactly this way.
+    #[test]
+    fn a_binary_file_beside_the_source_is_not_a_refusal() {
+        let tree = crate::scratch_tree::Tree::of(
+            "api-shape-binary",
+            &[
+                ("crates/thing/src/lib.rs", b"pub struct Ok(u8);\n"),
+                ("crates/thing/src/icon.png", b"\x89PNG\r\n\x1a\n\x00"),
+            ],
+        );
+        let report = scan_over(&tree, &one_library()).expect("a PNG is out of scope, not unreadable");
+        assert_eq!(report.files, 1, "only the Rust file is judged");
+    }
+
+    /// The anchors are derived, so a library whose source the enumeration no longer reaches refuses
+    /// BY NAME - the arm a `checked == 0` floor cannot hold, because the floor is satisfied by any
+    /// one file.
+    #[test]
+    fn a_library_whose_crate_root_is_not_in_the_tree_refuses() {
+        let tree = crate::scratch_tree::Tree::of(
+            "api-shape-anchor",
+            &[("crates/thing/src/other.rs", b"pub struct Fine(u8);\n")],
+        );
+        let Err(why) = scan_over(&tree, &one_library()) else {
+            panic!("a library with no crate root in the tree produced a verdict");
+        };
+        assert!(why.contains("crates/thing/src/lib.rs"), "{why}");
+    }
+
+    /// An empty discovery refuses, so this half has no count of its own to satisfy by reading
+    /// nothing.
+    #[test]
+    fn an_empty_scope_refuses_rather_than_reporting_zero_files() {
+        let tree = crate::scratch_tree::Tree::of("api-shape-empty", &[("README", b"no source\n")]);
+        let Err(why) = scan_over(&tree, &one_library()) else {
+            panic!("an empty discovery produced a verdict");
+        };
+        assert!(why.contains("no subject at all"), "{why}");
+    }
+
+    #[test]
+    fn only_library_targets_are_in_scope_and_each_one_contributes_an_anchor() {
+        let libs = libraries(&metadata(), Path::new("/repo")).expect("one library");
+        assert_eq!(libs.dirs, vec![String::from("crates/lib-crate/src")]);
+        // The anchor set is the same derivation, so it grows with the workspace rather than with a
+        // declaration somebody has to remember to extend - #414's named residual.
+        assert_eq!(libs.roots, vec![String::from("crates/lib-crate/src/lib.rs")]);
     }
 
     #[test]
@@ -409,7 +550,7 @@ mod tests {
         )
         .expect("fixture parses");
         // A gate that silently checks nothing is worse than no gate.
-        drop(library_src_dirs(&meta, Path::new("/repo")).expect_err("must not pass vacuously"));
+        drop(libraries(&meta, Path::new("/repo")).expect_err("must not pass vacuously"));
     }
 
     #[test]

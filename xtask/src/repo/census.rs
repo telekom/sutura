@@ -219,7 +219,6 @@ impl Refusal {
 pub(crate) enum Unmigrated {
     BootOrder,
     BoundedWait,
-    Boundaries,
     Causality,
     Conformance,
     Docs,
@@ -227,8 +226,6 @@ pub(crate) enum Unmigrated {
     FeatureRemedies,
     Guidance,
     Jscpd,
-    MaxLines,
-    NewtypeLeaks,
     OneBound,
     OrphanModules,
     Refusals,
@@ -261,9 +258,8 @@ pub(crate) enum Unmigrated {
 /// interior of a MULTI-line string only - so a single-line fixture spelling the call reads as one.
 /// Measured on the first run of this test, which reported 45 against 44 real call sites; the extra
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
-/// fixtures already avoid reporting their own source. **44 became 47 when the file skip went**,
-/// and all three are this module's own `#[cfg(test)]` calls - which the old rule could not see.
-pub(crate) const UNMIGRATED_DOORS: usize = 50;
+/// fixtures already avoid reporting their own source.
+pub(crate) const UNMIGRATED_DOORS: usize = 44;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.
@@ -667,10 +663,7 @@ mod tests {
             census(&[], &[]).inspect(&[], everything, |_, _| {}),
             Err(Refusal::Empty)
         ));
-        assert!(matches!(
-            census(&[], &[]).into_listing(Unmigrated::MaxLines),
-            Err(Refusal::Empty)
-        ));
+        assert!(matches!(census(&[], &[]).into_listing(Unmigrated::Docs), Err(Refusal::Empty)));
     }
 
     #[test]

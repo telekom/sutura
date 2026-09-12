@@ -239,6 +239,101 @@ struct Opened {
     how: String,
 }
 
+/// One pass over a census: this gate's findings, its own count, and the census's witness.
+struct Scanned {
+    leaks: Vec<Leak>,
+    opened: Vec<Opened>,
+    /// The [`SEALED`] names this pass saw declared, for [`undeclared`]'s reverse direction.
+    declared: Vec<&'static str>,
+    impls: usize,
+    /// How many files the rule ran over. **This gate's own number, and it is a report rather than
+    /// the control** - it comes off the same closure as the findings, so a subject lost before the
+    /// closure ran would move it and the findings together. What refuses in that case is
+    /// [`repo::Census::inspect`], one predicate away.
+    read: usize,
+    /// The census's own sentence: discovered, judged, out of scope, absent, bytes read.
+    witness: String,
+}
+
+/// The files this gate cannot have a verdict without: every file [`SEALED`] says declares a type.
+///
+/// **Derived from the rule table rather than declared a second time.** A sealed entry whose file
+/// moves now refuses here - `did not judge ...` - instead of the scan quietly reading nothing at
+/// the old path and [`undeclared`] blaming the type for a moved file.
+fn anchors() -> Vec<&'static str> {
+    let mut paths: Vec<&'static str> = SEALED.iter().map(|entry| entry.declared_in).collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+}
+
+/// The scan, over a census it does not mint.
+///
+/// **The read is the census's**, which is `github.com/telekom/sutura#619` for this gate. What stood
+/// here was `let Ok(text) = std::fs::read_to_string(root.join(rel)) else { continue; }` followed by
+/// `scanned = scanned.saturating_add(1)`, so an in-scope file the gate could not open recorded no
+/// finding, never entered the total, and left `ok - N file(s)` one lower than the tree: re-measured
+/// on `bf59f9dc` with `crates/sutura-domain/src/lib.rs` at mode `000`, `465 file(s)` became
+/// `464 file(s)` at **exit 0**. It is a [`repo::Refusal::Unreachable`] naming the file now, and
+/// there is no arm here that can downgrade one.
+///
+/// Taking the census by value and the anchors by reference so a test can hand it a scratch tree -
+/// `repo::collect_files` mints one over any root - and exercise the refusal rather than assert on
+/// this file's source text.
+fn scan(census: repo::Census, must_judge: &[&str]) -> Result<Scanned, repo::Refusal> {
+    let mut leaks: Vec<Leak> = Vec::new();
+    let mut opened: Vec<Opened> = Vec::new();
+    let mut declared: Vec<&'static str> = Vec::new();
+    let mut read = 0_usize;
+    let mut impls = 0_usize;
+
+    let scope: repo::Scope = in_scope;
+    let inspected = census.inspect(must_judge, scope, |rel, bytes| {
+        // Lossy rather than a UTF-8 read: a file the census opened is one this gate judges, and
+        // turning a decode failure back into an unread file rebuilds the drop above. Nothing here
+        // refuses a file for not being UTF-8 - [`in_scope`] already decided, by path, that this is
+        // Rust source.
+        let text = String::from_utf8_lossy(bytes);
+        read = read.saturating_add(1);
+        let code = code_lines(&text);
+        let shadowed = shadowing(&code, rel);
+        for (line, header) in trait_impls(&code) {
+            impls = impls.saturating_add(1);
+            if let Some((leaked, onto)) = leaked_by(&header) {
+                leaks.push(Leak {
+                    path: String::from(rel),
+                    line,
+                    leaked,
+                    onto,
+                });
+            }
+            if let Some((sealed, how)) = hands_out_contents(&header, &shadowed) {
+                opened.push(Opened {
+                    path: String::from(rel),
+                    line,
+                    sealed,
+                    how,
+                });
+            }
+        }
+        for entry in SEALED {
+            if entry.declared_in == rel && declares(&code, entry.name) {
+                declared.push(entry.name);
+            }
+        }
+        exposing_methods(&code, rel, &shadowed, &mut opened);
+    })?;
+
+    Ok(Scanned {
+        leaks,
+        opened,
+        declared,
+        impls,
+        read,
+        witness: inspected.verdict(),
+    })
+}
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
     // Closure #3's empty floor, refused at the gate rather than left to the sweep: a refusal gate
     // whose refused list is empty guards nothing. Measured live - emptying `LEAKY`, `SEALED` and
@@ -254,68 +349,35 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::NewtypeLeaks)) {
-        Ok(listing) => listing,
+    let census = match repo::all_files() {
+        Ok(census) => census,
         Err(why) => {
             eprintln!("xtask check-newtype-leaks: FAILED - {}", why.describe());
             return Verdict::Fail;
         }
     };
-
-    let mut leaks: Vec<Leak> = Vec::new();
-    let mut opened: Vec<Opened> = Vec::new();
-    let mut declared: Vec<&'static str> = Vec::new();
-    let mut scanned = 0_usize;
-    let mut impls = 0_usize;
-    for rel in &files {
-        if !in_scope(rel) {
-            continue;
+    let found = match scan(census, &anchors()) {
+        Ok(found) => found,
+        Err(why) => {
+            eprintln!("xtask check-newtype-leaks: FAILED - {}", why.describe());
+            return Verdict::Fail;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
-        scanned = scanned.saturating_add(1);
-        let code = code_lines(&text);
-        let shadowed = shadowing(&code, rel);
-        for (line, header) in trait_impls(&code) {
-            impls = impls.saturating_add(1);
-            if let Some((leaked, onto)) = leaked_by(&header) {
-                leaks.push(Leak {
-                    path: rel.clone(),
-                    line,
-                    leaked,
-                    onto,
-                });
-            }
-            if let Some((sealed, how)) = hands_out_contents(&header, &shadowed) {
-                opened.push(Opened {
-                    path: rel.clone(),
-                    line,
-                    sealed,
-                    how,
-                });
-            }
-        }
-        for entry in SEALED {
-            if entry.declared_in == rel.as_str() && declares(&code, entry.name) {
-                declared.push(entry.name);
-            }
-        }
-        exposing_methods(&code, rel, &shadowed, &mut opened);
-    }
-
-    if scanned == 0 {
-        // A gate that silently checked nothing is the failure mode a gate exists to prevent.
-        eprintln!("xtask check-newtype-leaks: no Rust source in scope - this gate would check nothing");
-        return Verdict::Fail;
-    }
+    };
+    let Scanned {
+        leaks,
+        opened,
+        declared,
+        impls,
+        read: scanned,
+        witness,
+    } = found;
 
     let undeclared = undeclared(&declared);
 
     if leaks.is_empty() && opened.is_empty() && undeclared.is_empty() {
         println!(
             "xtask check-newtype-leaks: ok - {impls} trait impl(s) in {scanned} file(s), no Deref and no Borrow, \
-             and {} sealed witness type(s) still hold their contents",
+             and {} sealed witness type(s) still hold their contents; {witness}",
             SEALED.len()
         );
         return Verdict::Pass;

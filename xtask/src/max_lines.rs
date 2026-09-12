@@ -93,8 +93,18 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    let ignore_path = root.join(IGNORE_FILE);
-    let ignores = Ignores::parse(&std::fs::read_to_string(&ignore_path).unwrap_or_default());
+    // **`NotFound` is not a read failure**, the split this whole module now makes once: a tree
+    // with no ignore file legitimately has no exemptions, while a file that exists and will not be
+    // read would have silently produced the same empty list - and an empty list is STRICTER, so it
+    // would not have shown up as a red. It is the `inert_entries` half that fails open there: every
+    // committed exemption reads as inert, so nothing is reported.
+    let ignores = match ignores_at(&root.join(IGNORE_FILE)) {
+        Ok(ignores) => ignores,
+        Err(why) => {
+            eprintln!("xtask max-lines: FAILED - {why}");
+            return Verdict::Fail;
+        }
+    };
 
     let smuggled: Vec<&String> = ignores.all().filter(|p| is_unexemptable(p)).collect();
     if !smuggled.is_empty() {
@@ -105,35 +115,113 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    // Every text file, decided by content: an extension list is a list to forget, and a
-    // 5000-line generated file with an unlisted extension is exactly what this should catch.
-    let (_root, mut files) = match repo::collect_text_files(&root, &root).into_listing(repo::Unmigrated::MaxLines) {
-        Ok(listing) => listing,
+    let census = match repo::all_files() {
+        Ok(census) => census,
         Err(why) => {
             eprintln!("xtask max-lines: FAILED - {}", why.describe());
             return Verdict::Fail;
         }
     };
-    files.sort();
+    let measured = match measure(census, &[ANCHOR], max, &ignores) {
+        Ok(measured) => measured,
+        Err(why) => {
+            eprintln!("xtask max-lines: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
+    let inert = inert_entries(&ignores, &measured.files, &measured.over_cap);
+    report(&measured, &inert, max)
+}
 
-    let mut violations: Vec<(String, usize)> = Vec::new();
-    let mut warnings: Vec<(String, usize)> = Vec::new();
-    let mut over_cap: Vec<String> = Vec::new();
-    for rel in &files {
-        let lines = count_lines(&root.join(rel));
-        if lines <= max {
-            continue;
-        }
-        over_cap.push(rel.clone());
-        if ignores.warn.iter().any(|p| repo::matches(p, rel)) {
-            warnings.push((rel.clone(), lines));
-        } else if !ignores.silent.iter().any(|p| repo::matches(p, rel)) {
-            violations.push((rel.clone(), lines));
-        }
+/// The exemptions, with `NotFound` split from every other read failure.
+///
+/// **A tree with no ignore file legitimately has no exemptions**, and that is the only absence this
+/// accepts. The `unwrap_or_default()` this replaced treated an ignore file that exists and will not
+/// be read as the same thing, which reads as fail-closed - no exemptions is stricter - and is not:
+/// [`inert_entries`] then judges every committed exemption against an empty parse, reports none,
+/// and the gate says `ok` about a claims list it never read.
+fn ignores_at(path: &Path) -> Result<Ignores, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Ignores::parse(&text)),
+        Err(why) if why.kind() == std::io::ErrorKind::NotFound => Ok(Ignores::parse("")),
+        Err(why) => Err(format!("could not read {}: {why}", path.display())),
     }
+}
 
-    let inert = inert_entries(&ignores, &files, &over_cap);
-    report(&files, &violations, &warnings, &inert, max)
+/// The file this gate cannot have a verdict without.
+///
+/// `flake.nix` for the same reason `text-hygiene` and `line-endings` anchor on it: it is present in
+/// every checkout and in the Nix build sandbox, it is the marker `repo::root` itself looks for, and
+/// it is a `[warn]` entry in the ignore file - so a scan that stopped reaching it would also stop
+/// reporting the one live exemption.
+const ANCHOR: &str = "flake.nix";
+
+/// What one pass over the tree measured.
+struct Measured {
+    /// Every subject the census read, so [`inert_entries`] judges an exemption against files whose
+    /// presence was OBSERVED rather than against a list a failed read could shorten.
+    files: Vec<String>,
+    violations: Vec<(String, usize)>,
+    warnings: Vec<(String, usize)>,
+    over_cap: Vec<String>,
+    /// Files the length rule actually ran over - text ones. **The gate's own number**, beside
+    /// `witness`, which is the census's.
+    checked: usize,
+    /// The census's own sentence: discovered, judged, out of scope, absent, bytes read.
+    witness: String,
+}
+
+/// Measure every subject in the census, over a census this function does not mint.
+///
+/// **Two fail-opens closed here, and they were separate defects.** `repo::collect_text_files`
+/// decided scope with `repo::is_text_file`, which OPENS the file and answers `false` for one it
+/// cannot - so an unreadable file left the walk as *not text*. Then `count_lines` was
+/// `read_to_string(path).map_or(0, ..)`, and its doc argued the fail-open outright: *"a read error
+/// is a different problem"*. It was nobody's problem, and the consequence was that an unreadable
+/// file could never trip the **unexemptable** 1000-line cap. Re-measured on `bf59f9dc` with
+/// `crates/sutura-domain/src/lib.rs` at mode `000`: `1326 files checked` became `1325`, both exit 0.
+///
+/// Textness is decided from the bytes the census already read, so *not text* and *could not look*
+/// cannot be conflated, and a binary file is out of the LENGTH rule without being refused - which
+/// is #412's trap, where `check-shipped-binaries` reddened a correct tree over a PNG.
+fn measure(census: repo::Census, must_judge: &[&str], max: usize, ignores: &Ignores) -> Result<Measured, repo::Refusal> {
+    let mut measured = Measured {
+        files: Vec::new(),
+        violations: Vec::new(),
+        warnings: Vec::new(),
+        over_cap: Vec::new(),
+        checked: 0,
+        witness: String::new(),
+    };
+    let scope: repo::Scope = every_subject;
+    let inspected = census.inspect(must_judge, scope, |rel, bytes| {
+        measured.files.push(String::from(rel));
+        if !repo::looks_like_text(bytes) {
+            return;
+        }
+        measured.checked = measured.checked.saturating_add(1);
+        // Lossy rather than a UTF-8 read: a file the census opened is one this gate measures, and
+        // `read_to_string` would have counted a file it could not decode as zero lines.
+        let lines = String::from_utf8_lossy(bytes).lines().count();
+        if lines <= max {
+            return;
+        }
+        measured.over_cap.push(String::from(rel));
+        if ignores.warn.iter().any(|p| repo::matches(p, rel)) {
+            measured.warnings.push((String::from(rel), lines));
+        } else if !ignores.silent.iter().any(|p| repo::matches(p, rel)) {
+            measured.violations.push((String::from(rel), lines));
+        }
+    })?;
+    measured.files.sort();
+    measured.witness = inspected.verdict();
+    Ok(measured)
+}
+
+/// Every subject, because textness is a question about bytes and a [`repo::Scope`] is handed a
+/// path. A bare `fn` with nothing captured, so it cannot count what it passes.
+const fn every_subject(_rel: &str) -> bool {
+    true
 }
 
 /// Exemptions that exempt nothing, each with the sentence saying why.
@@ -182,14 +270,8 @@ fn is_literal(pattern: &str) -> bool {
 /// before the violations report, so with one stale `[warn]` entry a 1200-line file was not named -
 /// measured in review: the exit code was right and the report was half of what the gate knew. A
 /// gate that knows two numbers and prints one is this commit's own subject.
-fn report(
-    files: &[String],
-    violations: &[(String, usize)],
-    warnings: &[(String, usize)],
-    inert: &[String],
-    max: usize,
-) -> Verdict {
-    for (path, lines) in warnings {
+fn report(measured: &Measured, inert: &[String], max: usize) -> Verdict {
+    for (path, lines) in &measured.warnings {
         println!("xtask max-lines: WARN {path} has {lines} lines (max {max}) - split pending");
     }
     if !inert.is_empty() {
@@ -205,18 +287,25 @@ fn report(
         eprintln!("  claims: the paragraph beside an entry is the only thing a reviewer reads to decide");
         eprintln!("  whether it is still earned. Delete the entry and its argument together.");
     }
-    if !violations.is_empty() {
-        eprintln!("xtask max-lines: FAILED - {} file(s) over {max} lines", violations.len());
-        for (path, lines) in violations {
+    if !measured.violations.is_empty() {
+        eprintln!(
+            "xtask max-lines: FAILED - {} file(s) over {max} lines",
+            measured.violations.len()
+        );
+        for (path, lines) in &measured.violations {
             eprintln!("  {path}: {lines} lines");
         }
         eprintln!("  split the file. Generated or vendored output belongs in {IGNORE_FILE}, nothing else does.");
     }
-    if inert.is_empty() && violations.is_empty() {
+    if inert.is_empty() && measured.violations.is_empty() {
+        // The census's witness beside this gate's count, taken by a different predicate on the
+        // other side of the walk: `checked` is the closure's tally of text files, `witness` is the
+        // census's tally of subjects it opened. A narrowing that moved one cannot move both.
         println!(
-            "xtask max-lines: ok - {} files checked, none over {max} lines ({} warned)",
-            files.len(),
-            warnings.len()
+            "xtask max-lines: ok - {} files checked, none over {max} lines ({} warned); {}",
+            measured.checked,
+            measured.warnings.len(),
+            measured.witness
         );
         return Verdict::Pass;
     }
@@ -242,16 +331,142 @@ fn is_unexemptable(pattern: &str) -> bool {
     UNEXEMPTABLE_PREFIXES.iter().any(|prefix| normalized.starts_with(prefix))
 }
 
-/// Lines in a file. Unreadable or non-UTF-8 files count as zero rather than failing the
-/// gate: this check is about length, and a read error is a different problem.
-fn count_lines(path: &Path) -> usize {
-    std::fs::read_to_string(path).map_or(0, |text| text.lines().count())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_MAX_LINES, Ignores, inert_entries, is_literal, is_unexemptable, parse_max_lines};
+    use super::{DEFAULT_MAX_LINES, Ignores, Measured, inert_entries, is_literal, is_unexemptable, parse_max_lines};
     use crate::Verdict;
+
+    /// A [`Measured`] carrying the named violations and nothing else, for [`super::report`]'s arms.
+    fn measured(violations: &[(&str, usize)]) -> Measured {
+        Measured {
+            files: vec![String::from("BIGFILE.md"), String::from("README.md")],
+            violations: violations.iter().map(|(path, lines)| (String::from(*path), *lines)).collect(),
+            warnings: Vec::new(),
+            over_cap: Vec::new(),
+            checked: 2,
+            witness: String::from("a scratch witness"),
+        }
+    }
+
+    /// This gate's own measurement, over a scratch tree rather than over the repo.
+    ///
+    /// `repo::collect_files` is an existing census door and it takes a ROOT. Its extension arm does
+    /// not open a file, so a sealed fixture reaches [`super::measure`]'s read and fails there,
+    /// which is the path under test - the `is_text_file` door this replaced would have dropped the
+    /// same file from the walk before any of this ran.
+    fn measure_over(
+        tree: &crate::scratch_tree::Tree,
+        anchors: &[&str],
+        ignores: &Ignores,
+    ) -> Result<Measured, crate::repo::Refusal> {
+        super::measure(
+            crate::repo::collect_files(tree.root(), tree.root(), &["md", "nix", "png", "rs"]),
+            anchors,
+            DEFAULT_MAX_LINES,
+            ignores,
+        )
+    }
+
+    /// `n` lines of text, for the length rule.
+    fn lines(n: usize) -> Vec<u8> {
+        "x\n".repeat(n).into_bytes()
+    }
+
+    /// The defect, and the half that made it expensive: an unreadable file could never trip the
+    /// **unexemptable** cap, because `count_lines` was `read_to_string(..).map_or(0, ..)` and its
+    /// own doc argued that a read error *"is a different problem"*. Nobody owned that problem. This
+    /// fixture is 1200 lines under `crates/`, which no exemption may reach.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_file_over_the_cap_refuses_instead_of_counting_zero_lines() {
+        let ignores = Ignores::parse("");
+        let over = lines(1200);
+        let mut tree = crate::scratch_tree::Tree::of(
+            "max-lines-sealed",
+            &[("flake.nix", b"{ }\n"), ("crates/thing/src/lib.rs", over.as_slice())],
+        );
+        let control = measure_over(&tree, &[super::ANCHOR], &ignores).expect("a readable tree measures");
+        assert_eq!(control.violations.len(), 1, "{}", control.witness);
+
+        if !tree.seal("crates/thing/src/lib.rs") {
+            // Mode bits ignored for this uid; asserting a refusal here would assert nothing.
+            return;
+        }
+        let Err(why) = measure_over(&tree, &[super::ANCHOR], &ignores) else {
+            panic!("an unreadable file over the cap produced a verdict");
+        };
+        assert!(
+            why.describe().contains("crates/thing/src/lib.rs"),
+            "the refusal has to name the file it could not read: {}",
+            why.describe()
+        );
+    }
+
+    /// #412's trap: a PNG is out of the LENGTH rule without being unreadable, and a remedy that
+    /// refuses everything it did not decode reddens a correct tree - which is what
+    /// `check-shipped-binaries` did. Textness is decided from the bytes the census read.
+    #[test]
+    fn binary_data_is_read_and_left_out_of_the_length_rule_rather_than_refused() {
+        let ignores = Ignores::parse("");
+        let mut png = b"\x89PNG\r\n\x1a\n\x00".to_vec();
+        png.extend(lines(1200));
+        let tree = crate::scratch_tree::Tree::of(
+            "max-lines-binary",
+            &[("flake.nix", b"{ }\n"), ("docs/diagram.png", png.as_slice())],
+        );
+        let measured = measure_over(&tree, &[super::ANCHOR], &ignores).expect("a PNG is not unreadable");
+        assert!(measured.violations.is_empty(), "{:?}", measured.violations);
+        assert_eq!(measured.checked, 1, "only the text file is measured: {}", measured.witness);
+        assert_eq!(measured.files.len(), 2, "both subjects were read: {}", measured.witness);
+    }
+
+    /// An empty discovery is a refusal, so this gate has no count of its own to satisfy by
+    /// measuring nothing.
+    #[test]
+    fn an_empty_scope_refuses_rather_than_reporting_zero_files() {
+        let ignores = Ignores::parse("");
+        let tree = crate::scratch_tree::Tree::of("max-lines-empty", &[("unlisted.bin", b"\x00")]);
+        let Err(why) = measure_over(&tree, &[], &ignores) else {
+            panic!("an empty discovery produced a verdict");
+        };
+        assert!(why.describe().contains("no subject at all"), "{}", why.describe());
+    }
+
+    /// A narrowed enumeration that no longer reaches the anchor refuses by NAME, whatever the count
+    /// says - the arm a `files == 0` floor cannot hold.
+    #[test]
+    fn an_enumeration_that_no_longer_reaches_the_anchor_refuses() {
+        let ignores = Ignores::parse("");
+        let tree = crate::scratch_tree::Tree::of("max-lines-anchor", &[("docs/page.md", b"short\n")]);
+        let Err(why) = measure_over(&tree, &[super::ANCHOR], &ignores) else {
+            panic!("a tree without the anchor produced a verdict");
+        };
+        assert!(why.describe().contains(super::ANCHOR), "{}", why.describe());
+    }
+
+    /// An ignore file that is ABSENT is no exemptions; one that exists and cannot be read is a
+    /// failure. `unwrap_or_default()` made both the first, and the second then reported every
+    /// committed exemption as inert - or rather, reported nothing, because the parse was empty.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_ignore_file_refuses_while_an_absent_one_is_simply_no_exemptions() {
+        let mut tree = crate::scratch_tree::Tree::of("max-lines-ignores", &[("present", b"[silent]\nCargo.lock\n")]);
+        let absent = super::ignores_at(&tree.root().join("not-here")).expect("an absent ignore file is no exemptions");
+        assert!(
+            absent.silent.is_empty() && absent.warn.is_empty(),
+            "an absent file parsed exemptions"
+        );
+        let read = super::ignores_at(&tree.root().join("present")).expect("a readable ignore file parses");
+        assert_eq!(read.silent, vec!["Cargo.lock"]);
+
+        if !tree.seal("present") {
+            return;
+        }
+        let Err(why) = super::ignores_at(&tree.root().join("present")) else {
+            panic!("an unreadable ignore file parsed as no exemptions");
+        };
+        assert!(why.contains("present"), "{why}");
+    }
 
     #[test]
     fn a_warn_entry_for_a_file_back_under_the_cap_is_reported() {
@@ -301,15 +516,9 @@ mod tests {
         // the configuration. This is the assertion that reddens the day an entry's promise is kept.
         let root = crate::repo::root().expect("the repo root");
         let ignores = Ignores::parse(&std::fs::read_to_string(root.join(super::IGNORE_FILE)).expect("the ignore file"));
-        let (_root, files) = crate::repo::collect_text_files(&root, &root)
-            .into_listing(crate::repo::Unmigrated::MaxLines)
-            .expect("the tests run inside the repo");
-        let over_cap: Vec<String> = files
-            .iter()
-            .filter(|rel| super::count_lines(&root.join(rel)) > DEFAULT_MAX_LINES)
-            .cloned()
-            .collect();
-        let inert = inert_entries(&ignores, &files, &over_cap);
+        let census = crate::repo::all_files().expect("the tests run inside the repo");
+        let measured = super::measure(census, &[super::ANCHOR], DEFAULT_MAX_LINES, &ignores).expect("the tree is readable");
+        let inert = inert_entries(&ignores, &measured.files, &measured.over_cap);
         assert!(inert.is_empty(), "{inert:?}");
     }
 
@@ -318,15 +527,15 @@ mod tests {
         // Reported in review: the inert block returned before the violations report, so with a
         // stale `[warn]` entry present a 1200-line file went unnamed. Both are reported now, and
         // the verdict is a failure whichever of the two is non-empty.
-        let over = [(String::from("BIGFILE.md"), 1200_usize)];
         let inert = [String::from("`[warn]` `README.md` is under the cap, so it prints nothing")];
-        let files = [String::from("BIGFILE.md"), String::from("README.md")];
-        assert_eq!(super::report(&files, &over, &[], &inert, DEFAULT_MAX_LINES), Verdict::Fail);
+        let over = measured(&[("BIGFILE.md", 1200)]);
+        let clean = measured(&[]);
+        assert_eq!(super::report(&over, &inert, DEFAULT_MAX_LINES), Verdict::Fail);
         // Each half on its own is still a failure, and neither is a pass.
-        assert_eq!(super::report(&files, &over, &[], &[], DEFAULT_MAX_LINES), Verdict::Fail);
-        assert_eq!(super::report(&files, &[], &[], &inert, DEFAULT_MAX_LINES), Verdict::Fail);
+        assert_eq!(super::report(&over, &[], DEFAULT_MAX_LINES), Verdict::Fail);
+        assert_eq!(super::report(&clean, &inert, DEFAULT_MAX_LINES), Verdict::Fail);
         // AND THE ARM THAT STILL FIRES: neither half, and the success line is printed.
-        assert_eq!(super::report(&files, &[], &[], &[], DEFAULT_MAX_LINES), Verdict::Pass);
+        assert_eq!(super::report(&clean, &[], DEFAULT_MAX_LINES), Verdict::Pass);
     }
 
     #[test]

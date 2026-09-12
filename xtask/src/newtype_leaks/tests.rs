@@ -336,3 +336,120 @@ fn every_leaky_trait_says_what_to_do_instead() {
         assert!(!entry.instead.is_empty(), "{} has no fix", entry.name);
     }
 }
+
+/// The gate's own scan, over a scratch tree rather than over the repo.
+///
+/// `repo::collect_files` is an existing census door and it takes a ROOT, which is what makes the
+/// migrated scan testable without a checkout: the extension arm does not open a file, so a sealed
+/// fixture reaches [`super::scan`]'s read and fails there - which is the path under test.
+fn scan_over(
+    tree: &crate::scratch_tree::Tree,
+    extensions: &[&str],
+    anchors: &[&str],
+) -> Result<super::Scanned, crate::repo::Refusal> {
+    super::scan(crate::repo::collect_files(tree.root(), tree.root(), extensions), anchors)
+}
+
+/// `xtask/src/newtype_leaks.rs:274`, re-measured on `bf59f9dc`: `let Ok(text) = read_to_string(..)
+/// else { continue }` printed `465 file(s)` readable and `464 file(s)` with one in-scope file at
+/// mode `000`, both at exit 0. The census owns the read now, so the same input refuses and NAMES
+/// the file.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_in_scope_file_refuses_and_names_it() {
+    let anchor = "xtask/src/anchor.rs";
+    let mut tree = crate::scratch_tree::Tree::of(
+        "newtype-leaks-sealed",
+        &[(anchor, b"// the anchor\n"), ("crates/thing/src/lib.rs", b"// in scope\n")],
+    );
+    let control = scan_over(&tree, &["rs"], &[anchor]).expect("a readable tree scans");
+    assert_eq!(control.read, 2, "{}", control.witness);
+
+    if !tree.seal("crates/thing/src/lib.rs") {
+        // Mode bits ignored for this uid; asserting a refusal here would assert nothing.
+        return;
+    }
+    let Err(why) = scan_over(&tree, &["rs"], &[anchor]) else {
+        panic!("an unreadable in-scope file produced a verdict over the rest of the tree");
+    };
+    assert!(
+        why.describe().contains("crates/thing/src/lib.rs"),
+        "the refusal has to name the file it could not read: {}",
+        why.describe()
+    );
+}
+
+/// #412's trap, held for this gate: a PNG is OUT OF SCOPE rather than unreadable, and a remedy
+/// that refuses every file it did not decode reddens a correct tree. `check-shipped-binaries` was
+/// the gate that did it.
+#[test]
+fn a_binary_file_out_of_scope_is_not_a_refusal() {
+    let anchor = "xtask/src/anchor.rs";
+    let tree = crate::scratch_tree::Tree::of(
+        "newtype-leaks-binary",
+        &[
+            (anchor, b"// the anchor\n"),
+            ("docs/diagram.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00"),
+        ],
+    );
+    let found = scan_over(&tree, &["rs", "png"], &[anchor]).expect("a PNG is out of scope, not unreadable");
+    assert_eq!(found.read, 1, "only the Rust file is in scope: {}", found.witness);
+}
+
+/// In scope, readable, and not valid UTF-8. The bytes are decoded lossily rather than handed back
+/// to a `read_to_string` that would turn a decode failure into an unread file - which is the drop
+/// this migration removed, respelt.
+#[test]
+fn an_in_scope_file_that_is_not_utf8_is_still_judged() {
+    let tree = crate::scratch_tree::Tree::of(
+        "newtype-leaks-lossy",
+        &[("xtask/src/anchor.rs", b"impl Deref for Digest {\n}\n\xff\xfe// \xff\n")],
+    );
+    let found = scan_over(&tree, &["rs"], &["xtask/src/anchor.rs"]).expect("invalid UTF-8 is not unreadable");
+    assert_eq!(found.read, 1, "{}", found.witness);
+    assert_eq!(
+        found.leaks.len(),
+        1,
+        "the rule still ran over the decodable part: {}",
+        found.witness
+    );
+}
+
+/// A scope that matched nothing refuses, so this gate has no `scanned == 0` floor of its own to
+/// satisfy by reading almost nothing.
+#[test]
+fn an_empty_scope_refuses_rather_than_reporting_zero() {
+    let tree = crate::scratch_tree::Tree::of("newtype-leaks-empty", &[("docs/page.md", b"no source here\n")]);
+    let Err(why) = scan_over(&tree, &["md"], &[]) else {
+        panic!("a tree with no Rust source produced a verdict");
+    };
+    assert!(why.describe().contains("NONE of them"), "{}", why.describe());
+}
+
+/// The anchors are derived from [`SEALED`] rather than declared again, so an entry whose file moved
+/// refuses by path instead of the scan silently reading nothing there.
+#[test]
+fn a_sealed_entrys_file_that_is_not_in_the_tree_refuses() {
+    let tree = crate::scratch_tree::Tree::of("newtype-leaks-anchor", &[("xtask/src/present.rs", b"// present\n")]);
+    let Err(why) = scan_over(&tree, &["rs"], &["xtask/src/moved-away.rs"]) else {
+        panic!("an anchor absent from the tree produced a verdict");
+    };
+    assert!(why.describe().contains("moved-away.rs"), "{}", why.describe());
+}
+
+/// Every [`SEALED`] file is an anchor, deduplicated - and each is in this gate's own scope, since
+/// an anchor a scope excludes can never be discharged.
+#[test]
+fn the_anchor_set_is_the_sealed_tables_distinct_files_and_all_of_them_are_in_scope() {
+    let anchors = super::anchors();
+    assert!(!anchors.is_empty(), "an empty anchor set declares nothing");
+    for entry in SEALED {
+        assert!(anchors.contains(&entry.declared_in), "{} is not an anchor", entry.name);
+    }
+    for path in &anchors {
+        assert!(in_scope(path), "{path} is an anchor this gate's scope excludes");
+    }
+    let mut sorted = anchors.clone();
+    sorted.dedup();
+    assert_eq!(sorted.len(), anchors.len(), "the anchor set repeats a path: {anchors:?}");
+}

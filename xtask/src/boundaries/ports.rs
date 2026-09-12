@@ -94,39 +94,49 @@ pub(super) struct Report {
 
 /// Every caller of the driving port, scanned.
 pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
-    let (root, files) = repo::all_files()
-        .and_then(|census| census.into_listing(repo::Unmigrated::Boundaries))
-        .map_err(|why| why.describe())?;
+    let root = repo::root().ok_or_else(|| String::from("could not determine the repo root"))?;
+    let census = repo::all_files().map_err(|why| why.describe())?;
     let callers = callers_of_the_application(meta, &root)?;
+    let anchors: Vec<&str> = callers
+        .iter()
+        .flat_map(|caller| caller.roots.iter().map(String::as_str))
+        .collect();
     let mut problems = Vec::new();
     let mut declared: BTreeSet<(String, String)> = BTreeSet::new();
     let mut scanned = 0_usize;
 
-    for rel in &files {
-        let Some(caller) = callers.iter().find(|caller| rel.starts_with(caller.src.as_str())) else {
-            continue;
-        };
-        if !is_rust(rel) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
-        scanned = scanned.saturating_add(1);
-        for (index, name) in public_traits(&text) {
-            declared.insert((caller.name.clone(), String::from(name)));
-            if permitted(&caller.name, name) {
-                continue;
+    // **The read is the census's**, which is `github.com/telekom/sutura#619` for this scanner:
+    // `let Ok(text) = read_to_string(..) else { continue; }` sat above `scanned`, so an unreadable
+    // caller file left no finding, no count and no error - and this rule's reverse direction would
+    // then have reported `PERMITTED_IN_A_CALLER` entries as stale because the file declaring the
+    // trait was never read. Scope is `is_rust` and the caller test is inside the closure because a
+    // `repo::Scope` is a bare `fn` and cannot be handed `callers`.
+    let scope: repo::Scope = is_rust;
+    census
+        .inspect(&anchors, scope, |rel, bytes| {
+            let Some(caller) = callers.iter().find(|caller| rel.starts_with(caller.src.as_str())) else {
+                return;
+            };
+            // Lossy rather than a UTF-8 read: a file the census opened is one this rule judges.
+            let text = String::from_utf8_lossy(bytes);
+            scanned = scanned.saturating_add(1);
+            for (index, name) in public_traits(&text) {
+                declared.insert((caller.name.clone(), String::from(name)));
+                if permitted(&caller.name, name) {
+                    continue;
+                }
+                problems.push(format!(
+                    "{rel}:{index}: `{}` declares `pub trait {name}`, and it is a caller of the driving port",
+                    caller.name
+                ));
             }
-            problems.push(format!(
-                "{rel}:{index}: `{}` declares `pub trait {name}`, and it is a caller of the driving port",
-                caller.name
-            ));
-        }
-    }
+        })
+        .map_err(|why| why.describe())?;
     if scanned == 0 {
+        // Kept beside the census's refusals: the anchors are discharged by the census's READ, so a
+        // broken caller test inside the closure leaves every anchor satisfied and this at zero.
         return Err(format!(
-            "found {} caller(s) of {APPLICATION} but no .rs file in them",
+            "found {} caller(s) of {APPLICATION} but judged no .rs file in them",
             callers.len()
         ));
     }
@@ -162,6 +172,26 @@ pub(super) struct Caller {
     /// Repo-relative `src` directory, with a trailing slash so a prefix test cannot match a
     /// sibling whose name merely starts the same way.
     pub(super) src: String,
+    /// Repo-relative crate root files this package declares as targets.
+    ///
+    /// **The [`repo::Census::inspect`] anchor set, derived rather than declared** - #414's named
+    /// residual. A caller added to the workspace brings its own anchor, so a scan that stops
+    /// reaching one member's source refuses by name instead of printing a smaller count.
+    pub(super) roots: Vec<String>,
+}
+
+/// Repo-relative crate root files of `package`'s targets.
+fn target_roots(package: &serde_json::Value, root: &Path) -> Vec<String> {
+    package
+        .get("targets")
+        .and_then(|targets| targets.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|target| {
+            let src_path = target.get("src_path")?.as_str()?;
+            repo::relative(root, Path::new(src_path))
+        })
+        .collect()
 }
 
 /// Workspace members declaring a normal dependency on [`APPLICATION`].
@@ -192,6 +222,7 @@ pub(super) fn callers_of_the_application(meta: &serde_json::Value, root: &Path) 
         callers.push(Caller {
             name: String::from(name),
             src: format!("{src}/"),
+            roots: target_roots(package, root),
         });
     }
     if callers.is_empty() {
@@ -281,6 +312,7 @@ mod tests {
                     {
                         "name": "sutura-http",
                         "manifest_path": "/repo/crates/sutura-http/Cargo.toml",
+                        "targets": [{"kind": ["lib"], "src_path": "/repo/crates/sutura-http/src/lib.rs"}],
                         "dependencies": [{"name": "sutura-app", "kind": null}]
                     },
                     {
@@ -308,6 +340,26 @@ mod tests {
             callers.first().map(|caller| caller.src.as_str()),
             Some("crates/sutura-http/src/")
         );
+        // The census anchors come off the SAME derivation as the caller set, so a caller added to
+        // the workspace brings its own - #414's residual was a DECLARED anchor, which survives a
+        // narrowing that keeps the one file it names.
+        assert_eq!(
+            callers.first().map(|caller| caller.roots.as_slice()),
+            Some([String::from("crates/sutura-http/src/lib.rs")].as_slice())
+        );
+    }
+
+    /// A package with no `targets` array contributes no anchor rather than a bogus one. Both halves
+    /// still refuse a vacuous run through their own zero-file floors, and `check-boundaries`'
+    /// caller set is non-empty or `callers_of_the_application` has already failed.
+    #[test]
+    fn a_package_cargo_reports_no_target_for_contributes_no_anchor() {
+        let meta: serde_json::Value = serde_json::from_str(
+            r#"{"packages": [{"name": "x", "manifest_path": "/repo/crates/x/Cargo.toml", "dependencies": [{"name": "sutura-app", "kind": null}]}]}"#,
+        )
+        .expect("fixture parses");
+        let callers = callers_of_the_application(&meta, Path::new("/repo")).expect("one caller");
+        assert_eq!(callers.first().map(|caller| caller.roots.len()), Some(0));
     }
 
     #[test]

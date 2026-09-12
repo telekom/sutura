@@ -96,13 +96,6 @@ enum Wanted<'a> {
     Extensions(&'a [&'a str]),
     /// Every file. The `all_files` walk fallback.
     Everything,
-    /// Text, decided by content. The `collect_text_files` door.
-    ///
-    /// **A limit, marked rather than fixed here:** [`is_text_file`] returns `false` for a file it
-    /// cannot open, so an unreadable file is dropped as *not text* rather than recorded as
-    /// unreachable. That is one root cause behind three gates and it changes all three at once, so
-    /// it is the next-but-one PR in `github.com/telekom/sutura#414`'s stack, not this one.
-    Text,
 }
 
 impl Wanted<'_> {
@@ -113,7 +106,6 @@ impl Wanted<'_> {
                 .and_then(std::ffi::OsStr::to_str)
                 .is_some_and(|ext| extensions.contains(&ext)),
             Self::Everything => true,
-            Self::Text => is_text_file(path),
         }
     }
 }
@@ -123,14 +115,6 @@ impl Wanted<'_> {
 /// Symlinks are skipped: following them can leave the repo or loop.
 pub(crate) fn collect_files(root: &Path, dir: &Path, extensions: &[&str]) -> Census {
     gather(root, dir, &Wanted::Extensions(extensions))
-}
-
-/// Every text file under `dir`, as a [`Census`].
-///
-/// The content-based sibling of [`collect_files`], for gates that should judge every text file
-/// rather than a named set of extensions.
-pub(crate) fn collect_text_files(root: &Path, dir: &Path) -> Census {
-    gather(root, dir, &Wanted::Text)
 }
 
 /// Walk, and hand back what was found together with what could not be reached.
@@ -408,40 +392,23 @@ pub(crate) fn is_index_symlink(path: &str) -> bool {
 /// Bounded so a large file costs a single read rather than a full decode.
 const SNIFF_BYTES: usize = 8 * 1024;
 
-/// Is this file text?
+/// Is this text, decided by CONTENT from the bytes a caller already holds?
 ///
-/// Decided by CONTENT, not by an extension list. Three gates each carried their own list of 14,
-/// 14 and 11 extensions, and a file with no extension and no leading dot was invisible to all
-/// three - which meant `justfile` and `Dockerfile`, the two files most likely to reintroduce
-/// the CRLF-in-a-shell-string bug the line-endings gate exists for, were exactly the two it
-/// could not see. Content-based detection has no list to forget: a new file type is covered
-/// the day it appears.
+/// Content rather than an extension list because three gates each carried their own list of 14, 14
+/// and 11 extensions, and a file with no extension and no leading dot was invisible to all three -
+/// which meant `justfile` and `Dockerfile`, the two files most likely to reintroduce the
+/// CRLF-in-a-shell-string bug the line-endings gate exists for, were exactly the two it could not
+/// see. Content-based detection has no list to forget: a new file type is covered the day it
+/// appears.
 ///
 /// Text means no NUL byte in the first [`SNIFF_BYTES`] and that prefix decodes as UTF-8.
 ///
-/// **A file that cannot be read answers `false` here, and that is a known fail-open** - it drops
-/// out of the walk as *not text* rather than being recorded as unreachable. Three gates share that
-/// root cause and change together; see [`Wanted::Text`].
-pub(crate) fn is_text_file(path: &Path) -> bool {
-    use std::io::Read as _;
-
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut head = vec![0_u8; SNIFF_BYTES];
-    let Ok(read) = file.read(&mut head) else {
-        return false;
-    };
-    head.truncate(read);
-    looks_like_text(&head)
-}
-
-/// The CONTENT half of [`is_text_file`], for a gate that already holds the bytes.
-///
-/// Exposed because [`Census::inspect`] performs the read now, and a gate must not re-open a file
-/// the census already read to ask this: `is_text_file` answers `false` for a file it cannot open,
-/// so asking it again would turn a subject whose reachability was just PROVEN back into a scope
-/// decision - which is the fail-open this whole module exists to remove.
+/// **BYTES rather than a path, and that is the mechanism.** The `is_text_file(path)` this replaced
+/// opened the file and answered `false` for one it could not, so an unreadable file dropped out of
+/// a walk as *not text* - `github.com/telekom/sutura#412` in `text-hygiene`, then #619 in
+/// `max-lines`, where the same shape meant an unreadable file could never trip the unexemptable
+/// line cap. A function that is handed the bytes cannot conflate *not text* with *could not look*:
+/// somebody read them. [`Census::inspect`] performs that read, and its refusal owns the failure.
 pub(crate) fn looks_like_text(bytes: &[u8]) -> bool {
     let head = bytes.get(..SNIFF_BYTES).unwrap_or(bytes);
     if head.contains(&0) {
@@ -717,26 +684,31 @@ mod tests {
         drop(std::fs::remove_dir_all(&dir));
         drop(std::fs::create_dir_all(&dir));
 
+        // The bytes, not the path. `is_text_file(path)` used to stand here and it OPENED the file,
+        // so a file it could not read answered `false` - *not text* rather than *could not look*.
+        // A function handed the bytes cannot make that mistake: somebody read them, and the read's
+        // failure belongs to `Census::inspect`.
+
         // No extension at all - the case three extension lists all missed.
         let extensionless = dir.join("justfile");
         let mut f = std::fs::File::create(&extensionless).expect("create");
         f.write_all(b"default:\n    echo hi\n").expect("write");
-        assert!(super::is_text_file(&extensionless));
+        assert!(super::looks_like_text(&std::fs::read(&extensionless).expect("read")));
 
         // A NUL byte makes it binary whatever it is called.
         let fake_text = dir.join("looks-like.md");
         let mut f = std::fs::File::create(&fake_text).expect("create");
         f.write_all(b"header\x00\x01\x02binary").expect("write");
-        assert!(!super::is_text_file(&fake_text));
+        assert!(!super::looks_like_text(&std::fs::read(&fake_text).expect("read")));
 
         // Multi-byte UTF-8 is text.
         let utf8 = dir.join("utf8.txt");
         let mut f = std::fs::File::create(&utf8).expect("create");
         f.write_all("a non-ASCII character: \u{00e4}\n".as_bytes()).expect("write");
-        assert!(super::is_text_file(&utf8));
+        assert!(super::looks_like_text(&std::fs::read(&utf8).expect("read")));
 
-        // A path that does not exist is not text: nothing can be said about it.
-        assert!(!super::is_text_file(&dir.join("absent")));
+        // An empty file is text: there is no NUL in it and nothing fails to decode.
+        assert!(super::looks_like_text(b""));
 
         drop(std::fs::remove_dir_all(&dir));
     }

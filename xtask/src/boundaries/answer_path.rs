@@ -103,9 +103,8 @@ pub(super) struct Report {
 
 /// Every caller of the driving port, scanned for a direct call to the answer path.
 pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
-    let (root, files) = repo::all_files()
-        .and_then(|census| census.into_listing(repo::Unmigrated::Boundaries))
-        .map_err(|why| why.describe())?;
+    let root = repo::root().ok_or_else(|| String::from("could not determine the repo root"))?;
+    let census = repo::all_files().map_err(|why| why.describe())?;
     let callers = callers_of_the_application(meta, &root)?;
     let read = |rel: &str| std::fs::read_to_string(root.join(rel)).ok();
     let Some(defines) = read(APPLICATION_LIB) else {
@@ -118,44 +117,67 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     let mut scanned = 0_usize;
     let mut paths = 0_usize;
 
-    for rel in &files {
-        let Some(caller) = callers.iter().find(|caller| rel.starts_with(caller.src.as_str())) else {
-            continue;
-        };
-        if !is_rust(rel) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
-        };
-        scanned = scanned.saturating_add(1);
-        // Counted as examined above, then skipped before the region scan: a file that never names
-        // the application has no path to classify, and [`regions::scope`] reads the file a second
-        // time to resolve a `#[cfg(test)] mod` declaration. The sibling gate short-circuits the
-        // same way for the same reason.
-        if !text.contains(APPLICATION_PATH) {
-            continue;
-        }
-        let tests = regions::scope(rel, &read);
-        for path in application_paths(&crate::serde_parse::scan::code_lines(&text).join("\n")) {
-            paths = paths.saturating_add(1);
-            if tests.covers(path.line) {
-                continue;
+    // **The read is the census's**, which is `github.com/telekom/sutura#619` for this scanner:
+    // `let Ok(text) = read_to_string(..) else { continue; }` sat above `scanned`, so an unreadable
+    // caller file recorded no path, no count and no error - on a rule whose own zero-path floor is
+    // the only other thing standing between it and a vacuous pass.
+    //
+    // The anchors are every caller's crate root, derived from `cargo metadata` with the caller set
+    // itself, plus the file that DEFINES the door. `APPLICATION_LIB` is declared because it names
+    // one specific file this rule is about rather than a member of a set.
+    let mut anchors: Vec<&str> = callers
+        .iter()
+        .flat_map(|caller| caller.roots.iter().map(String::as_str))
+        .collect();
+    anchors.push(APPLICATION_LIB);
+    let scope: repo::Scope = is_rust;
+    census
+        .inspect(&anchors, scope, |rel, bytes| {
+            let Some(caller) = callers.iter().find(|caller| rel.starts_with(caller.src.as_str())) else {
+                return;
+            };
+            // Lossy rather than a UTF-8 read: a file the census opened is one this rule judges.
+            let text = String::from_utf8_lossy(bytes);
+            scanned = scanned.saturating_add(1);
+            // Counted as examined above, then skipped before the region scan: a file that never
+            // names the application has no path to classify, and [`regions::scope`] reads a file a
+            // second time to resolve a `#[cfg(test)] mod` declaration. The sibling gate
+            // short-circuits the same way for the same reason.
+            if !text.contains(APPLICATION_PATH) {
+                return;
             }
-            match path.reaches {
-                Reaches::Elsewhere => {}
-                Reaches::TheAnswer => problems.push(format!(
-                    "{rel}:{}: `{}` names `{APPLICATION_PATH}::{ANSWER}` in its own source",
-                    path.line, caller.name
-                )),
-                Reaches::TheRootRenamed => problems.push(format!(
-                    "{rel}:{}: `{}` imports `{APPLICATION_PATH}` under another name, which makes every \
-                     path through it invisible to this rule - import it as itself",
-                    path.line, caller.name
-                )),
+            // The SUBJECT's own bytes are served from the census's read rather than re-read from
+            // disk, so the region classifier and the rule cannot be looking at two versions of one
+            // file. A sibling module `regions::scope` resolves is still a disk read that answers
+            // `None` when it fails; that read's contract belongs to `crate::causality::regions`.
+            let from_census = |want: &str| {
+                if want == rel {
+                    Some(text.clone().into_owned())
+                } else {
+                    read(want)
+                }
+            };
+            let tests = regions::scope(rel, &from_census);
+            for path in application_paths(&crate::serde_parse::scan::code_lines(&text).join("\n")) {
+                paths = paths.saturating_add(1);
+                if tests.covers(path.line) {
+                    continue;
+                }
+                match path.reaches {
+                    Reaches::Elsewhere => {}
+                    Reaches::TheAnswer => problems.push(format!(
+                        "{rel}:{}: `{}` names `{APPLICATION_PATH}::{ANSWER}` in its own source",
+                        path.line, caller.name
+                    )),
+                    Reaches::TheRootRenamed => problems.push(format!(
+                        "{rel}:{}: `{}` imports `{APPLICATION_PATH}` under another name, which makes every \
+                         path through it invisible to this rule - import it as itself",
+                        path.line, caller.name
+                    )),
+                }
             }
-        }
-    }
+        })
+        .map_err(|why| why.describe())?;
     if scanned == 0 {
         return Err(format!(
             "found {} caller(s) of the driving port but no .rs file in them",
