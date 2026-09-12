@@ -516,8 +516,8 @@ services:
   # because a fixed host port is the collision this whole tier exists to prevent. A browser on THIS
   # machine must reach the chat client and nothing else must, so the port needs BOTH halves: ephemeral
   # (no `published`) and loopback (`host_ip`). The short form has one colon and no place for an
-  # address, so this is the long form; the gate requires its loopback address and refuses a
-  # `published` value.
+  # address, so this is the long form - and the gate reads it as neither a fixed port nor a bare
+  # container port.
   demo:
     # CI venue: compose only.
     # Because: the demo needs a language model and a browser, and the derived image is built from the
@@ -525,7 +525,7 @@ services:
     #   has no network, no docker socket and no model, so there is nothing there for it to bring up.
     # Converges: never, by design. This is a demonstration a person runs, not a service a gate
     #   provisions - `docs/demo.md` states that limit beside the demo itself.
-    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/sutura/local-chat-demo:0.11.3
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/sutura/local-chat-demo:${SUTURA_DEMO_IMAGE_TAG:-0.11.3}
     pull_policy: never
     profiles:
       - demo
@@ -542,9 +542,18 @@ services:
     ports:
       - target: 8080
         host_ip: 127.0.0.1
+    extra_hosts:
+      # **The native-Linux name for a model on this machine.**
+      # `host.docker.internal` resolves by itself on Docker Desktop, but on native Linux there is no
+      # such name until it is mapped, and without this the endpoint `demo/start.sh` rewrites a
+      # loopback URL to would resolve to nothing. `host-gateway` is docker's own alias for the host's
+      # bridge address. It does NOT make a loopback-only listener accept bridge traffic; the model
+      # must listen on an address the container can reach, and the healthcheck proves that it does.
+      - "host.docker.internal:host-gateway"
     volumes:
       # The chat client's own SQLite state, on a NAMED volume so compose prefixes it with the
-      # project name and two worktrees never share one. Removed by `just dev-down` like the rest.
+      # project name and two worktrees never share one. `just dev-down-demo` resolves both Compose
+      # labels and removes this exact volume; `just dev-down` removes it with the whole project.
       - demo-webui-data:/app/backend/data
     healthcheck:
       # The probe BOTH halves must pass. The shipped server image has no probe, so the demo

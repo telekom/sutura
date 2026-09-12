@@ -123,6 +123,19 @@ pub(crate) fn still_eligible(plan: &Plan, project: &str) -> bool {
 pub(crate) fn down_args() -> Vec<&'static str> {
     vec!["down", "--volumes", "--remove-orphans"]
 }
+/// The arguments that remove named services while leaving other project services.
+///
+/// Deliberately no `--volumes`: Compose applies that flag to EVERY named volume declared by the
+/// project, not merely to the named services. The selected volume is removed by its exact
+/// project-scoped name after this command succeeds.
+pub(crate) fn scoped_down_args<'a>(services: &'a [&'a str]) -> Option<Vec<&'a str>> {
+    if services.is_empty() {
+        return None;
+    }
+    let mut args = vec!["down"];
+    args.extend_from_slice(services);
+    Some(args)
+}
 
 /// The one sentence that names what removes this worktree's tier.
 ///
@@ -133,6 +146,10 @@ pub(crate) fn down_args() -> Vec<&'static str> {
 /// backtick span starting `just `, so a renamed task fails on every copy rather than on one.
 pub(in crate::compose) const REMOVES_THIS_WORKTREE: &str =
     "`just dev-down` removes this worktree's project, its network and its named volumes";
+
+/// The scoped cleanup for a partial or failed exclusive demo lifecycle.
+pub(in crate::compose) const REMOVES_DEMO: &str =
+    "`just dev-down-demo` removes the demo container, its named volume and its discovery entry";
 
 /// Print the plan. Called for a dry run and for a real one, so what a reader is shown before a
 /// destroy is byte-identical to what they would have been shown by `--dry-run`.
@@ -163,7 +180,7 @@ pub(crate) fn describe(plan: &Plan) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Listing, Plan, Spared, down_args, plan, still_eligible};
+    use super::{Listing, Plan, Spared, down_args, plan, scoped_down_args, still_eligible};
 
     /// What the runtime answered, out of a list of project names. `&[]` is an answer of nothing,
     /// which is the case that has to stay distinguishable from no answer at all.
@@ -264,5 +281,16 @@ mod tests {
         // pointing at it.
         assert!(down_args().contains(&"--volumes"));
         assert!(down_args().contains(&"--remove-orphans"));
+    }
+
+    #[test]
+    fn a_scoped_destroy_names_a_service_and_never_requests_every_volume() {
+        let args = scoped_down_args(&["demo"]).expect("one service is a scoped destroy");
+        assert_eq!(args, vec!["down", "demo"]);
+        assert!(!args.contains(&"--volumes"));
+        assert!(
+            scoped_down_args(&[]).is_none(),
+            "an empty selection would mean the whole project"
+        );
     }
 }
