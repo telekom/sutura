@@ -53,8 +53,10 @@ impl Granularity {
 
 /// A number in prose that counts something in the tree.
 ///
-/// The third shape of the same idea. [`Pin`](crate::guidance::Pin) reads its value from a line in a file; this one
-/// DERIVES it by counting, which is the only honest way to hold a number nobody is going to
+/// The second shape of the same idea, and the surviving one: the version shape read its value
+/// from a line in a file and was deleted, because a rule that refuses the copy cannot also
+/// require one to compare. This one
+/// DERIVES its value by counting, which is the only honest way to hold a number nobody is going to
 /// recount by hand. `39 SQL goldens read LIMIT 10001` was written when there were 39 and stayed
 /// written when there were 63, and no reviewer is going to notice that twice.
 pub(in crate::guidance) struct Counted {
@@ -72,7 +74,8 @@ pub(in crate::guidance) struct Counted {
     pub(super) mentioned_in: &'static [&'static str],
     /// The noun phrase the number belongs to. The count is the integer IMMEDIATELY BEFORE it.
     ///
-    /// Deliberately that narrow, for the reason [`contradicts`](crate::guidance::contradicts) is narrow: the sentence carrying
+    /// Deliberately that narrow, for the reason the `versions` check reads only the token
+    /// IMMEDIATELY beside a pinned name: the sentence carrying
     /// `39 SQL goldens read LIMIT 10001` also carries `10001`, and a check that read every number
     /// on the line would report the row cap as a wrong golden count.
     ///
