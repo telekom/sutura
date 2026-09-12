@@ -45,8 +45,8 @@ use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::plan::{
-    InternalLabel, LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm,
-    PredicateOrigin, ResultLabel, StatementTables,
+    InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate,
+    PlanTerm, PredicateOrigin, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::{Dialect, generate_leg};
@@ -124,8 +124,8 @@ fn month_bucket() -> PlanBucket {
 /// time column, and `status = 'active'` is part of what `recurring_revenue` and
 /// `active_subscriptions` mean. A leg carries them for the same reason a whole plan does - a
 /// definitional predicate a leg dropped would answer a different question one source at a time.
-fn definitional_filters() -> Vec<PlanFilter> {
-    vec![
+fn definitional_bindings() -> PlanBindings {
+    let filters = vec![
         PlanFilter::new(
             PredicateOrigin::Definition,
             PlanPredicate::AtOrAfter {
@@ -147,15 +147,16 @@ fn definitional_filters() -> Vec<PlanFilter> {
                 param: 2,
             },
         ),
-    ]
-}
-
-fn definitional_params() -> Vec<ParamValue> {
-    vec![
-        ParamValue::Date(Date::parse("2026-06-01").expect("a fixture date is a date")),
-        ParamValue::Date(Date::parse("2026-07-01").expect("a fixture date is a date")),
-        ParamValue::Text(String::from("active")),
-    ]
+    ];
+    PlanBindings::parse(
+        filters,
+        vec![
+            ParamValue::Date(Date::parse("2026-06-01").expect("a fixture date is a date")),
+            ParamValue::Date(Date::parse("2026-07-01").expect("a fixture date is a date")),
+            ParamValue::Text(String::from("active")),
+        ],
+    )
+    .expect("the fixture's three definitional predicates bind in placeholder order")
 }
 
 fn metric(name: &str) -> MetricName {
@@ -209,8 +210,7 @@ fn fact_sum_over_a_local_join() -> LegPlan {
             link_key(FACT_TABLE),
         ],
         terms: vec![term(Aggregate::Sum, "mrr_cents", 0)],
-        filters: definitional_filters(),
-        params: definitional_params(),
+        bindings: definitional_bindings(),
         range: june(),
     }
 }
@@ -229,8 +229,7 @@ fn fact_decomposed_average() -> LegPlan {
         bucket: month_bucket(),
         keys: vec![link_key(FACT_TABLE)],
         terms: vec![term(Aggregate::Sum, "mrr_cents", 0), term(Aggregate::Count, "mrr_cents", 1)],
-        filters: definitional_filters(),
-        params: definitional_params(),
+        bindings: definitional_bindings(),
         range: june(),
     }
 }
@@ -250,8 +249,7 @@ fn fact_distinct_keys() -> LegPlan {
         bucket: month_bucket(),
         keys: vec![link_key(FACT_TABLE), key("subscription_key", FACT_TABLE, "subscription_key")],
         terms: Vec::new(),
-        filters: definitional_filters(),
-        params: definitional_params(),
+        bindings: definitional_bindings(),
         range: june(),
     }
 }
@@ -266,8 +264,7 @@ fn lookup_unfiltered() -> LegPlan {
         source: source("crm"),
         table: table(REMOTE_TABLE).into(),
         keys: vec![link_key(REMOTE_TABLE), key("region", REMOTE_TABLE, "region")],
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
     }
 }
 
@@ -281,14 +278,17 @@ fn lookup_filtered() -> LegPlan {
         source: source("crm"),
         table: table(REMOTE_TABLE).into(),
         keys: vec![link_key(REMOTE_TABLE), key("region", REMOTE_TABLE, "region")],
-        filters: vec![PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: column(REMOTE_TABLE, "region"),
-                param: 0,
-            },
-        )],
-        params: vec![ParamValue::Text(String::from("north"))],
+        bindings: PlanBindings::parse(
+            vec![PlanFilter::new(
+                PredicateOrigin::Requested,
+                PlanPredicate::Equals {
+                    column: column(REMOTE_TABLE, "region"),
+                    param: 0,
+                },
+            )],
+            vec![ParamValue::Text(String::from("north"))],
+        )
+        .expect("the fixture's one requested predicate binds the one value"),
     }
 }
 

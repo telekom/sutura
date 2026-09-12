@@ -36,7 +36,7 @@ use sutura_domain::knowledge::{
     Phrase,
 };
 use sutura_domain::model::{MetricName, ModelName, RelationshipName, SourceName};
-use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, InvalidManifest, PinnedDefinitions};
 
 /// Why N contributions will not compose.
 ///
@@ -48,6 +48,20 @@ pub enum CompositionError {
     /// Nothing was contributed; a deployment serves at least one metadata source.
     #[error("no contributions were assembled - a deployment serves at least one metadata source")]
     Empty,
+    /// The composed contributions are not a manifest: nothing to record, or two of them naming one
+    /// source. Distinct from [`CompositionError::Empty`], which is this function's own check on its
+    /// input - this one is the manifest refusing to record a composition it cannot represent. Only
+    /// `NoContributors` is unreachable from here: [`CompositionError::Empty`] above wins first on
+    /// any input that would otherwise produce it. `DuplicateSource` IS reachable through this public
+    /// function - `assemble` runs no source-name uniqueness check of its own, only the per-element
+    /// checks below - and is exercised directly by a test on this function, not only on
+    /// `ContributionManifest::parse`. What keeps a duplicated name off the *served* path is
+    /// `Catalogs::parse` in `sutura-config` refusing it at configuration time, before assembly runs.
+    #[error("the composed contributions are not a manifest")]
+    Manifest {
+        #[source]
+        cause: InvalidManifest,
+    },
     /// A contribution's own manifest did not name exactly one source, so this bundle cannot say who
     /// contributed it. The `count` is what a reader needs: the manifest is supposed to be the
     /// per-source record, and a value that failed to be one has nothing to merge under.
@@ -231,11 +245,12 @@ pub fn assemble(bundles: Vec<PinnedDefinitions>) -> Result<PinnedDefinitions, Co
 
     // The composed manifest is the contributors' own records, keyed by name - collection order is
     // content order, which the digest relies on.
-    let manifest = ContributionManifest::of(
+    let manifest = ContributionManifest::parse(
         contributions
             .iter()
             .map(|c| (c.name.clone(), Contribution::of(c.capabilities.clone()))),
-    );
+    )
+    .map_err(|cause| CompositionError::Manifest { cause })?;
 
     PinnedDefinitions::pin(version, definitions, knowledge, manifest).map_err(|cause| CompositionError::Digest { cause })
 }
@@ -358,7 +373,7 @@ mod tests {
     use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
-    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, InvalidManifest, PinnedDefinitions};
     use sutura_domain::query::{Query, ToolOutcome};
     use sutura_domain::warehouse::{RowSet, Value};
 
@@ -441,6 +456,35 @@ mod tests {
             definitions,
             Knowledge::none(),
             ContributionManifest::single(source("datahub"), Contribution::of(declared)),
+        )
+        .expect("the narrow source pins")
+    }
+
+    /// The narrow source's content, declared under `certified()`'s name instead of its own -
+    /// disjoint elements (the `geo` model beside `certified`'s `subscriptions` metric), so neither
+    /// collision check trips. This is the probe the review of this PR found: `assemble` runs no
+    /// source-name uniqueness check of its own, only the per-element checks above, so composing
+    /// this beside `certified()` on `main` built a manifest recording ONE contributor for a
+    /// two-contributor bundle and returned `Ok` - the exact "two different compositions that
+    /// assemble identically are indistinguishable" gap `docs/adr/0011` built the manifest to close.
+    fn narrow_declaring_itself_certified() -> PinnedDefinitions {
+        let model = Model::new(
+            ModelName::parse("geo").expect("a test model is a model"),
+            source("local"),
+            TableName::parse("geo").expect("a test table is a table"),
+            BTreeSet::from([column("region")]),
+            Description::parse("where the customer is").expect("a description is a description"),
+        );
+        let definitions = Definitions::assemble(vec![model], vec![], vec![]).expect("the narrow content holds together");
+        let declared = MetadataCapabilities::of(
+            DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Descriptions]),
+            KnowledgeCapabilities::none(),
+        );
+        PinnedDefinitions::pin(
+            version(),
+            definitions,
+            Knowledge::none(),
+            ContributionManifest::single(source("certified"), Contribution::of(declared)),
         )
         .expect("the narrow source pins")
     }
@@ -551,6 +595,26 @@ mod tests {
         match err {
             CompositionError::Unfaithful { source, .. } => assert_eq!(source.as_str(), "lying"),
             other => panic!("expected an unfaithful declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_duplicated_source_is_refused_at_assembly() {
+        // `assemble` has no source-name uniqueness check of its own - its collision checks above
+        // are per element (a model, a metric), not per contributor name - so two bundles with
+        // disjoint content that both declare themselves `certified` reach
+        // `ContributionManifest::parse`'s own `DuplicateSource` refusal rather than composing a
+        // one-entry manifest for what is actually two contributors. What keeps a duplicated name
+        // off the served path is `Catalogs::parse` in `sutura-config` refusing it at configuration
+        // time, before assembly ever runs - this is `assemble`'s own defence, reachable through the
+        // public function directly, not only defence in depth behind that gate.
+        let err = assemble(vec![certified(), narrow_declaring_itself_certified()])
+            .expect_err("two contributors under one declared name must not compose silently");
+        match err {
+            CompositionError::Manifest {
+                cause: InvalidManifest::DuplicateSource { source_name },
+            } => assert_eq!(source_name.as_str(), "certified"),
+            other => panic!("expected a duplicated source to be refused, got {other:?}"),
         }
     }
 }

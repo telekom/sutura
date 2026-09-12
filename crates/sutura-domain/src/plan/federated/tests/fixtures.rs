@@ -12,7 +12,8 @@ use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use crate::plan::leg::LegPlan;
 use crate::plan::{
-    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanKey, ResultLabel, StatementTables,
+    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanKey, ResultLabel,
+    StatementTables,
 };
 use crate::warehouse::{RowSet, Value};
 
@@ -103,8 +104,7 @@ pub(super) fn fact_leg() -> LegPlan {
         bucket: bucket(),
         keys: vec![key("product_family", FACT), link_key(FACT)],
         terms: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range: range(),
     }
 }
@@ -114,8 +114,7 @@ pub(super) fn lookup_leg() -> LegPlan {
         source: source(REMOTE_SOURCE),
         table: table(FACT).into(),
         keys: vec![link_key(FACT), key("region", FACT)],
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
     }
 }
 

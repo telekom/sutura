@@ -103,8 +103,8 @@ mod tests {
         TableQualifier,
     };
     use sutura_domain::plan::{
-        Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
-        QueryPlan, ResultLabel, StatementTables,
+        Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
+        PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
     };
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::{ParamValue, RowSet, Value, Warehouse as _};
@@ -345,23 +345,26 @@ mod tests {
                 },
             },
             ResultLabel::measure(&MetricName::parse(MEASURE_LABEL).expect("a metric name parses")),
-            vec![
-                PlanFilter::new(
-                    PredicateOrigin::Definition,
-                    PlanPredicate::AtOrAfter {
-                        column: column("day"),
-                        param: 0,
-                    },
-                ),
-                PlanFilter::new(
-                    PredicateOrigin::Definition,
-                    PlanPredicate::Before {
-                        column: column("day"),
-                        param: 1,
-                    },
-                ),
-            ],
-            vec![ParamValue::Date(from), ParamValue::Date(until)],
+            PlanBindings::parse(
+                vec![
+                    PlanFilter::new(
+                        PredicateOrigin::Definition,
+                        PlanPredicate::AtOrAfter {
+                            column: column("day"),
+                            param: 0,
+                        },
+                    ),
+                    PlanFilter::new(
+                        PredicateOrigin::Definition,
+                        PlanPredicate::Before {
+                            column: column("day"),
+                            param: 1,
+                        },
+                    ),
+                ],
+                vec![ParamValue::Date(from), ParamValue::Date(until)],
+            )
+            .expect("a fixture plan binds its two range bounds in placeholder order"),
             TimeRange::new(from, until).expect("a bounded range is a range"),
         )
     }

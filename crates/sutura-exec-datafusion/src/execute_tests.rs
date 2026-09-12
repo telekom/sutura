@@ -16,8 +16,8 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-    ResultLabel, StatementTables,
+    Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
+    QueryPlan, ResultLabel, StatementTables,
 };
 // `Warehouse as _`: the trait is imported for `dry_run` and `execute`, and never named.
 use sutura_domain::warehouse::{ParamValue, Real, Value, Warehouse as _};
@@ -70,23 +70,26 @@ fn plan(measure: PlanMeasure, label: &str, keys: Vec<PlanKey>) -> QueryPlan {
         keys,
         measure,
         ResultLabel::measure(&MetricName::parse(label).expect("a test measure label is a metric name")),
-        vec![
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::AtOrAfter {
-                    column: on("order_date"),
-                    param: 0,
-                },
-            ),
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::Before {
-                    column: on("order_date"),
-                    param: 1,
-                },
-            ),
-        ],
-        vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-08-01"))],
+        PlanBindings::parse(
+            vec![
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::AtOrAfter {
+                        column: on("order_date"),
+                        param: 0,
+                    },
+                ),
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::Before {
+                        column: on("order_date"),
+                        param: 1,
+                    },
+                ),
+            ],
+            vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-08-01"))],
+        )
+        .expect("a test plan binds its two range bounds in placeholder order"),
         TimeRange::new(day("2026-06-01"), day("2026-08-01")).expect("a test range is a range"),
     )
 }

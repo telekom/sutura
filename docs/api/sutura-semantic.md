@@ -81,25 +81,30 @@ pub enum CompileFailure
 
 Why compiling failed, which is never why a question was refused.
 
-**Two arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question the
-deployment declines comes back as `Compiled::Refused`; what reaches this type is our own side
-being wrong. Those are the two ways that can happen: the pinned bundle names something it does not
-hold, and the splitter built a two-source plan that
-`FederatedPlan::new` then rejected. The second used to
+**Three arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question
+the deployment declines comes back as `Compiled::Refused`; what reaches this type is our own
+side being wrong. Those are the ways that can happen: the pinned bundle names something it does
+not hold, the splitter built a two-source plan that
+`FederatedPlan::new` then rejected, and a producer
+built a plan whose predicates and parameters did not resolve each other. The second used to
 be flattened into `RefusalReason::FederationNotExecutable`, which is what a build whose adapter
 type does not declare `Warehouse::EXECUTES_LEGS` is told - so a wiring defect and a statement
 about the build's own capability arrived as one value, and a caller could not tell which it had.
 
 **The limit, next to the claim:** nothing provokes `NotAssembled`
-today. Every `FederatedPlanError` variant is structurally unreachable from the splitter as it
-stands - `crate::plan::PlanError` enumerates why, one variant at a time - so what this arm buys is
-that a future edit which makes one reachable surfaces as a failure rather than as a refusal a
-caller would retry.
+or `NotBound` today. Every `FederatedPlanError` variant is
+structurally unreachable from the splitter as it stands, and every
+`IncoherentBindings` variant is unreachable from the
+two functions that build a binding set, because both mint each parameter index from the position
+the value was pushed to - `crate::plan::PlanError` enumerates why, one variant at a time - so what
+these arms buy is that a future edit which makes one reachable surfaces as a failure rather than
+as a refusal a caller would retry.
 
 ### Variants
 
 - `Bundle` - The pinned bundle names a model or a relationship it does not hold.
 - `NotAssembled` - A two-source plan this workspace compiled and could not then assemble.
+- `NotBound` - A plan this workspace compiled whose predicates and parameters did not resolve each other.
 
 ### Implements
 

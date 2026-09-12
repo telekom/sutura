@@ -864,8 +864,8 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 #[cfg(test)]
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, ResultLabel,
-    StatementTables,
+    PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
+    ResultLabel, StatementTables,
 };
 #[cfg(test)]
 use sutura_domain::warehouse::ParamValue;
@@ -910,23 +910,26 @@ pub(crate) fn question() -> QueryPlan {
             },
         },
         ResultLabel::measure(&MetricName::parse("revenue").expect("a test metric is a metric")),
-        vec![
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::AtOrAfter {
-                    column: on("order_date"),
-                    param: 0,
-                },
-            ),
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::Before {
-                    column: on("order_date"),
-                    param: 1,
-                },
-            ),
-        ],
-        vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-07-01"))],
+        PlanBindings::parse(
+            vec![
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::AtOrAfter {
+                        column: on("order_date"),
+                        param: 0,
+                    },
+                ),
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::Before {
+                        column: on("order_date"),
+                        param: 1,
+                    },
+                ),
+            ],
+            vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-07-01"))],
+        )
+        .expect("a test plan binds its two range bounds in placeholder order"),
         TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
     )
 }

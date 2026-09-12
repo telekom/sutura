@@ -71,8 +71,8 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
-    QueryPlan, ResultLabel, StatementTables,
+    LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
+    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{ParamValue, Real, RowSet, Value};
@@ -323,8 +323,7 @@ pub fn leg_case() -> LegCase {
                 // about the numbers.
                 ResultLabel::measure(&metric("amount_total")),
             )],
-            filters: range_filters(),
-            params: range_params(),
+            bindings: range_bindings(),
             range: range(),
         },
         expected: case.expected,
@@ -355,8 +354,7 @@ fn total_by_region_and_day() -> Case {
             },
         },
         ResultLabel::measure(&metric("amount_total")),
-        range_filters(),
-        range_params(),
+        range_bindings(),
         range(),
     );
     let expected = rows(
@@ -402,8 +400,7 @@ fn mean_by_day() -> Case {
             },
         },
         ResultLabel::measure(&metric("amount_mean")),
-        range_filters(),
-        range_params(),
+        range_bindings(),
         range(),
     );
     let expected = rows(
@@ -515,8 +512,7 @@ fn total_by_day(case_name: &'static str, metric_name: &str, column_name: &str, t
             },
         },
         ResultLabel::measure(&metric(metric_name)),
-        range_filters(),
-        range_params(),
+        range_bindings(),
         range(),
     );
     let expected = rows(&plan, vec![vec![text("2026-01-01"), first], vec![text("2026-01-02"), second]]);
@@ -580,8 +576,13 @@ fn day(of_january: u8) -> Date {
 /// Definitional, because a bounded range is part of what a metric means rather than something the
 /// question asked for - and the adapters read `filters` rather than `range`, so a plan without
 /// these is a plan with no `WHERE` at all.
-fn range_filters() -> Vec<PlanFilter> {
-    vec![
+/// The two range bounds and the values they bind, as one parsed set.
+///
+/// One function rather than a filter list beside a parameter list, because the indices and the values
+/// are the same fact: `sutura_domain::plan::bindings` is what an adapter does when two helpers
+/// disagree.
+fn range_bindings() -> PlanBindings {
+    let filters = vec![
         PlanFilter::new(
             PredicateOrigin::Definition,
             PlanPredicate::AtOrAfter {
@@ -596,11 +597,9 @@ fn range_filters() -> Vec<PlanFilter> {
                 param: 1,
             },
         ),
-    ]
-}
-
-fn range_params() -> Vec<ParamValue> {
-    vec![ParamValue::Date(day(1)), ParamValue::Date(day(3))]
+    ];
+    PlanBindings::parse(filters, vec![ParamValue::Date(day(1)), ParamValue::Date(day(3))])
+        .expect("the corpus range binds its two bounds in placeholder order")
 }
 
 #[cfg(test)]
