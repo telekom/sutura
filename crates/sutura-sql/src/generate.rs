@@ -194,7 +194,7 @@ fn aliased(inner: Expr, label: &str) -> Result<Expr, GenerateError> {
 /// `week` means a **Monday**-based week on every dialect this renders for, and that is measured
 /// rather than assumed for the one that looked doubtful. `ClickHouse` `26.7.5.10` answers
 /// `dateTrunc('week', DATE '2026-08-30')` - a Sunday - with **2026-08-24, a Monday**, matching
-/// the pinned `DuckDB` and `Postgres` (and `BigQuery`'s Monday-based `ISOWEEK`); measured on
+/// the pinned `DuckDB` and `Postgres` 17.11 (and `BigQuery`'s Monday-based `ISOWEEK`); measured on
 /// 2026-08-30. The reason is in the source rather than the spelling: `ClickHouse` routes
 /// `date_trunc('week')` through `toStartOfInterval`, whose weeks start on Monday, while only the
 /// bare `toStartOfWeek` defaults to Sunday. So one lowercase mapping stays shared, and should a

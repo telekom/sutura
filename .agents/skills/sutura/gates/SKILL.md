@@ -89,14 +89,21 @@ adding a pin anywhere.
 `check-pins` fails if a tool appears in both nix and pixi. `nix` is the only pin for a tool whose
 version changes what it reports.
 
-**Adding a NEW gate needs a spare line in `xtask/src/main.rs`, and there may not be one.** That file
-holds the task table, and on 2026-09-07 it stood at **999 of the 1000-line cap** `max-lines`
-enforces - a cap `crates/` and `xtask/` cannot be exempted from, because `UNEXEMPTABLE_PREFIXES` is
-exactly those two. A module declaration plus a `Task { .. }` entry is seven lines at its shortest,
-so *add a gate* silently means *split `main.rs` first*. Two ways out, and the second is usually
-better: split the table, or add the rule to an existing gate that already reads the same inputs -
-a submodule under `xtask/src/<gate>/` costs `main.rs` nothing, and a second gate over the same walk
-would be a second answer anyway. `check-workflows`' badge rules landed that way.
+**A new rule usually belongs on a gate that already walks the right files, not on a new gate.** A
+submodule under `xtask/src/<gate>/` costs the task table nothing, and a second gate over the same
+walk would be a second answer anyway - `check-workflows`' badge rules landed that way. Check what
+already reads your subject before registering. The cap's part in that choice is usually believed
+rather than real: `#610` attributed two arms to it whose own records blame something else, and
+three files cited it directly - in every one the arm was the right shape regardless, so the cap
+took credit for a decision the author had already made correctly.
+
+Registration has headroom again. `TASKS` lives in `xtask/src/task_table.rs` since
+`github.com/telekom/sutura#610`, which moved it out of `main.rs` at 992 of the 1000-line cap
+`max-lines` enforces - a cap `crates/` and `xtask/` cannot be exempted from, because
+`UNEXEMPTABLE_PREFIXES` is exactly those two. **No line count is repeated here**, because a
+measurement copied into prose rots: three files carried 999 against a tree measuring 992. `just
+hygiene` reports the cap's verdict, and it is the only current answer. **What it does not report is
+how close any file is to refusing**, so the next near-cap file is as invisible as that one was.
 
 **And when a new gate reads `flake.nix` for a name, LEX it - do not search the text.** `flake.nix`
 declares `apps.<name>` and `checks.<name>` for overlapping sets of names, so *does the file mention
@@ -436,8 +443,9 @@ panic-free.
   than inheriting a default.
 - **THE VERSION SHAPE WAS THAT SAME CHECK AND IS GONE, because it REQUIRED the copy it was
   guarding.** One pin, the compiler, compared against every page naming `rust-toolchain.toml`
-  beside a version - so its vacuity arm demanded that some page state one, and for a while none
-  did while the success line said `1 pin(s)`. `versions` refuses a version written beside the name
+  beside a version - so its vacuity arm demanded that some page state one, and for a while SIX
+  pages named `rust-toolchain.toml` while not one carried a version, the success line saying
+  `1 pin(s)` over a comparison with nothing in it. `versions` refuses a version written beside the name
   of anything this repo pins, wherever a comment or a page writes it, and a rule that refuses the
   copy cannot also require it. So the table went rather than widening, and the vacuity arm became a
   floor on the harvest: the check fails when it reads fewer names out of the manifests, or fewer
@@ -454,6 +462,15 @@ panic-free.
   because the version IS the content: `docs/crap.md`, where `check-crap` fails when the page stops
   naming the version `nix/crap.nix` pins and has its own test, and `docs/adr/**` plus `VENDOR.md`
   and the changelog, where a dated record and an upstream provenance are what the page is for.
+  **A figure followed by a UNIT is not a version either** - `s`, `%`, `GB`, `core-hours` and the
+  rest - because a measurement beside the name of the thing it was measured on is exactly the
+  content this check protects, and no file holds a measurement. That retreat cost zero refusals
+  tree-wide. **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
+  dependency keys, flake inputs, `apps.<name>`, pixi dependency tables, compose image names and
+  the `nix/` module basenames, so **a tool named only as a nix CHECK is outside all six** -
+  `checks.nextest` is not `apps.nextest`, and nine transcriptions of nextest's version survived
+  the branch's first sweep until they were removed by hand. **So the gate is a ratchet, not a
+  proof that no copy is left**, and a green run means no copy the harvest can SEE.
   **The trailing tag on a SHA-pinned action is out of scope by OWNER DECISION - dependabot
   maintains its own tags - and nobody here reproduced what dependabot writes.** It is implemented
   structurally, by a `#` breaking adjacency rather than by a list of those lines, so the exclusion

@@ -60,10 +60,10 @@ mod contexts;
 mod reach;
 
 // A BADGE IS A PUBLIC CLAIM, held against the mechanism it claims. Its own file because it reads
-// two more authorities - `README.md` and `devco/scorecard-publication` - and because a new entry
-// in `main.rs`'s task table is not available: that file stands at 999 lines against a cap
-// `crates/` and `xtask/` cannot be exempted from. It belongs here regardless: *what may a workflow
-// do* is this gate's question, and it already walks every place CI invokes something from.
+// two more authorities - `README.md` and `devco/scorecard-publication` - and because *what may a
+// workflow do* is this gate's question, and it already walks every place CI invokes something
+// from. The task table's line cap was cited here too, and `#610` found that half of the reason
+// did not hold up: the sentence above is the whole of it.
 mod scorecard;
 
 // CAN THE PUBLICATION THE BADGE IS SERVED FROM LAND? `scorecard` holds badge <-> publication

@@ -44,7 +44,7 @@
 //!
 //! **AN EMPTY RUN IS RED**, because a lane that selects nothing and reports success is the defect
 //! this gate exists to end, one level up. `--no-tests fail` is passed rather than inherited, and the
-//! limit next to that claim is measured: nextest 0.9.143's own default (`auto`) exits 4 on an empty
+//! limit next to that claim is measured: the pinned nextest's own default (`auto`) exits 4 on an empty
 //! selection **too**, so this pins a default rather than changing behaviour today. It is written
 //! down anyway because a default is not a mechanism - `auto`'s documented job is to *determine* the
 //! behaviour, and `NEXTEST_NO_TESTS` in an environment would override it silently.
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn an_empty_selection_is_red_rather_than_green() {
         // The defect this whole gate exists to end, one level up: a lane that selects no test and
-        // reports success. Written down rather than inherited - nextest 0.9.143's `auto` exits 4
+        // reports success. Written down rather than inherited - the pinned nextest's `auto` exits 4
         // here too, measured, so what this holds is that the value stops depending on a default and
         // on `NEXTEST_NO_TESTS` not being set in whatever environment the gate runs in.
         let words = invocation("sutura-cli", None);
@@ -271,7 +271,7 @@ mod tests {
         // `a_comment_is_not_a_reference` holds to skipping a `#` line.
         let root = crate::repo::root().expect("the repo root");
         assert!(
-            crate::TASKS.iter().any(|task| task.name == TASK),
+            crate::tasks().any(|task| task.name == TASK),
             "{TASK} is not a registered task"
         );
         let body = crate::tasks::recipe_body(&root, RECIPE).expect("a `gates` recipe in the justfile");

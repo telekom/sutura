@@ -45,21 +45,18 @@ it costs; the two reasons it was absent are answered rather than repealed:
 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
    service-account key - the first statement this repository generated to be accepted by
-   `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column fixture, so it
-   says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or `ISOWEEK` - and
-   the last is one of the two constructs `docs/adr/0017` measured the parse check to be blind
-   about. **The corpus-wide leg that record specifies is `tests/corpus.rs`, beside it**, behind the
-   default-off `fixtures` feature: it loads the example fixtures into four tables through
+   `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column
+   fixture, so it says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or
+   `ISOWEEK` - and the last is one of the two constructs `docs/adr/0017` measured the parse check
+   to be blind about. **The corpus-wide leg is `tests/corpus.rs`**, behind the default-off
+   `fixtures` feature: it loads the example fixtures into four tables through
    `BigQueryWarehouse::load_fixture`, runs the corpus questions, and compares its rows with the
    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 
 So nothing here may be cited as an invariant. `sutura-serve` DOES link this adapter and dispatch
 `kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
-records the day the last *not wired* was spent, and the two sentences that used to stand here
-said the opposite. What is still true is that a default build links none of it,
-and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
-last one has changed rather than gone away.** It was *a cell that has never executed reads as
-coverage*; the corpus leg executes, so what keeps the entry out now is that a cell in that registry
+records the day the last *not wired* was spent. A default build links none of it, and
+the `data_systems:` axis of the golden matrix gains no entry - because a cell in that registry
 runs inside `just test` and this one cannot: the nix sandbox has no network, so acceptance is a
 `nix run` app and not a `checks.*` output.
 
@@ -74,14 +71,14 @@ a token exchange - this crate performs no exchange, it presents one - and that b
 the composition root that links this adapter, which is the half `docs/implementation-plan-bigquery.md`
 describes as not wired.
 
-**ONE of the two subject shapes, and the other is refused rather than degraded.** The domain's
+**ONE of the two subject shapes, and the other is refused rather than degraded.** A
 `Presented::SubjectPrincipal` is a principal the data system switches to on a connection the
 DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
-subject token, so `Presented::agrees_with` passes it and only this adapter can say it has
-nowhere to put it. `BigQueryError::NoPrincipalSwitch` is that refusal, and the reason it is a
-refusal is the reason the whole-shape `NoPlaceForASubject` it replaced existed: a leg accepted
-here would be submitted under the transport's own credential while provenance, read off this
-source's posture, reported the answer as impersonated.
+subject token, so `Presented::agrees_with` passes it
+and only this adapter can say it has nowhere to put it. `BigQueryError::NoPrincipalSwitch` is
+that refusal, and the reason it is a refusal is the reason the whole-shape `NoPlaceForASubject`
+it replaced existed: a leg accepted here would be submitted under the transport's own credential
+while provenance, read off this source's posture, reported the answer as impersonated.
 
 **What no version of this is:** a deployment where a served source executes as its asker.
 `sutura-serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
@@ -162,7 +159,7 @@ the expiration is what still cleans up after it.
 It takes a table name and never a statement, for the same reason `load_fixture` does: the
 statement is rendered from a name that parsed, and *no arbitrary SQL entry point* stays true.
 
-Behind the same `fixtures` feature and in the same impl block, for the same two reasons.
+Behind the same `fixtures` feature and in the same impl block, for `load_fixture`'s reasons.
 
 ```rust
 pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<T as >::Error>
@@ -218,9 +215,9 @@ asserting it is the difference between evidence and a comment. `docs/adr/0008` n
 
 It goes through `Self::deliverable` like every other credential-taking method, so a leg
 whose credential disagrees with the source's posture is refused here too rather than being
-answered by a read that looks harmless.
-The `SessionUser` answer redacts under `Debug`; explicit access and `Display` still
-reveal it. Neither this read nor its return type establishes how the bearer was obtained.
+answered by a read that looks harmless. The `SessionUser` answer redacts under `Debug`;
+explicit access and `Display` still reveal it. Neither this read nor its return type
+establishes how the bearer was obtained.
 
 **Not part of the `Warehouse` port, and that is a decision rather than an omission.** No
 other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in

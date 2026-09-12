@@ -32,15 +32,29 @@
 //! owner ruled that dependabot maintains its own tags. Nobody here reproduced what dependabot
 //! writes, and that is not what settles it. The implementation is structural rather than a named
 //! carve-out - a `#` breaks adjacency, so nothing lists those lines and the rule stays one rule -
-//! and **the limit of that is that it is BROADER than the ruling**: any version in a comment
-//! whose nearest token is punctuation is spared, dependabot's or not.
+//! and **the limit of that is that it is BROADER than the ruling**: a version whose neighbouring
+//! token is ENTIRELY punctuation is spared, dependabot's or not. Punctuation ATTACHED to the name
+//! spares nothing, because [`bare`] strips it off the name too: a COMMA between a pinned name and
+//! a version leaves it refused, and only a neighbour that reduces to nothing - a table pipe, a
+//! `#` - breaks the adjacency. (No example here, because a true one would refuse this file.)
 //!
 //! **What it therefore does not catch, stated before a reader trusts it.** A version separated
 //! from its name by a clause ("`pkgs.stax` is 0.102.2 on nixpkgs"). A version of something this
 //! repo does not pin, which has no home here to rot against. A bare version with no name beside
 //! it, which is indistinguishable from data. A fourth dotted field, so that an address is never
-//! refused. A bare `v<n>`, for the reason [`is_version`] gives. And in Rust, a `//` inside a
-//! string literal that is not a URL scheme is read as a comment.
+//! refused. A bare `v<n>`, for the reason [`is_version`] gives. A figure followed by a unit, for
+//! the reason [`UNITS`] gives. And in Rust, a `//` inside a string literal that is not a URL
+//! scheme is read as a comment.
+//!
+//! **And the harvest reaches names, not every spelling of a pinned thing.** What it reads is
+//! listed in [`pinned_names`]: dependency keys, flake inputs, `apps.<name>`, pixi dependency
+//! tables, compose image names and the `nix/` module basenames. **A tool named only as a nix
+//! CHECK is outside all six** - `checks.nextest` is not `apps.nextest`, so `nextest` is not a
+//! harvested name and nine transcriptions of its version survived the first sweep of this branch
+//! until they were removed by hand. Widening the harvest to check names was not done here: the
+//! names a check defines are not the names a dependency has, and a guess at that is how a gate
+//! starts refusing prose. So the sweep this gate enforces is narrower than the sweep a person
+//! can do, and the gate is a ratchet rather than a proof that no copy is left.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -85,6 +99,36 @@ pub(in crate::guidance) struct Scan {
 /// under it, which only a broken reader can trip.
 const NAME_FLOOR: usize = 40;
 const COMMENT_FLOOR: usize = 2_000;
+
+/// A unit that makes the token before it a MEASUREMENT rather than a version.
+///
+/// The retreat this list exists for, measured: `duckdb 11.1 s` and `duckdb 99.9 %` were refused,
+/// and a timing beside the name of the thing it was timed on is exactly the content this check is
+/// supposed to protect - there is no file that holds a measurement, which is why it is content. A
+/// unit attached to the number (`0.17s`) never parsed as a version; a unit as the NEXT token did,
+/// and the table row this module used to test was saved by its PIPES rather than by the figure.
+const UNITS: &[&str] = &[
+    "s",
+    "ms",
+    "us",
+    "ns",
+    "min",
+    "h",
+    "%",
+    "x",
+    // Escaped, not literal: the workspace denies a non-ASCII literal, and clippy said so on this
+    // very line. It is the multiplication sign, which a measured ratio is written with.
+    "\u{d7}",
+    "B",
+    "KB",
+    "MB",
+    "GB",
+    "TB",
+    "KiB",
+    "MiB",
+    "GiB",
+    "core-hours",
+];
 
 /// Punctuation a sentence puts around a token, none of which is part of it.
 const EDGE: &[char] = &[
@@ -353,6 +397,15 @@ fn refused<'line>(line: &'line str, start: usize, names: &BTreeSet<String>) -> V
             found.push((version, "the compiler pin"));
             continue;
         }
+        // A MEASUREMENT, not a version: the unit is the next token. Checked before the name, so
+        // that a figure beside the name of the thing it was measured on stays content.
+        let measured = index
+            .checked_add(1)
+            .and_then(|next| words.get(next))
+            .is_some_and(|(_, raw)| UNITS.contains(&bare(raw)));
+        if measured {
+            continue;
+        }
         let neighbour = [index.checked_sub(1), index.checked_add(1)]
             .into_iter()
             .flatten()
@@ -504,6 +557,19 @@ mod tests {
         // And a `v` on a DOTTED version is still refused, so dropping the bare shape did not
         // drop the prefix with it.
         assert!(fires("the pinned duckdb v1.7.0 answers it"));
+    }
+
+    #[test]
+    fn a_measured_figure_beside_the_name_it_was_measured_on_is_content() {
+        // THE REVIEW FINDING, asserted on the FIGURE rather than on a table row: the row below
+        // was saved by its pipes, so it never covered this. A unit is what separates a
+        // measurement from a version, and no file holds a measurement.
+        assert!(!fires("the duckdb cell passed in 11.1 s"));
+        assert!(!fires("duckdb answered 99.9 % of the time"));
+        assert!(!fires("prek pulled 3.65 GB and left 2.7 MiB to fetch"));
+        assert!(!fires("a median 16.1 core-hours per push on duckdb"));
+        // And the version it must still refuse, one token apart from the same shape.
+        assert!(fires("the pinned duckdb 1.5.5 answers it"));
     }
 
     #[test]

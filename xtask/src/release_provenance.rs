@@ -374,8 +374,7 @@ mod tests {
     }
 
     fn registered(args: &[String]) -> Verdict {
-        let task = crate::TASKS
-            .iter()
+        let task = crate::tasks()
             .find(|task| task.name == "collect-provenance")
             .expect("registered collector");
         (task.run)(args)
