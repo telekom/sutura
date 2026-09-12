@@ -107,6 +107,7 @@ mod provenance;
 // because "which lines of this file are test code" is one question and a second implementation of
 // it would be a second thing to keep in step. Nothing else about the module moved.
 pub(crate) mod regions;
+mod relocation;
 mod remedies;
 // `reverted` sits after `remedies` alphabetically and after `regions` conceptually: it reads the
 // same post-image regions, and it is the last question asked before a green run becomes a verdict.
@@ -123,6 +124,7 @@ use features::{Activation, BaseText, Trees};
 use place::AddedTest;
 use plan::{Plan, Separable, plan};
 use provenance::{Commit, Moved, Reach};
+use relocation::{Claim, Images, Relocation};
 use remedies::{
     report_enabled_tests, report_head_failure, report_moved, report_no_base_behaviour, report_not_separable,
     report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unread_manifests,
@@ -488,6 +490,37 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Activation::Unread(unread) => return report_unread_manifests(&unread),
     }
 
+    // THE BASE IMAGE, because a REMOVED line exists in no other one. Two consumers: `reverted`
+    // asks whether a reverted line sat inside a test region of the tree it restores, and
+    // `relocation` asks the same of every line a declared cleanup took out.
+    let base_tree = |path: &str| worktree::at_base(&root, &at, path);
+
+    // A COMMIT MAY DECLARE ITSELF A TEST-FILE CLEANUP, and the trailer is a CLAIM this CHECKS
+    // rather than a permission that replaces the check - a trailer nothing verifies is the gate
+    // that has quietly stopped gating. Ahead of the plan because a pure relocation has nothing for
+    // the plan to partition: it added no test that any tree could be red against, so refusing is
+    // the gate answering a question the diff does not ask.
+    //
+    // AFTER the feature refusal above and not before it, which is a decision and so is stated:
+    // both are `Verdict::Fail` and the order only decides which cause an author is shown, and a
+    // manifest in the diff is a `Broken::NotRust` here - so putting this first would shadow the
+    // narrower, earlier-established answer with a broader one.
+    //
+    // `relocation` carries the four conditions, why the carrier is a commit trailer, and what a
+    // pure-relocation verdict does NOT prove.
+    match relocation::decide(
+        Claim::of(&worktree::messages(&root, &at)).as_ref(),
+        &files,
+        &Images {
+            head: &working_tree,
+            base: &base_tree,
+        },
+    ) {
+        Relocation::Unclaimed => {}
+        Relocation::Pure(paths) => return relocation::report_pure(&paths, &Coverage::of(&[], &files, &working_tree)),
+        Relocation::Refused(broken) => return relocation::report_refused(&broken),
+    }
+
     match plan(&files, &working_tree) {
         Plan::NotRequired => {
             println!("xtask test-causality: no changed tests - nothing to prove");
@@ -511,8 +544,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                     // THE BASE IMAGE IS A SECOND READER, because a removed line exists only
                     // there: `reverted` asks whether it sat inside a test region of the tree the
                     // revert restores, and the post-image cannot answer a question about a line it
-                    // does not contain.
-                    let base_tree = |path: &str| worktree::at_base(&root, &at, path);
+                    // does not contain. Bound once above, where `relocation` needs the same reader.
                     let reach = Attempts::of(
                         &separable.revert,
                         &separable.held(),

@@ -145,13 +145,30 @@ pub(crate) fn scope(path: &str, read: &PostImage<'_>) -> TestScope {
 /// and is the one place this stays a heuristic - an added `#[derive(..)]` on a production type
 /// does change behaviour and is not counted here.
 pub(crate) fn has_non_test_additions(added: &[AddedLine], scope: &TestScope) -> bool {
-    added
-        .iter()
-        .any(|line| !carries_no_behaviour(&line.text) && !scope.covers(line.number))
+    added.iter().any(|line| outside(line, scope))
+}
+
+/// The lines that are plainly not test code, in the order the diff has them.
+///
+/// TWO CALLERS AND ONE PREDICATE. `super::plan` needs only whether any such line EXISTS;
+/// `super::relocation` needs WHICH, because a refusal that names no line is one an author cannot
+/// act on. A second implementation of *is this line test code* would be a second thing to keep
+/// true, and this module's own header is about what one such disagreement already cost.
+///
+/// The lines may be REMOVED ones re-presented against the base image - that is `relocation`'s
+/// second reader - so the parameter is `lines` rather than `added`: nothing here reads the diff's
+/// side, only a number and the scope it is asked against.
+pub(super) fn outside_test_code<'line>(lines: &'line [AddedLine], scope: &TestScope) -> Vec<&'line AddedLine> {
+    lines.iter().filter(|line| outside(line, scope)).collect()
+}
+
+/// Is this one line plainly not test code?
+fn outside(line: &AddedLine, scope: &TestScope) -> bool {
+    !carries_no_behaviour(&line.text) && !scope.covers(line.number)
 }
 
 /// Blank, a comment, or an attribute: nothing that changes what the code does.
-fn carries_no_behaviour(line: &str) -> bool {
+pub(super) fn carries_no_behaviour(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#[") || trimmed.starts_with("#!")
 }
