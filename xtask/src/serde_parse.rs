@@ -3,7 +3,9 @@
 //!
 //! The first two come from the newtype guide this repo adopts as policy, both said *review* in
 //! `.agents/skills/engineering/rust/SKILL.md`, and all three are syntactic - which is the whole
-//! argument for a gate over a sentence. `AGENTS.md`: *a rule with no mechanism is a wish*.
+//! argument for a gate over a sentence. `AGENTS.md`: *a rule with no mechanism is a wish*. Rule
+//! four is that sentence again one level up: it holds that something ASKS for the property the
+//! first three route, which no attribute can say.
 //!
 //! # Rule one: a derived `Deserialize` writes past `parse`
 //!
@@ -61,12 +63,29 @@
 //! attribute check that class was missing, so what it costs is one lookup. A `try_from = "String"`
 //! names no declaration and a newtype has no fields to deny, which is why both are out of it.
 //!
+//! # Rule four: the type the digest covers that nothing asks to round-trip
+//!
+//! Rule two holds that the two directions have the same SHAPE. It cannot hold that a **value**
+//! survives the trip, and that is a different failure with every attribute above correct:
+//! `sutura_domain::knowledge::Phrase::parse` folds runs of whitespace, so a normalisation whose
+//! second pass differs from its first stores one value and re-reads another, and the digest moves
+//! without any content moving. What asks is a test file, over generated input - and its list of
+//! types is hand-maintained, so a new newtype gets the property when somebody adds a row and not
+//! before. [`completeness`] is what makes that mechanical, and carries the rest of this argument.
+//!
+//! **It is an arm on this walk rather than a task of its own, and that is why it was cheap enough
+//! to exist.** The walk already visits every tracked file and already recognises `try_from`, the
+//! derives and the hand-written impls - the three facts its subject predicate needs - so the rule
+//! costs one predicate and no second scan of the tree. That is the ordinary shape for a rule of
+//! this kind here, and the reason to reach for it before a task of its own.
+//!
 //! # Scope, and the limits
 //!
 //! Every Rust file the repo tracks, `vendor/` excluded - not library crates only, which is where
 //! this differs from `boundaries::api_shape` next door and does so deliberately. That gate's rules
-//! are about a contract another crate depends on, so a binary is out of scope. These three are
-//! about the path untrusted input takes into a value, which is the same path in a binary.
+//! are about a contract another crate depends on, so a binary is out of scope. The first three are
+//! about the path untrusted input takes into a value, which is the same path in a binary; rule four
+//! is about one crate's own digest and says so in its own scope.
 //!
 //! * **Enums are subjects of rule one only.** Rules two and three retain their struct-source
 //!   scope; no enum variant or serde tagging layout is inferred from struct field names.
@@ -75,6 +94,11 @@
 //! * **A fallible constructor is recognised by `-> Result<Self`**, which is the idiom here (139
 //!   occurrences on 2026-09-02) rather than the language. One written `-> Result<MyType, ..>` is not
 //!   seen, and the direction is the safe one: the gate under-claims rather than failing correct code.
+//! * **Rule four is scoped to one crate and one list**, because the digest is taken over
+//!   [`completeness::DIGEST_CRATE`]'s serialized forms. It holds that a subject is ACCOUNTED FOR -
+//!   a row exists, or an exemption cites a test that exists - and never that the row asserts
+//!   anything worth having. What a row is worth is that file's own business, which is why it pins
+//!   the size of its generated space and the number of values that parsed.
 //! * **Rule two compares field NAMES, not types.** Two structs with the same names whose fields
 //!   serialize differently pass. Comparing serialized shapes needs serde's own resolution, which is
 //!   not something a text scan may pretend to.
@@ -92,12 +116,17 @@
 // crate-visible.
 pub(crate) mod scan;
 
+mod completeness;
+
 use crate::Verdict;
 use crate::repo;
 use crate::serde_parse::scan::{Declared, Kind, Shape};
 
-/// What one file's scan found. Held together because all three rules need the same walks.
+/// What one file's scan found. Held together because all four rules need the same walks.
 struct FileFacts {
+    /// Each line with everything that is not code blanked out. Kept rather than dropped because
+    /// rule four reads the lines themselves: a macro invocation is not a declaration.
+    code: Vec<String>,
     /// Every recognised struct or enum in the file.
     declared: Vec<Declared>,
     /// Type name to the name of a fallible constructor it declares.
@@ -131,6 +160,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
 
     let mut problems: Vec<String> = Vec::new();
+    let mut population = completeness::Population::default();
     let mut scanned = 0_usize;
     let mut declarations = 0_usize;
     // `must_judge` is empty: this gate's subject is a KIND of file, so there is no one path whose
@@ -148,6 +178,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         problems.extend(bypassed_constructors(rel, &facts));
         problems.extend(asymmetric_serde(rel, &facts));
         problems.extend(open_input_structs(rel, &facts));
+        if rel.starts_with(completeness::DIGEST_CRATE) {
+            population.visit(rel, &facts);
+        }
     });
     let counted = match counted {
         Ok(counted) => counted,
@@ -156,6 +189,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
+
+    problems.extend(population.verdict());
 
     if scanned == 0 {
         // A gate that silently checked nothing is the failure mode a gate exists to prevent. Kept
@@ -167,13 +202,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
     if problems.is_empty() {
         println!(
-            "xtask check-serde-parse: ok - {declarations} struct or enum declaration(s) in {scanned} file(s), serde route rules satisfied; {}",
+            "xtask check-serde-parse: ok - {declarations} struct or enum declaration(s) in {scanned} file(s), serde \
+             route rules satisfied, {} type(s) under the definition digest asked to round-trip; {}",
+            population.found(),
             counted.verdict()
         );
         return Verdict::Pass;
     }
 
-    eprintln!("xtask check-serde-parse: FAILED - serde walks past a constructor:");
+    eprintln!("xtask check-serde-parse: FAILED - serde on a type that parses:");
     for problem in &problems {
         eprintln!("  {problem}");
     }
@@ -199,6 +236,10 @@ fn explain() {
     eprintln!("    `try_from` hands the whole mapping to the input struct. `TimeRangeInput` was");
     eprintln!("    that, and five documents said the closedness held at every depth while a key");
     eprintln!("    inside a `range:` was discarded in silence. The attribute is the fix.");
+    eprintln!("  * a type the digest covers that nothing asks to round-trip. Rule two holds that");
+    eprintln!("    the two directions have the same SHAPE; it cannot hold that a value survives the");
+    eprintln!("    trip, and the list that asks is hand-maintained, so a new type joins it only if");
+    eprintln!("    somebody adds a row. Add the row, or name the test that asks instead.");
     eprintln!("If a case here genuinely belongs, change the rule in xtask/src/serde_parse.rs with");
     eprintln!("the reason: that is an architecture decision and should be a visible diff.");
 }
@@ -224,6 +265,8 @@ fn facts_of(text: &str) -> FileFacts {
         parses: scan::fallible_constructors(&code),
         reads_by_hand: scan::hand_written(&code, "Deserialize"),
         writes_by_hand: scan::hand_written(&code, "Serialize"),
+        // Last, because the fields above borrow it.
+        code,
     }
 }
 
