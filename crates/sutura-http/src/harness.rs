@@ -586,24 +586,6 @@ async fn the_interface_description_is_behind_the_token_when_one_is_configured() 
 #[cfg(test)]
 mod metrics;
 
-/// The metrics credential, distinct from the API token, for the cases that configure one.
-const METRICS_TOKEN: &str = "0123456789abcdef0123456789abcdf0";
-
-/// Settings with both credentials and pinned process numbers.
-///
-/// The engine width and the execution bound are pinned rather than left to the machine, because one
-/// of these tests asserts the rendered exposition exactly and a machine-dependent number would make
-/// that snapshot a property of the runner.
-fn metrics_settings(environment: Environment) -> Settings {
-    settings(
-        environment,
-        &format!(
-            "security:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"sidecar\"\n  \
-             metrics_token: \"{METRICS_TOKEN}\"\nserver:\n  host: \"0.0.0.0\"\nruntime:\n  \
-             engine_worker_threads: 3\n  max_concurrent_queries: 4\n"
-        ),
-    )
-}
 // ------------------------------------------------------------------ the log ----
 //
 // **The defect these were written for.** `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`,

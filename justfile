@@ -719,6 +719,11 @@ dev-endpoints:
 dev-down:
     cargo run -q -p xtask -- dev-down
 
+
+# Remove only the demo service and its named volume, leaving every other worktree service alone.
+dev-down-demo:
+    cargo run -q -p xtask -- dev-down --only demo
+
 # What `just dev-down` would remove, and what it would deliberately spare. Removes nothing.
 dev-down-dry:
     cargo run -q -p xtask -- dev-down --dry-run

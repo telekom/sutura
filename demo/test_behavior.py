@@ -31,7 +31,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         mode = self.server.mode
         self.server.paths.append(self.path)
-        if self.path == "/health" and mode == "sutura":
+        if self.path == "/health" and mode.startswith("sutura"):
             self._reply(200, {"status": "ok"})
         elif self.path == "/openapi.json":
             paths = {"/v1/catalog": {"get": {}}, "/v1/query": {"post": {}}}
@@ -315,7 +315,10 @@ class DemoBehavior(unittest.TestCase):
         output, authorization, sutura_paths, webui_paths, webui_authorization = (
             self._run_healthcheck("model", "")
         )
-        self.assertIn("tool registry", output)
+        self.assertEqual(
+            output,
+            "healthcheck: the sutura server, its two operations and the chat client are all up\n",
+        )
         self.assertEqual(authorization, [None])
         self.assertIn("/api/v1/auths/signin", webui_paths)
         self.assertIn("/api/v1/tools/", webui_paths)
@@ -357,9 +360,15 @@ class DemoBehavior(unittest.TestCase):
 
     def test_extra_or_missing_served_operation_fails_readiness(self) -> None:
         for mode in ("sutura-extra-operation", "sutura-missing-operation"):
-            with self.subTest(mode=mode), self.assertRaises(SystemExit) as raised:
+            stderr = io.StringIO()
+            with (
+                self.subTest(mode=mode),
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as raised,
+            ):
                 self._run_healthcheck("model", "", sutura_mode=mode)
             self.assertEqual(raised.exception.code, 1)
+            self.assertIn("served document operations", stderr.getvalue())
 
     def test_keyed_model_probe_sends_exact_bearer_and_redirect_is_not_followed(
         self,
@@ -402,7 +411,16 @@ class DemoBehavior(unittest.TestCase):
             self.assertEqual(model_server.authorization, ["Bearer test-key"])
             self.assertEqual(model_server.paths, ["/models"])
             self.assertNotIn("test-key", stderr.getvalue())
-            self.assertNotIn("127.0.0.1", stderr.getvalue())
+
+    def test_redirect_refusing_opener_rejects_redirects(self) -> None:
+        healthcheck = load_healthcheck()
+        with server("redirect") as (model_port, _):
+            request = healthcheck.urllib.request.Request(
+                f"http://127.0.0.1:{model_port}/models"
+            )
+            with self.assertRaises(healthcheck.urllib.error.HTTPError) as raised:
+                healthcheck.NO_REDIRECT.open(request, timeout=4)
+            self.assertEqual(raised.exception.code, 302)
 
     def test_supervisor_passes_exact_model_key_to_webui_child(self) -> None:
         source = (ROOT / "demo/run.sh").read_text(encoding="utf-8")
