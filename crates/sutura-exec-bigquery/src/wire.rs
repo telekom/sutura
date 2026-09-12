@@ -578,13 +578,13 @@ where
     ListingDidNotFinish { pages: usize },
 }
 
-/// A short token another service sent us, bounded and filtered.
+/// A short textual diagnostic another service sent us, bounded and filtered.
 ///
-/// **One function for every foreign string in this crate that reaches an error**, because there were
-/// two and they had drifted by one character in their allowed set. Both callers want the same thing:
-/// an endpoint's `reason`, an `OAuth` error code and a credential file's `type` are each a fixed
-/// vocabulary spelled in the same characters, and what has to be impossible is any of them writing a
-/// newline, an escape sequence or sixteen kilobytes into a log.
+/// **This is not the endpoint-reason decoder.** `errors[].reason` is mapped to [`ReasonCode`] before
+/// it reaches an error, so an unknown provider value becomes a static local marker. This helper is
+/// for values that remain textual diagnostics - an unusable page token, an `OAuth` error code or a
+/// credential file's `type` - and keeps any of them from writing a newline, an escape sequence or
+/// sixteen kilobytes into a log.
 ///
 /// **Not a slice**, because `clippy::string_slice` is denied and because a byte slice of foreign text
 /// can land inside a multi-byte character. Taking characters is both correct and what the ban is for.

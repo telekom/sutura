@@ -498,13 +498,15 @@ pub enum InvalidDeploymentIdentity {
 /// exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
 /// agreeing that off-host is intended.
 ///
-/// **Four fields now, and the last two are the two halves of one story told from opposite ends.**
+/// **Five fields now, with the last three answering separate deployment questions.**
 /// [`Self::inbound`] is how the identity of a *caller* reaches this deployment; [`Self::identity`] is
-/// who a query then runs *as*. **Neither implies the other, and that is the fact worth writing down
-/// rather than the count:** a deployment can verify exactly who is asking and still read every row
-/// under one configured identity, because leg 2 - a credential per execution leg - is not built. The
-/// reverse holds too, and is the shape that ships: a single-user deployment with no inbound block
-/// knows what a query runs as and nothing about who asked.
+/// who a query then runs *as*; [`Self::metrics_token`] independently gates `/metrics`. **Neither
+/// inbound nor identity implies the other, and that is the fact worth writing down rather than the
+/// count:** a deployment can verify exactly who is asking and still read every row under one
+/// configured identity, because leg 2 - a credential per execution leg - is not built. The reverse
+/// holds too, and is the shape that ships: a single-user deployment with no inbound block knows what
+/// a query runs as and nothing about who asked. Omitting the metrics token is likewise an explicit
+/// choice not to gate that route; it does not alter either query authentication or caller identity.
 ///
 /// The inbound declaration lives in this group rather than one of its own because of
 /// [`Self::describes_identity`]: that function used to be a constant answering `false`, and a

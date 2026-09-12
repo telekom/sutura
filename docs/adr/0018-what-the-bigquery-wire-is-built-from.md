@@ -257,18 +257,20 @@ Everything below the socket, and one thing at it.
   `answer()` a first page would read as *under the cap, not truncated*. The service's own result
   cache **off** - an anchor that reproduces from a cache has reproduced the cache, and a cached
   answer under a shared identity is shared across every asker. `max_redirects(0)`, so the bearer has
-  no second host to follow a redirect to. And every foreign string that reaches an error is bounded
-  and character-filtered through **one** shared function - the endpoint's `reason` and the credential
-  file's `type` are kept, the free-text `message` is not a field on the error type at all, and there
-  used to be two copies of the bounding that had drifted by one character in their allowed set.
+  no second host to follow a redirect to. The endpoint's `errors[].reason` is mapped to a closed
+  `ReasonCode` before it reaches an error; textual diagnostics that remain strings - the credential
+  file's `type`, an OAuth error code and an unusable page token - are bounded and character-filtered
+  through **one** shared function. The free-text `message` is carried separately, bounded to a line,
+  and redacted under ordinary rendering.
 - **Failure is derived from the RESULT SHAPE, never from `errors` being non-empty**, and the first
   version got this wrong in the direction that matters. The endpoint documents that array as *"the
   first errors or warnings encountered"* and says entries *"do not necessarily mean that the job has
   completed or was unsuccessful"* - so refusing on it **declined successful queries that merely
   warned**, and answered a caller a `503` for a result the service had produced. What refuses is
   `jobComplete`, a `pageToken`, an absent `totalRows` and a delivered count that is not the reported
-  total; the reported reason is folded into whichever of those fires, which is also where a genuinely
-  failed job lands, because the endpoint reports one as complete with no total.
+  total; the reported reason is mapped to a closed code and folded into whichever of those fires,
+  which is also where a genuinely failed job lands, because the endpoint reports one as complete with
+  no total.
 - **The bearer's DESTINATION is a constant; its ROUTE is not.** `HOST` cannot be configured,
   `https_only` is on, `max_redirects` is `0` - so nothing a deployment writes changes which service
   receives the credential. What a deployment *can* change is the path: `ureq`'s default config is

@@ -320,7 +320,8 @@ pub(crate) async fn ask(
     // crate's and `sutura-app` cannot see it, so it could not travel on the record - and it does not
     // need to: `tower_http`'s response line already carries the status and the latency at `info`,
     // inside the same request span, configured in `crate::router`. The argument for putting the
-    // status on the old line was that an operator correlating with an ingress log needs the number
+    // status on the old line was that an operator correlating with an ingress log needs the number,
+    // and that response line already carries it.
     Ok(Outcome::from(&outcome))
 }
 

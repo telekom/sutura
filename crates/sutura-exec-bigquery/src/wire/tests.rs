@@ -497,10 +497,10 @@ fn a_complete_result_that_carries_a_warning_is_answered_rather_than_refused() {
 }
 
 #[test]
-fn a_failed_job_is_caught_by_its_shape_and_carries_the_reason_the_endpoint_gave() {
-    // What replaced the `errors` check: the SHAPE decides, and the reported reason is folded into
-    // whichever shape check fires - which is where a failed job actually lands, because the endpoint
-    // reports one as complete with no total.
+fn a_failed_job_is_caught_by_its_shape_and_maps_the_reported_reason_to_a_closed_code() {
+    // What replaced the `errors` check: the SHAPE decides, and the reported reason is mapped to a
+    // closed code before being folded into whichever shape check fires - which is where a failed job
+    // actually lands, because the endpoint reports one as complete with no total.
     let document = r#"{"jobComplete": true, "errors": [{"reason": "resourcesExceeded"}]}"#;
     match complete::<CannotFail>(answer(document)) {
         Err(WireError::NoTotal { named }) => assert_eq!(named, ReasonCode::Unrecognized),
@@ -634,10 +634,11 @@ fn a_refusal_whose_body_is_not_the_envelope_still_reports_the_status() {
 }
 
 #[test]
-fn a_short_token_another_service_sent_is_bounded_and_filtered() {
-    // Foreign text heading for a log. Bounded by characters rather than bytes, because a byte slice of
-    // somebody else's UTF-8 can land inside a character - which is also why `clippy::string_slice` is
-    // denied here.
+fn a_foreign_text_that_remains_a_string_is_bounded_and_filtered() {
+    // Textual diagnostics that remain strings are bounded by characters rather than bytes, because a
+    // byte slice of somebody else's UTF-8 can land inside a character - which is also why
+    // `clippy::string_slice` is denied here. Endpoint `errors[].reason` is not this path: it is mapped
+    // to `ReasonCode` before an error carries it.
     assert_eq!(bounded(Some(String::from("accessDenied"))), "accessDenied");
     assert_eq!(bounded(None), "");
     assert_eq!(
