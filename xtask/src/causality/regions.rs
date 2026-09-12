@@ -86,7 +86,7 @@ mod literals;
 // RE-EXPORTED rather than reached through the module, so `super::relocation`'s call site is
 // unchanged by where this lives: one question, one name, and the split that moved it is invisible
 // to every caller.
-pub(super) use literals::inside_a_literal;
+pub(super) use literals::{Margins, literal_margins};
 
 /// How much of a file is test code.
 #[derive(Debug, PartialEq, Eq)]
@@ -428,8 +428,8 @@ impl Nesting {
     /// Is the scanner part-way through a string literal at the line boundary?
     ///
     /// Both literal spans, because both carry their indentation as data: an ordinary multi-line
-    /// `".."` and a raw `r#".."#`. [`inside_a_literal`] is the only caller and its header carries
-    /// the argument.
+    /// `".."` and a raw `r#".."#`. [`literal_margins`] is the only caller and its header
+    /// carries the argument.
     const fn in_literal(&self) -> bool {
         matches!(self.span, Span::Text | Span::Raw(_))
     }

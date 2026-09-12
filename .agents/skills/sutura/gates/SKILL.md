@@ -1416,14 +1416,39 @@ on purpose, because the next shape that reader cannot see gets the same answer. 
 carrying: for any check that iterates what a reader produced, what does the reader NOT produce?**
 
 **AND THIS CHANGE BROKE THE CAP IT EXISTS TO MAKE SURVIVABLE, which is the cheapest demonstration
-of the whole problem.** Adding the literal lexer took `causality/regions.rs` to **1007** lines and
-`max-lines` refused it - nothing under `xtask/` may be listed in `devco/max-lines-ignore`. The split
-that fixed it is the rule in this file applied to itself: the new `regions/literals.rs` carries
-**implementation only**, and the assertions for it stayed in `relocation.rs` where assertions
-already were, because a new file that adds a `#[test]` is held at HEAD while the file declaring
-`mod literals;` is reverted - and the declaration would have outlived its target. So the gate's
-verdict on this branch is unchanged at `NOT MECHANICALLY SEPARABLE`, rather than the exit-3
-`DidNotCompile` a tests-carrying split would have produced. **The trailer could not help here
-either**, and that is the honest boundary: a commit that adds a lexer is not a pure relocation, so
-the declaration would be refused by its own check. `relocation.rs` itself now sits at 978 of 1000 -
-the next paragraph added to it needs the same split, and the same reasoning about which half moves.
+of the whole problem.** Adding the literal lexer took `causality/regions.rs` over the cap - 1007
+lines at the commit that added it, and nothing under `xtask/` may be listed in
+`devco/max-lines-ignore`. It happened TWICE in one branch: the review round's own test cell took
+`relocation.rs` over as well. Both splits are the rule on this page applied to itself -
+`regions/literals.rs` and `relocation/probe.rs` each carry **implementation or fixtures only**,
+never a `#[test]`, because a file that adds one is held at HEAD while the file declaring
+`mod x;` is reverted, so the declaration would outlive its target. That is what keeps the verdict
+on this branch `NOT MECHANICALLY SEPARABLE` rather than the exit-3 `DidNotCompile` a
+tests-carrying split produces. **And the trailer could not help either time**, which is the honest
+boundary: a commit that adds a lexer or a test cell is not a pure relocation, so its own check
+refuses the declaration. **No live line count is written here on purpose** - `cargo xtask
+max-lines` answers it, a number copied into guidance rots, and this page has now been wrong about
+one.
+
+**A TWO-SIDED PROPERTY ASKED ON ONE SIDE PASSES HALF ITS TESTS, and the literal fix shipped that
+way.** *Is this line's whitespace part of a string's value* is two questions, not one: a line that
+BEGINS inside a literal carries its LEADING whitespace as value, and a line that ENDS inside one
+carries its TRAILING bytes. They are different lines - the line that OPENS a multi-line literal
+begins outside it - so a lexer asking only *did this line begin inside* trimmed the opening line's
+trailing bytes away, and dropping two trailing spaces from an expected-output fixture was **exit 0**
+under *the multiset is equal on both sides, so this diff MOVED test code and changed none*. The
+repair is the same lexer asked on both sides of the feed, and keeping the two answers APART is what
+still lets a relocation dedent that line - its leading margin is code layout, its trailing margin is
+value. **The transferable question: for any property of a span, does the check ask it at both
+edges?** The first version of the fix was reviewed, tested and wrong in the half nobody probed.
+
+**AND A MUTATION TABLE IS NOT A CENSUS. A table proves the cells you chose; a census finds the one
+you did not.** An 8-mutation census over this check killed 7 by name and left one alive: widen
+`relocation`'s position check to exempt any `#`-prefixed line and **all sixteen tests still passed**,
+because every one of them reached the multiset instead. The gap was exact - position is the SOLE
+refusal for an ATTRIBUTE moved out of production into a test file, since removing it once and adding
+it once BALANCES - so the comment half of that claim was asserted and the attribute half was not.
+**That is `#636`'s own finding one level down**, an exemption widening into a permission, which is
+why it earned the same treatment: a regression cell, measured to fail under exactly that mutation
+and under no other. The cell asserts the multiset is NOT doing the work, so it cannot be satisfied
+for the wrong reason.

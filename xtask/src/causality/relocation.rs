@@ -64,8 +64,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::Verdict;
 use crate::causality::coverage::{Attributed, Coverage};
 use crate::causality::diff::ChangedFile;
-use crate::causality::regions::{self, PostImage, TestScope};
+use crate::causality::regions::{self, Margins, PostImage, TestScope};
 use crate::causality::{is_compiled_rust, place};
+
+// THE HARNESS AND NOT THE ASSERTIONS, which is this gate's own rule applied to its own source:
+// this file reached the unexemptable 1000-line cap, and a file that adds a `#[test]` is never
+// reverted - so moving assertions out orphans them, and moving the fixtures out does not. That
+// module's header carries the argument and why the trailer below could not rescue this split.
+#[cfg(test)]
+mod probe;
 
 /// The commit trailer that declares a commit to be a test-file cleanup.
 const TRAILER: &str = "Cleanup-Split:";
@@ -297,15 +304,15 @@ struct Balanced {
 fn balance(files: &[ChangedFile], images: &Images<'_>) -> Balanced {
     let mut tally: Tally<'_> = BTreeMap::new();
     for file in files {
-        let in_head = (images.head)(&file.path).map(|text| regions::inside_a_literal(&text));
-        let in_base = (images.base)(&file.path).map(|text| regions::inside_a_literal(&text));
+        let in_head = (images.head)(&file.path).map(|text| regions::literal_margins(&text));
+        let in_base = (images.base)(&file.path).map(|text| regions::literal_margins(&text));
         for line in &file.added {
-            if let Some(key) = counted(&line.text, in_head.as_ref().is_some_and(|at| at.contains(&line.number))) {
+            if let Some(key) = counted(&line.text, in_head.as_ref().and_then(|at| at.get(&line.number)).copied()) {
                 tally.entry(key).or_default().0 += 1;
             }
         }
         for line in &file.removed {
-            if let Some(key) = counted(&line.text, in_base.as_ref().is_some_and(|at| at.contains(&line.before))) {
+            if let Some(key) = counted(&line.text, in_base.as_ref().and_then(|at| at.get(&line.before)).copied()) {
                 tally.entry(key).or_default().1 += 1;
             }
         }
@@ -341,20 +348,31 @@ fn balance(files: &[ChangedFile], images: &Images<'_>) -> Balanced {
 
 /// The code `text` contributes to the multiset, or `None` when it contributes nothing.
 ///
-/// **THE LITERAL TEST COMES FIRST, and the other arm is wrong inside one.** Indentation inside a
-/// string IS the value, so the raw line is the key there - and a BLANK line inside a fixture is
-/// part of the expected output rather than nothing. Trimming is a convenience everywhere else,
-/// because a test leaving `mod tests { .. }` for its own file loses an indentation level.
+/// **THE MARGINS DECIDE WHICH END IS TRIMMED, and each end is its own answer.** Whitespace inside
+/// a string literal IS the value, so a margin the lexer says is inside one is kept: leading
+/// whitespace on a line that BEGAN inside a literal, trailing bytes on a line that ENDED inside
+/// one. Trimming the other end is still right and still necessary - a test leaving
+/// `mod tests { .. }` for its own file loses an indentation level, and the line that OPENS a
+/// literal loses it too while its trailing bytes stay value.
 ///
-/// **ONLY A BLANK LINE CONTRIBUTES NOTHING.** A comment and an attribute both do:
-/// `github.com/telekom/sutura#636` measured a doctest assertion added in a production file passing
-/// at exit 0 because `super::regions::carries_no_behaviour` waves both through.
-fn counted(text: &str, in_literal: bool) -> Option<&str> {
-    if in_literal {
-        return Some(text);
-    }
-    let trimmed = text.trim();
-    (!trimmed.is_empty()).then_some(trimmed)
+/// A blank line inside a literal is part of the expected output rather than nothing, which is why
+/// the emptiness test applies only outside one.
+///
+/// **ONLY A BLANK LINE OUTSIDE A LITERAL CONTRIBUTES NOTHING.** A comment and an attribute both
+/// do: `github.com/telekom/sutura#636` measured a doctest assertion added in a production file
+/// passing at exit 0 because `super::regions::has_non_test_additions`' predicate waves both
+/// through.
+fn counted(text: &str, margins: Option<Margins>) -> Option<&str> {
+    let Some(margins) = margins else {
+        let trimmed = text.trim();
+        return (!trimmed.is_empty()).then_some(trimmed);
+    };
+    Some(match (margins.leading, margins.trailing) {
+        (true, true) => text,
+        (true, false) => text.trim_end(),
+        (false, true) => text.trim_start(),
+        (false, false) => text.trim(),
+    })
 }
 
 /// The shapes a relocation may legitimately add MORE of than it removes.
@@ -487,87 +505,14 @@ fn cause(broken: &Broken) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Broken, Changed, Claim, Images, Relocation, Side, decide, pure_lines, refused_lines};
+    use super::probe::{
+        ARRIVED, ASSERTIONS, CONTINUES_INDENTED, HELD, MOVED, OPENS_WITH_TRAILING, RELOCATED, pure_move, refused, tagged,
+        untagged, verdict, verdict_over,
+    };
+    use super::{Broken, Claim, Relocation, Side, pure_lines, refused_lines};
     use crate::causality::coverage::Coverage;
-    use crate::causality::diff::ChangedFile;
     use crate::causality::fixtures::{changed, changed_removing, tree};
     use crate::causality::regions::PostImage;
-
-    /// The two-file split every test below varies: a test module's assertions move to a new file.
-    ///
-    /// Both under `crates/x/tests/`, which is what `super::regions::is_dedicated_test_target`
-    /// answers off the path alone - so condition 3 is satisfied without a fixture and the tests
-    /// below are about the multiset. The two that are ABOUT condition 3 name a path outside it.
-    const HELD: &str = "crates/x/tests/held.rs";
-    const MOVED: &str = "crates/x/tests/held/moved.rs";
-
-    /// The four assertion lines that move, as they read in the file they leave.
-    const ASSERTIONS: [&str; 4] = [
-        "    assert_eq!(one(), 1);",
-        "    assert_eq!(two(), 2);",
-        "    assert!(three());",
-        "    assert_ne!(four(), 5);",
-    ];
-
-    /// The same four, at the indentation the file they arrive in gives them.
-    ///
-    /// DEDENTED ON PURPOSE: a test leaving `mod tests { .. }` for its own file loses a level, so a
-    /// raw comparison would call every relocation impure. The multiset is over TRIMMED lines -
-    /// except inside a string literal, which
-    /// `an_indentation_change_inside_a_string_literal_is_refused` is about.
-    const RELOCATED: [&str; 4] = [
-        "assert_eq!(one(), 1);",
-        "assert_eq!(two(), 2);",
-        "assert!(three());",
-        "assert_ne!(four(), 5);",
-    ];
-
-    /// A pure relocation: [`HELD`] loses the four assertions and gains a `mod`, [`MOVED`] gains
-    /// them at a different indentation.
-    fn pure_move() -> Vec<ChangedFile> {
-        vec![
-            changed_removing(HELD, 1, &["mod moved;"], 1, &ASSERTIONS),
-            changed(MOVED, 1, &RELOCATED),
-        ]
-    }
-
-    /// The verdict for `files`, with the trailer naming [`HELD`] and no image for any file.
-    fn tagged(files: &[ChangedFile]) -> Relocation {
-        let paths: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
-        verdict(files, &paths, &tree(&[]), &tree(&[]), true)
-    }
-
-    /// The same diff with no trailer at all.
-    fn untagged(files: &[ChangedFile]) -> Relocation {
-        let paths: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
-        verdict(files, &paths, &tree(&[]), &tree(&[]), false)
-    }
-
-    /// The general form: the diff, what git says it touched, both images, and whether it is tagged.
-    fn verdict(
-        files: &[ChangedFile],
-        touched: &[String],
-        head: &impl Fn(&str) -> Option<String>,
-        base: &impl Fn(&str) -> Option<String>,
-        with_trailer: bool,
-    ) -> Relocation {
-        let head: &PostImage<'_> = head;
-        let base: &PostImage<'_> = base;
-        let claim = Claim::of(&format!("chore: split\n\nCleanup-Split: {HELD}\n"));
-        decide(
-            with_trailer.then_some(()).and(claim.as_ref()),
-            &Changed { files, touched },
-            &Images { head, base },
-        )
-    }
-
-    /// The reasons `tagged` gives, or a panic naming what it said instead.
-    fn refused(files: &[ChangedFile]) -> Vec<Broken> {
-        match tagged(files) {
-            Relocation::Refused(broken) => broken,
-            other => panic!("expected a refusal, got {other:?}"),
-        }
-    }
 
     #[test]
     fn a_diff_that_moves_every_line_and_changes_none_is_the_cleanup_its_trailer_claims() {
@@ -687,6 +632,38 @@ mod tests {
                 "{text} is named on its own side: {broken:?}"
             );
         }
+    }
+
+    #[test]
+    fn an_attribute_moved_out_of_production_into_a_test_file_is_refused_by_position_alone() {
+        // A MUTATION THAT SURVIVED A CENSUS, and the same shape as `#636`'s own finding one level
+        // down: widen `outside` to exempt any `#`-prefixed line and every OTHER test here still
+        // passes, because each of them reaches `Broken::Unbalanced` instead. This is the diff where
+        // position is the only thing that knows - an attribute REMOVED from production and ADDED in
+        // a test file BALANCES, so condition 5 has nothing to say and condition 3 is the sole
+        // refusal. The comment half of that claim was asserted and the attribute half was not.
+        let production = "crates/x/src/model.rs";
+        let mut diff = pure_move();
+        diff.push(changed_removing(production, 1, &[], 1, &["#[derive(Debug)]"]));
+        diff.push(changed(MOVED, 40, &["#[derive(Debug)]"]));
+        let broken = refused(&diff);
+        assert!(
+            broken.contains(&Broken::Outside {
+                path: String::from(production),
+                number: 1,
+                text: String::from("#[derive(Debug)]"),
+                side: Side::Base,
+            }),
+            "position is the only refusal here: {broken:?}"
+        );
+        // AND THE MULTISET IS NOT DOING THE WORK, asserted so this cell cannot be satisfied for the
+        // wrong reason: the attribute is removed once and added once, so it reconciles.
+        assert!(
+            !broken
+                .iter()
+                .any(|one| matches!(*one, Broken::Unbalanced { ref text, .. } if text == "#[derive(Debug)]")),
+            "the attribute balances, so this test is about position: {broken:?}"
+        );
     }
 
     #[test]
@@ -814,72 +791,63 @@ mod tests {
 
     #[test]
     fn an_indentation_change_inside_a_string_literal_is_refused() {
-        // #636's whitespace finding. Trimming is right for code - a test leaving `mod tests { .. }`
-        // loses a level - and WRONG inside a string literal, where the indentation is the VALUE.
-        // An expected-output fixture is exactly what a test asserts on, so this is base green ->
-        // head red with the multiset seeing two equal trimmed lines. The lexer answers which lines
-        // begin inside a literal and those are keyed on their RAW text.
-        let base_image = concat!(
-            "#[test]\n",
-            "fn fixture() {\n",
-            "    let expected = \"\\\n",
-            "    one\n",
-            "    two\";\n",
-            "    assert_eq!(render(), expected);\n",
-            "}\n",
-        );
-        let reindented = concat!(
-            "#![cfg(test)]\n",
-            "\n",
-            "use super::*;\n",
-            "\n",
-            "#[test]\n",
-            "fn fixture() {\n",
-            "    let expected = \"\\\n",
-            "        one\n",
-            "    two\";\n",
-            "    assert_eq!(render(), expected);\n",
-            "}\n",
-        );
-        let moved_lines: Vec<&str> = reindented.lines().collect();
-        let left: Vec<&str> = base_image.lines().collect();
-        let files = vec![
-            changed_removing(HELD, 1, &["mod moved;"], 1, &left),
-            changed(MOVED, 1, &moved_lines),
-        ];
-        let paths: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
-        let head = tree(&[(MOVED, reindented), (HELD, "mod moved;\n")]);
-        let base = tree(&[(HELD, base_image)]);
-        let Relocation::Refused(broken) = verdict(&files, &paths, &head, &base, true) else {
+        // `#636`'s whitespace finding. Trimming is right for code - a test leaving
+        // `mod tests { .. }` loses a level - and WRONG inside a string literal, where the
+        // indentation is the VALUE. An expected-output fixture is exactly what a test asserts on,
+        // so this is base green -> head red with the multiset seeing two equal trimmed lines.
+        let reindented = format!("{ARRIVED}{}", CONTINUES_INDENTED.replace("    one\n", "        one\n"));
+        let Relocation::Refused(broken) = verdict_over(CONTINUES_INDENTED, &reindented) else {
             panic!("a re-indented fixture is not a pure relocation");
         };
-        assert!(
-            broken.contains(&Broken::Unbalanced {
-                text: String::from("        one"),
-                added: 1,
-                removed: 0,
-            }),
-            "the raw added line is keyed untrimmed: {broken:?}"
-        );
-        assert!(
-            broken.contains(&Broken::Unbalanced {
-                text: String::from("    one"),
-                added: 0,
-                removed: 1,
-            }),
-            "and so is the raw removed one: {broken:?}"
-        );
+        for (text, added, removed) in [("        one", 1, 0), ("    one", 0, 1)] {
+            assert!(
+                broken.contains(&Broken::Unbalanced {
+                    text: String::from(text),
+                    added,
+                    removed,
+                }),
+                "a line inside a literal is keyed raw: {text:?} in {broken:?}"
+            );
+        }
 
         // THE CONTROL ONE LINE AWAY: the same move with the fixture's indentation preserved is
         // pure, so this is not a check that refuses every literal.
-        let kept = reindented.replace("        one", "    one");
-        let kept_lines: Vec<&str> = kept.lines().collect();
-        let same = vec![
-            changed_removing(HELD, 1, &["mod moved;"], 1, &left),
-            changed(MOVED, 1, &kept_lines),
-        ];
-        let head = tree(&[(MOVED, kept.as_str()), (HELD, "mod moved;\n")]);
-        assert!(matches!(verdict(&same, &paths, &head, &base, true), Relocation::Pure { .. }));
+        let kept = format!("{ARRIVED}{CONTINUES_INDENTED}");
+        assert!(matches!(verdict_over(CONTINUES_INDENTED, &kept), Relocation::Pure { .. }));
+    }
+
+    #[test]
+    fn trailing_whitespace_on_the_line_that_opens_a_literal_is_value_too() {
+        // THE HALF THE FIRST FIX MISSED, measured at exit 0. The lexer answered only *did this
+        // line BEGIN inside a literal*, so the line that OPENS one - which begins outside it - was
+        // trimmed at both ends, and its trailing bytes are the string's value. Dropping two
+        // trailing spaces from an expected-output fixture passed under the verdict *the multiset
+        // is equal on both sides, so this diff MOVED test code and changed none*.
+        let dropped = format!("{ARRIVED}{}", OPENS_WITH_TRAILING.replace("\"one  \n", "\"one\n"));
+        let Relocation::Refused(broken) = verdict_over(OPENS_WITH_TRAILING, &dropped) else {
+            panic!("dropping two bytes of expected output is not a pure relocation");
+        };
+        assert!(
+            broken.contains(&Broken::Unbalanced {
+                text: String::from("let expected = \"one  "),
+                added: 0,
+                removed: 1,
+            }),
+            "the removed line keeps its trailing value: {broken:?}"
+        );
+
+        // AND THE CONTROL IN THE OTHER DIRECTION, which is why the two margins are separate
+        // answers rather than one: the same line DEDENTED, trailing bytes intact, is still pure.
+        // Keying the whole line raw would have refused this, and a test leaving `mod tests { .. }`
+        // dedents by construction.
+        let dedented = format!(
+            "{ARRIVED}{}",
+            OPENS_WITH_TRAILING.replace("    let expected = \"one  \n", "let expected = \"one  \n")
+        );
+        assert!(
+            matches!(verdict_over(OPENS_WITH_TRAILING, &dedented), Relocation::Pure { .. }),
+            "a dedent of the opening line is code layout, not value"
+        );
     }
 
     #[test]
