@@ -22,6 +22,7 @@
 #
 # Prints the percentage of wall time that was BUSY between the two samples, one decimal, or
 # nothing when the delta is degenerate (zero or negative).
+# probe(#639 slice I): touches nix/** to move the store-cache digest, measured then reverted.
 cpu_busy() {
     local -r prev_line="$1" cur_line="$2"
     awk -v prev="$prev_line" -v cur="$cur_line" '
