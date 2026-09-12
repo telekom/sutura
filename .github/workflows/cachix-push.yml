@@ -58,8 +58,15 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # The same scope the `ci` job wrote moments ago, so realising the checks below is a restore
-      # rather than a rebuild. A miss here costs a build and publishes the same paths regardless.
+      # The same scope the `ci` job uses, and on a dependency-generation change THIS job is the one
+      # that writes it - measured 2026-09-11, not the other way round as this comment used to say.
+      # Both jobs are `scope: ci` and both are permitted to save, so whichever finishes its post
+      # step first writes the entry and the other reports a primary-key hit and skips: on the two
+      # generation changes that day this job saved at 15:30:51 and 16:34:29 while the `ci` job's own
+      # post step ran at 15:36:35 and 16:36:01 and found the key already there. Sharing one scope is
+      # deliberate - both realise the same dependency closure, which is what makes the entry
+      # interchangeable - but "the `ci` job wrote it moments ago" is not a fact to reason from.
+      # A miss here costs a build and publishes the same paths regardless.
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci

@@ -1,9 +1,17 @@
 # Delete unreachable pull-request and merge-queue build caches, daily and on request.
 #
 # GitHub already prunes an entry idle for 7 days and evicts least-recently-used entries when the
-# repository allocation fills. The allocation is 100 GB as of 2026-09-01, so capacity is not the
-# immediate constraint: 32.95 GB was active when this was measured. This file exists because LRU
-# cannot know that a ref has become unreachable and will never read its cache again.
+# repository allocation fills. THE ALLOCATION ITSELF IS NOT READABLE FROM HERE, and no number in
+# this header should be read as one: `repos/{owner}/{repo}/actions/cache/usage-policy` answers 404
+# even to a token with repository ADMIN, measured 2026-09-11, and `orgs/{org}/actions/cache/usage`
+# answers 403 without `admin:org`. #472 read 100 GB from the repository endpoint and #512 read
+# 10 GB from it; it is gone now and neither can be confirmed or refuted, so the headroom is an open
+# question for the repository owner rather than an input to this file's budget. Note that the two
+# readings cannot both describe a hard resident ceiling: this header's own 2026-09-01 line measures
+# 32.95 GB RESIDENT, and 2026-09-12 measures 17.27 GB, so whatever `max_cache_size_gb: 10` meant on
+# 2026-09-09 it was not a cap that occupancy stayed under. This file exists
+# because LRU cannot know that a ref has become unreachable and will never read its cache again -
+# which is true at every allocation.
 #
 # The Actions cache is scoped by ref. A cache written by a pull request lands under
 # `refs/pull/<n>/merge` and can only ever be restored by a run on that same ref, so once the
@@ -18,9 +26,27 @@
 #
 # SINCE #490 A PULL REQUEST WRITES NOTHING, so this sweep has less to do rather than more, and the
 # 800-deletion budget is deliberately NOT raised: it exists to stay under the hourly API limit, not
-# to keep up with volume. `main`'s entries are not prune candidates here at all - the ref parser
-# below returns no number for `refs/heads/main` - so there is nothing for a higher budget to
-# protect. There IS a second, non-ref-scoped carrier behind this: `docs/adr/0027` provisioned this
+# to keep up with volume. MEASURED - the number #472's Proposal 2 §2 asked for: on
+# 2026-09-12 the whole repository held SIX entries totalling 17.27 GB and all six were
+# `refs/heads/main` - zero `refs/pull/<n>/merge` and zero queue scopes. AND THIS SWEEP'S OWN OUTPUT
+# AGREES rather than only the inventory: across every run that reached the `prune` job on 2026-09-10
+# and 2026-09-11, 32 of 32 printed `nothing to prune: no cache belongs to a closed pull request or
+# queue ref`. The observed deletion rate is therefore ZERO per day against a budget of 800 - not a
+# rate approaching it - so a raised budget would protect nothing. Eight further runs in that window
+# are `cancelled` and never reached the job, which is why the denominator is 32 and not 40.
+# Accumulation is not what the budget is holding back either: the close-event trigger fired 20 times
+# on 2026-09-11 alone, on top of the daily schedule.
+#
+# AND A TRAP IN THE MEASUREMENT, recorded because it is cheap to fall into twice:
+# `actions/cache/usage` reported `active_caches_count: 4` against those six rows while its
+# `active_caches_size_in_bytes` matched their sum to the byte. The COUNT field is the unreliable
+# one - page `actions/caches` and count the rows, and never conclude an entry was evicted from a
+# count that disagrees with a listing.
+#
+# `main`'s entries are not prune candidates here at all - the ref parser below returns no number
+# for `refs/heads/main` - so there is nothing for a higher budget to protect.
+#
+# There IS a second, non-ref-scoped carrier behind this: `docs/adr/0027` provisioned this
 # repository's own `sutura.cachix.org`, which every workflow installer names as a substituter, so a
 # pull request substitutes what that cache serves in addition to restoring these `main` entries. The
 # entries this file spares are still what the Actions store cache restores - the full /nix/store
