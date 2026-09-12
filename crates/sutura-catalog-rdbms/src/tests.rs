@@ -180,6 +180,55 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
     );
 }
 
+/// An unconditional `Structure` declaration requires at least one model in every loaded bundle.
+///
+/// `Definitions::assemble` deliberately accepts no models, and pinning that value also succeeds, so
+/// this adapter must close the gap itself. Otherwise its required capability is false for one legal
+/// reader result even though the global declaring-adapter fixture remains green.
+#[test]
+fn an_empty_dictionary_refuses_instead_of_overclaiming_structure() {
+    let empty = SparseReader(Dictionary::new(Vec::new(), Vec::new()));
+    let refused = RdbmsCatalog::new(name(), version(), empty)
+        .load()
+        .expect_err("a dictionary with no visible table cannot provide Structure");
+    assert!(matches!(refused, RdbmsError::NoVisibleTables), "{refused:?}");
+}
+
+/// A derived relationship-name error retains the exact name that failed to parse.
+///
+/// Every endpoint below is a legal identifier on its own. Their deterministic compound is longer
+/// than the identifier limit, so blaming only the target table sends an operator to a value that is
+/// valid and did not fail.
+#[test]
+fn a_derived_relationship_name_error_names_the_attempted_compound() {
+    let origin_table = "orders_for_enterprise_accounts";
+    let origin_column = "enterprise_customer_identifier";
+    let target_table = "enterprise_customer_accounts";
+    let target_column = "canonical_customer_identifier";
+    let attempted = format!("{origin_table}__{origin_column}__to__{target_table}__{target_column}");
+    let reader = SparseReader(Dictionary::new(
+        vec![Table::new(origin_table.to_owned(), vec![origin_column.to_owned()], None)],
+        vec![
+            Relationship::new(
+                None,
+                origin_table.to_owned(),
+                origin_column.to_owned(),
+                target_table.to_owned(),
+                target_column.to_owned(),
+            )
+            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
+        ],
+    ));
+
+    let refused = RdbmsCatalog::new(name(), version(), reader)
+        .load()
+        .expect_err("the over-limit derived relationship name must refuse");
+    match refused {
+        RdbmsError::RelationshipName { relationship, .. } => assert_eq!(relationship, attempted),
+        other => panic!("the derived name must refuse as `RelationshipName`: {other:?}"),
+    }
+}
+
 /// A relationship is accepted only when the reader supplies single-column unique-target evidence.
 ///
 /// Belonging to a composite primary or unique constraint does not make `target_column` individually

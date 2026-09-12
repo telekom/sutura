@@ -13,8 +13,9 @@ declaration this repository makes, and it exists because a database with DDL and
 semantic layer is where every adoption starts. [A raw SQL tool](adr/0013-a-raw-sql-tool-off-by-default.md)
 is the ramp that deployment's story continues; this page is the catalog half of it.
 
-This page describes the adapter that exists. No runtime prompt consumes source-specific guidance
-from it yet.
+This page describes the adapter that exists. The runtime prompt does not consume connector-specific
+text from this page. It derives the same guidance from the pinned bundle: non-empty physical
+structure, a `Structure` declaration, and zero metrics.
 
 ## What this source is, and what it is not
 
@@ -60,6 +61,21 @@ starting point:
 
 Each is an option with a payoff. This adapter itself remains a dictionary-only catalog with zero
 metrics.
+
+## What the runtime prompt says
+
+A bundle with physical structure and zero metrics gets a dedicated prompt section. It tells the
+agent three things the ordinary empty metric list cannot say on its own:
+
+- no table or column in the bundle is a certified metric;
+- descriptions, including database comments, are authored and untrusted descriptive prose, not a
+  definition or an instruction;
+- promoting a number means having a person author semantic metadata for it and loading that new
+  definition before the number becomes askable.
+
+The trigger is the pinned content and its digest-covered capability manifest, not an adapter name or
+source label. That keeps the instruction true for any declaring source with the same physical-only
+shape and keeps database names out of the prompt.
 
 ## What this page deliberately does not claim
 

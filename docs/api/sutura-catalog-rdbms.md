@@ -18,7 +18,8 @@ adapter. It says which kinds it provides and which it does not, and it is measur
 declaration rather than against the golden adapters' oracle.
 
 This crate implements the dictionary conversion from `github.com/telekom/sutura#151`. A live
-reader and runtime prompt delivery remain outside it.
+reader remains outside it; the runtime prompt derives the zero-metric physical-schema guidance
+from the pinned bundle rather than coupling the application to this adapter.
 
 # What a real dictionary yields (the spike, `spike/read-a-dictionary`)
 
@@ -108,6 +109,7 @@ a reader back to all of them.
 ### Variants
 
 - `Read` - The reader could not fetch the dictionary.
+- `NoVisibleTables` - The reader returned no table, so this bundle cannot honour its required `Structure` claim.
 - `ModelName` - A table's name did not parse as a model name.
 - `ColumnName` - A column's name did not parse.
 - `RelationshipName` - A foreign key's name did not parse.

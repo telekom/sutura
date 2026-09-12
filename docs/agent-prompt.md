@@ -35,6 +35,7 @@ pinned bundle, or from a file an operator named.
 | The operations you have | **The tool list**, rendered from the same slice the workflow was composed from |
 | What this deployment records about its own definitions | **The declared knowledge capabilities**, and what is *not* declared is listed too - because a kind that is not recorded is a kind an agent must not draw a conclusion from |
 | The words a question may arrive in | **The pinned bundle's knowledge**, `glossary` kind. Rendered so the *agent* does the resolving; there is no field on a question a phrase fits in |
+| Physical structure is not a certified metric | **The pinned definitions and contribution manifest.** Present only when the bundle has models, has no metrics, and a reached contributor declared `Structure`; it explains authored prose and the semantic promotion path without exposing a table or column name |
 | The metrics this deployment defines | **The pinned bundle.** Name, grains, dimensions, permitted values, the catalog author's own prose, and any `caveat` printed under the metric it is about |
 | Worked questions | **The pinned bundle's knowledge**, `example` kind. Each carries a `Query` the bundle would not load if this surface would decline it |
 | Provenance | Fixed text: quote the version and digest with every number |

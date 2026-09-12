@@ -9,7 +9,8 @@
 //! declaration rather than against the golden adapters' oracle.
 //!
 //! This crate implements the dictionary conversion from `github.com/telekom/sutura#151`. A live
-//! reader and runtime prompt delivery remain outside it.
+//! reader remains outside it; the runtime prompt derives the zero-metric physical-schema guidance
+//! from the pinned bundle rather than coupling the application to this adapter.
 //!
 //! # What a real dictionary yields (the spike, `spike/read-a-dictionary`)
 //!
@@ -107,6 +108,9 @@ pub enum RdbmsError {
     /// The reader could not fetch the dictionary.
     #[error("reading the dictionary failed: {0}")]
     Read(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The reader returned no table, so this bundle cannot honour its required `Structure` claim.
+    #[error("the dictionary contains no visible table")]
+    NoVisibleTables,
     /// A table's name did not parse as a model name.
     #[error("table {table} is not a usable model name: {cause}")]
     ModelName {
@@ -176,6 +180,9 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
     /// Kept as a method that takes a [`Dictionary`] so the whole decision half is testable against
     /// a reader that returns one, and a reader's only job is to produce a dictionary.
     fn assemble(&self, dictionary: &Dictionary) -> Result<Content, RdbmsError> {
+        if dictionary.tables.is_empty() {
+            return Err(RdbmsError::NoVisibleTables);
+        }
         let mut models = Vec::with_capacity(dictionary.tables.len());
         for table in &dictionary.tables {
             models.push(self.convert_model(table)?);
@@ -237,26 +244,25 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                 column: relationship.target_column().to_owned(),
             });
         }
-        let name = match relationship.name() {
-            Some(raw) => RelationshipName::parse(raw).map_err(|cause| RdbmsError::RelationshipName {
+        let name = if let Some(raw) = relationship.name() {
+            RelationshipName::parse(raw).map_err(|cause| RdbmsError::RelationshipName {
                 relationship: raw.to_owned(),
                 cause,
-            })?,
-            None => {
-                // Postgres names every constraint, but a reader may not have read the name. Derive a
-                // deterministic one from the endpoints so the bundle is repeatable.
-                RelationshipName::parse(format!(
-                    "{}__{}__to__{}__{}",
-                    relationship.origin_table(),
-                    relationship.origin_column(),
-                    relationship.target_table(),
-                    relationship.target_column()
-                ))
-                .map_err(|cause| RdbmsError::RelationshipName {
-                    relationship: relationship.target_table().to_owned(),
-                    cause,
-                })?
-            }
+            })?
+        } else {
+            // Postgres names every constraint, but a reader may not have read the name. Derive a
+            // deterministic one from the endpoints so the bundle is repeatable.
+            let derived = format!(
+                "{}__{}__to__{}__{}",
+                relationship.origin_table(),
+                relationship.origin_column(),
+                relationship.target_table(),
+                relationship.target_column()
+            );
+            RelationshipName::parse(&derived).map_err(|cause| RdbmsError::RelationshipName {
+                relationship: derived,
+                cause,
+            })?
         };
         let origin_model = ModelName::parse(relationship.origin_table()).map_err(|cause| RdbmsError::ModelName {
             table: relationship.origin_table().to_owned(),

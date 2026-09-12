@@ -16,7 +16,7 @@ thiserror = { workspace = true }
 [dev-dependencies]
 # The compiler: the acceptance suite proves a dictionary bundle answers no certified question
 # because no metric is defined, which requires `sutura-semantic::compile` to reach `MetricUnknown`.
-# Dev-only, so the library closure stays driver + domain + thiserror.
+# Dev-only, so the library closure stays domain + thiserror.
 sutura-semantic = { workspace = true }
 
 [lints]
