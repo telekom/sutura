@@ -2901,6 +2901,21 @@ an addition. A harness move and a changed public signature that a test file kept
 land there too, so it is not a defect in your change - but nothing about causality was proven
 either. Substitute a mutation run, or scope the gate per commit, and say which in the pull request.
 Read the verdict line, never a step's colour.</p>
+<p><strong>Splitting a test file that hit the 1000-line cap has two answers, and the cheap one comes first.</strong>
+Move the assertions into a new module and declare it <code>#[cfg(test)] mod &lt;name&gt;;</code> - that form keeps
+the declaring file at HEAD, so the base tree still has the declaration and the new module is not
+orphaned. A bare <code>mod &lt;name&gt;;</code> reverts the declarer instead, and that is the whole difference
+between exit 0 and <em>the tests this diff added did not run on base</em>. Only where the split has to land
+beside a real implementation change, add <code>Cleanup-Split: &lt;path&gt;</code> as a commit trailer naming the file
+you split: the gate then verifies the commit moved test code and changed none - every changed line
+except a blank one is test code in its own image, and the code-line multiset is equal on both
+sides - and answers <code>nothing to measure</code>. Only three shapes may be in surplus, and only on the
+added side: a <code>#[cfg(test)]</code>, a <code>mod</code> declaration that resolves into the same diff, and a
+<code>super::</code>-relative <code>use</code>. So move the imports the new module needs from <code>super::</code>, keep every other
+line byte-identical, and put anything else in a second commit. <strong>The trailer is a claim, not a
+permission</strong>: one added, deleted or reworded line - a comment and an attribute included - and the
+gate fails and names it. <code>sutura/gates</code> carries the five conditions and what that pass does not
+prove.</p>
 <p><strong>The gate measures the MERGE BASE, it says which commit that was, and on a stack it derives it.</strong>
 It resolves <code>git merge-base &lt;ref&gt; HEAD</code> itself, so a base branch that has moved on cannot put other
 people's commits into the diff - and on a stacked branch it takes the fork point from the parent
