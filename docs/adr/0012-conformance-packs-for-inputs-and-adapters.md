@@ -5,7 +5,21 @@ description: How the semantic compiler gets tested across catalogs and data syst
 
 # Conformance packs for inputs and adapters
 
-Status: **accepted as the shape. None of it is built.**
+Status: **accepted, and built in part.** `crates/sutura-conformance` holds the pack bodies and the
+`execute_packs!` macro, and every registered data system is bound to the execute packs -
+`cargo xtask check-conformance-bindings` is what holds that, in both directions. The compile packs
+sit behind a default-off feature, so a data adapter binding the execute packs links neither the
+compiler nor a dialect.
+
+**The limit, next to the claim, because the shape is further along than the coverage.** A case is a
+constructor in `crates/sutura-conformance/src/corpus.rs` rather than a file, so adding one is still a
+code change - *The corpus data is a file; cases are code* below is where that stands. **None of the
+three cases under *Cases the corpus must contain by name* is written.** The packs call `execute` and
+`dry_run` and no other `Warehouse` method, so *held to the same test bodies* is a statement about two
+methods. And **no pack exercises impersonation in any form**, which is the one to read before citing
+this record as evidence that a source executed as the asking subject - it is not. What a green
+conformance run does NOT establish is enumerated in that crate's own module header; this
+line is not a substitute for it.
 
 The requirement is that every metadata input and every data adapter conforms to the **same tests and
 functions**, so a new connector proves itself by registering and declaring rather than by anyone

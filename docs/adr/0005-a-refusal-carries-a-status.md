@@ -50,11 +50,16 @@ clients receiving a `422` "should expect that repeating the request without modi
 with the same error".
 
 **Corrected:** this said *"four of the eleven refusal codes"*. Both numbers had gone stale - the
-codes are named rather than counted now, because nothing in this repository derives either number
-and a count nobody derives is a count that goes stale again. `crates/sutura-http/src/wire/refusal.rs`
-still carries the same stale figure in two of its own comments; correcting them is held against the
-entry in `check-guidance`'s contradicted-claims table that currently keys on one of them, so the two
-have to move in the same change as that table and did not move here.
+codes are named rather than counted here, because nothing in this repository derives either number
+and a count nobody derives is a count that goes stale again. That rule is now applied everywhere it
+was owed: the `check-guidance` entry that prescribed the stale number is gone, `xtask/src/guidance/claims.rs`
+holds that no live rule may forbid the true sentence, and the two prose sites that counted the codes
+state the status without a count instead.
+
+**The residual, stated because it is not held by anything.** `crates/sutura-http/src/wire/refusal.rs`
+spells the number in two of its own comments. They are correct as written, they sit against the
+exhaustive match that decides it, and nothing compares them - so this is adjacency and review, not a
+mechanism.
 
 **And the `200` cost something the argument never priced.** A governance refusal answered `200` is
 indistinguishable from an answer to everything that reads a status and not a body:

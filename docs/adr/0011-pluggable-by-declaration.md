@@ -1,18 +1,24 @@
 ---
 title: Pluggable by declaration, and the mode a data adapter is in
-description: Every adapter is configured by a typed declaration rather than discovered - a metadata adapter declares which kinds of metadata it provides, and a data adapter declares whether it reaches a source as a shared service user or as the asking subject - so a capability nobody declared cannot be used, an answer records which mode produced it, and adding a capability is a compile error everywhere it has to be decided; plus what composing several metadata sources actually requires, which is a contribution manifest under the definition digest because today that digest covers the assembly and not the composition, and the one claim this record withdrew - a narrow source cannot contribute source-level usage prose to the prompt, because every note the knowledge layer carries is attached to a metric.
+description: Every adapter is configured by a typed declaration rather than discovered - a metadata adapter declares which kinds of metadata it provides, and a data adapter declares whether it reaches a source as a shared service user or as the asking subject - so a capability nobody declared cannot be used, an answer records which mode produced it, and adding a capability is a compile error everywhere it has to be decided; plus what composing several metadata sources actually requires, which is a contribution manifest under the definition digest, decided here and built in the first amendment below, and the one claim this record withdrew - a narrow source cannot contribute source-level usage prose to the prompt, because every note the knowledge layer carries is attached to a metric.
 ---
 
 # Pluggable by declaration, and the mode a data adapter is in
 
-Status: **accepted. The metadata half has a working precedent; the data half has LANDED; the
-composition half needs a change to what the definition digest is taken over.**
+Status: **accepted, and all three halves are built.** `crates/sutura-domain/src/source.rs` holds
+`SourcePosture`, `deliverable_by`, `ImpersonationCapability` and `anchors_run_as`, and a declared
+source's posture is held against the linked adapter's capability at boot in both composition roots.
+The composition half landed too: `PinnedDefinitions::pin` takes the contribution manifest and
+`DefinitionDigest::of` hashes it as the third element beside the definitions and the knowledge, so
+the digest covers the composition and not only the assembly - the first amendment below is that record.
 
-**Corrected:** this said *the data half is new*. It is built - `crates/sutura-domain/src/source.rs`
-holds `SourcePosture`, `deliverable_by`, `ImpersonationCapability` and `anchors_run_as`, and the boot
-check is wired in `crates/sutura-serve/src/main.rs`, where a declared source's posture is held against
-the linked adapter's capability. What is still new is the composition half, which this line already
-says.
+**The limit, next to the claim.** A declaration checked at boot decides which mode an adapter is
+*allowed* to be in; it is not itself a source executing as the asking subject, and no published
+adapter does that. `ImpersonationAtSource` is a posture a deployment may declare and an adapter may
+answer for, and what a green boot proves is that the two agree - not that a query ran under the
+caller's identity at the source. Which venue may be cited for which identity claim is
+`docs/where-identity-is-proven.md`'s to answer, this record included. The manifest's own limits are
+stated in the amendment, where the claims are.
 
 Pluggable metadata and pluggable data are requirements. So is a tight security focus, and the two pull
 in opposite directions unless pluggability is built one specific way: **a closed set of typed
@@ -483,19 +489,19 @@ letting configuration pick a winner would put that choice outside review.
 source that declares descriptions and has none for a particular model is fine and says nothing; a source
 that never declared them cannot contribute one.
 
-### The digest has to be made to cover the composition, because today it does not
+### Why the digest covers the composition and not only the assembly
 
 An earlier version of this record said *"change which sources contribute and the digest moves, which is
 correct: it is a different bundle."* **That is false against the code, and the correction is the
 decision this section makes.** `PinnedDefinitions::pin` computes the digest from two things and stores
 them: the assembled `Definitions` and the `Knowledge`. `DefinitionDigest::of` hashes a canonical form
 over exactly that pair - a two-element JSON sequence over the parsed content - and there is no third
-element. So the digest covers the **ASSEMBLY**, and two different compositions that assemble to the same
-definitions and the same knowledge produce the same digest, indistinguishably. The claim was not merely
-imprecise; the whole point of it was to make a composition change visible, and it would not have been.
+element. So the digest covered the **ASSEMBLY** alone, and two different compositions that assembled to
+the same definitions and the same knowledge produced the same digest, indistinguishably. The claim was
+not merely imprecise; the whole point of it was to make a composition change visible, and it would not
+have been.
 
-Two ways out, and this record takes the first. The second is written down because it is the fallback if
-the first is judged too expensive, and because stating the smaller true thing is always available:
+That is what this section decided to change, and the first amendment below is the change arriving:
 
 **Decided: a canonical CONTRIBUTION MANIFEST, hashed as a third element beside the definitions and the
 knowledge.** Its shape, in the same style as the two things it joins:
@@ -535,13 +541,6 @@ cost of that choice is that renaming is a certification event. And **the manifes
 configured and reached, not what a source returned**: it is not a content hash per source, so two
 different bundles from the same reachable sources are told apart by the assembly, exactly as they are
 today.
-
-**Not decided: the smaller true thing.** If the manifest is judged too expensive to land with this
-connector, the sentence that replaces it is *"the digest covers the assembly, not the composition, and a
-re-composition that assembles identically is indistinguishable"* - and then the availability rules below
-lose their teeth and have to say so, because "the digest differs from the one that includes it" is a
-claim about the manifest and not about the assembly. **Whichever is true has to be the one written
-here.** The version this record shipped previously was neither.
 
 ### The assembler is application code, not an adapter over adapters
 
