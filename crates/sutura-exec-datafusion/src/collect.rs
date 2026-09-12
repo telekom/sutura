@@ -20,8 +20,8 @@
 //! the same reason, and `value_mapping_tests.rs` is the table both are held to.
 
 use datafusion::arrow::array::{
-    Array, BooleanArray, Date32Array, Decimal128Array, Float64Array, Int8Array, Int16Array, Int32Array, Int64Array, StringArray,
-    StringViewArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
+    Array, BooleanArray, Date32Array, Decimal128Array, Decimal256Array, Float64Array, Int8Array, Int16Array, Int32Array,
+    Int64Array, StringArray, StringViewArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
 };
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, DFSchema};
@@ -170,6 +170,11 @@ pub(crate) fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, 
         // Text, so an exact decimal stays exact. Turning it into an `f64` here is how a total that
         // was correct in the engine stops being correct in an answer.
         DataType::Decimal128(..) => Ok(Value::Text(typed::<Decimal128Array>(label, array)?.value_as_string(row))),
+        DataType::Decimal256(_, 0) => {
+            let text = typed::<Decimal256Array>(label, array)?.value_as_string(row);
+            Ok(text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer))
+        }
+        DataType::Decimal256(..) => Ok(Value::Text(typed::<Decimal256Array>(label, array)?.value_as_string(row))),
         ref other => Err(DataFusionError::UnsupportedType {
             column: String::from(label),
             arrow_type: format!("{other:?}"),

@@ -421,8 +421,11 @@ impl DuckDbWarehouse {
                 column: String::from(label),
                 cause,
             }),
-            // Text, so an exact decimal stays exact. Turning it into an `f64` here is how a total
-            // that was correct in the data system stops being correct in an answer.
+            // Text, so an exact fractional decimal stays exact. A whole decimal follows the same
+            // narrowing rule as the engine and Postgres rather than changing class by adapter.
+            DuckValue::Decimal(v) if v.scale() == 0 => {
+                Ok(i64::try_from(v.value()).map_or_else(|_| Value::Text(v.to_string()), Value::Integer))
+            }
             DuckValue::Decimal(v) => Ok(Value::Text(v.to_string())),
             DuckValue::Text(v) => Ok(Value::Text(v)),
             // The generated projection truncates the time column, so a date is exactly what comes
@@ -726,6 +729,11 @@ mod tests {
                 "DECIMAL stays text so it stays exact",
                 DuckValue::Decimal(Decimal::new(9, 2, 12_345).expect("a test decimal is a decimal")),
                 Value::Text(String::from("123.45")),
+            ),
+            (
+                "whole DECIMAL fitting i64",
+                DuckValue::Decimal(Decimal::new(2, 0, 42).expect("a test whole decimal is a decimal")),
+                Value::Integer(42),
             ),
             (
                 "VARCHAR",

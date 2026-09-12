@@ -428,7 +428,7 @@ fn mean_by_day() -> Case {
 /// **The whole point is which Rust type each adapter arrives through, and that all three arrive at
 /// the same cell anyway.** `sum` over a 64-bit integer column is a different type in each of the
 /// three bound adapters - `DuckDB` widens to a `HUGEINT`, Postgres to a `NUMERIC`, and the engine
-/// stays in `Int64` - so before this case the only measure in the corpus was small enough that
+/// reads the shared fixture as `Decimal256` - so before this case the only measure in the corpus was small enough that
 /// every one of those arms was interchangeable with a 32-bit read. Each adapter keeps a
 /// narrowing arm for its wide type ([`sutura_domain::warehouse::agreement`]'s header lists all
 /// three), and nothing exercised one.

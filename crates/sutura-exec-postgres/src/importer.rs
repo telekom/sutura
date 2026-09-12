@@ -141,7 +141,9 @@ pub(crate) fn infer_schema(text: &str) -> Result<Schema, InvalidIdentifier> {
         body_rows.push(cells.join(","));
     }
     let mut body = body_rows.join("\n");
-    body.push('\n');
+    if !body.is_empty() {
+        body.push('\n');
+    }
     let columns = columns
         .into_iter()
         .map(|column| PgColumn {
@@ -165,7 +167,9 @@ pub(crate) fn infer_fixture_schema(text: &str) -> Result<Schema, csv::InferenceE
         .filter(|line| !line.trim().is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    body.push('\n');
+    if !body.is_empty() {
+        body.push('\n');
+    }
     let columns = columns
         .into_iter()
         .map(|column| PgColumn {
@@ -203,6 +207,7 @@ mod tests {
     fn an_empty_column_does_not_collapse_the_scan() {
         let schema = infer_schema("only\n\n\n").expect("a valid header");
         assert_eq!(schema.columns[0].kind, PgType::Text);
+        assert_eq!(schema.body(), "");
     }
 
     #[test]
@@ -235,6 +240,13 @@ mod tests {
                 .create_statement(&TableName::parse("t").unwrap())
                 .contains("NUMERIC(38,2)")
         );
+    }
+
+    #[test]
+    #[cfg(feature = "fixtures")]
+    fn a_header_only_fixture_has_no_phantom_row() {
+        let schema = infer_fixture_schema("only\n").expect("a valid header");
+        assert_eq!(schema.body(), "");
     }
 
     #[test]

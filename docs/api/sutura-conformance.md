@@ -91,15 +91,10 @@ mod conformance {
   variable on purpose, because an export follows a process tree and the endpoint file the base
   worktree would need does not. In those two a declared absence and a discovered one are the
   same value.
-- **That `corpus::on_disk` is this run's corpus and nobody else's.** It renames the rows onto
-  `<temp_dir>/sutura-conformance/<table>.csv`, a name carrying no worktree and no digest, so a
-  second checkout of this repository is a second WRITER of that file. *The bytes are identical
-  either side* holds per tree, not per machine, and two `just test` runs in two worktrees is how
-  the change that wrote this paragraph was reviewed. A cell would fail as a
-  `Fault::Content` naming the case and the adapter while the run that caused it stayed green -
-  the one reading these packs exist to make unambiguous. `telekom/sutura#405` is where the path
-  gets per-worktree isolation; it is deliberately not fixed here, because it is a change to a
-  fixture every binding shares and this file's diff is about one adapter.
+- **That `corpus::on_disk` is this run's corpus and nobody else's.** It writes below this
+  checkout's `.sutura-dev`, so two worktrees no longer share a path. Processes in one worktree
+  still share the same deterministic file; the atomic rename makes identical writers safe, but
+  this is isolation by worktree rather than by process.
 - **A COST, rather than a budget.** `Spent` reports what every cell and every fixture took,
   and `census` prints the per-adapter floor; nothing thresholds either, and nothing joins two
   adapters' numbers. `docs/adr/0012` carries what the remaining half would need.

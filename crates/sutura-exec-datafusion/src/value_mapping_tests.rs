@@ -18,9 +18,10 @@
 //! [`Warehouse`]: sutura_domain::warehouse::Warehouse
 
 use datafusion::arrow::array::{
-    ArrayRef, BooleanArray, Date32Array, Decimal128Array, Float32Array, Float64Array, Int8Array, Int16Array, Int32Array,
-    Int64Array, StringArray, StringViewArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
+    ArrayRef, BooleanArray, Date32Array, Decimal128Array, Decimal256Array, Float32Array, Float64Array, Int8Array, Int16Array,
+    Int32Array, Int64Array, StringArray, StringViewArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
 };
+use datafusion::arrow::datatypes::i256;
 use std::sync::Arc;
 use sutura_domain::calendar::Date;
 use sutura_domain::warehouse::{Real, Value};
@@ -55,6 +56,14 @@ fn whole_decimal(value: i128) -> ArrayRef {
         Decimal128Array::from(vec![value])
             .with_precision_and_scale(38, 0)
             .expect("a test whole decimal has a width and no scale"),
+    )
+}
+
+fn wide_decimal(value: i128, scale: i8) -> ArrayRef {
+    Arc::new(
+        Decimal256Array::from(vec![i256::from_i128(value)])
+            .with_precision_and_scale(38, scale)
+            .expect("a test wide decimal has a width and scale"),
     )
 }
 
@@ -113,6 +122,17 @@ fn every_type_the_engine_maps_answers_what_the_data_source_answers() {
             "whole Decimal128 past i64",
             whole_decimal(i128::from(i64::MAX) + 1),
             Value::Text(String::from("9223372036854775808")),
+        ),
+        ("whole Decimal256 fitting i64", wide_decimal(42, 0), Value::Integer(42)),
+        (
+            "whole Decimal256 past i64",
+            wide_decimal(i128::from(i64::MAX) + 1, 0),
+            Value::Text(String::from("9223372036854775808")),
+        ),
+        (
+            "fractional Decimal256 stays text so it stays exact",
+            wide_decimal(12_345, 2),
+            Value::Text(String::from("123.45")),
         ),
         (
             "Utf8",

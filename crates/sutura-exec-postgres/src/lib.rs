@@ -702,26 +702,23 @@ fn integer_part(digits: &[u16], weight: i16) -> String {
 
 /// The fractional part of a `NUMERIC`, to exactly `dscale` decimal digits.
 fn fraction_part(digits: &[u16], weight: i16, dscale: u16) -> String {
-    // The fraction starts at the first base-10000 group past the integer part: index `weight+1`.
+    // Fractional group zero is 10^-4. Its source digit is `weight+1`; a negative index is an
+    // omitted zero group before the first stored digit, not permission to start at digit zero.
     let base = i32::from(weight) + 1;
-    let start = if base <= 0 {
-        0
-    } else {
-        usize::try_from(base).unwrap_or(usize::MAX)
-    };
     let mut out = String::new();
     let mut gathered: u16 = 0;
-    let mut index = start;
+    let mut group_index: i32 = 0;
     while gathered < dscale {
-        let group: Vec<char> = digits
-            .get(index)
+        let source_index = usize::try_from(base + group_index).ok();
+        let group: Vec<char> = source_index
+            .and_then(|index| digits.get(index))
             .map_or_else(|| vec!['0', '0', '0', '0'], |digit| format!("{digit:04}").chars().collect());
         let need = usize::from(dscale - gathered);
         for c in group.iter().take(need) {
             out.push(*c);
         }
         gathered = gathered.saturating_add(u16::try_from(need.min(4)).unwrap_or(0));
-        index += 1;
+        group_index += 1;
     }
     out
 }
@@ -904,6 +901,11 @@ mod tests {
         assert_eq!(
             numeric_cell(&decode(&[100], 0, 0x0000, 2), "mean").unwrap(),
             Value::Text(String::from("100.00"))
+        );
+        // The absent 10^-4 group implied by weight -2 is still part of the value.
+        assert_eq!(
+            numeric_cell(&decode(&[1000], -2, 0x0000, 5), "mean").unwrap(),
+            Value::Text(String::from("0.00001"))
         );
     }
 

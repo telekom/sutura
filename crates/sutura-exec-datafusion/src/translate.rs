@@ -109,8 +109,8 @@ pub(crate) fn bucket_expression(grain: Grain, plan_column: &PlanColumn) -> Expr 
 
 /// One aggregate over one column.
 ///
-/// `AVG` receives `Float64`. Fixture integers are represented as `Decimal128(38, 0)` so their
-/// `SUM` cannot overflow at `i64`, but `DataFusion`'s decimal average rounds to four places before a
+/// `AVG` receives `Float64`. Fixture integers are represented as `Decimal256(38, 0)` so their
+/// `SUM` has room beyond the accepted 38-digit input, but `DataFusion`'s decimal average rounds to four places before a
 /// result cast. Casting the input keeps the approximate mean every other adapter returns. The
 /// Postgres renderer makes the same cast on its wire path.
 pub(crate) fn aggregate_expr(kind: Aggregate, over: Expr) -> Expr {

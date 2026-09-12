@@ -20,8 +20,8 @@ pub(super) fn schema(path: &Path) -> Result<Schema, FixtureSchemaError> {
         .map(|column| {
             let kind = match column.kind() {
                 FixtureType::Boolean => DataType::Boolean,
-                FixtureType::Integer | FixtureType::WideInteger => DataType::Decimal128(38, 0),
-                FixtureType::Decimal { scale } => DataType::Decimal128(38, scale.cast_signed()),
+                FixtureType::Integer | FixtureType::WideInteger => DataType::Decimal256(38, 0),
+                FixtureType::Decimal { scale } => DataType::Decimal256(38, scale.cast_signed()),
                 FixtureType::Real => DataType::Float64,
                 FixtureType::Date => DataType::Date32,
                 FixtureType::Text => DataType::Utf8,
@@ -44,12 +44,17 @@ mod tests {
         drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(&dir).expect("the fixture directory is writable");
         let path = dir.join("wide.csv");
-        std::fs::write(&path, "amount,ordinary,rate\n10000000000000000000,1,1e0\n1,2,2e0\n").expect("the fixture is writable");
+        std::fs::write(
+            &path,
+            "amount,ordinary,rate,exact\n10000000000000000000,1,1e0,1.25\n1,2,2e0,2.50\n",
+        )
+        .expect("the fixture is writable");
 
         let schema = super::schema(&path).expect("the fixture has a schema");
-        assert_eq!(schema.field(0).data_type(), &DataType::Decimal128(38, 0));
-        assert_eq!(schema.field(1).data_type(), &DataType::Decimal128(38, 0));
+        assert_eq!(schema.field(0).data_type(), &DataType::Decimal256(38, 0));
+        assert_eq!(schema.field(1).data_type(), &DataType::Decimal256(38, 0));
         assert_eq!(schema.field(2).data_type(), &DataType::Float64);
+        assert_eq!(schema.field(3).data_type(), &DataType::Decimal256(38, 2));
         drop(std::fs::remove_dir_all(dir));
     }
 }
