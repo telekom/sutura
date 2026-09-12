@@ -2514,7 +2514,8 @@ arrow points inward, at the domain.</p>
 in the crate, and a correction belongs there. Regenerate with:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>just<span class="w"> </span>api
 </span></code></pre></div>
-<p>That runs two steps. <code>cargo rustdoc --output-format json</code> is nightly-only, because that is an
+<p>That runs two steps. One <code>cargo doc</code> over the whole workspace, with rustdoc's
+<code>--output-format json</code>, which is nightly-only because that is an
 unstable rustdoc option - not a new pin, but the nightly this repository already keeps for the
 cranelift backend (<code>devco/rust-toolchain-nightly.toml</code>). <code>docs/.tools/rustdoc_to_markdown.py</code> then
 reads the JSON and writes markdown, using the pixi interpreter and the standard library only.</p>
