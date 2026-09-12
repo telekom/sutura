@@ -311,6 +311,27 @@ impl Step<'_> {
             .iter()
             .any(|line| key_of(line).is_some_and(|k| k.strip_prefix(key).is_some()))
     }
+
+    /// The `restore-prefixes-first-match` tiers, narrowest first, empty when the key is absent.
+    ///
+    /// A block scalar and not a mapping value, so the tiers are the more-indented lines that FOLLOW
+    /// the key - which [`Step::input`] cannot see, because they carry no key of their own. The block
+    /// ends at the first line no deeper than the key, which is how `save:` and a trailing comment
+    /// stay out of the count.
+    fn restore_tiers(&self) -> Vec<&str> {
+        let mut lines = self.lines.iter().copied();
+        let Some(head) = lines.find(|line| key_of(line).is_some_and(|k| k.starts_with("restore-prefixes-first-match:"))) else {
+            return Vec::new();
+        };
+        let depth = head.len().saturating_sub(head.trim_start().len());
+        lines
+            .map_while(|line| {
+                let deeper = line.len().saturating_sub(line.trim_start().len()) > depth;
+                (deeper && !line.trim().is_empty()).then_some(line.trim())
+            })
+            .filter(|tier| !tier.starts_with('#'))
+            .collect()
+    }
 }
 
 /// Does this store-cache step's `primary-key` name the whole dependency generation?
@@ -347,7 +368,19 @@ fn key_problems(label: &str, step: &Step<'_>, uses: &str) -> Vec<String> {
             "{label}:{at}  {uses}'s `primary-key` names `{churn}`, so a source-only push writes a new multi-gigabyte entry - the key must move with the dependency inputs and with nothing else"
         ));
     }
-    if !step.has("restore-prefixes-first-match:") {
+    if step.has("restore-prefixes-first-match:") {
+        let tiers = step.restore_tiers();
+        if tiers.len() < 2 {
+            out.push(format!(
+                "{label}:{at}  {uses} carries {} `restore-prefixes-first-match:` tier - a run whose LOCKFILE moved matches no generation prefix, so the widest tier has to be the bare scope or that run starts from nothing",
+                tiers.len()
+            ));
+        } else if tiers.last().is_some_and(|widest| widest.contains("hashFiles")) {
+            out.push(format!(
+                "{label}:{at}  {uses}'s widest `restore-prefixes-first-match:` tier still hashes an input - the last tier has to be the bare scope, or a run that moved every digest matches nothing"
+            ));
+        }
+    } else {
         out.push(format!(
             "{label}:{at}  {uses} carries no `restore-prefixes-first-match:` - the push that DOES move an input then starts from nothing instead of the newest prior generation of its scope"
         ));
@@ -506,6 +539,7 @@ pub(super) mod tests {
         "          primary-key: nix-${{ runner.os }}-x-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml') }}",
         "-${{ hashFiles('flake.nix', 'nix/**', '.cargo/config.toml', '**/Cargo.toml') }}\n",
         "        restore-prefixes-first-match: |\n",
+        "          nix-${{ runner.os }}-x-${{ hashFiles('x.lock') }}-\n",
         "          nix-${{ runner.os }}-x-\n",
     );
 
@@ -599,6 +633,47 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn a_fallback_with_one_tier_is_refused_whichever_tier_was_deleted() {
+        // THE TIER COUNT, AND WHY PRESENCE WAS NOT ENOUGH. The arm above asks only whether the key
+        // EXISTS, and this fixture satisfied it with a single tier until this test - so deleting the
+        // bare scope from either live action was a green change. A run whose LOCKFILE moved matches
+        // no generation prefix, so the bare scope is the only tier that can serve it. Both
+        // deletions are exercised because refusing only the empty block would stay green while the
+        // tier that matters goes.
+        for gone in [
+            "          nix-${{ runner.os }}-x-${{ hashFiles('x.lock') }}-\n",
+            "          nix-${{ runner.os }}-x-\n",
+        ] {
+            let one_tier = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}")).replace(gone, "");
+            let found = super::judge(&[("ci.yml", &one_tier)]);
+            assert_eq!(found.len(), 1, "deleting {gone:?} must be refused: {found:#?}");
+            let problem = found.first().map_or("", String::as_str);
+            assert!(
+                problem.contains("carries 1 `restore-prefixes-first-match:` tier"),
+                "{problem}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_widest_tier_that_still_hashes_an_input_is_refused() {
+        // TWO TIERS IS NOT THE WHOLE PROPERTY - the WIDEST has to be the bare scope. Two tiers that
+        // both hash a digest leave the lockfile-moving run matching neither, which is the same cold
+        // run, reached by keeping the count and narrowing the tier instead of deleting it.
+        let both_hashed = step_using(super::STORE_CACHE, "save:", &format!("${{{{ {MAIN_PUSH} }}}}")).replace(
+            "          nix-${{ runner.os }}-x-\n",
+            "          nix-${{ runner.os }}-x-${{ hashFiles('y.lock') }}-\n",
+        );
+        let found = super::judge(&[("ci.yml", &both_hashed)]);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        let problem = found.first().map_or("", String::as_str);
+        assert!(
+            problem.contains("widest `restore-prefixes-first-match:` tier still hashes"),
+            "{problem}"
+        );
+    }
+
+    #[test]
     fn the_key_rule_reaches_the_causality_target_cache_too() {
         // THE CLAIM "ONE CHECK COVERS BOTH ACTIONS", HELD. Both composite actions key on the same
         // two digests, and both are reached because `ci.yml` calls both - so the rule is written
@@ -640,10 +715,11 @@ pub(super) mod tests {
         let found = super::judge(&[("ci.yml", &ungated)]);
         assert_eq!(found.len(), 1, "{found:#?}");
         let problem = found.first().map_or("", String::as_str);
-        // Line 8, not 5: the store fixture above it now carries the three key lines the key rule
-        // needs. The assertion is on the line because a refusal naming nothing openable is half a
-        // gate - so it is updated with the fixture rather than loosened to a `contains`.
-        assert!(problem.starts_with("ci.yml:8  actions/cache"), "{problem}");
+        // Line 9, not 5: the store fixture above it now carries the FOUR key lines the key rule
+        // needs - a `primary-key` and a two-tier `restore-prefixes-first-match` block. The assertion
+        // is on the line because a refusal naming nothing openable is half a gate - so it is updated
+        // with the fixture rather than loosened to a `contains`.
+        assert!(problem.starts_with("ci.yml:9  actions/cache"), "{problem}");
         assert!(problem.contains("can write the Actions cache on any event"), "{problem}");
     }
 

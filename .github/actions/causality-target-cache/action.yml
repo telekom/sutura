@@ -61,10 +61,11 @@
 # The two spellings are otherwise deliberate copies of the store action, ITS TWO RESTORE TIERS
 # INCLUDED: `restore-prefixes-first-match` below carries the lock generation and THEN the bare
 # scope, so a manifest-moving push falls back to the newest entry of its own lock generation and a
-# LOCKFILE-moving push still falls back to the newest entry of any. Both tiers are spelled out at
-# the input; the fallback a lockfile-moving push gets is the second one, not the first. `save:`
-# gates the write to a push to `main` (restore on every event), and a pull-request path can never
-# write. NO commit
+# LOCKFILE-moving push still falls back to the newest entry of any. BOTH TIERS ARE HELD:
+# `cargo xtask check-workflows` refuses a store-cache step carrying fewer than two tiers, or one
+# whose widest tier still hashes an input. Deleting the bare scope was a GREEN change before that
+# check, which is how a reader came to conclude the tier was absent. `save:` gates the write to a
+# push to `main` (restore on every event), and a pull-request path can never write. NO commit
 # sha and NO `if:`, for `nix-store-cache`'s reasons - a source-only change must reuse the generation
 # and a gated restore is a stopped restore.
 #

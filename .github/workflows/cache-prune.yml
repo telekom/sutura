@@ -9,7 +9,18 @@
 # question for the repository owner rather than an input to this file's budget. Note that the two
 # readings cannot both describe a hard resident ceiling: this header's own 2026-09-01 line measures
 # 32.95 GB RESIDENT, and 2026-09-12 measures 17.27 GB, so whatever `max_cache_size_gb: 10` meant on
-# 2026-09-09 it was not a cap that occupancy stayed under. This file exists
+# 2026-09-09 it was not a cap that occupancy stayed under.
+#
+# WHAT LRU BEHAVIOUR PINS, since the setting will not answer: the generation change on 2026-09-11
+# left BOTH generations resident and then dropped exactly the two entries with the oldest
+# `last_accessed_at`. Had none been dropped, 20,985,052,539 B would be resident; 17,273,701,437 B
+# is, and the difference is exactly those two. Eviction stopped there, so the limit is at or above
+# what survived and below what survived plus the last entry dropped: `[17.274, 19.134) GB`. That
+# BOUNDS the setting rather than reading it - 18 GB, 19 GB and 17 GiB all fit - but it is enough to
+# refuse 10 GB. One complete generation is 10.81 GB, so a generation change wants about 22 GB to
+# evict nothing at all.
+#
+# This file exists
 # because LRU cannot know that a ref has become unreachable and will never read its cache again -
 # which is true at every allocation.
 #
