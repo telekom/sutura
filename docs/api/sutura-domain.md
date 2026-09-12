@@ -8875,7 +8875,7 @@ that Postgres typed `NUMERIC(38,2)` is a
   `crate::warehouse::csv::FixtureType::WideInteger`.
 - A column with any fixed-point decimal value is
   `crate::warehouse::csv::FixtureType::Decimal` at the widest canonical scale after trailing
-  fractional zeroes are removed.
+  fractional zeroes are removed, when every possible subtotal fits the shared 38-digit type.
 - A column with an integer and a fraction is a decimal too.
 - Everything floating-point stays `crate::warehouse::csv::FixtureType::Real`, a date stays
   `crate::warehouse::csv::FixtureType::Date`, and an empty column is
@@ -8944,7 +8944,7 @@ Why a fixture column could not be classified.
 ##### Variants
 
 - `InvalidIdentifier` - A header was not a column name.
-- `DecimalNotCarryable` - A fixed-point value was wider than the exact shared type.
+- `DecimalNotCarryable` - A fixed-point value or possible subtotal was wider than the exact shared type.
 - `RowWidth` - A data row did not have exactly the number of cells declared by the header.
 
 ##### Implements

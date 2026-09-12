@@ -23,7 +23,7 @@
 //!   [`crate::warehouse::csv::FixtureType::WideInteger`].
 //! - A column with any fixed-point decimal value is
 //!   [`crate::warehouse::csv::FixtureType::Decimal`] at the widest canonical scale after trailing
-//!   fractional zeroes are removed.
+//!   fractional zeroes are removed, when every possible subtotal fits the shared 38-digit type.
 //! - A column with an integer and a fraction is a decimal too.
 //! - Everything floating-point stays [`crate::warehouse::csv::FixtureType::Real`], a date stays
 //!   [`crate::warehouse::csv::FixtureType::Date`], and an empty column is
@@ -83,8 +83,8 @@ pub enum InferenceError {
     /// A header was not a column name.
     #[error(transparent)]
     InvalidIdentifier(#[from] InvalidIdentifier),
-    /// A fixed-point value was wider than the exact shared type.
-    #[error("column {column} contains a fixed-point value this build cannot carry exactly")]
+    /// A fixed-point value or possible subtotal was wider than the exact shared type.
+    #[error("column {column} contains fixed-point values this build cannot carry exactly")]
     DecimalNotCarryable { column: String },
     /// A data row did not have exactly the number of cells declared by the header.
     #[error("fixture row {row} has {found} cells, but the header declares {expected}")]
@@ -201,6 +201,7 @@ impl FixtureType {
                     })
                     .max()
                     .unwrap_or(0);
+                let mut possible_total = 0_i128;
                 for cell in values.iter().filter(|cell| !cell.is_empty()) {
                     let DecimalShape::Exact {
                         precision,
@@ -210,6 +211,10 @@ impl FixtureType {
                         return None;
                     };
                     if precision.saturating_add(usize::from(scale - cell_scale)) > 38 {
+                        return None;
+                    }
+                    possible_total = possible_total.checked_add(decimal_magnitude(cell, scale - cell_scale)?)?;
+                    if possible_total >= 10_i128.pow(38) {
                         return None;
                     }
                 }
@@ -229,7 +234,7 @@ enum DecimalShape {
 }
 
 fn decimal_shape(value: &str) -> DecimalShape {
-    let unsigned = value.strip_prefix('-').unwrap_or(value);
+    let unsigned = unsigned_decimal(value);
     let Some((whole, fraction)) = unsigned.split_once('.') else {
         if unsigned.is_empty() || !unsigned.bytes().all(|byte| byte.is_ascii_digit()) {
             return DecimalShape::NotDecimal;
@@ -257,6 +262,18 @@ fn decimal_shape(value: &str) -> DecimalShape {
     } else {
         DecimalShape::Exact { precision, scale }
     }
+}
+
+fn decimal_magnitude(value: &str, padding: u8) -> Option<i128> {
+    let unsigned = unsigned_decimal(value);
+    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    let fraction = fraction.trim_end_matches('0');
+    let magnitude = format!("{whole}{fraction}").parse::<i128>().ok()?;
+    magnitude.checked_mul(10_i128.checked_pow(u32::from(padding))?)
+}
+
+fn unsigned_decimal(value: &str) -> &str {
+    value.strip_prefix('-').or_else(|| value.strip_prefix('+')).unwrap_or(value)
 }
 
 /// A date-shaped value: `YYYY-MM-DD`.
@@ -293,6 +310,12 @@ mod tests {
     }
 
     #[test]
+    fn a_positive_sign_stays_decimal() {
+        let columns = infer("amount\n+2.40\n+3.57\n").expect("a valid header");
+        assert_eq!(columns[0].kind, FixtureType::Decimal { scale: 2 });
+    }
+
+    #[test]
     fn a_column_with_integers_and_a_fraction_is_a_decimal() {
         let columns = infer("amount\n100\n2.5\n").expect("a valid header");
         assert_eq!(columns[0].kind, FixtureType::Decimal { scale: 1 });
@@ -322,6 +345,14 @@ mod tests {
     fn a_decimal_that_overflows_at_the_columns_scale_is_refused() {
         assert!(matches!(
             infer("amount\n99999999999999999999999999999999999999\n0.1\n"),
+            Err(super::InferenceError::DecimalNotCarryable { .. })
+        ));
+    }
+
+    #[test]
+    fn a_decimal_whose_possible_total_overflows_is_refused() {
+        assert!(matches!(
+            infer("amount\n90000000000000000000000000000000000000\n90000000000000000000000000000000000000\n"),
             Err(super::InferenceError::DecimalNotCarryable { .. })
         ));
     }

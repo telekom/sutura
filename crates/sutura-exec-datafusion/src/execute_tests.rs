@@ -285,7 +285,7 @@ fn a_grouped_sum_comes_back_labelled_and_ordered_the_way_the_plan_says() {
 
 #[test]
 #[cfg(feature = "fixtures")]
-fn a_precision_38_fixture_total_does_not_wrap() {
+fn a_large_decimal_fixture_total_stays_exact() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/datafusion-decimal-total");
     drop(std::fs::remove_dir_all(&dir));
     std::fs::create_dir_all(&dir).expect("the fixture directory is writable");
@@ -293,8 +293,8 @@ fn a_precision_38_fixture_total_does_not_wrap() {
     std::fs::write(
         &path,
         "order_date,region,amount\n\
-         2026-06-05,north,90000000000000000000000000000000000000\n\
-         2026-06-20,north,90000000000000000000000000000000000000\n",
+         2026-06-05,north,9000000000000000000000000000000000000\n\
+         2026-06-20,north,9000000000000000000000000000000000000\n",
     )
     .expect("the fixture is writable");
     let adapter = DataFusionWarehouse::new(
@@ -314,7 +314,7 @@ fn a_precision_38_fixture_total_does_not_wrap() {
         [vec![
             Value::Text(String::from("north")),
             Value::Text(String::from("2026-06-01")),
-            Value::Text(String::from("180000000000000000000000000000000000000")),
+            Value::Text(String::from("18000000000000000000000000000000000000")),
         ]]
     );
     drop(std::fs::remove_dir_all(dir));
