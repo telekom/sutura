@@ -22,8 +22,12 @@ header saying so, and never hand-edited.
 
 USAGE, from the repository root, inside the dev shell so `cargo` is the pinned nightly:
 
-    cargo rustdoc -q -p sutura-domain --all-features -- -Z unstable-options --output-format json
+    RUSTDOCFLAGS="-Z unstable-options --output-format json --document-private-items" \
+      cargo doc -q --no-deps --workspace --all-features
     pixi run --frozen python docs/.tools/rustdoc_to_markdown.py target/doc/sutura_domain.json
+
+One invocation for the whole workspace, and not one per package: features resolve once, so the
+JSON is the same JSON `check-api-docs` compares against. Rendering a single page from it is fine.
 
 The output directory defaults to `docs/api`. Every page it writes must be in the `nav` in
 `mkdocs.yml`, because `cargo xtask check-docs` fails on a page no nav entry names - which is the

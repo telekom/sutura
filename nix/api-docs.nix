@@ -40,7 +40,7 @@ pkgs.writeShellApplication {
       echo "run this from the repository root: it resolves docs/ and target/ relatively" >&2
       exit 1
     fi
-    # The toolchain's `cargo rustdoc` child, reached exactly as `checks.api-docs` reaches it,
+    # The toolchain's `cargo doc` child, reached exactly as `checks.api-docs` reaches it,
     # with a target directory of its own so it cannot invalidate the dev shell's `target/`.
     export PATH="${toolchain}/bin:$PATH"
     export CARGO_TARGET_DIR="''${CARGO_TARGET_DIR:-target}/api-docs"
@@ -76,24 +76,38 @@ pkgs.writeShellApplication {
       echo "no library crates found: cargo metadata returned none" >&2
       exit 1
     fi
+    # ONE invocation for every member, where this was 19 serial `cargo rustdoc` calls. Two things
+    # change and both matter: cargo schedules the units across the host instead of the loop
+    # serialising them, and features resolve ONCE over the whole workspace - the same
+    # `--workspace --all-features` resolution `sutura-deps` is built under, so `checks.api-docs`
+    # reuses those artifacts instead of recompiling every feature-gated dependency per package.
+    # `--no-deps` keeps it to the members; without it this documents the entire closure.
+    # `--profile ci`: cargo's default `dev` optimises the closure at `opt-level = 3`.
+    #
+    # `--document-private-items`: rustdoc runs NO link-resolution pass over an item it is not
+    # documenting, so `broken_intra_doc_links` - `forbid` in the root manifest - reports nothing
+    # about a private module's doc comments without it. It does not change a page - the generator
+    # keeps `public` and `default` visibility only.
+    #
+    # The flags travel in the ENVIRONMENT because `cargo doc` documents many units and so takes no
+    # trailing rustdoc arguments. `xtask/src/api_docs/writer.rs` holds this assignment AND the
+    # three selection arguments above equal to `checks.api-docs`' own: a difference on one side
+    # only means the fix this writer IS cannot see what the gate refused, or renders pages from a
+    # feature resolution the gate never judged.
+    export RUSTDOCFLAGS="-Z unstable-options --output-format json --document-private-items"
+    cargo doc -q --no-deps --workspace --all-features --profile ci
+    # rustdoc names its JSON after the crate's Rust identifier, so a package with a
+    # hyphen becomes a file with an underscore.
+    # The target directory variable, and not a literal `target/`: a developer who redirects the target
+    # directory - onto a faster volume, say - would otherwise get a "no such file" from
+    # the generator rather than the pages they asked for.
+    jsons=()
     for lib in $libs; do
       echo "api-docs: $lib"
-      # `--profile ci`: cargo's default `dev` optimises the closure at `opt-level = 3`.
-      # `--document-private-items`: rustdoc runs NO link-resolution pass over an item it is not
-      # documenting, so `broken_intra_doc_links` - `forbid` in the root manifest - reports nothing
-      # about a private module's doc comments without it. The flag list after `--` is held equal to
-      # `checks.api-docs`' own by `xtask/src/api_docs/writer.rs`: a flag on one side only means the
-      # fix this writer IS cannot see what the gate refused. It does not change a page - the
-      # generator keeps `public` and `default` visibility only.
-      cargo rustdoc -q -p "$lib" --all-features --profile ci -- \
-        -Z unstable-options --output-format json --document-private-items
-      # rustdoc names its JSON after the crate's Rust identifier, so a package with a
-      # hyphen becomes a file with an underscore.
-      # The target directory variable, and not a literal `target/`: a developer who redirects the target
-      # directory - onto a faster volume, say - would otherwise get a "no such file" from
-      # the generator rather than the pages they asked for.
-      json="''${CARGO_TARGET_DIR:-target}/doc/$(printf '%s' "$lib" | tr - _).json"
-      python3 docs/.tools/rustdoc_to_markdown.py "$json"
+      jsons+=("''${CARGO_TARGET_DIR:-target}/doc/$(printf '%s' "$lib" | tr - _).json")
     done
+    # ONE call over every input. The generator accepts many and defaults its output directory to
+    # docs/api, which is what this app is for.
+    python3 docs/.tools/rustdoc_to_markdown.py "''${jsons[@]}"
   '';
 }

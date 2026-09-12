@@ -597,11 +597,22 @@
           # `SUTURA_API_DOCS_PROFILE` matters because cargo's default `dev` optimises every
           # dependency and build script at `opt-level = 3`. `wholeTree` for `hygiene`'s reason,
           # and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
-          # PRIVATE phases became 2m10 cold, floored by 482 rustdoc units - 291 of them `rmeta`.
-          # Those two were 484 and 293 and are now what `cargo rustdoc -p <lib> --all-features
-          # --profile ci -Z unstable-options --unit-graph` reports, summed over the ten documented
-          # libs and deduplicated on (package, target, mode): 482 units, of which 291 are `check`
-          # and exactly 10 are the `doc` units themselves.
+          # PRIVATE phases became 2m10 cold, floored by the rustdoc unit graph.
+          #
+          # ONE `cargo doc --no-deps --workspace --all-features` is what the gate runs, and
+          # `--unit-graph` prices it against the 19 serial `cargo rustdoc -p <lib>` invocations it
+          # replaces without building anything - deduplicated on (package, target, mode,
+          # features). The workspace run is 567 units, 337 of them `check` and 19 the `doc` units
+          # themselves, one per library and one per binary-only target. The serial loop asked for
+          # 2448 units across its invocations, a union of 684 distinct ones, and 124 of those 684
+          # DO NOT APPEAR in the workspace graph at all. Drop FEATURES from the key and the two
+          # graphs are IDENTICAL at 553 units with nothing absent either way, which is the whole
+          # finding: the same units, under a different feature resolution. A per-package
+          # `--all-features` resolves a shared dependency's features differently from the
+          # `--workspace --all-features` that `ciArtifacts` is built under, so those units fell
+          # outside the warm closure and were compiled here on every run. That is the same defect
+          # this file records against `checks.nextest` at 67 third-party crates, and this gate was
+          # the last one carrying it.
           api-docs = craneLib.mkCargoDerivation (ciArgs // inheritedArtifacts ciArtifacts // {
             src = wholeTree;
             pnameSuffix = "-api-docs";
