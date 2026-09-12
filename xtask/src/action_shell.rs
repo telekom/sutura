@@ -7,7 +7,7 @@
 //! * `zizmor` is pointed at `.github/workflows`.
 //! * `actionlint` - which is the one that would otherwise carry this, because it shells each
 //!   workflow's `run:` block out to `shellcheck` itself - **cannot read a composite action at all**
-//!   at the pinned version. MEASURED rather than assumed, against `actionlint` 1.7.12: handed
+//!   at the pinned version. MEASURED rather than assumed, against the pinned `actionlint`: handed
 //!   `.github/actions/attest-and-sign/action.yml` it reports `"jobs" section is missing in
 //!   workflow`, `"on" section is missing in workflow` and `unexpected key "runs" for "workflow"
 //!   section` - it parses the file as a workflow and rejects it.
@@ -86,7 +86,7 @@ struct Extracted {
 ///
 /// So the quoting decides: inside a single-quoted span the faithful rendering is a literal, and
 /// everywhere else it is an expansion. Both halves are pinned by tests against the pinned
-/// `shellcheck` 0.11.0.
+/// `shellcheck`.
 fn strip_expressions(line: &str) -> String {
     let mut out = String::new();
     let mut chars = line.char_indices();
@@ -372,7 +372,7 @@ mod tests {
         // THE CASE A REVIEW FOUND, and the reason the replacement is an expansion rather than a
         // bare word: an unquoted interpolation is the word-splitting bug this gate exists to catch,
         // and a bare literal cannot word-split - so `shellcheck` accepted it and the finding was
-        // hidden. MEASURED against the pinned shellcheck 0.11.0: this text reports SC2086, and
+        // hidden. MEASURED against the pinned shellcheck: this text reports SC2086, and
         // `rm -rf GHA_EXPRESSION/junk` reports nothing.
         assert_eq!(
             strip_expressions("rm -rf ${{ inputs.dir }}/junk"),

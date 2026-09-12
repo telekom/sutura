@@ -106,12 +106,12 @@ jobs:
     # DISABLED here as read on 2026-09-07 - so that upload would fail rather than be ignored, and
     # the permission would be granted for nothing.
     permissions:
-      id-token: write      # publication only: the OIDC token api.scorecard.dev verifies
-      contents: read       # the checkout, and every file-reading check
-      actions: read        # workflow runs, for CI-Tests and Dangerous-Workflow
-      checks: read         # check runs on a commit, for CI-Tests
-      issues: read         # issue activity, for Maintained
-      pull-requests: read  # review history, for Code-Review
+      id-token: write # publication only: the OIDC token api.scorecard.dev verifies
+      contents: read # the checkout, and every file-reading check
+      actions: read # workflow runs, for CI-Tests and Dangerous-Workflow
+      checks: read # check runs on a commit, for CI-Tests
+      issues: read # issue activity, for Maintained
+      pull-requests: read # review history, for Code-Review
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

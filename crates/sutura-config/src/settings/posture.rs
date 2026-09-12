@@ -176,4 +176,31 @@ pub enum NotFitToServe {
          `behind-gateway`, whose proof arrives in a header of its own"
     )]
     DeploymentTokenSharesTheHeader,
+
+    /// The metrics endpoint is mounted and nothing protects its own credential.
+    ///
+    /// `docs/adr/0015` Decision 1: `/metrics` has its own token, never the deployment's, so a
+    /// scrape cannot interrogate the business. The endpoint lives on the one listener and is always
+    /// mounted, so a deployment reachable off-host or in production with no metrics token has an
+    /// unauthenticated way to read the process's counters - the same argument
+    /// [`Self::AccessTokenRequired`] makes for the API surface, applied to what a scrape can see.
+    #[error(
+        "{because}, but security.metrics_token is not set. The metrics endpoint is gated by its \
+         own credential, never the deployment token - a scrape needs to read counters, and giving \
+         it the API token would hand the monitoring system the ability to interrogate the business. \
+         Set security.metrics_token"
+    )]
+    MetricsTokenRequired { because: &'static str },
+    /// The two credentials are the same value, which collapses the separation `docs/adr/0015`
+    /// exists for.
+    ///
+    /// A holder of the metrics token can then ask any question the catalog certifies, which turns
+    /// the monitoring credential store into a data-access secret store. Nothing at runtime would
+    /// show it, so it is a refusal to start.
+    #[error(
+        "security.metrics_token is equal to security.access_token. The metrics endpoint must be \
+         gated by a credential of its own: a single token behind both surfaces hands the monitoring \
+         system every ability a holder of the deployment token has. Use a different value for each"
+    )]
+    MetricsTokenSharesTheApiToken,
 }

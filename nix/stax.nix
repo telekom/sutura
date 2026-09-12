@@ -7,8 +7,8 @@
 # importer to keep in step and no verdict that could disagree.
 #
 # WHY NOT pkgs.stax, which needs none of this. Because nixpkgs does not carry the release we
-# want, anywhere: `pkgs.stax` is 0.102.2 on devenv.lock's nixpkgs, 0.102.2 on flake.lock's, and
-# 0.102.2 on nixpkgs master - checked, not assumed. So `just update` moves every other tool in
+# want, anywhere: `pkgs.stax` is the SAME version on devenv.lock's nixpkgs, on flake.lock's and
+# on nixpkgs master - checked, not assumed. So `just update` moves every other tool in
 # the shell and still leaves stax where it was. Bumping an input is not an upgrade of a package
 # the input does not have.
 #

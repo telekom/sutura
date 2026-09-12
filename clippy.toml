@@ -16,11 +16,11 @@ allow-dbg-in-tests = true
 # workspace on the day (2026-08-31), plus a little headroom so a one-branch drift does not tip
 # it over the next merge. A function past a threshold now has to SPLIT, because `#[expect]` on
 # one is banned.
-cognitive-complexity-threshold = 50   # max in tree 45, all tracing-macro inflation (announce_*)
-too-many-lines-threshold = 165        # max 158 - the federated splitter, kept as one pass
-too-many-arguments-threshold = 10     # max 10 - flat constructor signatures (Metric, Plan)
-type-complexity-threshold = 100       # default 250
-enum-variant-name-threshold = 2       # default 3
+cognitive-complexity-threshold = 50 # max in tree 45, all tracing-macro inflation (announce_*)
+too-many-lines-threshold = 165 # max 158 - the federated splitter, kept as one pass
+too-many-arguments-threshold = 10 # max 10 - flat constructor signatures (Metric, Plan)
+type-complexity-threshold = 100 # default 250
+enum-variant-name-threshold = 2 # default 3
 
 # A ban without a reason gets reverted by the next person who trips over it.
 #
@@ -92,7 +92,7 @@ disallowed-methods = [
 ]
 
 disallowed-types = [
-  { path = "std::sync::Mutex",  reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
+  { path = "std::sync::Mutex", reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
   { path = "std::sync::RwLock", reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
 ]
 

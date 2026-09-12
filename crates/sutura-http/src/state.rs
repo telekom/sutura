@@ -1,8 +1,10 @@
 //! What every handler is handed.
 //!
-//! Three things, each cheap to clone, so cloning the state per connection is a few pointer bumps:
-//! the [`Surface`] the question goes to, the [`Settings`] the token gate and the assembled router
-//! were built from, and the [`Admission`] bound the query handler takes a slot from.
+//! Each field is cheap to clone, so cloning the state per connection is a few pointer bumps: the
+//! [`Surface`] the question goes to, the [`Settings`] the token gate and assembled router were built
+//! from, the [`Admission`] bound the query handler takes a slot from, the metrics registry with the
+//! transport handles that write it, and an optional inbound identity gate. See
+//! [`ServiceState::new`] for why the registry is built here and frozen at construction.
 //!
 //! The settings are kept rather than read once at assembly time because the token gate needs them
 //! per request. Nothing else does - the layers were all decided at startup - and that is
@@ -38,7 +40,7 @@
 use std::sync::Arc;
 
 use sutura_config::Settings;
-use sutura_runtime::Admission;
+use sutura_runtime::{Admission, Registry, RegistryBuilder};
 
 use crate::surface::Surface;
 
@@ -48,7 +50,14 @@ pub struct ServiceState {
     surface: Arc<dyn Surface>,
     settings: Arc<Settings>,
     admission: Admission,
-    /// Leg 1, when a deployment declares one. `None` is the shape that ships today.
+    /// This state's metrics registry and the transport handles that write it.
+    ///
+    /// Built once per state by [`ServiceState::new`], which is the one place that has both the
+    /// settings and the served bundle; the `/metrics` route renders it and every handler observes
+    /// through the handles. The series set is frozen at construction, so a scrape reads atomics and
+    /// fixed strings and takes no lock.
+    registry: Arc<Registry>,
+    metrics: crate::metrics::Metrics,
     ///
     /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that
     /// building it reads a file: a `new` that could not fail would have to swallow an unreadable key
@@ -70,12 +79,38 @@ impl ServiceState {
     /// same argument as the surface one line above it, one bound further: the permit set belongs to
     /// the process, so the only component that may decide there is one of it is the composition
     /// root. See the module documentation for what deriving it cost.
+    ///
+    /// **The registry is built here, and it is the one place that can see both halves of it.** The
+    /// transport series come from [`crate::metrics::Metrics::install`]; the two deployment-wide
+    /// numbers - the engine width and the catalog's governed coverage - come from the settings this
+    /// state serves under and the pinned bundle its surface already holds. Registering them together
+    /// is what makes `/metrics` show the deployment rather than only its requests, and the builder is
+    /// consumed here so no later caller can add a series to a registry a scrape is already reading.
     #[must_use]
     pub fn new(surface: Arc<dyn Surface>, settings: Arc<Settings>, admission: Admission) -> Self {
+        let mut builder = RegistryBuilder::default();
+        let metrics = crate::metrics::Metrics::install(&mut builder);
+        // The capacity denominator is a property of this state's bound, not of a question, so it is
+        // reported once here rather than on the request path. `sutura_execution_slots_in_use` is the
+        // number that moves; this is the number an operator divides it by.
+        metrics.set_capacity(admission.bound());
+        // `sutura_engine_worker_threads` is the width the engine was opened with - the same value
+        // `sutura_serve::open_engine` passed to `with_worker_threads`, read from the settings rather
+        // than guessed, because under a CPU quota the machine's own answer is the wrong one.
+        let workers = builder.gauge("sutura_engine_worker_threads");
+        workers.set(settings.runtime().engine_workers().count() as u64);
+        // `sutura_catalog_metrics` is the governed coverage the SERVED bundle carries. Read once
+        // from the pinned bundle the surface already holds - no load, no I/O, and the number a
+        // coverage ramp is measured against.
+        let coverage = builder.gauge("sutura_catalog_metrics");
+        coverage.set(surface.definitions().definitions().metrics().len() as u64);
+        let registry = Arc::new(builder.build());
         Self {
             surface,
             settings,
             admission,
+            registry,
+            metrics,
             inbound: None,
         }
     }
@@ -120,10 +155,26 @@ impl ServiceState {
         &self.settings
     }
 
-    /// The bound on how many questions execute at once.
+    /// This state's metrics registry, shared with its `/metrics` route.
     ///
-    /// Borrowed rather than cloned, so a handler takes a slot from *this* bound. A clone would be
-    /// correct too - `Admission` shares its permit set - and a borrow says so at the call site.
+    /// Handlers observe question outcomes through it; the metrics route renders it. Neither can
+    /// mutate the series set at request time. The shipped composition root builds one service state,
+    /// but this type does not enforce process-wide ownership: separately constructed states have
+    /// separate registries.
+    #[inline]
+    #[must_use]
+    pub fn registry(&self) -> Arc<Registry> {
+        Arc::clone(&self.registry)
+    }
+    /// The transport's metrics observer: records question outcomes, admission and rate-limit
+    /// events against the shared registry.
+    #[inline]
+    #[must_use]
+    pub const fn metrics(&self) -> &crate::metrics::Metrics {
+        &self.metrics
+    }
+
+    /// The bound on how many questions execute at once.
     #[inline]
     #[must_use]
     pub const fn admission(&self) -> &Admission {

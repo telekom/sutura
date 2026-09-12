@@ -48,9 +48,11 @@ use crate::repo::matches_any;
 
 /// A mechanism whose HOME is derived, and the prose that attributes it.
 ///
-/// The third shape of *derive it, then compare it against what is written down* - after
-/// `Pin`, which reads a value off a line, and `Counted`, which counts. This one RESOLVES A FILE,
-/// which is the shape a workflow refactor breaks and nothing else here can express.
+/// The second shape of *derive it, then compare it against what is written down* - after
+/// `Counted`, which counts. It was the third while a `Pin` shape read a version off a line; that
+/// one is deleted, because a rule refusing the copy cannot also require one to compare against.
+/// This one RESOLVES A FILE, which is the shape a workflow refactor breaks and nothing else here
+/// can express.
 pub(in crate::guidance) struct Hosted {
     /// Human name, for the message.
     name: &'static str,

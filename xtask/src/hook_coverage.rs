@@ -11,7 +11,7 @@
 //!
 //! # Why the total is DERIVED from the hook config rather than counted from the output
 //!
-//! Because a silenced hook prints no row at all. **Measured against prek 0.4.14:**
+//! Because a silenced hook prints no row at all. **Measured against the pinned prek:**
 //! `PREK_SKIP=hygiene,rust-tests prek run --dry-run` emits eight rows where an unset run emits
 //! ten - the two named hooks are absent, not marked. So a verdict computed from the rows would
 //! have reported *8 of 8 ran* over a run with two gates switched off from the environment, which
@@ -117,7 +117,7 @@ impl Coverage {
 
 /// prek's status column, and what each status says about coverage.
 ///
-/// MEASURED against prek 0.4.14 rather than taken from its documentation: these four are literals
+/// MEASURED against the pinned prek rather than taken from its documentation: these four are literals
 /// in the binary, and the row format is `<name><dots>[(<reason>)]<status>` with no space anywhere
 /// in the padding.
 const STATUSES: &[(&str, Coverage)] = &[
@@ -595,7 +595,7 @@ fn verdict(failures: &[String], reported: usize, changed: usize) -> Verdict {
 mod tests {
     use super::{Coverage, Row, Surface};
 
-    /// prek 0.4.14's **`--dry-run`** commit-stage output over a diff of one README, `--color
+    /// The pinned prek's **`--dry-run`** commit-stage output over a diff of one README, `--color
     /// never`. Captured 2026-09-05 and pasted verbatim.
     ///
     /// **Its doc used to call this prek's real output, and it is not** - reported in review and
@@ -621,7 +621,7 @@ mod tests {
         "fuzz (git delta)...............................(no files to check)Skipped\n",
     );
 
-    /// prek 0.4.14's REAL commit-stage output, `--color never`, over a diff of one README on a
+    /// The pinned prek's REAL commit-stage output, `--color never`, over a diff of one README on a
     /// host with nix - so `structural gates`, the suite, the doctests and the secret scan actually
     /// executed. Captured on 2026-09-05, exit 0, and pasted verbatim.
     ///
@@ -667,14 +667,29 @@ mod tests {
             .iter()
             .filter_map(|hook| super::why_it_measured_nothing(super::hooks::COMMIT, hook))
             .collect();
-        assert_eq!(refusals.len(), 5, "{refusals:?}");
-        assert!(refusals.iter().all(|line| line.contains("Dry Run")), "{refusals:?}");
-        // And the real capture of the SAME diff, on which those five did run: no refusal at all.
+        // BY KIND, not as a total: both captures above are verbatim from one dated run, so a hook
+        // declared after it prints no row in either and is correctly refused. Editing a row in to
+        // keep the total at five would make the provenance sentence above false.
+        assert_eq!(
+            refusals.iter().filter(|line| line.contains("Dry Run")).count(),
+            5,
+            "{refusals:?}"
+        );
+        assert!(
+            refusals
+                .iter()
+                .filter(|line| !line.contains("Dry Run"))
+                .all(|line| line.contains("printed no row")),
+            "{refusals:?}"
+        );
+        // And the real capture of the SAME diff, on which those five did run: not one DRY-RUN
+        // refusal, which is the whole discrimination. What remains is the `printed no row` kind.
         let real = super::coverage_of(&declared, super::hooks::COMMIT, &super::rows(REAL_COMMIT_LOG), &none);
         assert_eq!(real.iter().filter(|hook| hook.coverage.inspected()).count(), 5, "{real:?}");
         assert!(
             real.iter()
-                .all(|hook| super::why_it_measured_nothing(super::hooks::COMMIT, hook).is_none()),
+                .filter_map(|hook| super::why_it_measured_nothing(super::hooks::COMMIT, hook))
+                .all(|line| line.contains("printed no row")),
             "{real:?}"
         );
     }
@@ -828,7 +843,7 @@ mod tests {
 
     #[test]
     fn a_hook_silenced_from_the_environment_is_a_failure_and_not_a_smaller_denominator() {
-        // MEASURED on prek 0.4.14: `PREK_SKIP=hygiene,rust-tests` removes the two rows outright.
+        // MEASURED on the pinned prek: `PREK_SKIP=hygiene,rust-tests` removes the two rows outright.
         // So the denominator has to come from the config, and the missing rows have to be named.
         let declared = declared();
         let none = super::BTreeSet::new();
@@ -854,22 +869,22 @@ mod tests {
         // config, so a diff touching one always has a gap until the covering task has run.
         let changed = vec![String::from(".github/actions/build-artefacts/action.yml")];
         let (reported, gaps) = super::surface_gaps(&changed, &[], &[]);
-        assert_eq!(gaps.len(), 1, "{gaps:?}");
+        // TWO, and the second is not noise: an `action.yml` is a tracked `.yml`, so `format-text`
+        // inspects it too - the overlap this table permits, safe by its all-must-run rule.
+        assert_eq!(gaps.len(), 2, "{gaps:?}");
         // The COUNT is in the verdict for `check-venues`' reason: `every surface` over an empty set
         // is a claim about nothing, and a reader cannot tell four from zero without it.
-        assert_eq!(reported, 1);
+        assert_eq!(reported, 2);
         assert_eq!(super::surface_gaps(&[], &[], &[]).0, 0);
-        assert!(
-            gaps.first().is_some_and(|gap| gap.contains("just lint-workflows")),
-            "{gaps:?}"
-        );
+        assert!(gaps.iter().any(|gap| gap.contains("just lint-workflows")), "{gaps:?}");
         // Named as having run, the same diff has no gap - which is what stops this being a gate
-        // that fails a tree somebody has already checked.
+        // that fails a tree somebody has already checked. BOTH covering tasks are named, because
+        // both surfaces match: naming one and expecting silence would be the gate under-reporting.
         assert!(
-            super::surface_gaps(&changed, &[], &[String::from("lint-workflows")])
+            super::surface_gaps(&changed, &[], &[String::from("lint-workflows"), String::from("lint-text")])
                 .1
                 .is_empty(),
-            "a diff with lint-workflows named as seen leaves no gap"
+            "a diff with both covering tasks named as seen leaves no gap"
         );
         // A Rust diff is covered when EVERY hook claiming Rust ran, and not before: `one of them
         // ran` is the sentence this module exists to stop being printed as coverage.

@@ -39,7 +39,7 @@ mod conformance {
     fn open() -> Fixture<DuckDbWarehouse> {
         let warehouse = DuckDbWarehouse::in_memory(corpus::source(), corpus::posture()).expect("an in-memory database opens");
         warehouse
-            .attach_csv(&corpus::table(), &corpus::on_disk())
+            .attach_fixture_csv(&corpus::table(), &corpus::on_disk())
             .expect("duckdb attaches the conformance corpus");
         Fixture::standing(warehouse)
     }

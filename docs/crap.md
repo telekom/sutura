@@ -19,12 +19,12 @@ that size the metric stops asking about tests and starts asking for a smaller fu
 
 ## What runs, and where
 
-| Command | What it does | Measured cost |
-| --- | --- | --- |
-| `cargo xtask check-crap` | the policy is a gate, the allowlist is annotated, the scope names real packages | milliseconds, part of `hygiene` |
-| `just crap` | the coverage run and the score, exactly as CI runs them | 42 s cold, ~20 s warm |
-| `nix build .#checks.x86_64-linux.crap` | what CI runs, and the only thing that measures | 10.2 s of instrumented compile on top of the dependency derivation the clippy and test checks already build |
-| `just crap-delta <base> [head]` | did the CHANGE make anything worse | milliseconds - two JSON files, no compiler and no tool |
+| Command                                | What it does                                                                    | Measured cost                                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `cargo xtask check-crap`               | the policy is a gate, the allowlist is annotated, the scope names real packages | milliseconds, part of `hygiene`                                                                             |
+| `just crap`                            | the coverage run and the score, exactly as CI runs them                         | 42 s cold, ~20 s warm                                                                                       |
+| `nix build .#checks.x86_64-linux.crap` | what CI runs, and the only thing that measures                                  | 10.2 s of instrumented compile on top of the dependency derivation the clippy and test checks already build |
+| `just crap-delta <base> [head]`        | did the CHANGE make anything worse                                              | milliseconds - two JSON files, no compiler and no tool                                                      |
 
 Measured in the dev container on 16 cores. Of the 20 s warm, about 13 s is the coverage run, 2 s
 is the AST analysis, and the rest is building `xtask` itself.
@@ -70,11 +70,11 @@ would not change if the machines got faster.
 **Cost.** The coverage step, measured in the dev container on 16 cores, each from a cold coverage
 profile. This is the part that varies with the scope, which is why it is the part tabulated:
 
-| scope | wall | CPU |
-| --- | --- | --- |
-| `sutura-domain` | 11.1 s | 50.8 s |
-| plus `sutura-catalog-local` and `sutura-semantic` | 3 m 27 s | 15 m 5 s |
-| `--workspace` | more than 6 m 18 s | more than 80 m |
+| scope                                             | wall               | CPU            |
+| ------------------------------------------------- | ------------------ | -------------- |
+| `sutura-domain`                                   | 11.1 s             | 50.8 s         |
+| plus `sutura-catalog-local` and `sutura-semantic` | 3 m 27 s           | 15 m 5 s       |
+| `--workspace`                                     | more than 6 m 18 s | more than 80 m |
 
 The workspace row is a lower bound: that run never reached a test. Coverage instrumentation is a
 separate profile, so DataFusion, Arrow and DuckDB are all recompiled and none of the cached
@@ -229,11 +229,11 @@ permission the next person cannot audit.
 stronger reason: those two files have separate nixpkgs pins, and for a tool whose output is a
 verdict, two versions mean the dev shell reporting a score CI does not.
 
-| Tool | Version | Route |
-| --- | --- | --- |
-| `cargo-crap` | 0.4.3 | prebuilt release binary, hash-pinned in `nix/crap.nix` |
-| `cargo-llvm-cov` | from the locked nixpkgs | `pkgs.cargo-llvm-cov` |
-| `cargo-nextest` | from the locked nixpkgs | `pkgs.cargo-nextest`, already pinned for the tests |
+| Tool             | Version                 | Route                                                  |
+| ---------------- | ----------------------- | ------------------------------------------------------ |
+| `cargo-crap`     | 0.4.3                   | prebuilt release binary, hash-pinned in `nix/crap.nix` |
+| `cargo-llvm-cov` | from the locked nixpkgs | `pkgs.cargo-llvm-cov`                                  |
+| `cargo-nextest`  | from the locked nixpkgs | `pkgs.cargo-nextest`, already pinned for the tests     |
 
 `cargo-llvm-cov` is in nixpkgs, so nothing is hand-rolled for it. `cargo-crap` is not, and it is
 fetched as a prebuilt binary rather than built from the crate because from-source means compiling

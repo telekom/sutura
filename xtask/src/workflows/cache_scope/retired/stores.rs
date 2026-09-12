@@ -131,10 +131,11 @@ fn undashed(token: &str) -> (bool, &str) {
 ///
 /// **Committed rather than held in a secret or a variable, deliberately.** A committed value is one a
 /// reviewer sees in the diff and one this gate can compare against; a variable can be swapped with no
-/// diff at all and nothing would notice. Nix's signature check is what bounds the trust. What bounds
-/// the POISON risk is narrower and belongs beside the claim: every write credential is an
-/// *environment* secret only a push to the default branch can reach, so these stores hold what this
-/// repository's own CI built under scoped tokens - content-addressing alone would not give that.
+/// diff at all and nothing would notice. Nix's signature check is what bounds the trust. The main-store
+/// write credential is an *environment* secret only a push to the default branch can reach. PR and
+/// mixed credentials must be treated as able to write any trusted store until their scope is
+/// independently verified, so this gate cannot claim that every store contains only this repository's
+/// own CI output.
 const ALLOWED: [(&str, &str); 2] = [("substituters", STORES), ("trusted-public-keys", KEYS)];
 pub(super) const STORES: &str =
     "https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org";
@@ -278,7 +279,7 @@ pub(super) fn trusted_stores(label: &str, text: &str) -> Vec<String> {
 /// gone. Keyed on (file, job): the same workflow's OTHER jobs stay covered, which is what keeps a
 /// blanket per-file escape out of reach.
 type Blind = (&'static str, &'static str, &'static str);
-const BLIND: [Blind; 5] = [
+const BLIND: [Blind; 6] = [
     (
         ".github/workflows/runner-probe.yml",
         "reference",
@@ -303,6 +304,11 @@ const BLIND: [Blind; 5] = [
         ".github/workflows/version-bump.yml",
         "bump",
         "`nix run .#git-cliff` and `.#cargo`, both nixpkgs; it builds no first-party derivation",
+    ),
+    (
+        ".github/workflows/format.yml",
+        "format",
+        "`nix run .#dprint` and `.#ruff`, both nixpkgs and one trivial wrapper over them; no path this repository publishes is in the closure",
     ),
 ];
 

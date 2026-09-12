@@ -32,41 +32,106 @@
 //! is better served **exhaustively** - [`crate::text`]'s own tests walk all 0x110000 scalars through
 //! a real parser - and what is left is the *combination* of a whitespace run, an invisible code
 //! point and a multi-byte character meeting a length bound. So [`sweep`] is exhaustive over a
-//! nine-character alphabet up to four characters long, [`perturbed`] inserts each of those
-//! characters into a realistic authored value at every position, and [`straddling`] repeats a short
-//! pattern to land on both sides of every bound in this crate. No seed, because nothing is random;
-//! `just test` runs it like any other test.
+//! nine-character alphabet, [`perturbed`] inserts each of those characters into a realistic
+//! authored value at every position, and [`straddling`] repeats a short pattern to land on both
+//! sides of the ten bounds [`REPEATS`] names. No seed, because nothing is random; `just test` runs
+//! it like any other test.
 //!
 //! The sweep is ordered shortest-first and searched in order, which buys the one thing a random
-//! generator is actually reached for: the counterexample a failure reports is a SHORTEST one over
-//! the alphabet, with no shrinking step to write or to trust.
+//! generator is actually reached for: the counterexample a failure reports is the shortest one
+//! AMONG THE CANDIDATES THIS GENERATOR PRODUCES, with no shrinking step to write or to trust.
+//! Not a shortest one over the alphabet, which is what this said while the sweep had a fourth
+//! level: [`SWEEP_LEN`] is three, so a defect whose minimal witness is longer than that is
+//! reported by whichever other family catches it, at that family's length rather than at the
+//! alphabet's shortest. Shortest-FIRST still holds; shortest over the alphabet does not.
+//!
+//! # Which generator earns its lines, measured
+//!
+//! A hand table of a few dozen adversarial values is a real alternative: both kills below report a
+//! counterexample short enough to write down. So the four families were measured the way the kills
+//! were - eight mutations of the parsers these types call, each run against the two tests here with
+//! the accepted-value count read per family. `=` is a count that did not move:
+//!
+//! | mutation | [`sweep`] 820 | [`WITNESSES`] 10 | [`perturbed`] 3 672 | [`straddling`] 174 | caught by |
+//! | --- | --- | --- | --- | --- | --- |
+//! | the leading-space flag forced on | = | = | = | = | idempotence, at 3 characters |
+//! | the same flag inverted | = | = | = | +6 | idempotence, and the count |
+//! | the pending separator never reset | = | = | -14 | = | the accepted count |
+//! | an invisible code point read as a separator | = | = | = | -6 | the accepted count |
+//! | an invisible code point kept, not dropped | = | = | = | -6 | the accepted count |
+//! | a dimension value's bound off by one | = | -2 | = | -6 | the accepted count |
+//! | a dimension value's length counted in bytes | = | = | = | -12 | the accepted count |
+//! | an invisible code point CLEARING the separator | = | = | = | = | **nothing** |
+//!
+//! **[`straddling`] is what earns a generator over a table**: four of those rows move its count and
+//! nothing else's, and it shares a fifth with [`WITNESSES`] - 174 values written as eight lines,
+//! six patterns against both sides of ten bounds. Tabulated by hand it *is* 174 rows, so a table is
+//! the expensive form of it rather than the cheap one. [`perturbed`] caught one nothing else did.
+//!
+//! **[`sweep`] moved no count in any of the eight**, which is why [`SWEEP_LEN`] is three: the one
+//! thing that family catches reports a THREE-character counterexample, and a fourth level is 6 561
+//! more candidates - 58% of the generated space - for no measured catch. All eight were re-run at
+//! three and every verdict reproduced, counterexample for counterexample.
+//!
+//! **The last row is the limit, stated next to the claim.** With `collapse_spacing` mutated so an
+//! invisible code point clears the pending separator, `a \u{200b}b` stores as `ab` - a word boundary
+//! lost from a phrase the digest covers and `phrase_identity` matches on - and it passes this
+//! crate's whole suite, not just these two tests. A normalisation that folds MORE is still
+//! idempotent and refuses nothing new, so neither half of this property can see it. What would is a
+//! golden of the stored form, which `crates/sutura-app/tests/golden/catalogs.rs` holds for a catalog
+//! and nothing holds for a phrase.
 //!
 //! # Measured, not asserted: what breaking each half of this actually reports
 //!
 //! Each half was checked by breaking the invariant and reading the counterexample, because a
-//! property that has never failed is a property nobody has checked. Both were run against the whole
-//! of `sutura-domain`'s suite, so the second number in each line is what else noticed:
+//! property that has never failed is a property nobody has checked. **Each kill was then run
+//! against the WHOLE WORKSPACE**, because "nothing else noticed" is a claim about the repository
+//! and a crate-scoped suite cannot make it. Of the three, exactly one is unique to this file:
 //!
 //! * **Normalisation made non-idempotent** - `collapse_spacing`'s leading-space flag forced on -
 //!   reports `Phrase: "\u{200b} a" parsed, stored " a", and re-parsing that is not the same value`.
-//!   **338 of 339 tests still passed**, so nothing else in this crate held that property at all.
+//!   **This test was the only failure in the workspace**, so nothing else held that property at
+//!   all. It is the one kill here that nothing else covers.
 //! * **A routing attribute dropped** - `serde(try_from = "String")` removed from `Description`,
 //!   `DimensionValue` and `AnchorValue` at once - reports `Description: "\u{200b}" is refused by
-//!   parse and accepted by Deserialize`. **338 of 339 again**: `crate::model`, `crate::knowledge`,
-//!   `crate::definitions` and `crate::expression` each have a `deserialization_goes_through_the_
-//!   constructor` test of their own, and `catalog::authored` had none for its three.
+//!   parse and accepted by Deserialize`. **Eight pre-existing tests in four other crates fail with
+//!   it too**: `sutura-catalog-local`, `sutura-catalog-datahub`, `sutura-app`'s golden suite and
+//!   `sutura-cli`'s example and documented-command suites all load a catalog through these types.
+//!   Inside `sutura-domain` it looks unique - `crate::model`, `crate::knowledge`,
+//!   `crate::definitions` and `crate::expression` each have a
+//!   `deserialization_goes_through_the_constructor` test and `catalog::authored` had none - which
+//!   is exactly how a crate-scoped count says "nothing else covers this" about a route five suites
+//!   traverse. **The scope of the run is part of the measurement.**
 //! * **`Date`'s `into = "String"` removed** - the asymmetry that shipped - is caught here AND by
 //!   two hand-written tests in [`crate::calendar`]. Recorded because it is the honest half: where a
 //!   table already asks the question, this adds nothing but a second voice.
 //!
 //! # What this does NOT cover, stated next to the claim
 //!
-//! **The table below is a list somebody maintains, and nothing checks that it is complete.** A new
-//! `serde(try_from = "String")` newtype gets this property when a row is added for it and not
-//! before. The shape that would hold that mechanically is a gate reading the crate's own sources,
-//! and it is deliberately absent rather than forgotten: `xtask/src/main.rs` is at 992 lines of a
-//! thousand-line cap `cargo xtask max-lines` cannot exempt under `crates/` or `xtask/`, so
-//! registering one is a different change from this one.
+//! **The list below is one somebody maintains, and what checks it is complete is rule four of
+//! `cargo xtask check-serde-parse`** - run by `just hygiene`, and by `just validate` with
+//! everything else. It reads this crate's sources for every type whose `Deserialize` is routed
+//! through its constructor and whose `Serialize` the digest is taken over, and fails when one is
+//! neither a row here nor exempted beside the test that asks it instead. It needed no task of its
+//! own: it is an arm on a walk that already visits every tracked file and already recognises those
+//! attributes, which is the normal shape for a rule of this kind and the reason it cost a
+//! predicate rather than a second scan of the tree.
+//!
+//! **The rows are 21 of the 26 types that rule finds.** The other five have no string canonical
+//! form - a mapping, an externally tagged enum - so [`survives`] cannot hold them, and each has a
+//! both-direction round trip of its own: `Term` in the second test below, `TimeRange`,
+//! `AuthoredSql`, `Computation` and `Referent` at their own modules, cited from the gate's
+//! exemption list. So the gap between 21 and 26 was an understated limit rather than a coverage
+//! hole - but it was stated nowhere, and "21 types" reads as "all of them" for as long as nothing
+//! counts.
+//!
+//! Two types in this crate carry a `Serialize` and no `Deserialize` at all -
+//! `crate::source::AcknowledgementReason` and `crate::source::VerificationIdentity`, both operator
+//! text rather than catalog content. Nothing deserializes them, so they are outside the rule, and
+//! the day one gains a `Deserialize` the same gate is what notices: rule one refuses the derive
+//! over their `parse`, the `serde(try_from)` it names as the fix is what makes them rule four's
+//! subjects, and rule four then wants a row. That chain is the mechanism; this paragraph is only a
+//! signpost to it.
 //!
 //! It also says nothing about the bundle one level up. There is no bundle-level round trip to ask
 //! for: [`crate::catalog::Definitions`] derives `Serialize` and **not** `Deserialize`, which is what
@@ -106,10 +171,15 @@ use crate::pinned::DefinitionVersion;
 /// path's separator.
 const ADVERSARIAL: [char; 9] = ['a', ' ', '\t', '\n', '\u{200B}', '\u{00AD}', '\u{6F22}', '-', '.'];
 
-/// How long the exhaustive sweep goes. Four, because `a` + whitespace + invisible + `a` is the
-/// shortest string that puts a run with something invisible in it *between* two letters, which is
-/// where a collapse that mishandles its leading-space flag stops being idempotent.
-const SWEEP_LEN: usize = 4;
+/// How long the exhaustive sweep goes.
+///
+/// **Three, and the four it used to be is why this carries a reason at all.** The old one read:
+/// `a` + whitespace + invisible + `a` is the shortest string putting a run with something invisible
+/// in it *between* two letters. True, and the case it describes is the one the module header's last
+/// table row measures as caught by nothing - a fold that loses a word boundary stays idempotent. A
+/// collapse mishandling its leading-space flag stops being idempotent at three characters, which is
+/// what the counterexample reports, and every one of the eight mutations reproduced at three.
+const SWEEP_LEN: usize = 3;
 
 /// One authored value of each shape the types below accept, as somebody would write it.
 ///
@@ -138,10 +208,16 @@ const WITNESSES: [&str; 10] = [
 /// character count disagree by three.
 const PATTERNS: [&str; 6] = ["a", "\u{6F22}", "a ", "a\u{200B}", "a\n", "a-"];
 
-/// Repeat counts that put a generated value on both sides of every bound in this crate: 32 for a
-/// dialect tag, 63 for an identifier, 64 for a dimension value, 120 for a phrase, 128 for a version
-/// label, 200 for a line count, 256 for a principal, 400 for a reason, 1024 for a SQL fragment and
-/// 4096 for a note body and a description.
+/// Repeat counts that put a generated value on both sides of **ten** bounds: 32 for a dialect tag,
+/// 63 for an identifier, 64 for a dimension value, 120 for a phrase, 128 for a version label, 200
+/// for a line count, 256 for a principal, 400 for a reason, 1024 for a SQL fragment and 4096 for a
+/// note body and a description.
+///
+/// **Ten of this crate's bounds, not all of them.** `MAX_KNOWLEDGE_BYTES`,
+/// `MAX_VALUES_PER_DIMENSION`, `MAX_DIMENSIONS` and `MAX_PARTS` are unstraddled, and no repeat
+/// count reaches them: three bound a COLLECTION and the fourth counts dot-separated parts, so a
+/// value that lands on one is a shape this generator does not build. Each is straddled by a
+/// hand-written test at its own type instead - `a.b.c.d` for the last of them.
 const REPEATS: [usize; 29] = [
     1, 31, 32, 33, 62, 63, 64, 65, 119, 120, 121, 127, 128, 129, 199, 200, 201, 255, 256, 257, 399, 400, 401, 1023, 1024, 1025,
     4095, 4096, 4097,
@@ -276,7 +352,7 @@ where
 /// **The property, asked of every parsed newtype whose serialized form the digest is taken over.**
 ///
 /// One row per type rather than a loop, because the rows are twenty-one different types and Rust has
-/// no way to put them in one collection. The seven `identifier_newtype!` expansions are all here
+/// no way to put them in one collection. All **nine** `identifier_newtype!` expansions are here
 /// even though the macro's own note says one implementation cannot drift from itself: the row costs
 /// a line, and with it nothing rests on a reader knowing which types share a parser.
 #[test]
@@ -311,11 +387,11 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
     // assertion in `survives` catches a row that accepts nothing; this catches all of them at once.
     assert_eq!(
         all.len(),
-        11_237,
+        4_676,
         "the generated space is not the one this test was measured on"
     );
     assert_eq!(
-        checked, 34_341,
+        checked, 20_050,
         "a different number of generated values parsed than this test was measured on, so some parser's accept set moved"
     );
 }

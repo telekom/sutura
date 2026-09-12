@@ -104,7 +104,7 @@ fn the_sql_fuzz_crash_replays_as_a_refusal_not_a_panic() {
     // The exact bytes the scheduled fuzz run on main recorded
     // (run 34458717724, crash-62a3009c75e458369624e71399082b0c1944e8e5), delivered exactly as the
     // harness delivers them: raw bytes, lossy-converted through `String::from_utf8_lossy`. The four
-    // `\xff` bytes become the replacement character `\u{fffd}`, which `polyglot-sql` 0.9.2's
+    // `\xff` bytes become the replacement character `\u{fffd}`, which the pinned `polyglot-sql`'s
     // generator byte-slices and panics on - *"start byte index 7 is not a char boundary"* - and
     // under `panic = "abort"` that panic is the process dying. The compile must refuse the fragment
     // instead. This test is red before the `NonAscii` guard (the render panics) and green after.
@@ -353,7 +353,7 @@ fn a_date_or_time_function_is_refused_however_it_is_spelled() {
 fn a_function_name_outside_the_allowed_set_is_refused_and_the_refusal_names_it() {
     // THE REASON THE NAME CHECK IS AN ALLOWLIST, and `docs/adr/0004` records the reversal. A generic
     // call is emitted verbatim into every target with no lowering at all, so its name is unbounded
-    // reach. Measured against DuckDB 1.5.5: the rendering of `MAX(getenv('X'))` is
+    // reach. Measured against the pinned DuckDB: the rendering of `MAX(getenv('X'))` is
     // `SELECT (MAX(GETENV('X'))) FROM fact_subscription`, and with `SUTURA_SECRET_PROBE` set in the
     // process that statement ANSWERED THE VALUE. Every secret the sutura process holds - a
     // service-account path, a warehouse password, a token - was readable that way, under a certified
@@ -561,7 +561,7 @@ fn a_column_the_qualification_rewrite_did_not_reach_is_refused() {
     // has the WIDER coverage. So the check saw columns the rewrite never touched, and each of these
     // eight compiled with a bare column in the output.
     //
-    // Measured in DuckDB 1.5.5 for the COLLATE case, against a joined dimension carrying the same
+    // Measured in the pinned DuckDB for the COLLATE case, against a joined dimension carrying the same
     // column name: `Binder Error: Ambiguous reference to column name "region"` - at query time, for
     // a metric whose load succeeded. On an engine that resolves by precedence instead of erroring it
     // is silently the wrong number, which is what `qualify` exists to prevent.

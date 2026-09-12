@@ -45,21 +45,18 @@ it costs; the two reasons it was absent are answered rather than repealed:
 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
    service-account key - the first statement this repository generated to be accepted by
-   `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column fixture, so it
-   says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or `ISOWEEK` - and
-   the last is one of the two constructs `docs/adr/0017` measured the parse check to be blind
-   about. **The corpus-wide leg that record specifies is `tests/corpus.rs`, beside it**, behind the
-   default-off `fixtures` feature: it loads the example fixtures into four tables through
+   `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column
+   fixture, so it says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or
+   `ISOWEEK` - and the last is one of the two constructs `docs/adr/0017` measured the parse check
+   to be blind about. **The corpus-wide leg is `tests/corpus.rs`**, behind the default-off
+   `fixtures` feature: it loads the example fixtures into four tables through
    `BigQueryWarehouse::load_fixture`, runs the corpus questions, and compares its rows with the
    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 
 So nothing here may be cited as an invariant. `sutura-serve` DOES link this adapter and dispatch
 `kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
-records the day the last *not wired* was spent, and the two sentences that used to stand here
-said the opposite. What is still true is that a default build links none of it,
-and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
-last one has changed rather than gone away.** It was *a cell that has never executed reads as
-coverage*; the corpus leg executes, so what keeps the entry out now is that a cell in that registry
+records the day the last *not wired* was spent. A default build links none of it, and
+the `data_systems:` axis of the golden matrix gains no entry - because a cell in that registry
 runs inside `just test` and this one cannot: the nix sandbox has no network, so acceptance is a
 `nix run` app and not a `checks.*` output.
 
@@ -74,14 +71,14 @@ a token exchange - this crate performs no exchange, it presents one - and that b
 the composition root that links this adapter, which is the half `docs/implementation-plan-bigquery.md`
 describes as not wired.
 
-**ONE of the two subject shapes, and the other is refused rather than degraded.** The domain's
+**ONE of the two subject shapes, and the other is refused rather than degraded.** A
 `Presented::SubjectPrincipal` is a principal the data system switches to on a connection the
 DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
-subject token, so `Presented::agrees_with` passes it and only this adapter can say it has
-nowhere to put it. `BigQueryError::NoPrincipalSwitch` is that refusal, and the reason it is a
-refusal is the reason the whole-shape `NoPlaceForASubject` it replaced existed: a leg accepted
-here would be submitted under the transport's own credential while provenance, read off this
-source's posture, reported the answer as impersonated.
+subject token, so `Presented::agrees_with` passes it
+and only this adapter can say it has nowhere to put it. `BigQueryError::NoPrincipalSwitch` is
+that refusal, and the reason it is a refusal is the reason the whole-shape `NoPlaceForASubject`
+it replaced existed: a leg accepted here would be submitted under the transport's own credential
+while provenance, read off this source's posture, reported the answer as impersonated.
 
 **What no version of this is:** a deployment where a served source executes as its asker.
 `sutura-serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
@@ -162,7 +159,7 @@ the expiration is what still cleans up after it.
 It takes a table name and never a statement, for the same reason `load_fixture` does: the
 statement is rendered from a name that parsed, and *no arbitrary SQL entry point* stays true.
 
-Behind the same `fixtures` feature and in the same impl block, for the same two reasons.
+Behind the same `fixtures` feature and in the same impl block, for `load_fixture`'s reasons.
 
 ```rust
 pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<T as >::Error>
@@ -218,9 +215,9 @@ asserting it is the difference between evidence and a comment. `docs/adr/0008` n
 
 It goes through `Self::deliverable` like every other credential-taking method, so a leg
 whose credential disagrees with the source's posture is refused here too rather than being
-answered by a read that looks harmless.
-The `SessionUser` answer redacts under `Debug`; explicit access and `Display` still
-reveal it. Neither this read nor its return type establishes how the bearer was obtained.
+answered by a read that looks harmless. The `SessionUser` answer redacts under `Debug`;
+explicit access and `Display` still reveal it. Neither this read nor its return type
+establishes how the bearer was obtained.
 
 **Not part of the `Warehouse` port, and that is a decision rather than an omission.** No
 other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
@@ -1069,9 +1066,11 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
   the reported
   `reason` is folded into whichever of those fires, because it is the best diagnostic
   available at that point. See `complete`, and the limit stated there.
-- **Refusal text is bounded and filtered, not discarded.** `credential::bounded` handles the
-  `reason`; `EndpointMessage` retains the free-text `message` and redacts it under `Debug`
-  only. `Display` and cause-chain logging can still render the message.
+- **Refusal text is closed, not passed through.** `ReasonCode` maps the endpoint's reason to a
+  fixed local vocabulary and turns an unrecognized value into a static marker;
+  `EndpointMessage` retains the free-text `message` and redacts it under `Debug`. `Display` on
+  the refusal renders the status and the local reason code and never the message, so a cause-chain
+  walk cannot carry endpoint text either - see `WireError::Refused` for the limit.
 
 # What is deliberately absent
 
@@ -1154,30 +1153,31 @@ The endpoint's own message on a refusal: free text, and the one field here that 
 account.
 
 **A type rather than a `String`, because the rule it carries is about RENDERING and a rule about
-rendering cannot be held at call sites.** `Display` is the message; `Debug` is redacted. That is
-the whole mechanism, and it is here because the alternative was asking fourteen acceptance legs
-to remember which formatter they used.
+rendering cannot be held at call sites.** `Display` on the whole refusal omits this field;
+`Debug` redacts it; only an explicit accessor produces the raw value. That is the whole
+mechanism, and it is here because the alternative was asking fourteen acceptance legs to
+remember which formatter they used.
 
 **Measured, which is why this exists.** A leg ending `.expect("the endpoint answered")` formats
 its error with `Debug`, and `Debug` walks the struct: on a real refusal that printed
 `Access Denied: ... permission: <an account>` into a public workflow log. Ten of the fourteen
 legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the job's
 `::add-mask::` step covers the project, the dataset and the table - **not an account**.
-`Display` keeps the message because a `400` with only a reason code is undiagnosable, which is
-what `docs/adr/0018` prices.
 
-**What this does NOT do, and the earlier wording here claimed otherwise.** It said a caller
-"has to ask for the sentence by name". It does not: `WireError::Refused`'s own `Display`
-interpolates `detail`, so anything that walks a cause chain and `to_string()`s each link renders
-it. `sutura_app::surface::cause_chain` does exactly that, and its output reaches
-`tracing::error!` in the HTTP and agent transports - reachable from a `sutura-serve --features
-bigquery` deployment. That path is **pre-existing and deliberate**: this workspace flattens a
-cause chain at the sink, and a deployment's own log is not the public workflow log this
-redaction targets. So the scope of the control is exactly one thing - **`Debug`**, which is what
-a panicking test leg prints into a world-readable CI log - and it is not a general answer to
-where the endpoint's message may travel.
+**The refusal's own `Display` used to interpolate this field, and that made the type's
+redaction narrower than it read.** A cause-chain walk that flattens every link with `Display` -
+which is what the transports' sinks do - carried the message into a deployment's own log. That
+no longer happens: `WireError::Refused`'s `Display` renders the status and the closed reason
+code and never this field. The limit, stated next to the claim: the endpoint's message
+remains a queryable string on the error TYPE, reached only by an explicit call - so a caller
+that deliberately opts in to rendering it can. The free text is bounded and stripped on the way
+in regardless - see `Self::bounded`.
 
-It is already bounded and stripped on the way in - see `Self::bounded`.
+**Why a caller would never reach the raw value by accident, and the cost of that shape:** there
+is no `Display` and no `Debug` here that prints the sentence - the only door is `Self::as_str`,
+named on purpose - so any formatter that would have leaked it cannot be written without naming
+the field and calling that accessor. Keeping the raw sentence out of every ordinary rendering is
+the one control this type holds; it does not change what the endpoint itself records on its side.
 
 #### Methods
 
@@ -1201,7 +1201,44 @@ guaranteed.
 
 #### Implements
 
-`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum ReasonCode`
+
+```rust
+pub enum ReasonCode
+```
+
+The fixed reason vocabulary this adapter exposes from an endpoint response.
+
+Provider text is parsed into this type before it reaches an error. The endpoint may add a reason
+this adapter does not know; that value becomes `Self::Unrecognized` and its text is discarded.
+This keeps ordinary error rendering useful for known conditions without allowing provider-owned
+text to become a log line.
+
+#### Variants
+
+- `Absent` - No reason was present in the response.
+- `Unrecognized` - The endpoint returned a reason outside this adapter's vocabulary.
+- `AccessDenied` - The caller was not authorized.
+- `InvalidQuery` - The request was not valid for the service.
+- `NotFound` - The requested resource was not found.
+- `RateLimitExceeded` - The request exceeded a short-term service rate limit.
+- `QuotaExceeded` - The request exceeded a service quota.
+- `ResponseTooLarge` - The response exceeded the service's maximum response size.
+- `BackendError` - The service reported a temporary backend failure.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The stable text this adapter renders for the code.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
 
 ### `enum WireError`
 

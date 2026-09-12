@@ -176,7 +176,7 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "-E"), "{args:?}");
         // Qualified, and that is the half the wiring has to carry: an unqualified name is not a
         // key in this tree, so a filterset built from one runs tests in packages the diff never
-        // touched - measured at six matches in three packages on nextest 0.9.143.
+        // touched - measured at six matches in three packages on the pinned nextest.
         assert!(
             args.iter()
                 .any(|arg| arg == "(binary_id(=x::t) & test(/^(?:.*::)?the_added_one(?:::|$)/))"),

@@ -94,6 +94,13 @@ runs:
         # writes a multi-gigabyte entry. Measured on the same variants - a source-only change leaves
         # both digests untouched.
         #
+        # HELD BY A GATE SINCE #512 §3 WAS RE-READ, and until then by nothing: `check-workflows`
+        # pinned the `save:` asymmetry below and never read this key, so deleting the second digest
+        # - the edit that re-opens the stale-generation bug - was a green change. `cargo xtask
+        # check-workflows` now refuses a store-cache key that drops any of the named inputs, and
+        # refuses one that names `github.sha` (see `xtask/src/workflows/cache_scope.rs`). It holds
+        # the NAMES and cannot hold sufficiency: an input nobody has named there is invisible to it.
+        #
         # KNOWN COST: crane strips `description`, `lints` and `package.metadata` from the manifests it
         # builds from, so editing one of those fields invalidates where the derivation did not move.
         # The error direction is "slow and right", and the alternative - reproducing crane's filter

@@ -13,9 +13,17 @@ is the re-decision plus what changed.
 paths*, not one store on every path. `sutura-prs` is an **additive, pull-request-path-only** cache:
 pull-request runs publish their own realised store paths to it and trust its key **in addition to**
 `sutura`, while the **default branch trusts only `sutura` and never lists `sutura-prs`'s key**. The
-security bound is that key boundary, not the text gate: even a compromised PR run that poisoned
-`sutura-prs` is read by no merged-main resolver, because main's resolver never names that store. This
-amendment is the `xtask` trust rule's counterpart and is enforced by it - see
+key boundary is what contains *poisoned content in that store*, not the text gate: a compromised PR
+run that poisoned `sutura-prs` is read by no merged-main resolver, because main's resolver never
+names that store. **Corrected 2026-09-12 (#639 slice I): that boundary is not the whole security
+bound, and calling it so was an overstatement.** The pull-request and mixed write credentials must be
+treated as able to write either store, including `sutura`, until their scope is independently verified
+(see "The write credential" below). Read-key separation cannot contain a writer authorised for the
+main store; the bound on *that* route is who can reach the
+`cachix-push-pr` environment's secret, which is the owner-held control this record already files
+under "What is NOT held by a mechanism". The credential scope was not independently inspected for
+this correction and no poisoning was attempted. This
+amendment's committed key lists are the `xtask` trust rule's counterpart and are enforced by it - see
 `xtask/src/workflows/cache_scope/retired.rs`, which pins both value lists ([`ALLOWED`] / the
 PR-gated pair) so the records and the gate cannot disagree.
 
@@ -28,10 +36,10 @@ names those three plus `sutura-prs`. Two things did **not** change: the default 
 lists `sutura-prs`'s key, and `sutura-fuzzing` is still absent because nothing pushes to it.
 
 The keys are the bound, and the limit belongs next to it: nix accepts a path only when its signer is
-in the trusted list, and what keeps these lists safe to trust is that **every one of these stores is
-written solely by this repository's own CI**, each under its own environment-gated credential that
-only a push to the default branch can reach. Content-addressing alone would not give that - a store
-anybody could write would be poisonable no matter how a path is named. `extraPullNames` was weighed
+in the trusted list. The main-store path is intended to be written solely by this repository's own
+CI under an environment-gated credential that only a push to the default branch can reach. PR and
+mixed credentials must be treated as able to write any trusted store until their scope is independently
+verified; a store anybody could write would be poisonable no matter how a path is named. `extraPullNames` was weighed
 and refused for the reason the committed pair exists: it configures a substituter at RUNTIME, where
 no reviewer sees it in the diff and no text gate can compare against it.
 
@@ -55,10 +63,10 @@ the clear**. The Actions cache is **kept**, because the two carry different thin
 
 ### Why both, and not one
 
-| Carrier | Holds | Unit |
-| --- | --- | --- |
-| the binary cache | nix **store paths** this repository builds | one path, content-addressed, deduplicated across every scope |
-| the Actions cache | the writable cargo target directories the warm start seeds, which are **not** store paths | one tarball per scope, per key |
+| Carrier           | Holds                                                                                     | Unit                                                         |
+| ----------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| the binary cache  | nix **store paths** this repository builds                                                | one path, content-addressed, deduplicated across every scope |
+| the Actions cache | the writable cargo target directories the warm start seeds, which are **not** store paths | one tarball per scope, per key                               |
 
 The Actions entry archives the whole store a job needs - the tier images, the duplicate-detector's
 runtime, the database engine, the coverage tools, the linker - **all of which the upstream cache
@@ -84,7 +92,8 @@ named is not accepted. The gate's job is to keep the *set of named keys* honest.
 
 ## The write credential, and why an environment rather than an `if:`
 
-Writes happen only from a push to the default branch. That is enforced **twice, deliberately**:
+The main-store publishing workflow writes only from a push to the default branch. That is enforced
+**twice, deliberately**; this does not cover the separate pull-request cache path:
 
 - the publishing workflow triggers on nothing else, and
 - the credential is an **environment secret** whose deployment-branch policy admits only that branch.

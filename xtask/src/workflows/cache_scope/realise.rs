@@ -100,7 +100,7 @@ mod tests {
         format!(
             concat!(
                 "  {name}:\n",
-                "    runs-on: rust-mcp-32core\n",
+                "    runs-on: rust-mcp-16core\n",
                 "    environment: cachix-push-mixed\n",
                 "    steps:\n",
                 "      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17\n",

@@ -51,8 +51,9 @@
 //!
 //! WHAT MAY NOT HAPPEN. Every changed manifest the diff carries lands in exactly one place: a
 //! resolved pair of tables, or [`Unread`]. So *nothing was enabled* cannot be said about a manifest
-//! whose base table was never read, and it cannot be said about a package whose sources came back
-//! empty either - an empty subject set is [`Unread::Sources`] rather than a pass.
+//! whose base table was never read, it cannot be said about a package whose sources came back empty
+//! either - an empty subject set is [`Unread::Sources`] rather than a pass - and it cannot be said
+//! about a file the listing DID name and this could not read, which is [`Unread::Listed`].
 //!
 //! **What holds that, at the strength it actually has**, because *the types* would be an
 //! overstatement: `Activation::one` returns `Result<_, Unread>` and every path in it that has not
@@ -61,6 +62,13 @@
 //! above them - what does is
 //! `tests::a_manifest_whose_base_table_could_not_be_read_is_refused_rather_than_answered`, which
 //! reddens on exactly that mutation and names the input that went missing.
+//!
+//! The same sentence was FALSE over the sources until [`Unread::Listed`] existed. The listing was
+//! walked with a `filter_map` that dropped a path whose post-image did not come back, so *nothing*
+//! was reachable over a file this gate never read - the silent pass this module was written to
+//! remove, in the one input it reads last.
+//! `tests::a_source_the_listing_named_and_this_could_not_read_is_refused` holds it now and reddens
+//! on restoring that `filter_map`.
 //!
 //! WHAT IT CANNOT BE ASKED OF, so the widest reading of the scan is not the one a reader takes: a
 //! manifest with no `[package]` declares no `[features]` - cargo rejects a feature table on a
@@ -122,6 +130,10 @@ pub(crate) enum Unread {
     /// The manifest declares a feature the base did not, and no source file under its package came
     /// back. *Nothing was enabled* would then be a statement about files this never saw.
     Sources { manifest: String, dir: String },
+    /// The source listing NAMED this file and its post-image did not come back. The listing is the
+    /// working tree's own, so the path exists and the read failed - unlike a module candidate,
+    /// where `None` legitimately means *cargo would not find the source here*.
+    Listed(String),
 }
 
 /// A file's content at the base commit, with *absent* and *unreadable* kept apart.
@@ -222,12 +234,28 @@ impl Activation {
                 dir: String::from(dir),
             });
         }
-        Ok(sources
+        // Every listed source resolves to text or to a refusal BEFORE any of it is classified. The
+        // `filter_map` this replaces dropped a path whose post-image did not come back, which made
+        // `Activation::Nothing` reachable over a file the gate never read - the silent pass the
+        // header says may not happen, in the one input read last.
+        //
+        // It does NOT reach the module candidates below, where `(trees.head)(candidate)` feeds the
+        // same `Option` into `is_some_and`: there `None` is how `foo.rs` and `foo/mod.rs` are told
+        // apart, so *absent* is load-bearing and [`PostImage`] cannot tell it from *unreadable*.
+        // That conflation is a residual limit of the reader type, not of this walk.
+        let readable: Vec<(&String, String)> = sources
             .iter()
             // A source the diff touched is the `.rs` route's business: its added lines are what
             // `super::plan` and `super::scoped` classify, and its base text is not this file's.
             .filter(|path| !changed.contains(&path.as_str()))
-            .filter_map(|path| (trees.head)(path).map(|text| (path, text)))
+            .map(|path| {
+                (trees.head)(path)
+                    .map(|text| (path, text))
+                    .ok_or_else(|| Unread::Listed(path.clone()))
+            })
+            .collect::<Result<_, Unread>>()?;
+        Ok(readable
+            .into_iter()
             .flat_map(|(path, text)| {
                 gated_declarations(path, &text)
                     .into_iter()
@@ -574,6 +602,48 @@ mod tests {
                 }
             ),
             Activation::Unread(vec![Unread::Manifest(String::from("crates/x/Cargo.toml"))])
+        );
+    }
+
+    #[test]
+    fn a_source_the_listing_named_and_this_could_not_read_is_refused() {
+        // THE SILENT PASS THE HEADER SAYS MAY NOT HAPPEN, found inside this module's own walk: the
+        // listing named `legacy.rs`, its post-image did not come back, a `filter_map` dropped it,
+        // and `Activation::Nothing` was then a claim about a file this gate never read. The listing
+        // is the working tree's own, so a path in it that will not read is a FAILED READ rather
+        // than an absence - which is what separates it from a module candidate.
+        let files = vec![changed("crates/x/Cargo.toml", 5, &["legacy = []"])];
+        let head = crate::causality::fixtures::tree(&[("crates/x/Cargo.toml", &with_features("x", &["legacy"]))]);
+        let base = at_base(&[("crates/x/Cargo.toml", "[package]\nname = \"x\"\n")]);
+        let sources = sources_of(&["crates/x/src/legacy.rs"]);
+        assert_eq!(
+            Activation::of(
+                &files,
+                &Trees {
+                    head: &head,
+                    base: &base,
+                    sources: &sources,
+                }
+            ),
+            Activation::Unread(vec![Unread::Listed(String::from("crates/x/src/legacy.rs"))])
+        );
+        // The other direction, and the reason the read stays BELOW the changed-file filter: a
+        // source the diff itself carries is the `.rs` route's business, so an unreadable one is not
+        // this refusal. Reading above that filter would refuse every manifest-plus-source diff.
+        let touched = vec![
+            changed("crates/x/Cargo.toml", 5, &["legacy = []"]),
+            changed("crates/x/src/legacy.rs", 1, &["fn f() {}"]),
+        ];
+        assert_eq!(
+            Activation::of(
+                &touched,
+                &Trees {
+                    head: &head,
+                    base: &base,
+                    sources: &sources,
+                }
+            ),
+            Activation::Nothing
         );
     }
 

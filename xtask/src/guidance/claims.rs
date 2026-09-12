@@ -72,7 +72,8 @@ impl Evidence {
 
 /// A claim the tree contradicts.
 ///
-/// [`Pin`](super::Pin) above holds a VERSION against its source; this holds a STATEMENT against its source, and
+/// The `versions` check above REFUSES a version a comment states; this holds a STATEMENT against
+/// its source, and
 /// the difference that matters is the evidence. A rule is live only while every `Evidence` stands,
 /// so a rule about a crate that is later deleted retires itself rather than forbidding a sentence
 /// that has become true again - which a `Forbidden` entry cannot do, being unconditional.
@@ -327,6 +328,32 @@ mod tests {
         // a difference in the claim, and treating either as one would leave a hole in a file
         // format this repo writes most of its prose in.
         assert_eq!(wording_lines("| x |  four   exact\tsets | y |", "four exact sets"), vec![1]);
+    }
+
+    #[test]
+    fn only_the_two_false_scoped_view_claims_are_registered() {
+        use super::wording_lines;
+
+        const FALSE: &[&str] = &[
+            "dimension validation reads the pinned definitions, not the scoped view",
+            "The scoped view BORROWS the pinned definitions",
+        ];
+        let rule = CONTRADICTED
+            .iter()
+            .find(|rule| rule.name == "the request path reads a scoped view of the definitions")
+            .expect("the two false claims stay registered");
+        assert_eq!(rule.wordings, FALSE, "the ratchet holds the exact prior overclaims");
+        for sentence in FALSE {
+            assert_eq!(wording_lines(sentence, sentence), vec![1]);
+        }
+
+        let valid_design = "A later scoped view may borrow the pinned bundle without claiming one exists today.";
+        assert!(
+            rule.wordings
+                .iter()
+                .all(|wording| wording_lines(valid_design, wording).is_empty()),
+            "the ratchet must not forbid a future design merely for naming a scoped view"
+        );
     }
 
     #[test]

@@ -5,13 +5,14 @@ name: cachix-push
 # substituter and its public key, committed in the clear. This workflow is only the WRITE half.
 #
 # **Why a workflow of its own rather than a step in `ci`.** An `environment:` is declared per JOB, and
-# the environment holding the token restricts deployments to the default branch - so declaring it on
-# `ci` would make every pull request's `ci` job fail the branch policy. Splitting the write out keeps
-# the token unreachable from the pull-request path by construction rather than by an `if:`.
+# the environment holding this workflow's token restricts deployments to the default branch - so
+# declaring it on `ci` would make every pull request's `ci` job fail that policy. Splitting the write
+# out keeps this main-store token unreachable from the pull-request path rather than by an `if:`; the
+# separate PR/mixed credentials require independent scope verification.
 #
 # **Two independent restrictions, deliberately.** The trigger admits only a push to the default
-# branch, AND the environment's own deployment-branch policy admits only that branch. The trigger is
-# in this file and a pull request could edit it; the policy is held by the forge and a pull request
+# branch, AND the `cachix-push` workflow's environment deployment-branch policy admits only that branch.
+# The trigger is in this file and a pull request could edit it; the policy is held by the forge and a pull request
 # cannot. Belt and braces, and the braces are the half that is not ours to weaken.
 #
 # **THE LIMIT, stated where a reader meets it:** no gate in this repository can verify that policy.
@@ -36,6 +37,54 @@ concurrency:
 permissions:
   contents: read
 
+# WHY ALL THREE JOB KEYS (FOUR RUNS: `cross-build` HAS A TWO-ENTRY MATRIX) USE THE 16-CORE RUNNER,
+# AND WHAT THAT IS *NOT* PROVEN BY. #614 moved the
+# mostly-cached jobs at identical medians, and that measurement does NOT transfer here: every job
+# below ends in a realise that must genuinely RE-COMPILE, which is the whole publish mechanism
+# (stated again at the per-consumer block). The transferable number is this repository's own
+# `runner-probe.yml`: one cold, one-root crane closure realise on the 32-core host ran at 22.3% /
+# 22.8% MEAN utilisation with 92-96% peaks - about 7 of 32 cores busy on average. That says 16 cores
+# would clip that probe's peaks, not its mean. It is a lower bound for `push`'s three-root realise,
+# not a measurement of that workload; the other two job keys realise different roots too. Latency
+# here buys nothing anyone waits for: this workflow reports no
+# status-check context (see the `push` job), so a faster publish is read only by the next run.
+#
+# THE LIMIT, AND IT IS A REAL ONE: these jobs fire on no event but a push to the default branch, so
+# no pull request, no merge queue and no local gate can measure this label - only a real push can.
+# What is measured is the BEFORE, and only within one regime at a time, because this file has two.
+# Since the `hygiene` split below, ordinary-push job medians on the 32-core host were 208 / 157 /
+# 197 / 220 s in job order (n=9). A RELEASE push is the other regime: a version bump moves every
+# first-party derivation, so no cache can fix it, and the only two on record totalled 1403 s and
+# 1423 s against a 674 s ordinary median (n=7) taken from the SAME pre-split window - about 2.1x.
+# Both releases predate the split, so the release regime under this file as it now stands is
+# unmeasured rather than merely small-n, and the 208 s figure above has no release counterpart to
+# be compared with. Do not average across that boundary; a post-release run is not a regression.
+#
+# THE STANDING RULE IS *32 CORES FOR FUZZ, RELEASE AND RELEASE-PERFORMANCE BUILDS*, AND THIS FILE
+# IS READ AS OUTSIDE IT: a cache writer is not a release build. Those three are `fuzz.yml`,
+# `release.yml` and `release-performance.yml`, they keep the 32-core label, and nothing here is a
+# released artifact. That reading is the decision rather than an oversight - a release push does
+# run these four job runs (the matrix is why three keys become four) on 16 cores, at the cost
+# recorded above as unmeasured.
+#
+# THE EXPOSURE IF THE REALISE DOES SCALE WITH CORES is the `concurrency` group above, not the bill:
+# a slower job is likelier to be cancelled by the next push, and a cancelled publish is a commit
+# whose closure no later run can substitute. Ordinary pushes have run as close as 6 minutes apart
+# against a slowest observed job of 347 s, so the headroom is thin enough to watch rather than
+# assume.
+#
+# NOT SPLIT BY REGIME - 32 CORES FOR A RELEASE, 16 OTHERWISE - AND THE REASON IS A GATE, NOT A
+# TIMING. Expressing that needs `runs-on: ${{ ... }}`, and a `${{ }}` expression is invisible to the
+# label check in `.github/actionlint.yaml`, which is the only mechanism this repository has against
+# a typo'd `runs-on`. Measured rather than assumed, on this file: an unknown label written literally
+# fails `just lint-ci` with `label "..." is unknown` and exit 1; the SAME unknown label inside a
+# conditional expression passes it with exit 0 and no output. So the conditional would buy cores for
+# a run that gates nothing and pay for them with the check that keeps a mistyped host from queueing
+# for 24 hours. NAMED HERE, NOT TAKEN: a gate in `xtask/src/workflows.rs` reading an expression's
+# literal alternatives against the known label set would restore the guard and permit the split. It
+# waits on a real release showing a 16-core penalty worth splitting for, and that file is 901 lines
+# against the 1000-line cap with `xtask/` unexemptable, so it has ~99 lines of budget.
+
 jobs:
   push:
     # NOT in `devco/required-contexts`, and that is correct rather than an omission: that record
@@ -43,7 +92,7 @@ jobs:
     # `merge_group`. This workflow triggers on neither, so it reports no context and can gate no
     # merge - which is also why a cache publish here can never turn into a blocked merge.
     name: push
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     environment: cachix-push
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,8 +107,15 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # The same scope the `ci` job wrote moments ago, so realising the checks below is a restore
-      # rather than a rebuild. A miss here costs a build and publishes the same paths regardless.
+      # The same scope the `ci` job uses, and on a dependency-generation change THIS job is the one
+      # that writes it - measured 2026-09-11, not the other way round as this comment used to say.
+      # Both jobs are `scope: ci` and both are permitted to save, so whichever finishes its post
+      # step first writes the entry and the other reports a primary-key hit and skips: on the two
+      # generation changes that day this job saved at 15:30:51 and 16:34:29 while the `ci` job's own
+      # post step ran at 15:36:35 and 16:36:01 and found the key already there. Sharing one scope is
+      # deliberate - both realise the same dependency closure, which is what makes the entry
+      # interchangeable - but "the `ci` job wrote it moments ago" is not a fact to reason from.
+      # A miss here costs a build and publishes the same paths regardless.
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
@@ -126,8 +182,9 @@ jobs:
   #
   # THE TOKENS LIVE IN ENV `cachix-push-mixed`: each job declares it and spends exactly its own
   # secret. The `push` job above keeps the shared closure and its token in env `cachix-push`
-  # untouched. The runner is the same big one `push` uses, because realising these closures (the
-  # cross build most of all) is the disc-heavy half of a publish.
+  # untouched. All three jobs share one runner size, for the reason recorded above `jobs:`;
+  # realising these closures (the cross build most of all) is the disc-heavy half of a publish,
+  # and disc is not what the runner size buys.
   #
   # EVERY CACHE HERE IS ALSO READ, AND IN TEXT. The per-consumer public keys are committed in
   # `xtask/src/workflows/cache_scope/retired.rs::ALLOWED` and named in every installer's
@@ -137,7 +194,7 @@ jobs:
 
   cross-build:
     name: push the cross-build closure
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     environment: cachix-push-mixed
     permissions:
       contents: read
@@ -193,7 +250,7 @@ jobs:
 
   connectors:
     name: push the connectors closure
-    runs-on: rust-mcp-32core
+    runs-on: rust-mcp-16core
     environment: cachix-push-mixed
     permissions:
       contents: read

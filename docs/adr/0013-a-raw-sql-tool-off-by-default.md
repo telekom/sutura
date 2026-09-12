@@ -152,11 +152,11 @@ unparser arrive"*.
 
 So the sources split, and the split is not a detail of implementation order:
 
-| Source | Can the raw tool exist over it? |
-| --- | --- |
-| A network data system reached under the asking subject - PostgreSQL, BigQuery, Oracle | **yes.** The statement is passed through unparsed, by us, to a system that has its own parser and its own authorization. Nothing in the closure changes |
-| The shipped file engine | **not without accepting a second SQL parser.** A raw statement over it needs DataFusion's SQL frontend, which is the `sql` feature, which is `datafusion-sql` and `sqlparser` compiled into the shipped binary beside `polyglot-sql` |
-| A local DuckDB source | yes in principle - it renders through `sutura-sql` and the driver takes a statement - but `sutura-exec-duckdb` is a dev-dependency and which artifact links a native driver is undecided in [the plan](0009-the-plan-from-one-source-to-many.md) |
+| Source                                                                                | Can the raw tool exist over it?                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A network data system reached under the asking subject - PostgreSQL, BigQuery, Oracle | **yes.** The statement is passed through unparsed, by us, to a system that has its own parser and its own authorization. Nothing in the closure changes                                                                                          |
+| The shipped file engine                                                               | **not without accepting a second SQL parser.** A raw statement over it needs DataFusion's SQL frontend, which is the `sql` feature, which is `datafusion-sql` and `sqlparser` compiled into the shipped binary beside `polyglot-sql`             |
+| A local DuckDB source                                                                 | yes in principle - it renders through `sutura-sql` and the driver takes a statement - but `sutura-exec-duckdb` is a dev-dependency and which artifact links a native driver is undecided in [the plan](0009-the-plan-from-one-source-to-many.md) |
 
 **Enabling the second row is its own decision and not a consequence of this one.** It is the exact
 trade 0006 and 0007 both declined, in a different context: a second parser in the shipped binary, a
@@ -199,7 +199,7 @@ Three things follow, and the third is where the record has to be careful not to 
 
 **The prompt channel is already handled, and it is the only one that is.**
 [`docs/agent-prompt.md`](../agent-prompt.md) records the mechanism: every line of catalog prose is
-emitted with `> ` in front of it, so no line of catalog text can reach the generated document at column
+emitted with `>` in front of it, so no line of catalog text can reach the generated document at column
 zero, it cannot emit a heading or close a block, and a test provokes it with a description whose lines
 are a heading, a fence and a bare instruction. The trust boundary is named in the text immediately
 above the quoted block. That leaves the two channels this record adds traffic to, and neither has an

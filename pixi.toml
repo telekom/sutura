@@ -58,7 +58,7 @@ python = ">=3.13,<3.14"
 # The site generator and the theme.
 #
 # The `<2` ceiling is a DECISION, not caution. Material for MkDocs prints a warning on every
-# build about what MkDocs 2.0 does, and three of its points rule it out here: the plugin system
+# build about what the next MkDocs major does, and three of its points rule it out here: the plugin system
 # is removed, so mike and every extension we use stop working; there is no migration path; and
 # it is currently UNLICENSED, which a public Apache-2.0 repo cannot depend on at all. There is
 # also no Material release targeting it. Raise this ceiling only when Material itself does.

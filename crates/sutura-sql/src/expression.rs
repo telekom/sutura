@@ -276,7 +276,7 @@ fn check(
     // TODO(#589): delete this guard once the pinned parser returns on its own. The mechanism is
     // written up upstream as `tobilg/polyglot#445`.
     //
-    // It exists ONLY because `polyglot-sql 0.9.2`'s `Parser::parse_data_type` does not terminate -
+    // It exists ONLY because the pinned `polyglot-sql`'s `Parser::parse_data_type` does not terminate -
     // `a.:S1(` is the whole repro, six characters - and NOT because a fragment with an unclosed
     // parenthesis is invalid. That judgement belongs to the parse, which makes it with a better
     // diagnostic, and would make it here again the moment upstream returns.
@@ -564,7 +564,7 @@ fn node_error(tag: &DialectTag, construct: Construct, node: &Expression) -> Expr
 /// `SUM(x) SIMILAR TO ..`, `SUM(x) WITHIN GROUP (..)`, `ARRAY_AGG`/`LIST`/`GROUP_CONCAT` with an
 /// `ORDER BY`, and both placements of `IGNORE NULLS`.
 ///
-/// What that costs is not a syntax error at load. Measured in `DuckDB` 1.5.5 for the `COLLATE` case
+/// What that costs is not a syntax error at load. Measured in the pinned `DuckDB` for the `COLLATE` case
 /// against a joined dimension carrying the same column name: `Binder Error: Ambiguous reference to
 /// column name "region"` - a metric whose load SUCCEEDED, answering the questions that join nothing
 /// and failing the ones that do, which is exactly what load-time checking exists to prevent. On an

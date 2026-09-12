@@ -98,6 +98,17 @@ pub(super) const SURFACES: &[Surface] = &[
         hooks: &["fuzz"],
         reached_by: "fuzz-smoke",
     },
+    Surface {
+        // The text this repository ships that is neither Rust nor shell: prose, the manifests, the
+        // compose files and the maintenance scripts. `*.yml` and `*.yaml` OVERLAP the workflow row
+        // above on purpose - `zizmor` reads a workflow for a template injection and `format-text`
+        // reads it for its shape, so a workflow change is covered when both ran, which is the
+        // all-must-run rule the fuzzed-tree row relies on too.
+        label: "text and manifests",
+        paths: &["*.md", "*.yml", "*.yaml", "*.toml", "*.py"],
+        hooks: &["format-text"],
+        reached_by: "lint-text",
+    },
 ];
 
 #[cfg(test)]
