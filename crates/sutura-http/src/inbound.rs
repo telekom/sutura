@@ -31,26 +31,22 @@
 //! boot, out of `sutura_config::InboundIdentity::what_it_does_not_do`, rather than leaving a reader to
 //! infer it.
 //!
-//! # The five things this does not build, and each is named rather than left to be discovered
+//! # The four things this does not build, and each is named rather than left to be discovered
 //!
 //! An overstated claim is itself the defect, so each of these is written down here rather than found:
 //!
 //! 1. **A JWKS endpoint.** Keys are read from a file. The cache, the unknown-key refetch and the rate
 //!    limit on it are built and are what a URL source would need anyway - see [`keys`] for the whole
 //!    argument and for the one property a file cannot have.
-//! 2. **The two metadata documents.** A directly validating deployment is supposed to serve
-//!    protected-resource metadata a client can read to learn which authorization server governs it.
-//!    There is no such route. The `401` carries an RFC 6750 challenge naming the realm and no
-//!    `resource_metadata` parameter, so a client is configured with its issuer out of band.
-//! 3. **Anything about client registration or client authentication.** Those are decisions for the
+//! 2. **Anything about client registration or client authentication.** Those are decisions for the
 //!    authorization server and for the client; this deployment is a resource server and validates what
 //!    arrives.
-//! 4. **A ceiling derived from a scope.** [`Scopes`] is now read by exactly one thing -
+//! 3. **A ceiling derived from a scope.** [`Scopes`] is now read by exactly one thing -
 //!    `crate::capability`, which decides which of this surface's *operations* a caller may invoke and
 //!    decides nothing about which rows an answer contains. A per-caller *budget* still has no port to
 //!    live behind, and `docs/adr/0013`'s raw tool is not built. See [`caller`] for the limit stated
 //!    beside the claim.
-//! 5. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
+//! 4. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
 //!    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
 //!    deployment chose - and inside that window an intercepted assertion replays. There is no nonce
 //!    store and nothing hashes a method, a path or a body into the assertion. That is why nothing here

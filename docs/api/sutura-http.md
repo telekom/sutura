@@ -53,6 +53,11 @@ and there are exactly two ways in: one takes no argument, and the other takes a
 every field it might have is a field handed to anybody who can route a packet. No version, no
 build, no configuration, no catalog. A test asserts the body byte for byte.
 
+A directly validating deployment also exposes its RFC 9728 protected-resource metadata without a
+token. That document is deliberately only the exact resource identifier and the configured
+authorization server; it is absent in gateway and single-player deployments and shares the probe
+rate limit with liveness.
+
 # What is deliberately absent
 
 * **No CORS layer.** A browser is not a client of this surface. An allow-list nobody needs is an
@@ -748,26 +753,22 @@ is asking and still reads every row as one identity. The startup log prints that
 boot, out of `sutura_config::InboundIdentity::what_it_does_not_do`, rather than leaving a reader to
 infer it.
 
-# The five things this does not build, and each is named rather than left to be discovered
+# The four things this does not build, and each is named rather than left to be discovered
 
 An overstated claim is itself the defect, so each of these is written down here rather than found:
 
 1. **A JWKS endpoint.** Keys are read from a file. The cache, the unknown-key refetch and the rate
    limit on it are built and are what a URL source would need anyway - see `keys` for the whole
    argument and for the one property a file cannot have.
-2. **The two metadata documents.** A directly validating deployment is supposed to serve
-   protected-resource metadata a client can read to learn which authorization server governs it.
-   There is no such route. The `401` carries an RFC 6750 challenge naming the realm and no
-   `resource_metadata` parameter, so a client is configured with its issuer out of band.
-3. **Anything about client registration or client authentication.** Those are decisions for the
+2. **Anything about client registration or client authentication.** Those are decisions for the
    authorization server and for the client; this deployment is a resource server and validates what
    arrives.
-4. **A ceiling derived from a scope.** `Scopes` is now read by exactly one thing -
+3. **A ceiling derived from a scope.** `Scopes` is now read by exactly one thing -
    `crate::capability`, which decides which of this surface's *operations* a caller may invoke and
    decides nothing about which rows an answer contains. A per-caller *budget* still has no port to
    live behind, and `docs/adr/0013`'s raw tool is not built. See `caller` for the limit stated
    beside the claim.
-5. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
+4. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
    deployment chose - and inside that window an intercepted assertion replays. There is no nonce
    store and nothing hashes a method, a path or a body into the assertion. That is why nothing here
@@ -1255,11 +1256,10 @@ header.
 # What a refused request is told, and what it is not
 
 A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
-validating deployment is its own resource identifier. `docs/adr/0014` step 1 asks for *"a challenge
-naming where to look"*, and this is the half of that which exists: **the two metadata documents the
-record describes are not built**, so the challenge carries no `resource_metadata` parameter and a
-client learns the authorization server out of band. That is a named gap rather than a silent one -
-see `crate::inbound`.
+validating deployment is its own resource identifier. Its `resource_metadata` parameter is the
+absolute URL of the public RFC 9728 document built from the same token requirement as the
+validator. A gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode
+offers no Bearer challenge.
 
 What the response does **not** say is which check failed. The log says - through the `#[source]`
 chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -2418,12 +2418,13 @@ Assembling the router: three tiers, and what guards each.
 
 | Tier | Reachable by | Rate limit | Token |
 | --- | --- | --- | --- |
-| liveness | anybody who can route a packet | public | no |
+| liveness and direct protected-resource discovery | anybody who can route a packet | public | no |
 | documentation | anybody, when it is served at all | public | yes, when one is configured |
 | `v1` | a caller with the token, when one is configured | general | yes, when one is configured |
 
 Liveness has no token because a probe has no credential to present, which is exactly why its
-body carries nothing.
+body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
+client where authorization happens; its two configured fields are the whole public document.
 
 # Layer order, and why it reads backwards
 
@@ -2460,8 +2461,9 @@ under the version prefix without also applying to the liveness probe merged in b
 **The consequence, stated rather than discovered later:** a path under the version prefix that
 matches no route skips the gate and falls through to the top-level `404`. So an unauthenticated
 caller can learn which paths exist, though not what is behind them - and the paths are in the
-published interface description anyway. Every path that resolves to a handler does hold a
-credential. There is a test on each half of that.
+published interface description anyway. Apart from liveness and the direct-only protected-resource
+document, every path that resolves to a handler does hold a credential. There is a test on each
+half of that.
 
 # Why this returns a `Result`
 

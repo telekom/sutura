@@ -13,4 +13,5 @@
 //! that makes a second version a rewrite.
 
 pub(crate) mod health;
+pub(crate) mod protected_resource;
 pub(crate) mod v1;

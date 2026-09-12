@@ -140,26 +140,6 @@ struct Absence {
 /// of somebody. An entry duplicating a test that already fails is a second thing to keep true.
 const ABSENCES: &[Absence] = &[
     Absence {
-        // `#370` row D. Authored places say it and generated pages republish it, and until this
-        // entry nothing read any of them: adding the parameter at the challenge would have left
-        // every gate and every test green while `docs/serving.md` went on telling an operator to
-        // configure a client's issuer out of band.
-        name: "the `401` challenge names no protected-resource metadata",
-        // The clause they all share. The sentences around it differ - one says the client is
-        // configured out of band, another that it learns the authorization server out of band - and
-        // registering the shared clause is what makes a sibling that was missed a failure rather
-        // than a survivor.
-        claimed: &["no `resource_metadata` parameter"],
-        stated_in: &["crates/sutura-http/src/**/*.rs", "docs/**/*.md"],
-        refuted_by: &[Sighting {
-            // The transport crate's own source, which is where the challenge is built. A parameter
-            // added anywhere else is not a challenge parameter.
-            over: &["crates/sutura-http/src/**/*.rs"],
-            holds: "resource_metadata",
-            means: "the challenge, or something on its path, now names protected-resource metadata",
-        }],
-    },
-    Absence {
         // `#370` row E, first item. The accessor reads as covered and is called from a `tests/`
         // target alone; `docs/adr/0016` is what the doc comment sends a reader to.
         name: "`MetricAspect::expression()` has no consumer",

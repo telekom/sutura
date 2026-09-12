@@ -19,11 +19,10 @@
 //! # What a refused request is told, and what it is not
 //!
 //! A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
-//! validating deployment is its own resource identifier. `docs/adr/0014` step 1 asks for *"a challenge
-//! naming where to look"*, and this is the half of that which exists: **the two metadata documents the
-//! record describes are not built**, so the challenge carries no `resource_metadata` parameter and a
-//! client learns the authorization server out of band. That is a named gap rather than a silent one -
-//! see `crate::inbound`.
+//! validating deployment is its own resource identifier. Its `resource_metadata` parameter is the
+//! absolute URL of the public RFC 9728 document built from the same token requirement as the
+//! validator. A gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode
+//! offers no Bearer challenge.
 //!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
 //! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -75,6 +74,8 @@ pub struct InboundGate {
     bearer_prefixed: bool,
     /// What the challenge names as its realm.
     realm: String,
+    /// The public discovery document and the exact absolute URL the challenge points at.
+    protected_resource: Option<crate::routes::protected_resource::ProtectedResource>,
 }
 
 /// The gate could not be built.
@@ -114,6 +115,7 @@ impl InboundGate {
     /// without a filesystem, which is the same argument `AGENTS.md` makes for a port getting a fake.
     pub(crate) fn over(inbound: &InboundIdentity, keys: KeySetCache) -> Self {
         let requirement = inbound.requirement();
+        let protected_resource = crate::routes::protected_resource::ProtectedResource::for_requirement(requirement);
         let (header, bearer_prefixed) = match requirement.location() {
             TokenLocation::AuthorizationBearer => (String::from(AUTHORIZATION), true),
             TokenLocation::Header { name } => (String::from(name.as_str()), false),
@@ -124,6 +126,7 @@ impl InboundGate {
             keys: Arc::new(keys),
             header,
             bearer_prefixed,
+            protected_resource,
         }
     }
 
@@ -170,7 +173,17 @@ impl InboundGate {
         if !self.bearer_prefixed {
             return None;
         }
-        Some(format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm))
+        let protected_resource = self.protected_resource.as_ref()?;
+        Some(format!(
+            "Bearer realm=\"{}\", error=\"invalid_token\", resource_metadata=\"{}\"",
+            self.realm,
+            protected_resource.url()
+        ))
+    }
+
+    /// The discovery document this gate built, only in the direct mode.
+    pub(crate) const fn protected_resource(&self) -> Option<&crate::routes::protected_resource::ProtectedResource> {
+        self.protected_resource.as_ref()
     }
 
     /// Establishes who is asking, or says why it could not.

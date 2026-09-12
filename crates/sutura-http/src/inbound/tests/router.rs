@@ -38,9 +38,22 @@ use super::gate_over;
 /// deliberately, because the rotation bound needs a source that changes.
 const UNREAD: &str = "/unread.json";
 
+const METADATA_PATH: &str = "/.well-known/oauth-protected-resource";
+
 /// A router for a deployment that verifies `issuer`, over that issuer's own key set.
 fn app_verifying(issuer: &MockIssuer) -> axum::Router {
     app(&direct_overlay(issuer, UNREAD), Some(&issuer.key_set()))
+}
+
+/// A gateway declaration over `issuer`, whose keys are handed to [`app`] rather than read from here.
+fn gateway_overlay(issuer: &MockIssuer) -> String {
+    format!(
+        "security:\n  inbound:\n    mode: \"behind-gateway\"\n    transit_header: \"X-Transit-Proof\"\n    \
+         transit_issuer: \"{}\"\n    transit_audience: \"{}\"\n    key_set_file: \"{UNREAD}\"\n    \
+         algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n",
+        issuer.issuer(),
+        issuer.audience(),
+    )
 }
 
 /// A router for a deployment whose declaration is `declared`, with a gate over one key set document.
@@ -101,6 +114,94 @@ async fn the_versioned_surface_needs_a_verified_caller_when_one_is_declared() {
         .expect("a stranger signs a token");
     let refused = call(&app, Some(&forged)).await;
     assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn an_unauthenticated_client_reads_direct_metadata_and_the_challenge_points_at_it() {
+    let resource = "https://sutura.example.com/tenant";
+    let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
+        .expect("a mock issuer generates a key pair");
+    let app = app_verifying(&issuer);
+    let path = format!("{METADATA_PATH}/tenant");
+    let metadata = asked(&app, "GET", &path, None).await;
+    assert_eq!(metadata.status, StatusCode::OK, "the metadata route is public");
+    let document: serde_json::Value = serde_json::from_str(&metadata.body).expect("the metadata is JSON");
+    assert_eq!(
+        document,
+        serde_json::json!({
+            "resource": resource,
+            "authorization_servers": [issuer.issuer()],
+        })
+    );
+
+    let refused = call(&app, None).await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        refused.challenge.as_deref(),
+        Some(
+            "Bearer realm=\"https://sutura.example.com/tenant\", error=\"invalid_token\", \
+             resource_metadata=\"https://sutura.example.com/.well-known/oauth-protected-resource/tenant\""
+        )
+    );
+    assert!(!refused.challenge.unwrap_or_default().contains("error_description"));
+    assert_eq!(crate::capability_of(&axum::http::Method::GET, &path), None);
+}
+
+#[tokio::test]
+async fn direct_metadata_derives_the_rfc_9728_path_for_roots_and_paths() {
+    for (resource, path) in [
+        ("https://sutura.example.com", String::from(METADATA_PATH)),
+        ("https://sutura.example.com/", String::from(METADATA_PATH)),
+        ("https://sutura.example.com/tenant/", format!("{METADATA_PATH}/tenant/")),
+        (
+            "https://sutura.example.com/:tenant/*leaf",
+            format!("{METADATA_PATH}/:tenant/*leaf"),
+        ),
+    ] {
+        let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
+            .expect("a mock issuer generates a key pair");
+        let metadata = asked(&app_verifying(&issuer), "GET", &path, None).await;
+        assert_eq!(metadata.status, StatusCode::OK, "{resource} must be served at {path}");
+        let document: serde_json::Value = serde_json::from_str(&metadata.body).expect("the metadata is JSON");
+        assert_eq!(document["resource"], resource);
+    }
+}
+
+#[tokio::test]
+async fn protected_resource_metadata_exists_only_for_direct_inbound_identity() {
+    let direct = an_issuer();
+    assert_eq!(
+        asked(&app_verifying(&direct), "GET", METADATA_PATH, None).await.status,
+        StatusCode::OK
+    );
+
+    let gateway = an_issuer();
+    let gateway_app = app(&gateway_overlay(&gateway), Some(&gateway.key_set()));
+    assert_eq!(
+        asked(&gateway_app, "GET", METADATA_PATH, None).await.status,
+        StatusCode::NOT_FOUND
+    );
+
+    let single_player_app = app("", None);
+    assert_eq!(
+        asked(&single_player_app, "GET", METADATA_PATH, None).await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn protected_resource_metadata_uses_the_public_probe_rate_limit() {
+    let issuer = an_issuer();
+    let overlay = format!(
+        "{}rate_limit:\n  enabled: true\n  probe_per_second: 1\n  probe_burst: 1\n",
+        direct_overlay(&issuer, UNREAD)
+    );
+    let app = app(&overlay, Some(&issuer.key_set()));
+    assert_eq!(asked(&app, "GET", METADATA_PATH, None).await.status, StatusCode::OK);
+    assert_eq!(
+        asked(&app, "GET", METADATA_PATH, None).await.status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
 }
 
 /// **THE property of the capability gate, through the real router.**
