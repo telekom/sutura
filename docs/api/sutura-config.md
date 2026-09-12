@@ -938,6 +938,24 @@ not an identifier is a misconfiguration worth refusing when the file is read rat
 first question. Case is PRESERVED, because a dataset id is case-sensitive and folding it here
 would turn a working declaration into a dataset that does not exist.
 
+## `use HostName`
+
+A `postgres` source's host or address, exactly as written.
+
+**Unrepresentable rather than checked, per `secure-by-design`.** Before this type, `host` was a
+bare `String` carried past `parse_placement` unexamined - the exclusivity of `host` and
+`unix_socket` was a check in that function, but the FIELD still admitted whatever text was
+there, so `crate::sources::placement::PostgresDial` existed only as a `match` two composition
+roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
+whitespace, a URL scheme, a path separator - and nothing about reachability: a value that parses
+may still fail to resolve, or fail the TLS name check at connect time, and neither is this
+type's question. `crate::sources::transport::host_is_loopback` still does the loopback test on
+the parsed text.
+
+## `use InvalidHostName`
+
+Why a declared Postgres host cannot be dialled at all.
+
 ## `use InvalidResourceName`
 
 Why a declared name for a cloud resource was not usable.
@@ -945,6 +963,18 @@ Why a declared name for a cloud resource was not usable.
 One type for both newtypes above, with the offending key named by the caller rather than by the
 variant: the shapes differ and the *reasons* do not, so two near-identical enums would be two
 places to keep one set of sentences.
+
+## `use PostgresDial`
+
+How a `postgres` source is dialled: over TCP to a named host, or through a unix socket
+directory. Exactly one, decided once in `crate::sources::parse_placement`.
+
+**Replaces `host: Option<String>` plus `unix_socket: Option<PathBuf>` on the placement.** Those
+two fields admitted `(None, None)` and `(Some, Some)`, states `parse_placement` already refused -
+so both composition roots carried a `match (host, unix_socket)` with a fourth arm the parser had
+already made unreachable, and a comment saying so at each. This enum is the same argument
+`SourcePlacement` itself makes about `Files` versus `BigQuery`: unrepresentable beats checked
+twice.
 
 ## `use SourcePlacement`
 
@@ -3821,6 +3851,7 @@ convenience, and nothing needs to clone a startup refusal.
 - `MissingForKind` - A key this kind requires was not written.
 - `KeyNotForKind` - A key was written that means nothing for this kind.
 - `ResourceName` - A declared cloud resource name is not usable.
+- `Host` - A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
 - `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 - `WorkloadIdentity` - The declared workload-identity value is not usable.
@@ -4019,6 +4050,86 @@ places to keep one set of sentences.
 ##### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct HostName`
+
+```rust
+pub struct HostName
+```
+
+A `postgres` source's host or address, exactly as written.
+
+**Unrepresentable rather than checked, per `secure-by-design`.** Before this type, `host` was a
+bare `String` carried past `parse_placement` unexamined - the exclusivity of `host` and
+`unix_socket` was a check in that function, but the FIELD still admitted whatever text was
+there, so `crate::sources::placement::PostgresDial` existed only as a `match` two composition
+roots each wrote by hand. Refuses only shapes that cannot be a host at all - empty, embedded
+whitespace, a URL scheme, a path separator - and nothing about reachability: a value that parses
+may still fail to resolve, or fail the TLS name check at connect time, and neither is this
+type's question. `crate::sources::transport::host_is_loopback` still does the loopback test on
+the parsed text.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The host, for dialling and for the loopback check.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidHostName>
+```
+
+Parses a declared host or address.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `enum InvalidHostName`
+
+```rust
+pub enum InvalidHostName
+```
+
+Why a declared Postgres host cannot be dialled at all.
+
+##### Variants
+
+- `Empty` - Nothing was written, or only whitespace was.
+- `Whitespace` - A host cannot contain whitespace - it would not survive being one token in a connection string, and a name split by a space is not a name any resolver would look up.
+- `Scheme` - A URL was written where a bare host belongs - `host` is not a connection string.
+- `PathSeparator` - A `/` is a path separator, not a character a host or an address ever carries.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `enum PostgresDial`
+
+```rust
+pub enum PostgresDial
+```
+
+How a `postgres` source is dialled: over TCP to a named host, or through a unix socket
+directory. Exactly one, decided once in `crate::sources::parse_placement`.
+
+**Replaces `host: Option<String>` plus `unix_socket: Option<PathBuf>` on the placement.** Those
+two fields admitted `(None, None)` and `(Some, Some)`, states `parse_placement` already refused -
+so both composition roots carried a `match (host, unix_socket)` with a fourth arm the parser had
+already made unreachable, and a comment saying so at each. This enum is the same argument
+`SourcePlacement` itself makes about `Files` versus `BigQuery`: unrepresentable beats checked
+twice.
+
+##### Variants
+
+- `Tcp` - A TCP dial to a named host or address.
+- `UnixSocket` - A unix domain socket dial.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
 
 #### `enum SourcePlacement`
 
