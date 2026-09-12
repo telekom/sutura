@@ -306,10 +306,11 @@ jobs:
           # against, while a variable swaps with no diff. The gate permits exactly this list in
           # exactly this spelling - a store added or dropped, a different key, a key on another host,
           # or any of them passed as `--extra-substituters` are all still refused. Nix's signature
-          # check bounds the trust. What bounds the POISON risk is narrower: every WRITE credential
-          # is an *environment* secret reachable only from a push to the default branch, so these
-          # stores hold what this repository's own CI built and nothing else - content-addressing
-          # alone would not. Residual limit: a value assembled from pieces, or one arriving via
+          # check bounds the trust. What bounds the POISON risk for the main-store path is narrower:
+          # its WRITE credential is an *environment* secret reachable only from a push to the default
+          # branch. PR and mixed credentials must be treated as able to write any trusted store until
+          # their scope is independently verified, so this repository cannot claim that every store
+          # contains only its own CI output. Residual limit: a value assembled from pieces, or one arriving via
           # another action's input, passes unseen.
           extra_nix_config: |
             fallback = true

@@ -5,12 +5,13 @@ name: cachix-push
 # substituter and its public key, committed in the clear. This workflow is only the WRITE half.
 #
 # **Why a workflow of its own rather than a step in `ci`.** An `environment:` is declared per JOB, and
-# the environment holding the token restricts deployments to the default branch - so declaring it on
-# `ci` would make every pull request's `ci` job fail the branch policy. Splitting the write out keeps
-# the token unreachable from the pull-request path by construction rather than by an `if:`.
+# the environment holding this workflow's token restricts deployments to the default branch - so
+# declaring it on `ci` would make every pull request's `ci` job fail that policy. Splitting the write
+# out keeps this main-store token unreachable from the pull-request path rather than by an `if:`; the
+# separate PR/mixed credentials require independent scope verification.
 #
 # **Two independent restrictions, deliberately.** The trigger admits only a push to the default
-# branch, AND the environment's own deployment-branch policy admits only that branch. The trigger is
+# branch, AND this workflow's environment deployment-branch policy admits only that branch. The trigger is
 # in this file and a pull request could edit it; the policy is held by the forge and a pull request
 # cannot. Belt and braces, and the braces are the half that is not ours to weaken.
 #

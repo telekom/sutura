@@ -36,10 +36,10 @@ names those three plus `sutura-prs`. Two things did **not** change: the default 
 lists `sutura-prs`'s key, and `sutura-fuzzing` is still absent because nothing pushes to it.
 
 The keys are the bound, and the limit belongs next to it: nix accepts a path only when its signer is
-in the trusted list, and what keeps these lists safe to trust is that **every one of these stores is
-written solely by this repository's own CI**, each under its own environment-gated credential that
-only a push to the default branch can reach. Content-addressing alone would not give that - a store
-anybody could write would be poisonable no matter how a path is named. `extraPullNames` was weighed
+in the trusted list. The main-store path is intended to be written solely by this repository's own
+CI under an environment-gated credential that only a push to the default branch can reach. PR and
+mixed credentials must be treated as able to write any trusted store until their scope is independently
+verified; a store anybody could write would be poisonable no matter how a path is named. `extraPullNames` was weighed
 and refused for the reason the committed pair exists: it configures a substituter at RUNTIME, where
 no reviewer sees it in the diff and no text gate can compare against it.
 
