@@ -696,6 +696,12 @@ other than `required`. And a manifest entry carries the source's *declared* capa
 composition recorded it as providing - which is not a content hash per source: two different bundles
 from the same reachable sources are told apart by the assembly, exactly as before.
 
+**Amended by `github.com/telekom/sutura#639`:** the pre-built half of that - an `Optional` enum
+variant and a `Contribution::missing` constructor to produce it - is deleted, because nothing called
+it and a state no deployment can reach is a combination the type admitted and the constructors did
+not produce. The serialized form above is unchanged, so no digest moves; the diff that declares
+availability adds the variant beside its producer rather than finding it waiting.
+
 **Two composing sources must name the same version.** A bundle is one snapshot, and two sources
 certified at different times is the "answers that differ across a refresh boundary" shape this record
 already refuses to paper over - so the assembler refuses contributions whose versions differ, naming

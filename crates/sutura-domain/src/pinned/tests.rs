@@ -9,8 +9,8 @@
 use std::collections::BTreeSet;
 
 use super::{
-    AnchorCheck, AnchorReport, Contribution, ContributionManifest, DefinitionVersion, InvalidVersion, MAX_VERSION_LEN,
-    NotExecutedReason, NotValidated, PinnedDefinitions,
+    AnchorCheck, AnchorReport, Contribution, ContributionManifest, DefinitionVersion, InvalidManifest, InvalidVersion,
+    MAX_VERSION_LEN, NotExecutedReason, NotValidated, PinnedDefinitions,
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
@@ -438,4 +438,45 @@ fn anchored_metrics_lists_only_the_metrics_that_declare_one() {
     let anchored = bundle(Some(anchor("197122")));
     let listed: Vec<&MetricName> = anchored.anchored_metrics().map(|(name, _)| name).collect();
     assert_eq!(listed, vec![&metric_name("revenue")]);
+}
+
+/// What [`ContributionManifest::parse`] accepts, and the two states it used to absorb.
+///
+/// Both were reachable through the public constructor before it was fallible: an empty iterator
+/// produced an empty manifest, and a repeated source name overwrote the earlier entry through the
+/// map collection. A manifest exists so that two compositions which assemble identically are told
+/// apart - `docs/adr/0011` - so recording fewer contributors than composed is the one failure this
+/// type must not have.
+#[test]
+fn a_manifest_records_every_contributor_or_refuses_to_be_one() {
+    let one = SourceName::parse("local").expect("a test source is a source");
+    let two = SourceName::parse("crm").expect("a test source is a source");
+    let nothing = crate::capabilities::MetadataCapabilities::nothing();
+
+    let both = ContributionManifest::parse([
+        (one.clone(), Contribution::of(nothing.clone())),
+        (two.clone(), Contribution::of(nothing.clone())),
+    ])
+    .expect("two distinctly named contributors compose a manifest");
+    assert_eq!(both.count(), 2, "each configured source is one entry");
+    assert!(both.get(&one).is_some() && both.get(&two).is_some());
+
+    assert_eq!(
+        ContributionManifest::parse(Vec::new()).unwrap_err(),
+        InvalidManifest::NoContributors,
+        "an empty manifest records no composition, so it is not one"
+    );
+
+    // The overwrite. Under the previous constructor this produced a ONE-entry manifest for a
+    // two-contributor composition, and nothing said so - the digest then covered a composition that
+    // was not the one assembled.
+    assert_eq!(
+        ContributionManifest::parse([
+            (one.clone(), Contribution::of(nothing.clone())),
+            (one.clone(), Contribution::of(nothing)),
+        ])
+        .unwrap_err(),
+        InvalidManifest::DuplicateSource { source_name: one },
+        "a repeated source name is refused rather than collapsed into one entry"
+    );
 }

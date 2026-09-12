@@ -36,7 +36,7 @@ use sutura_domain::knowledge::{
     Phrase,
 };
 use sutura_domain::model::{MetricName, ModelName, RelationshipName, SourceName};
-use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, InvalidManifest, PinnedDefinitions};
 
 /// Why N contributions will not compose.
 ///
@@ -48,6 +48,16 @@ pub enum CompositionError {
     /// Nothing was contributed; a deployment serves at least one metadata source.
     #[error("no contributions were assembled - a deployment serves at least one metadata source")]
     Empty,
+    /// The composed contributions are not a manifest: nothing to record, or two of them naming one
+    /// source. Distinct from [`CompositionError::Empty`], which is this function's own check on its
+    /// input - this one is the manifest refusing to record a composition it cannot represent, and
+    /// neither of its causes is reachable from here today. `ContributionManifest::parse` states that
+    /// limit beside its own checks.
+    #[error("the composed contributions are not a manifest")]
+    Manifest {
+        #[source]
+        cause: InvalidManifest,
+    },
     /// A contribution's own manifest did not name exactly one source, so this bundle cannot say who
     /// contributed it. The `count` is what a reader needs: the manifest is supposed to be the
     /// per-source record, and a value that failed to be one has nothing to merge under.
@@ -231,11 +241,12 @@ pub fn assemble(bundles: Vec<PinnedDefinitions>) -> Result<PinnedDefinitions, Co
 
     // The composed manifest is the contributors' own records, keyed by name - collection order is
     // content order, which the digest relies on.
-    let manifest = ContributionManifest::of(
+    let manifest = ContributionManifest::parse(
         contributions
             .iter()
             .map(|c| (c.name.clone(), Contribution::of(c.capabilities.clone()))),
-    );
+    )
+    .map_err(|cause| CompositionError::Manifest { cause })?;
 
     PinnedDefinitions::pin(version, definitions, knowledge, manifest).map_err(|cause| CompositionError::Digest { cause })
 }
