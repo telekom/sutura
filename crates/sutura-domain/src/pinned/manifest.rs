@@ -139,11 +139,15 @@ impl ContributionManifest {
     /// indistinguishable" gap `docs/adr/0011` built the manifest to close. A silent overwrite in the
     /// thing whose job is to make compositions distinguishable is worse than a refusal.
     ///
-    /// **The limit, next to the claim:** neither refusal is reachable from the one caller today.
-    /// `sutura_app`'s assembler already refuses an empty composition with its own `Empty`, and it
-    /// composes one contributor per configured source. So this is defence in depth on a public
-    /// constructor rather than a bug being fixed on a live path, and both variants are provoked by a
-    /// test on this constructor rather than by a deployment.
+    /// **The limit, next to the claim:** `NoContributors` is not reachable from the one caller
+    /// today - `sutura_app`'s assembler already refuses an empty composition with its own `Empty`,
+    /// which wins first on the input that would otherwise produce it. `DuplicateSource` IS reachable
+    /// through `sutura_app::assemble`, a public function: that assembler has no source-name
+    /// uniqueness check of its own, only per-element collision checks, so two bundles with disjoint
+    /// content that declare the same source name reach this refusal, not a silently short manifest.
+    /// What keeps a duplicated name off the *served* path is `Catalogs::parse` in `sutura-config`
+    /// refusing it at configuration time, before assembly runs - a different mechanism than this
+    /// one, and this constructor's own test still provokes both variants directly.
     pub fn parse(entries: impl IntoIterator<Item = (SourceName, Contribution)>) -> Result<Self, InvalidManifest> {
         let mut map: BTreeMap<SourceName, Contribution> = BTreeMap::new();
         for (source, contribution) in entries {

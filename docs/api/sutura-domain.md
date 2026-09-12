@@ -5180,11 +5180,15 @@ composed it, which is precisely the "two different compositions that assemble id
 indistinguishable" gap `docs/adr/0011` built the manifest to close. A silent overwrite in the
 thing whose job is to make compositions distinguishable is worse than a refusal.
 
-**The limit, next to the claim:** neither refusal is reachable from the one caller today.
-`sutura_app`'s assembler already refuses an empty composition with its own `Empty`, and it
-composes one contributor per configured source. So this is defence in depth on a public
-constructor rather than a bug being fixed on a live path, and both variants are provoked by a
-test on this constructor rather than by a deployment.
+**The limit, next to the claim:** `NoContributors` is not reachable from the one caller
+today - `sutura_app`'s assembler already refuses an empty composition with its own `Empty`,
+which wins first on the input that would otherwise produce it. `DuplicateSource` IS reachable
+through `sutura_app::assemble`, a public function: that assembler has no source-name
+uniqueness check of its own, only per-element collision checks, so two bundles with disjoint
+content that declare the same source name reach this refusal, not a silently short manifest.
+What keeps a duplicated name off the *served* path is `Catalogs::parse` in `sutura-config`
+refusing it at configuration time, before assembly runs - a different mechanism than this
+one, and this constructor's own test still provokes both variants directly.
 
 ```rust
 pub fn single(source: SourceName, contribution: Contribution) -> Self
@@ -5826,6 +5830,28 @@ return on the newtype, and what lets `QueryPlan::new` stay
 infallible while the plan it builds cannot be the incoherent one. See this module's header for
 what the incoherence does to each adapter.
 
+The fields are private, so this doctest holds the TYPE itself - a struct literal is refused even
+with the right value types, distinct from `LegPlan`'s `compile_fail,E0559` doctest, which holds
+the CARRIER (`LegPlan::Lookup` has no `filters` field to name in the first place):
+
+```compile_fail,E0451
+use sutura_domain::plan::{PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _loose(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> PlanBindings {
+    PlanBindings { filters, params }
+}
+```
+
+```
+use sutura_domain::plan::{IncoherentBindings, PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _checked(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<PlanBindings, IncoherentBindings> {
+    PlanBindings::parse(filters, params)
+}
+```
+
 ### `use AnswerKey`
 
 One group-by key of the answer: which leg owns it, and the label it carries in that leg's result.
@@ -6203,8 +6229,10 @@ fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
 ```
 
 A leg's filters arrive as a checked set too, so a producer cannot state a filter list beside a
-parameter list and leave the two to agree by coincidence - `crate::plan::bindings` is what each
-adapter does when they do not:
+parameter list and leave the two to agree by coincidence. This doctest holds the CARRIER, not
+the type: `LegPlan::Lookup` has no `filters` field to name, so rustc refuses it with `E0559`
+before `PlanBindings`'s own privacy is ever reached - `crate::plan::bindings`'s
+`compile_fail,E0451` doctest on `PlanBindings` itself is what holds that second boundary.
 
 ```compile_fail,E0559
 use sutura_domain::model::{QualifiedTable, SourceName};
@@ -6478,6 +6506,28 @@ holds, and resolves to the one a positional placeholder would give it** - which 
 return on the newtype, and what lets `QueryPlan::new` stay
 infallible while the plan it builds cannot be the incoherent one. See this module's header for
 what the incoherence does to each adapter.
+
+The fields are private, so this doctest holds the TYPE itself - a struct literal is refused even
+with the right value types, distinct from `LegPlan`'s `compile_fail,E0559` doctest, which holds
+the CARRIER (`LegPlan::Lookup` has no `filters` field to name in the first place):
+
+```compile_fail,E0451
+use sutura_domain::plan::{PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _loose(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> PlanBindings {
+    PlanBindings { filters, params }
+}
+```
+
+```
+use sutura_domain::plan::{IncoherentBindings, PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _checked(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<PlanBindings, IncoherentBindings> {
+    PlanBindings::parse(filters, params)
+}
+```
 
 ##### Methods
 
@@ -7390,8 +7440,10 @@ fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
 ```
 
 A leg's filters arrive as a checked set too, so a producer cannot state a filter list beside a
-parameter list and leave the two to agree by coincidence - `crate::plan::bindings` is what each
-adapter does when they do not:
+parameter list and leave the two to agree by coincidence. This doctest holds the CARRIER, not
+the type: `LegPlan::Lookup` has no `filters` field to name, so rustc refuses it with `E0559`
+before `PlanBindings`'s own privacy is ever reached - `crate::plan::bindings`'s
+`compile_fail,E0451` doctest on `PlanBindings` itself is what holds that second boundary.
 
 ```compile_fail,E0559
 use sutura_domain::model::{QualifiedTable, SourceName};

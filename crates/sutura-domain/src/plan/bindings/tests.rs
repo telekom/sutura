@@ -102,6 +102,20 @@ fn a_predicate_binding_a_parameter_the_set_does_not_hold_is_refused() {
 }
 
 #[test]
+fn a_predicate_binding_the_parameter_just_past_the_list_is_out_of_range() {
+    // The boundary the test above does not pin: `index == params.len()` is one past the last valid
+    // index (`0..params.len()`), and the range check runs before the order check, so it is refused
+    // as `OutOfRange` rather than `OutOfPlaceholderOrder` - the order check never sees an index that
+    // is not already known to be in range. Refusal is complete either way this boundary is read;
+    // only the diagnostic is pinned here.
+    assert_eq!(
+        PlanBindings::parse(vec![at_or_after(1)], vec![day("2026-06-01")]).unwrap_err(),
+        IncoherentBindings::OutOfRange { index: 1, params: 1 },
+        "index == params.len() is out of range at the boundary, not out of order"
+    );
+}
+
+#[test]
 fn a_predicate_binding_out_of_placeholder_order_is_refused() {
     // Both indices EXIST here, which is what makes this the sharper half: every index is in range,
     // a numbered dialect renders `$2` then `$1` and reads the right values, and a positional one

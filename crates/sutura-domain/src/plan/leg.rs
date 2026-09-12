@@ -178,8 +178,10 @@ impl LegTerm {
 /// ```
 ///
 /// A leg's filters arrive as a checked set too, so a producer cannot state a filter list beside a
-/// parameter list and leave the two to agree by coincidence - `crate::plan::bindings` is what each
-/// adapter does when they do not:
+/// parameter list and leave the two to agree by coincidence. This doctest holds the CARRIER, not
+/// the type: `LegPlan::Lookup` has no `filters` field to name, so rustc refuses it with `E0559`
+/// before `PlanBindings`'s own privacy is ever reached - `crate::plan::bindings`'s
+/// `compile_fail,E0451` doctest on `PlanBindings` itself is what holds that second boundary.
 ///
 /// ```compile_fail,E0559
 /// use sutura_domain::model::{QualifiedTable, SourceName};

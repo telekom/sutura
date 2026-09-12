@@ -84,6 +84,28 @@ pub enum IncoherentBindings {
 /// return on the newtype, and what lets [`QueryPlan::new`](crate::plan::QueryPlan::new) stay
 /// infallible while the plan it builds cannot be the incoherent one. See this module's header for
 /// what the incoherence does to each adapter.
+///
+/// The fields are private, so this doctest holds the TYPE itself - a struct literal is refused even
+/// with the right value types, distinct from `LegPlan`'s `compile_fail,E0559` doctest, which holds
+/// the CARRIER (`LegPlan::Lookup` has no `filters` field to name in the first place):
+///
+/// ```compile_fail,E0451
+/// use sutura_domain::plan::{PlanBindings, PlanFilter};
+/// use sutura_domain::warehouse::ParamValue;
+///
+/// fn _loose(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> PlanBindings {
+///     PlanBindings { filters, params }
+/// }
+/// ```
+///
+/// ```
+/// use sutura_domain::plan::{IncoherentBindings, PlanBindings, PlanFilter};
+/// use sutura_domain::warehouse::ParamValue;
+///
+/// fn _checked(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<PlanBindings, IncoherentBindings> {
+///     PlanBindings::parse(filters, params)
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PlanBindings {
     filters: Vec<PlanFilter>,
