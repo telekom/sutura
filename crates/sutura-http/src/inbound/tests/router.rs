@@ -189,6 +189,7 @@ async fn a_challenge_points_at_metadata_only_for_an_exact_origin_form_resource()
         ("/v1/query", None),
         ("/v1/query", Some("Sutura.example.com")),
         ("/v1/query", Some("sutura.example.com:443")),
+        ("/v1/query?x=1", Some("sutura.example.com")),
         ("/v1/query/", Some("sutura.example.com")),
         ("/v1/catalog", Some("sutura.example.com")),
         ("/v1/query", Some("other.example.com")),
