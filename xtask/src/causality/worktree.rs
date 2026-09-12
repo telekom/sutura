@@ -86,6 +86,28 @@ pub(super) fn head_commit(root: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// The commit messages in `base..HEAD`, as git printed them.
+///
+/// THE RANGE AND NOT HEAD ALONE, because a branch is reviewed whole and
+/// `super::relocation::decide` checks a trailer against everything the range did - so a sibling
+/// commit that changed behaviour breaks the claim instead of riding on it. `%B` is the raw body,
+/// which keeps a trailer on the line it was written on.
+///
+/// **WHAT IT CANNOT SEE: an UNCOMMITTED split.** `git diff <base>` compares base against the
+/// WORKING TREE, so a hand run over uncommitted work has a diff and no message to declare it with.
+/// That is the fail-closed direction and it is the point of the carrier: a claim that is not in a
+/// commit is not in review either.
+///
+/// Raw text out, deciding nothing - `super::relocation::Claim` parses it - and the caller's git
+/// environment is stripped like every other read here.
+pub(super) fn messages(root: &Path, base: &Commit) -> String {
+    git(root)
+        .args(["log", "--format=%B", &format!("{}..HEAD", base.as_str())])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .unwrap_or_default()
+}
+
 /// The branch tool's metadata blob for `branch`, as git printed it.
 ///
 /// One blob per branch under `refs/branch-metadata/`, which is where the tool this repository pins

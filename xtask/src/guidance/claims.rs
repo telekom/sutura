@@ -72,7 +72,8 @@ impl Evidence {
 
 /// A claim the tree contradicts.
 ///
-/// [`Pin`](super::Pin) above holds a VERSION against its source; this holds a STATEMENT against its source, and
+/// The `versions` check above REFUSES a version a comment states; this holds a STATEMENT against
+/// its source, and
 /// the difference that matters is the evidence. A rule is live only while every `Evidence` stands,
 /// so a rule about a crate that is later deleted retires itself rather than forbidding a sentence
 /// that has become true again - which a `Forbidden` entry cannot do, being unconditional.

@@ -554,9 +554,30 @@ where
     // system's opinion at pre-flight time, not an authorization decision, and skipping a check
     // downstream on the strength of it is exactly what that type's documentation warns against.
     // What this call is for is the error it can return.
-    warehouse
-        .dry_run(Executable::Query(&plan), presented)
-        .map_err(|cause| ServiceError::Warehouse { cause })?;
+    // **The refusal a pre-flight can carry, and the reason it is kept apart from the size bounds.**
+    // The pre-flight's error is an authorization decision as often as `execute`'s is: a data
+    // system that will not run the statement as this identity may refuse while it prepares, before
+    // any data is read - which is the whole point of checking first. That refusal has to reach the
+    // caller as `SourceRefused`, not as the retryable `ServiceError::Warehouse` a dead data system
+    // produces - a caller told to retry an authorization decision is told to retry something that
+    // refuses again in the same place. `source_refused` is the same predicate `execute` asks below
+    // (see that arm), and it is the same class: a statement refused at the identity/authorization
+    // level, whichever call surfaced it. `working_set_exhausted` and `result_did_not_fit` are
+    // deliberately not asked here - the port's contract is that a check reads no data, so there is
+    // no reservation and no reply for either bound to refuse.
+    if let Err(cause) = warehouse.dry_run(Executable::Query(&plan), presented) {
+        if warehouse.source_refused(&cause) {
+            return Ok(Answered::under(
+                &credentials,
+                ToolOutcome::Refusal {
+                    reason: RefusalReason::SourceRefused {
+                        source: warehouse.source().clone(),
+                    },
+                },
+            ));
+        }
+        return Err(ServiceError::Warehouse { cause });
+    }
     // **The deadline again, and this is the call that can fire in production.** The check above runs
     // microseconds after the broker minted, so what it catches is a broker minting something already
     // dead. This one runs after a pre-flight, which against a networked data system is a round trip -

@@ -1231,7 +1231,7 @@ DECLARED order is here and nowhere later, so the refusal names the two spellings
 order the file wrote them. Same shape, and the same argument, as
 `StatementTables::parse`.
 
-**What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
+**What a folded pair costs was measured rather than argued.** The pinned `DuckDB`
 (`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
 `IdentifierCase::InsensitiveAscii`:
 `SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")` returns **1** - the `region`
@@ -5814,7 +5814,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -6544,7 +6544,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -6667,7 +6667,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -7332,7 +7332,7 @@ What happened was this, and it was reproduced rather than reasoned about: a fact
 `analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` rendered
 a `FROM` and a `LEFT JOIN` whose `ON` clause compared `orders.customer_id` with `orders.id` - one
 table with itself - and every projected column was qualified by an identifier that named two
-tables. On a real `DuckDB` 1.5.5 that statement is
+tables. On the pinned `DuckDB` that statement is
 `Binder Error: Ambiguous reference to table "orders"`; a target that binds it to one side instead
 returns a number under a certified metric name, which is the failure class this repository is
 arranged against. **Same-name tables are the normal shape of the estate `docs/adr/0019` exists
@@ -7343,7 +7343,7 @@ exotic.
 
 Distinct aliases are the fix that would keep the question answerable, and they are **not reachable
 through the SQL builder this workspace renders with**, which was measured rather than assumed
-against `polyglot-sql` 0.9.2: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
+against the pinned `polyglot-sql`: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
 could carry an `AS`, but `left_join` and every other join method take a `&str` table name and
 `join_with_kind` is private - so the JOINED side cannot be aliased without hand-building a select
 expression with upwards of thirty fields, which `sutura_sql`'s renderer rules out at its own header
@@ -8375,16 +8375,13 @@ The posture labels this answer would have combined, in name order.
 
 The execution port: the plan that goes out, and the rows that come back.
 
-The trait is named `Warehouse`, which is the port's name and says nothing about what sits behind
-it. A file read by an in-process engine and a cluster with a login are both implementations.
-
+`Warehouse` names the port, not whether its implementation is a file or a cluster.
 **No statement appears in this module, and its absence is the decision rather than an omission.**
 A rendered statement used to live here, on the argument that the port had to hand one to
 something. The port takes a `crate::plan::QueryPlan` now - `Warehouse` below says why that is
 what makes a second kind of adapter possible - so nothing in the domain constructs or reads a
 statement, and the type that carries one moved out to `sutura-sql`, beside the code that renders
 it. A domain holding a rendered statement has acquired a concept no domain operation uses.
-
 What stays is `ParamValue`, and it stays because the type the port *does* take is built out of
 it: a `crate::plan::QueryPlan` carries a vector of them. It is also where the rule lives - a
 value is a closed set of typed variants an adapter binds, never text somebody concatenated.
@@ -8849,6 +8846,127 @@ assert_eq!(
     ImpersonationCapability::NoPlaceForASubject
 );
 ```
+
+### Module `csv`
+
+Shared typing for deliberately simple CSV fixtures.
+Inferring the column types of a fixture CSV, once, for every adapter.
+
+A fixture is a committed CSV, and a data system has to be *given* typed columns before it can
+answer. Three adapters read the same bytes - `DuckDB` via `read_csv`, the engine via Arrow, and
+`Postgres` via `COPY` - and until this module they each decided the types for themselves.
+
+`read_csv_auto` turned a fractional column into `DOUBLE` (so a total answered as a float), the
+engine inferred a double too, and only the Postgres importer held a fraction as an exact
+`NUMERIC`. One classification here is what makes a decimal column a decimal on every wire.
+
+**The Postgres importer's logic is the origin, narrowed to spellings all three readers share.**
+`crate::warehouse::csv::infer` probes Boolean, then a 64-bit integer, then an exact fixed-point
+decimal, then a double, then a date, then text. Boolean means `true` or `false`; Postgres's `t`
+and `f` shorthand stays text because the engine reader does not accept it as Boolean. A fixture
+that Postgres typed `NUMERIC(38,2)` is a
+`crate::warehouse::csv::FixtureType::Decimal` in its canonical scale here, and the engine and
+`DuckDB` now agree rather than drifting to a float.
+
+# The boundary a column metric needs, stated per type
+
+- A column whose integers fit `i64` is `crate::warehouse::csv::FixtureType::Integer`.
+- A non-negative integer column that exceeds `i64` but fits `u64` is
+  `crate::warehouse::csv::FixtureType::WideInteger`.
+- A column with any fixed-point decimal value is
+  `crate::warehouse::csv::FixtureType::Decimal` at the widest canonical scale after trailing
+  fractional zeroes are removed, when every possible subtotal fits the shared 38-digit type.
+- A column with an integer and a fraction is a decimal too.
+- Everything floating-point stays `crate::warehouse::csv::FixtureType::Real`, a date stays
+  `crate::warehouse::csv::FixtureType::Date`, and an empty column is
+  `crate::warehouse::csv::FixtureType::Text`.
+
+This module lives in the domain - not beside any one adapter - because all three execution
+crates depend on the domain and none may depend on another. It is a pure function over the CSV
+text; nothing here reads a file or touches a data system.
+
+#### `enum FixtureType`
+
+```rust
+pub enum FixtureType
+```
+
+The column types a fixture CSV can declare, and the one classification every adapter maps.
+
+##### Variants
+
+- `Boolean` - A case-insensitive `true`/`false` column.
+- `Integer` - A column of `i64` integers only (a `SUM` over it stays exact).
+- `WideInteger` - A non-negative integer column that needs the shared `u64` range.
+- `Decimal` - An exact fixed-point decimal, carrying the widest canonical scale.
+- `Real` - Everything floating-point.
+- `Date` - A `YYYY-MM-DD` column.
+- `Text` - The fallback, for text and for a column with no data.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct Column`
+
+```rust
+pub struct Column
+```
+
+One inferred column: its name, and the type every adapter should attach for it.
+
+##### Methods
+
+```rust
+pub const fn kind(&self) -> FixtureType
+```
+
+The type every adapter maps.
+
+```rust
+pub const fn name(&self) -> &ColumnName
+```
+
+The column's name, parsed so it is safe to interpolate into a DDL statement.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InferenceError`
+
+```rust
+pub enum InferenceError
+```
+
+Why a fixture column could not be classified.
+
+##### Variants
+
+- `InvalidIdentifier` - A header was not a column name.
+- `UnsupportedQuotedSyntax` - Quoted CSV syntax has reader-specific semantics and is outside the shared fixture grammar.
+- `DecimalNotCarryable` - A fixed-point value or possible subtotal was wider than the exact shared type.
+- `RowWidth` - A data row did not have exactly the number of cells declared by the header.
+- `DuplicateColumn` - Two headers name one column under a reader's case-insensitive lookup.
+- `WhitespaceOnlyRow` - A whitespace-only row is data for some readers and absent for others.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `fn infer`
+
+```rust
+pub fn infer(text: &str) -> Result<Vec<Column>, InferenceError>
+```
+
+Infers the type of each column of a fixture CSV.
+
+Quoted syntax is refused before splitting, because the three readers do not give it one meaning.
+Header names are then parsed as `ColumnName`s, so a column that maps to a DDL statement (the
+`DuckDB` `types` argument, the engine's Arrow schema, Postgres's `CREATE TABLE`) cannot carry
+another unparseable spelling. A malformed name is `InvalidIdentifier`, the same refusal the
+Postgres importer made.
 
 ### Module `preflight`
 

@@ -7,6 +7,7 @@
 //! need a `Warehouse` that declares a posture and executes nothing interesting - and two copies of
 //! one fake is two things to keep in step with the port.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use sutura_domain::identity::{
@@ -46,6 +47,15 @@ pub(crate) enum AdapterFailure {
     /// The identity the statement ran as is not permitted to ask it.
     #[error("the data system refused the statement at the identity/authorization level")]
     RefusedBySource,
+}
+
+/// What a query pre-flight reports before the adapter is asked to execute.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum DryRunOutcome {
+    Accepted,
+    SourceRefused,
+    /// The data system could not be reached while checking the statement.
+    TransientFailure,
 }
 
 /// A data system with a declared source and posture, which either answers one fixed result or
@@ -208,6 +218,70 @@ impl Warehouse for FixedWarehouse {
         }
     }
 }
+
+/// A fake that scripts the query pre-flight and records whether execution was reached.
+pub(crate) struct PreflightWarehouse<const EXECUTES_LEGS: bool> {
+    source: SourceName,
+    posture: SourcePosture,
+    result: RowSet,
+    dry_run: DryRunOutcome,
+    executions: Cell<usize>,
+}
+
+impl<const EXECUTES_LEGS: bool> PreflightWarehouse<EXECUTES_LEGS> {
+    pub(crate) fn new(source: SourceName, posture: SourcePosture, result: RowSet, dry_run: DryRunOutcome) -> Self {
+        Self {
+            source,
+            posture,
+            result,
+            dry_run,
+            executions: Cell::new(0),
+        }
+    }
+
+    pub(crate) fn executions(&self) -> usize {
+        self.executions.get()
+    }
+}
+
+impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = EXECUTES_LEGS;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        match self.dry_run {
+            DryRunOutcome::Accepted => Ok(PreFlight::Accepted),
+            DryRunOutcome::SourceRefused => Err(AdapterFailure::RefusedBySource),
+            DryRunOutcome::TransientFailure => Err(AdapterFailure::Statement { cause: DriverFailure }),
+        }
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        self.executions.set(self.executions.get().saturating_add(1));
+        Ok(self.result.clone())
+    }
+
+    fn source_refused(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::RefusedBySource)
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
+pub(crate) type MonoPreflightWarehouse = PreflightWarehouse<false>;
+pub(crate) type LegPreflightWarehouse = PreflightWarehouse<true>;
 
 /// A fake that can run one half of a federated answer.
 ///

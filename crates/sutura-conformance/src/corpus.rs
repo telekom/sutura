@@ -1,4 +1,4 @@
-//! The corpus the execute packs run: one table, four questions, and the answer written ONCE.
+//! The corpus the execute packs run: one table, seven questions, and the answer written ONCE.
 //!
 //! **Written once is the whole property.** Every registered adapter is asked the same plan and
 //! compared against the same [`Case::expected`] rows, so *these two data systems answer this
@@ -19,21 +19,6 @@
 //! - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
 //!   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
 //!   keys. Each needs a second table and a federated plan; none is here.
-//! - **An integral total strictly PAST `i64`, which is not a gap but an undecidable row.** Read off
-//!   the three bound adapters: `sutura-exec-postgres` REFUSES one
-//!   (`numeric_cell` parses an integral `NUMERIC` into an `i64` and errors rather than rounding),
-//!   `sutura-exec-duckdb` answers [`Value::Text`] from its `HugeInt` arm, and
-//!   `sutura-exec-datafusion`'s `sum` over an `Int64` column has nowhere wider to go at all. Three
-//!   adapters, three different endings, so a corpus whose answer is written ONCE cannot hold that
-//!   row - `total_wide_by_day` goes to the boundary and stops there. What the boundary still
-//!   buys is in that case's own doc.
-//! - **A fixed-point measure, and so the [`Value::Text`] arm all three adapters keep for one.**
-//!   Unreachable from a CSV-backed corpus rather than omitted: no type inference on the load path
-//!   produces a fixed-point column from a fractional literal - `read_csv_auto` and `DataFusion`'s
-//!   inference both answer a 64-bit float, and `sutura-exec-postgres`'s own importer has no
-//!   `NUMERIC` arm to reach. The fractional CLASS is exercised, as [`Value::Real`]
-//!   (`total_rate_by_day`), and the day an inference answers a fixed-point type instead that
-//!   cell reddens - which is the class comparison working rather than a case somebody has to write.
 //! - **Files.** `docs/adr/0012`'s *the corpus is files, not code* is unbuilt: a case is a value in
 //!   this module, so adding one is still a code change.
 //!
@@ -228,7 +213,7 @@ pub const fn csv() -> &'static str {
 /// `total-by-region-and-day` and `total-by-region-and-day-as-a-leg` as content faults naming this
 /// corpus's own cases, while the run that overwrote the file was green. The window is wide because
 /// `attach_csv` makes a VIEW over `read_csv_auto`, so the file is read at QUERY time; the Postgres
-/// binding reads it seven times per binding at LOAD time.
+/// binding reads it once per behaviour plus the census at LOAD time.
 ///
 /// A path under the worktree needs no key, because the worktree is the key - the same answer
 /// `sutura_dev::scope::Scope::state_dir` gives, and `tests/bound.rs` pins the two spellings
@@ -308,6 +293,9 @@ pub fn cases() -> Vec<Case> {
         mean_by_day(),
         total_wide_by_day(),
         total_rate_by_day(),
+        wide_total_by_day(),
+        overflowing_integer_total_by_day(),
+        decimal_total_by_day(),
     ]
 }
 
@@ -440,7 +428,7 @@ fn mean_by_day() -> Case {
 /// **The whole point is which Rust type each adapter arrives through, and that all three arrive at
 /// the same cell anyway.** `sum` over a 64-bit integer column is a different type in each of the
 /// three bound adapters - `DuckDB` widens to a `HUGEINT`, Postgres to a `NUMERIC`, and the engine
-/// stays in `Int64` - so before this case the only measure in the corpus was small enough that
+/// reads the shared fixture as `Decimal256` - so before this case the only measure in the corpus was small enough that
 /// every one of those arms was interchangeable with a 32-bit read. Each adapter keeps a
 /// narrowing arm for its wide type ([`sutura_domain::warehouse::agreement`]'s header lists all
 /// three), and nothing exercised one.
@@ -452,42 +440,13 @@ fn mean_by_day() -> Case {
 /// `9_000_000_000_000_000_000` has an exact `f64` and would not notice. That is the arm
 /// `sutura-exec-duckdb`'s own `cell` records as having been wrong once.
 ///
-/// The boundary is also the ceiling: see the module header for why a total strictly past it is not
-/// a row a written-once corpus can hold.
 fn total_wide_by_day() -> Case {
-    let plan = QueryPlan::new(
-        source(),
-        metric("wide_total"),
-        StatementTables::only(table()),
-        bucket(),
-        Vec::new(),
-        PlanMeasure::Simple {
-            term: PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: column("wide_cents"),
-            },
-        },
-        ResultLabel::measure(&metric("wide_total")),
-        range_filters(),
-        range_params(),
-        range(),
-    );
-    let expected = rows(
-        &plan,
-        vec![
-            // The corpus's four rows for this day sum to exactly `i64::MAX`, which is asserted
-            // against the type's own constant rather than against a transcribed literal.
-            vec![text("2026-01-01"), Value::Integer(i64::MAX)],
-            // Small, on purpose: one day at the boundary and one nowhere near it is what says the
-            // wide arm is reached by the VALUE rather than by the column.
-            vec![text("2026-01-02"), Value::Integer(14)],
-        ],
-    );
-    Case {
-        name: "total-wide-by-day",
-        plan,
-        expected,
-    }
+    total_by_day(
+        "total-wide-by-day",
+        "wide_total",
+        "wide_cents",
+        [Value::Integer(i64::MAX), Value::Integer(14)],
+    )
 }
 
 /// `SUM` by day over a fractional column: the approximate class, reached from the DATA.
@@ -503,32 +462,66 @@ fn total_wide_by_day() -> Case {
 /// case does not lean on [`sutura_domain::warehouse::agreement::RealTolerance`] - it is about which
 /// class the cell is, and `mean-by-day` is where the approximation is the subject.
 fn total_rate_by_day() -> Case {
+    total_by_day(
+        "total-rate-by-day",
+        "rate_total",
+        "rate",
+        [real(0.25 + 0.5 + 1.25 + 0.25), real(2.5 + 0.5 + 0.25)],
+    )
+}
+
+/// `SUM` over a fixed-point column whose values are past `i64`, held exact by every adapter.
+fn wide_total_by_day() -> Case {
+    total_by_day(
+        "wide-total-by-day",
+        "wide_amount_total",
+        "wide_amount",
+        [text("10000000000000000006"), Value::Integer(15)],
+    )
+}
+
+/// `SUM` over individually signed integers whose total crosses `i64`, without wrapping.
+fn overflowing_integer_total_by_day() -> Case {
+    total_by_day(
+        "overflowing-integer-total-by-day",
+        "overflow_amount_total",
+        "overflow_amount",
+        [text("9223372036854775808"), Value::Integer(6)],
+    )
+}
+
+/// `SUM` over a decimal column, held exact rather than widened to a binary float.
+fn decimal_total_by_day() -> Case {
+    total_by_day(
+        "decimal-total-by-day",
+        "decimal_amount_total",
+        "decimal_amount",
+        [text("11.50"), text("19.50")],
+    )
+}
+
+fn total_by_day(case_name: &'static str, metric_name: &str, column_name: &str, totals: [Value; 2]) -> Case {
+    let [first, second] = totals;
     let plan = QueryPlan::new(
         source(),
-        metric("rate_total"),
+        metric(metric_name),
         StatementTables::only(table()),
         bucket(),
         Vec::new(),
         PlanMeasure::Simple {
             term: PlanTerm::Aggregate {
                 aggregate: Aggregate::Sum,
-                column: column("rate"),
+                column: column(column_name),
             },
         },
-        ResultLabel::measure(&metric("rate_total")),
+        ResultLabel::measure(&metric(metric_name)),
         range_filters(),
         range_params(),
         range(),
     );
-    let expected = rows(
-        &plan,
-        vec![
-            vec![text("2026-01-01"), real(0.25 + 0.5 + 1.25 + 0.25)],
-            vec![text("2026-01-02"), real(2.5 + 0.5 + 0.25)],
-        ],
-    );
+    let expected = rows(&plan, vec![vec![text("2026-01-01"), first], vec![text("2026-01-02"), second]]);
     Case {
-        name: "total-rate-by-day",
+        name: case_name,
         plan,
         expected,
     }

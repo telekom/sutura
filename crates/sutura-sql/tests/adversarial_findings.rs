@@ -55,7 +55,7 @@ mod tests {
         //
         // The consequence is the one the module says qualification exists to prevent: "an unqualified
         // column in a statement that later grows a join binds to whichever table happens to have it,
-        // and that is a wrong number rather than an error". Measured in DuckDB 1.5.5, the rendering
+        // and that is a wrong number rather than an error". Measured in the pinned DuckDB, the rendering
         // for the COLLATE case against a joined dimension carrying the same column name is
         // `Binder Error: Ambiguous reference to column name "region"` - at query time, for a metric
         // whose load succeeded.
@@ -96,7 +96,7 @@ mod tests {
         // checked are the date and time ones. Everything else - including every function that reads a
         // file, an environment variable, a setting, or executes SQL of its own - passes.
         //
-        // Measured against DuckDB 1.5.5: the rendering of `MAX(getenv('X'))` is
+        // Measured against the pinned DuckDB: the rendering of `MAX(getenv('X'))` is
         // `SELECT (MAX(GETENV('X'))) FROM fact_subscription` and it RETURNS THE VALUE of the
         // environment variable. With `SUTURA_SECRET_PROBE=hunter2-exfiltrated` set in the process,
         // that statement answered `hunter2-exfiltrated`. Every secret the sutura process holds -

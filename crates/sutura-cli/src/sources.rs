@@ -230,7 +230,7 @@ fn unservable(cause: &sutura_config::SettingsLoadError) -> String {
 ///
 /// **And the reason is that it is not done, NOT that it cannot be.** An earlier version of this
 /// comment said the loader records no per-key provenance. That was false and review caught it:
-/// `config` 0.15.25 stamps every value with its source, `Config::cache` and `Value::origin()` are
+/// `config` at the resolved version stamps every value with its source, `Config::cache` and `Value::origin()` are
 /// both public, and `crate::settings::read` already builds that value and drops it one line later.
 /// `github.com/telekom/sutura#440` carries the measurement and the shape of the change.
 fn overlay_remedy(variables: &[String]) -> String {

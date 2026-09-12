@@ -180,6 +180,22 @@ land there too, so it is not a defect in your change - but nothing about causali
 either. Substitute a mutation run, or scope the gate per commit, and say which in the pull request.
 Read the verdict line, never a step's colour.
 
+**Splitting a test file that hit the 1000-line cap has two answers, and the cheap one comes first.**
+Move the assertions into a new module and declare it `#[cfg(test)] mod <name>;` - that form keeps
+the declaring file at HEAD, so the base tree still has the declaration and the new module is not
+orphaned. A bare `mod <name>;` reverts the declarer instead, and that is the whole difference
+between exit 0 and *the tests this diff added did not run on base*. Only where the split has to land
+beside a real implementation change, add `Cleanup-Split: <path>` as a commit trailer naming the file
+you split: the gate then verifies the commit moved test code and changed none - every changed line
+except a blank one is test code in its own image, and the code-line multiset is equal on both
+sides - and answers `nothing to measure`. Only three shapes may be in surplus, and only on the
+added side: a `#[cfg(test)]`, a `mod` declaration that resolves into the same diff, and a
+`super::`-relative `use`. So move the imports the new module needs from `super::`, keep every other
+line byte-identical, and put anything else in a second commit. **The trailer is a claim, not a
+permission**: one added, deleted or reworded line - a comment and an attribute included - and the
+gate fails and names it. `sutura/gates` carries the five conditions and what that pass does not
+prove.
+
 **The gate measures the MERGE BASE, it says which commit that was, and on a stack it derives it.**
 It resolves `git merge-base <ref> HEAD` itself, so a base branch that has moved on cannot put other
 people's commits into the diff - and on a stacked branch it takes the fork point from the parent

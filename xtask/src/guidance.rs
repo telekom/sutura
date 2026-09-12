@@ -8,12 +8,12 @@
 //! Scope: documentation and configuration (`.md`, `.nix`, `.yml`, `.yaml`, `.toml`, `.sh`) for
 //! everything that judges a SENTENCE - Rust source is deliberately out of that, see the filter in
 //! `run` - plus Rust source for the two checks that judge a CITATION, which is resolvable rather
-//! than read.
+//! than read, and for `versions`, which judges a TOKEN beside a name read out of the manifests.
 //!
 //! Eleven checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
-//! * `versions` - a version written anywhere must match the pin it describes
+//! * `versions` - a version in a comment, where no mechanism compares it to the pin
 //! * `claims` - a statement about what this repo has, checked against what it has
 //! * `counts` - a number in prose that counts something, checked against the count
 //! * `references` - a gate, task or skill named in prose must exist
@@ -25,8 +25,8 @@
 //! * `hosts` - the file a sentence names as holding a mechanism must be the file that holds it
 //! * `pages` - a page's amendment ordinals and its table headers, held against the page's own shape
 //!
-//! `remedies`, `advice`, `constants` and `absences` are the four that read Rust rather than prose;
-//! `hosts` reads prose and derives its answer from anywhere. `remedies` is here because of
+//! `remedies`, `advice`, `constants`, `absences` and `versions` are the five that read Rust rather
+//! than prose; `hosts` reads prose and derives its answer from anywhere. `remedies` is here because of
 //! `github.com/telekom/sutura#241`: a remedy in `claims` said a transport surface was absent for as
 //! long as it took a person to read it, because the prose scope below never reached this binary's
 //! own source. `advice` is here because of `github.com/telekom/sutura#243`, which is the same hole
@@ -57,8 +57,8 @@ use crate::repo;
 // MECHANICAL SPLIT, and nothing moved across it changed. `max-lines` caps a file at 1000 and
 // cannot exempt anything under `xtask/`, and the two tables below grow by ENTRY - one claim is
 // about twenty lines - so the file that holds them is the one that has to have room. The
-// boundary is the one seam here: `stale`, `versions` and `references` judge a LINE, while
-// `claims` and `counts` judge a claim across lines and need a flattened view to do it.
+// boundary is the one seam here: `stale` and `references` judge a LINE, while `claims` and
+// `counts` judge a claim across lines and need a flattened view to do it.
 mod claims;
 // The citation half of `github.com/telekom/sutura#243`. A module rather than lines here for the
 // reason above: this file has to have room for the tables, and a scan over Rust source shares
@@ -83,12 +83,18 @@ mod hosts;
 // the page's own structure, so it needs no table and grows by rule rather than by entry. Its
 // assertions are in `tests` below rather than beside it, for the reason `mod claims` gives.
 mod pages;
+// A module for `advice`'s reason, and it reads Rust for `constants`' one layer on: the name it
+// keys on comes out of the manifests, and the copy it refuses is as often in a `//` comment as in
+// a page. What it does NOT reach, and the measured false positives that decided its axis, are in
+// its own header rather than here.
+mod versions;
 
 use absences::{Reading, absence_problems};
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 use constants::constant_problems;
 use hosts::{HOSTED, host_mismatches};
 use pages::{PageCounts, page_problems};
+use versions::{Scan, comment_versions};
 
 /// A phrase that should not appear, and what to write instead.
 struct Forbidden {
@@ -246,85 +252,24 @@ const FORBIDDEN: &[Forbidden] = &[
 // alongside, the needles would have enumerated one input of a rule that subsumes them, which is
 // the shape `github.com/telekom/sutura#384`'s fix deleted rather than kept.
 
-/// A version that must agree wherever it is written.
-struct Pin {
-    /// Human name, for the message.
-    name: &'static str,
-    /// File holding the authoritative value.
-    source: &'static str,
-    /// Line prefix in that file; the value is the rest, unquoted.
-    key: &'static str,
-    /// Where the value may also appear, and must match if it does. **At least one page here has
-    /// to state it**, or the pin is read and compared to nothing - see [`version_mismatches`].
-    mentioned_in: &'static [&'static str],
-    /// Regex-free detector: a line containing this marker must contain the value.
-    marker: &'static str,
-}
-
-const PINS: &[Pin] = &[Pin {
-    name: "Rust toolchain",
-    source: "rust-toolchain.toml",
-    key: "channel = ",
-    mentioned_in: &["docs/**", "AGENTS.md", ".agents/skills/**", "README.md"],
-    // A line that names the pin file and a version is claiming what the pin is.
-    marker: "rust-toolchain.toml",
-}];
+// A `Pin` table stood here: one entry, the compiler, compared against every page that named
+// `rust-toolchain.toml` beside a version. It is gone rather than widened, and the reason is that
+// its shape required the thing it was guarding against. It held a version in prose CORRECT, so at
+// least one page had to state one - it failed when none did - and a rule that refuses the copy
+// outright cannot also require it. `versions` refuses it, so the pin is read from the pin file by
+// whoever needs it and written down nowhere. See `xtask/src/guidance/versions.rs`.
 
 /// Case-insensitive extension test. A case-sensitive one is a bug on a case-insensitive
 /// filesystem, which is where half of this repo is developed.
-fn has_ext(path: &str, exts: &[&str]) -> bool {
+///
+/// Shared with [`versions`] rather than copied: that check splits a file by KIND to find its
+/// comment marker, which is the same question this answers, and `ends_with(".yml")` there was
+/// the same bug one module over - clippy's `case_sensitive_file_extension_comparisons` said so.
+pub(in crate::guidance) fn has_ext(path: &str, exts: &[&str]) -> bool {
     std::path::Path::new(path)
         .extension()
         .and_then(std::ffi::OsStr::to_str)
         .is_some_and(|e| exts.iter().any(|want| e.eq_ignore_ascii_case(want)))
-}
-
-/// The value of `key` in `source`, with quotes and whitespace stripped.
-fn pinned_value(root: &Path, pin: &Pin) -> Option<String> {
-    let text = std::fs::read_to_string(root.join(pin.source)).ok()?;
-    for line in text.lines() {
-        if let Some(rest) = line.trim().strip_prefix(pin.key) {
-            return Some(String::from(rest.trim().trim_matches('"')));
-        }
-    }
-    None
-}
-
-/// The versions this line claims the pin IS, which is empty unless it names the pin file.
-///
-/// Deliberately narrow: only lines that also name the pin file are judged, because those are
-/// the ones asserting what the pin is. A line mentioning some other version is not this
-/// check's business, and a line naming the pin file with no version is a legitimate sentence
-/// about where the pin lives.
-///
-/// Tokens rather than a verdict, because one walk answers both questions the gate has: *does this
-/// line contradict the pin*, and *does any page state it at all*. The second is what keeps the
-/// first from running over an empty set - see [`version_mismatches`].
-///
-/// A token counts if it is a bare version like `1.98.0` OR a `nightly-<date>` like
-/// `nightly-2026-09-08`: the single pin channel is a nightly date, so a page that states it
-/// writes the whole token and it must equal the pin value read back from the file.
-fn stated_versions(line: &str, pin: &Pin) -> Vec<String> {
-    if !line.contains(pin.marker) {
-        return Vec::new();
-    }
-    line.split_whitespace()
-        // Trim the sentence's own punctuation first: "1.98.0." is the same version as
-        // "1.98.0", and treating them as different is how a correct doc gets flagged.
-        .map(|t| t.trim_matches(['.', ',', ';', ':', '(', ')', '"', '\'']))
-        .filter(|t| {
-            let body = t.strip_prefix("nightly-").unwrap_or(t);
-            // A bare version is dotted (`1.98.0`); a nightly date is dash-separated
-            // (`2026-09-08`), so a date carries no `.` and must be matched on its `-`.
-            body.contains(['.', '-']) && body.starts_with(|c: char| c.is_ascii_digit())
-        })
-        .map(String::from)
-        .collect()
-}
-
-/// Does this line look like it states a version, other than the pinned one?
-fn contradicts(line: &str, pin: &Pin, value: &str) -> bool {
-    stated_versions(line, pin).iter().any(|t| t != value)
 }
 
 /// Task names this binary actually dispatches, so prose cannot cite a deleted gate.
@@ -452,56 +397,6 @@ fn stale_phrases(root: &Path, files: &[String]) -> Vec<String> {
     problems
 }
 
-fn version_mismatches(root: &Path, files: &[String]) -> Vec<String> {
-    let mut problems = Vec::new();
-    for pin in PINS {
-        let Some(value) = pinned_value(root, pin) else {
-            problems.push(format!(
-                "could not read the {} pin from {} (key `{}`)",
-                pin.name, pin.source, pin.key
-            ));
-            continue;
-        };
-        let mut stated = 0_usize;
-        for rel in files {
-            if !repo::matches_any(pin.mentioned_in, rel) {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-                continue;
-            };
-            for (i, line) in text.lines().enumerate() {
-                if !stated_versions(line, pin).is_empty() {
-                    stated = stated.saturating_add(1);
-                }
-                if contradicts(line, pin, &value) {
-                    problems.push(format!(
-                        "{rel}:{}: names {} but the pin in {} is {value}\n      {}",
-                        i + 1,
-                        pin.name,
-                        pin.source,
-                        line.trim()
-                    ));
-                }
-            }
-        }
-        if stated == 0 {
-            // The same failure `count_mismatches` fails for, on the shape whose documentation
-            // calls itself "the third shape of the same idea" - and it was LIVE, not latent, when
-            // this check was written: six pages named `rust-toolchain.toml` and not one carried a
-            // version, so the comparison ran over an empty set every run while the success line
-            // said `1 pin(s)`. A control over nothing reads as a control on the compiler version.
-            problems.push(format!(
-                "nothing under {:?} states the {} version - the pin is read and compared to \
-                 nothing, so this entry in PINS is a gate over silence. State it on a line naming \
-                 `{}`, or delete the entry",
-                pin.mentioned_in, pin.name, pin.marker
-            ));
-        }
-    }
-    problems
-}
-
 /// Where a claim may be MADE: documentation and configuration, not Rust source.
 ///
 /// Two reasons, and the second is the one that matters: a rule table written in Rust contains the
@@ -532,9 +427,12 @@ fn in_scope(files: &[String]) -> Vec<String> {
 /// `ok` over a planted defect: each check is covered by its own unit tests, and the CALL was
 /// covered by nothing. `tests::a_check_dropped_from_the_run_is_caught` holds this composition over
 /// a fixture tree, so a check that stops being wired is red rather than silent.
-fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> (Vec<String>, PageCounts, Reading) {
+/// What [`tree_problems`] answers: the problems, plus what each walk that carries a floor read.
+/// A named type because the tuple grew past what clippy will read as one.
+type TreeVerdict = (Vec<String>, PageCounts, Reading, Scan);
+
+fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> TreeVerdict {
     let mut problems = stale_phrases(root, text_files);
-    problems.extend(version_mismatches(root, text_files));
     problems.extend(contradicted_claims(root, text_files));
     problems.extend(count_mismatches(root, files, text_files));
     problems.extend(bad_task_references(root, text_files));
@@ -554,7 +452,12 @@ fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> (Vec<S
     // in it: `text_files` again, because a page is where an ordinal and a table are written.
     let (page, pages) = page_problems(root, text_files);
     problems.extend(page);
-    (problems, pages, read)
+    // `files`, and here rather than beside its caller for the reason above: a version in a `//`
+    // comment is the instance this check was widened for, so `text_files` would have put it on
+    // the pages and left the source it is copied from alone.
+    let (copies, scan) = comment_versions(root, files);
+    problems.extend(copies);
+    (problems, pages, read, scan)
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
@@ -571,7 +474,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // limit below is about where a CLAIM may be made, not about what may be counted.
     let text_files = in_scope(&files);
 
-    let (mut problems, pages, read) = tree_problems(&root, &files, &text_files);
+    let (mut problems, pages, read, scan) = tree_problems(&root, &files, &text_files);
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
     problems.extend(remedy_problems(&root));
@@ -599,10 +502,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // nobody checks, and `{read} of {offered}` is what makes a narrowed walk visible in a
         // green run rather than only in a red one.
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} absence statement(s) over {} file(s) and {} production line(s), {} of {} page(s) lexed, {} amendment heading(s)",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pinned name(s) over {} comment line(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} absence statement(s) over {} file(s) and {} production line(s), {} of {} page(s) lexed, {} amendment heading(s)",
             text_files.len(),
             FORBIDDEN.len(),
-            PINS.len(),
+            scan.names,
+            scan.comments,
             CONTRADICTED.len(),
             COUNTS.len(),
             HOSTED.len(),
@@ -631,120 +535,19 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         "if the rule itself is wrong, change it in xtask/src/guidance.rs - or in\n\
          xtask/src/guidance/claims/contradicted.rs for a claim,\n\
          xtask/src/guidance/claims/counts.rs for a count, or\n\
-         xtask/src/guidance/pages.rs for a page's own shape - with a reason."
+         xtask/src/guidance/pages.rs for a page's own shape, or\n\
+         xtask/src/guidance/versions.rs for a version - with a reason."
     );
+    eprintln!();
+    eprintln!("A version in a comment is a copy nothing compares, so it rots and then misleads.");
+    eprintln!("Name the dependency and not the number - `ureq` at the resolved version and");
+    eprintln!("features is already in the graph - and leave the value in the file that pins it.");
     Verdict::Fail
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Pin, contradicts, known_tasks};
-
-    const PIN: Pin = Pin {
-        name: "Rust toolchain",
-        source: "rust-toolchain.toml",
-        key: "channel = ",
-        mentioned_in: &[],
-        marker: "rust-toolchain.toml",
-    };
-
-    #[test]
-    fn a_line_naming_the_pin_file_and_a_stale_version_contradicts() {
-        assert!(contradicts(
-            "The compiler pin is rust-toolchain.toml, currently 1.98.0.",
-            &PIN,
-            "nightly-2026-09-08"
-        ));
-        assert!(!contradicts(
-            "The compiler pin is rust-toolchain.toml, currently nightly-2026-09-08.",
-            &PIN,
-            "nightly-2026-09-08"
-        ));
-    }
-
-    #[test]
-    fn a_line_not_naming_the_pin_file_is_none_of_its_business() {
-        // Some other version in prose is not a claim about our pin.
-        assert!(!contradicts(
-            "DataFusion 53 is the upstream version.",
-            &PIN,
-            "nightly-2026-09-08"
-        ));
-    }
-
-    #[test]
-    fn trailing_punctuation_is_not_a_different_version() {
-        // The sentence's full stop is not part of the version.
-        assert!(!contradicts(
-            "Pinned in rust-toolchain.toml at nightly-2026-09-08.",
-            &PIN,
-            "nightly-2026-09-08"
-        ));
-        assert!(contradicts(
-            "Pinned in rust-toolchain.toml at 1.98.0.",
-            &PIN,
-            "nightly-2026-09-08"
-        ));
-    }
-
-    #[test]
-    fn a_line_naming_the_pin_file_with_no_version_is_fine() {
-        assert!(!contradicts(
-            "The compiler pin lives in rust-toolchain.toml and nowhere else.",
-            &PIN,
-            "nightly-2026-09-08"
-        ));
-    }
-
-    #[test]
-    fn a_line_naming_the_pin_file_with_no_version_states_nothing_either() {
-        use super::stated_versions;
-        // The distinction the vacuity check rests on: *fine* and *a statement* are not the same
-        // verdict. Every marker line in this repo used to be the first kind, which is how a
-        // working comparison ended up with nothing to compare.
-        assert!(
-            stated_versions("The compiler pin lives in rust-toolchain.toml and nowhere else.", &PIN).is_empty(),
-            "a pin mention with no version states no version"
-        );
-        assert_eq!(
-            stated_versions("Pinned in rust-toolchain.toml at nightly-2026-09-08.", &PIN),
-            vec![String::from("nightly-2026-09-08")]
-        );
-        assert!(
-            !stated_versions("Pinned in rust-toolchain.toml at 1.98.0.", &PIN).is_empty(),
-            "a stale bare version is still a stated version, so it can be contradicted"
-        );
-        assert!(
-            stated_versions("DataFusion 53.0.0 is the upstream version.", &PIN).is_empty(),
-            "the DataFusion version line states no compiler-pin version"
-        );
-    }
-
-    #[test]
-    fn a_pin_entry_is_compared_against_a_page_that_states_it() {
-        // The mirror of `claims::tests::a_count_entry_is_compared_against_a_page_that_states_it`,
-        // for the shape `Counted`'s own documentation calls the third of the same idea. This was
-        // RED when it was written: the pin was `1.98.0`, six pages named the pin file, and none of
-        // them said what the pin was.
-        let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
-            .expect("could not list the repo");
-        for pin in super::PINS {
-            let value = super::pinned_value(&root, pin).expect("the pin value");
-            let stated = files
-                .iter()
-                .filter(|rel| crate::repo::matches_any(pin.mentioned_in, rel))
-                .filter_map(|rel| std::fs::read_to_string(root.join(rel)).ok())
-                .flat_map(|text| text.lines().map(|line| super::stated_versions(line, pin)).collect::<Vec<_>>())
-                .any(|versions| !versions.is_empty());
-            assert!(
-                stated,
-                "no page under {:?} states the {} version ({value}) beside `{}`",
-                pin.mentioned_in, pin.name, pin.marker
-            );
-        }
-    }
+    use super::known_tasks;
 
     #[test]
     fn a_flag_or_placeholder_is_not_a_task_name() {
@@ -918,7 +721,7 @@ mod tests {
         // of writing a record rather than a bare table.
         std::fs::write(
             dir.join(&rel),
-            "## Amendment, 2026-08-30\n\ntext\n\n## Fourth amendment\n\nA paragraph.\n| a | b |\n| --- | --- |\n",
+            "## Amendment, 2026-08-30\n\nPinned at nightly-2020-01-02.\n\n## Fourth amendment\n\nA paragraph.\n| a | b |\n| --- | --- |\n",
         )
         .expect("the fixture page");
         // THE ABSENCE HALF, and it is here because the same discard worked a second time: this
@@ -928,7 +731,7 @@ mod tests {
         // `problems.extend(refuted)` in `run` left 1023 tests green and the gate at exit 0 over a
         // planted refutation, byte-identical to a clean run.
         let files = vec![rel];
-        let (problems, counts, read) = super::tree_problems(&dir, &files, &files);
+        let (problems, counts, read, scan) = super::tree_problems(&dir, &files, &files);
         std::fs::remove_dir_all(&dir).unwrap_or_default();
         assert_eq!(counts.read, 1, "the fixture page was lexed");
         assert!(
@@ -942,15 +745,23 @@ mod tests {
             "the table rule must reach the run: {problems:#?}"
         );
         assert!(
-            // `ABSENCES` by name, not the shared phrase: `PINS` emits "is a gate over silence" too
-            // and fires over this fixture, so the looser assertion passed through the wrong check.
+            // `ABSENCES` by name rather than the shared phrase, which more than one check emits.
             problems
                 .iter()
                 .any(|p| p.contains("this entry in ABSENCES is a gate over silence")),
             "the absence check must reach the run: {problems:#?}"
         );
-        // And its numbers come back through this function, so a caller that stopped reading them
-        // is a compile error rather than a silent zero.
+        // THE VERSION HALF. A `nightly-<date>` is the one token this check refuses with no name
+        // beside it, which is what lets a fixture with no manifest in it hold the call: the name
+        // harvest reads nothing here, so a keyed instance could not fire and a dropped
+        // `problems.extend(copies)` would look identical to a clean run.
+        assert!(
+            problems.iter().any(|p| p.contains("nightly-2020-01-02")),
+            "the version check must reach the run: {problems:#?}"
+        );
+        // And their numbers come back through this function, so a caller that stopped reading
+        // them is a compile error rather than a silent zero.
         assert_eq!(read.stated, 0, "the fixture states no registered absence");
+        assert_eq!(scan.comments, 9, "every line of the fixture page is prose");
     }
 }

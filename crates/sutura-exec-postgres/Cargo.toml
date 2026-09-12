@@ -54,7 +54,11 @@ sutura-dev = { workspace = true }
 # this is still compiled, linted and tested on every run. `check-default-features` and
 # `check-default-feature-tests` scope themselves to the shipped set, which this crate is not in.
 [features]
-fixtures = []
+fixtures = ["sutura-domain/fixtures"]
+
+[[test]]
+name = "conformance"
+required-features = ["fixtures"]
 
 [lints]
 workspace = true

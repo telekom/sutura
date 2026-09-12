@@ -18,7 +18,7 @@
 //!
 //! # Why this does not read the notice, which is the remedy the report asked for
 //!
-//! **MEASURED against prek 0.4.14: a passing hook's own output is not in the log.** A minimal
+//! **MEASURED against the pinned prek: a passing hook's own output is not in the log.** A minimal
 //! repository with one hook whose entry self-skips and exits 0:
 //!
 //! ```text

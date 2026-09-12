@@ -33,9 +33,6 @@ the shortest path around every check upstream of here.
 although an in-process engine over a local file has no row-level security to leak through,
 adding a cache here would be the place the habit started.
 
-What it does offer is two narrow, typed attach affordances, `DataFusionWarehouse::attach_csv`
-and `DataFusionWarehouse::attach_parquet`, which is what a golden fixture needs.
-
 **The engine's memory is bounded, and the bound is not this process's memory.** Every session here
 is built with a `RuntimeEnv` carrying a fixed-size pool, because the alternative is the engine's
 unbounded one - and under `panic = "abort"` a large enough hash join is then process death for
@@ -44,12 +41,7 @@ every concurrent caller rather than an error for the one who asked. A refused re
 else**: not what a driver buffers, not `collect()` materialising every batch, not the row set built
 in the conversion loop below. See `pool`, which states the gap rather than implying it is closed.
 
-# Four files, along three seams
-
-`translate.rs` turns a plan into expressions and never reads a result; `collect.rs` turns a result
-into domain rows and never reads a plan except for its labels; `pool.rs` is the working-set ceiling
-and reads neither. What is left here is what none of them is about: the session, the runtime,
-attaching a file, and executing.
+`translate`, `collect`, `fixture` and `pool` own narrow seams; this owns session and execution.
 
 ## `enum DataFusionError`
 
@@ -102,13 +94,15 @@ An in-process engine, behind the `Warehouse` port.
 pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
 ```
 
-Exposes a CSV file as a table.
+Exposes a CSV file as a table. `DataFusion` handles inference.
 
-A narrow, typed affordance instead of a general "run this" method, which is what a local
-adapter usually grows and what would make every check upstream of here optional. Nothing is
-escaped and nothing is quoted, because nothing is rendered: the name and the path are
-arguments to a registration call, so a path with a quote in it is a path. `has_header` is the
-read options' default.
+```rust
+pub fn attach_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
+```
+
+Exposes a deliberately simple conformance fixture CSV with exact shared types.
+
+Available only with the default-off `fixtures` feature.
 
 ```rust
 pub fn attach_parquet(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
@@ -190,11 +184,7 @@ exits, and it is also the caller with no settings to read a width from.
 pub const fn working_set(&self) -> WorkingSet
 ```
 
-The ceiling this adapter's pool was built with.
-
-From the configured value rather than from `MemoryPool::memory_limit`, which defaults to
-`Unknown`: a pool that does not override it reports no ceiling, and then the reserved-against-
-ceiling ratio an operator actually wants cannot be computed.
+The configured pool ceiling; `MemoryPool::memory_limit` can report `Unknown` instead.
 
 ### Implements
 
