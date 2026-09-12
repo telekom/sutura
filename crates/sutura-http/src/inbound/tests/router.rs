@@ -201,6 +201,24 @@ async fn a_challenge_points_at_metadata_only_for_an_exact_origin_form_resource()
         );
     }
 
+    let spelled_resource = "https://Sutura.Example.com:443/v1/query";
+    let spelled_issuer = MockIssuer::generating(crate::testing::ISSUER, spelled_resource, crate::testing::KID)
+        .expect("a mock issuer generates a key pair");
+    let spelled_app = app_verifying(&spelled_issuer);
+    let spelled_bare = format!("Bearer realm=\"{spelled_resource}\", error=\"invalid_token\"");
+    assert_eq!(
+        challenge_for(&spelled_app, "/v1/query", Some("Sutura.Example.com:443")).await,
+        Some(format!(
+            "{spelled_bare}, resource_metadata=\"https://Sutura.Example.com:443/.well-known/oauth-protected-resource/v1/query\""
+        )),
+        "the configured authority is preserved byte for byte"
+    );
+    assert_eq!(
+        challenge_for(&spelled_app, "/v1/query", Some("sutura.example.com")).await,
+        Some(spelled_bare),
+        "a normalized Host is not the configured resource spelling"
+    );
+
     let root = an_issuer();
     assert_eq!(
         challenge_for(&app_verifying(&root), "/v1/query", Some("sutura.example.com"))

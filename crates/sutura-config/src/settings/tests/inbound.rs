@@ -136,13 +136,9 @@ fn direct_resource_refusal(resource: &str) -> InvalidInboundValue {
 }
 
 fn malformed_resource_refusal() -> InvalidInboundValue {
-    let refusal =
-        ResourceIdentifier::parse("https://example.com:not-a-port/tenant").expect_err("a non-numeric port is a malformed URL");
-    assert!(
-        !matches!(refusal, InvalidInboundValue::NotHttps { .. }),
-        "an https URL with malformed structure is not a scheme refusal"
-    );
-    refusal
+    InvalidInboundValue::MalformedUrl {
+        key: ResourceIdentifier::KEY,
+    }
 }
 
 #[test]
