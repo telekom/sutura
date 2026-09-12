@@ -36,21 +36,18 @@
 //! 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
 //!    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
 //!    service-account key - the first statement this repository generated to be accepted by
-//!    `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column fixture, so it
-//!    says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or `ISOWEEK` - and
-//!    the last is one of the two constructs `docs/adr/0017` measured the parse check to be blind
-//!    about. **The corpus-wide leg that record specifies is `tests/corpus.rs`, beside it**, behind the
-//!    default-off `fixtures` feature: it loads the example fixtures into four tables through
+//!    `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column
+//!    fixture, so it says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or
+//!    `ISOWEEK` - and the last is one of the two constructs `docs/adr/0017` measured the parse check
+//!    to be blind about. **The corpus-wide leg is `tests/corpus.rs`**, behind the default-off
+//!    `fixtures` feature: it loads the example fixtures into four tables through
 //!    [`BigQueryWarehouse::load_fixture`], runs the corpus questions, and compares its rows with the
 //!    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 //!
 //! So nothing here may be cited as an invariant. `sutura-serve` DOES link this adapter and dispatch
 //! `kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
-//! records the day the last *not wired* was spent, and the two sentences that used to stand here
-//! said the opposite. What is still true is that a default build links none of it,
-//! and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
-//! last one has changed rather than gone away.** It was *a cell that has never executed reads as
-//! coverage*; the corpus leg executes, so what keeps the entry out now is that a cell in that registry
+//! records the day the last *not wired* was spent. A default build links none of it, and
+//! the `data_systems:` axis of the golden matrix gains no entry - because a cell in that registry
 //! runs inside `just test` and this one cannot: the nix sandbox has no network, so acceptance is a
 //! `nix run` app and not a `checks.*` output.
 //!
@@ -65,14 +62,14 @@
 //! the composition root that links this adapter, which is the half `docs/implementation-plan-bigquery.md`
 //! describes as not wired.
 //!
-//! **ONE of the two subject shapes, and the other is refused rather than degraded.** The domain's
+//! **ONE of the two subject shapes, and the other is refused rather than degraded.** A
 //! [`Presented::SubjectPrincipal`] is a principal the data system switches to on a connection the
 //! DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
-//! subject token, so [`Presented::agrees_with`] passes it and only this adapter can say it has
-//! nowhere to put it. [`BigQueryError::NoPrincipalSwitch`] is that refusal, and the reason it is a
-//! refusal is the reason the whole-shape `NoPlaceForASubject` it replaced existed: a leg accepted
-//! here would be submitted under the transport's own credential while provenance, read off this
-//! source's posture, reported the answer as impersonated.
+//! subject token, so [`Presented::agrees_with`] passes it
+//! and only this adapter can say it has nowhere to put it. [`BigQueryError::NoPrincipalSwitch`] is
+//! that refusal, and the reason it is a refusal is the reason the whole-shape `NoPlaceForASubject`
+//! it replaced existed: a leg accepted here would be submitted under the transport's own credential
+//! while provenance, read off this source's posture, reported the answer as impersonated.
 //!
 //! **What no version of this is:** a deployment where a served source executes as its asker.
 //! `sutura-serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
@@ -90,8 +87,7 @@
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and this
 //! is the first adapter where there would be row-level security to leak through.
 
-use core::num::NonZeroU64;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 #[cfg(feature = "fixtures")]
@@ -99,10 +95,14 @@ use sutura_domain::model::TableName;
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, Real, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::preflight::TablesPresent;
+use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, RowSet, Warehouse};
 use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
+
+mod rowset;
+
+mod preflight;
 
 pub mod transport;
 #[cfg(feature = "wire")]
@@ -123,9 +123,7 @@ pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 mod sts;
 pub use sts::{StsCredential, StsExchange, SystemClock, UnixClock, WorkloadIdentity, WorkloadIdentityBroker};
 
-use crate::transport::{
-    Cell, DatasetAddress, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ListingTotal, ProjectId,
-};
+use crate::transport::{DatasetId, JobRequest, JobRows, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.
 ///
@@ -133,45 +131,6 @@ use crate::transport::{
 /// workspace tightened, and because the generic error is the point: erasing it would lose which
 /// transport failed.
 type Mapped<V, E> = Result<V, BigQueryError<E>>;
-
-/// The bundle's tables, grouped by the dataset each resolves in.
-///
-/// Named for the reason [`Mapped`] is: the map is over the `type_complexity` threshold this
-/// workspace tightened, and *by dataset* is what it means where the spelled-out type is not.
-type ByDataset<'bundle> = BTreeMap<DatasetAddress, Vec<&'bundle QualifiedTable>>;
-
-/// What a pre-flight's short listings left behind: the tables none of them named, and how many
-/// tables those listings left out of their own totals.
-///
-/// **A struct and not two locals, which is a review finding rather than a nod to
-/// `type_complexity`.** Two bindings is how a shortfall of one comes to describe three tables, and
-/// how a count derived by arithmetic gets to disagree with the set beside it - both shapes were
-/// reproduced. Here they are written together or not at all, and the count is a [`NonZeroU64`]
-/// taken off `Shortfall`, so it cannot arrive as the zero that used to route this answer back to
-/// *these tables are absent*.
-struct Gap {
-    /// The tables no short listing named. Non-empty: this type is built only when one is added.
-    unaccounted_for: BTreeSet<QualifiedTable>,
-    /// How many tables those listings claim that no readable id accounted for.
-    shortfall: NonZeroU64,
-}
-
-impl Gap {
-    /// One dataset's own gap, folded into whatever the earlier datasets left.
-    fn widened(gap: Option<Self>, unnamed: BTreeSet<QualifiedTable>, by: NonZeroU64) -> Self {
-        match gap {
-            None => Self {
-                unaccounted_for: unnamed,
-                shortfall: by,
-            },
-            Some(mut so_far) => {
-                so_far.unaccounted_for.extend(unnamed);
-                so_far.shortfall = so_far.shortfall.saturating_add(by.get());
-                so_far
-            }
-        }
-    }
-}
 
 /// Why this data system could not answer.
 ///
@@ -206,13 +165,14 @@ where
     /// The leg presents a principal for the data system to switch to, and there is no such
     /// mechanism here.
     ///
-    /// **The narrow half of what `NoPlaceForASubject` used to refuse wholesale, and it has to stay
-    /// refused for the reason the wholesale version existed.** This adapter declares
-    /// `PerSubjectCredential` and delivers exactly one of the two subject shapes: a
-    /// [`Presented::SubjectToken`] rides as this job's bearer, so the dataset evaluates the
-    /// statement under whoever the token is. `BigQuery` has no proxy-user or `SET ROLE` equivalent
-    /// for a [`Presented::SubjectPrincipal`], so a leg carrying one has no material to send - and
-    /// [`Presented::agrees_with`] passes it, because the two shapes are the same POSTURE. Accepting
+    /// **The narrow half of a refusal that used to be wholesale, and it has to stay refused.** This
+    /// adapter declares `PerSubjectCredential` and delivers exactly one of the two subject shapes: a
+    /// [`SubjectToken`](sutura_domain::identity::Presented::SubjectToken) rides as this job's bearer, so the
+    /// dataset evaluates the statement under whoever the token is. `BigQuery` has no proxy-user or
+    /// `SET ROLE` equivalent for a [`SubjectPrincipal`](sutura_domain::identity::Presented::SubjectPrincipal),
+    /// so a leg carrying one has no material to send - and
+    /// [`agrees_with`](sutura_domain::identity::Presented::agrees_with) passes it, because the two shapes are
+    /// the same POSTURE. Accepting
     /// it would submit the job under the credential the transport already holds while provenance,
     /// read off this source's posture, reported the answer as impersonated: every row as the
     /// process, recorded as the asker.
@@ -227,15 +187,15 @@ where
     /// A column came back as a type this adapter does not map.
     ///
     /// It NAMES the type rather than answering null, which is the whole reason
-    /// [`FieldType::Unmapped`] carries the endpoint's own spelling.
+    /// [`FieldType::Unmapped`](crate::transport::FieldType::Unmapped) carries the endpoint's own
+    /// spelling.
     #[error("column {column} came back as {named}, which this adapter does not map")]
     UnmappedType { column: String, named: String },
     /// A cell declared `INT64` did not parse as one.
     ///
     /// **Two variants rather than one carrying a `&'static str`, because the CAUSE differs.** The
-    /// endpoint sends every value as text, so "declared an integer" and "parses as an integer" are two
-    /// facts, and the standard-library error that says why is worth keeping on the chain - `#[source]`
-    /// is not wired for you.
+    /// endpoint sends every value as text, so "declared an integer" and "parses as an integer" are
+    /// two facts, and the standard-library error that says why is worth keeping on the chain.
     #[error("column {column} is declared INT64 and its value did not parse as one")]
     NotAnInteger {
         column: String,
@@ -298,7 +258,8 @@ where
     /// Its own variant rather than [`Self::RowWidth`] or [`Self::Shape`], because what a caller does
     /// about it is different: those two are a result set this adapter could not map, and this is
     /// *the endpoint did not tell us who ran the job* - which for the one caller that asks
-    /// ([`BigQueryWarehouse::session_user`]) is the whole answer rather than a cell of it.
+    /// ([`BigQueryWarehouse::session_user`](crate::BigQueryWarehouse::session_user)) is the whole
+    /// answer rather than a cell of it.
     ///
     /// **It carries the SHAPE and never the value**, deliberately. The one thing this answer can
     /// contain is an account identifier, and the venue that reads it writes to a public log - so a
@@ -365,12 +326,9 @@ where
     /// pre-flight is the call where a missing check would matter least and be noticed least.
     ///
     /// **Two questions in order, and they are different questions.** The first is *can this adapter
-    /// deliver the SHAPE it was handed*, which [`Presented::agrees_with`] cannot answer: a
-    /// [`Presented::SubjectPrincipal`] and a [`Presented::SubjectToken`] are the same posture to the
-    /// domain, and this adapter can send only the second - see
-    /// [`BigQueryError::NoPrincipalSwitch`] for what accepting the first would report. The second is
-    /// *does the shape agree with how the source was DECLARED*, which is `agrees_with`'s exhaustive
-    /// match over the pair.
+    /// deliver the SHAPE it was handed*, which [`Presented::agrees_with`] cannot answer - see
+    /// [`BigQueryError::NoPrincipalSwitch`]. The second is *does the shape agree with how the source
+    /// was DECLARED*, which is `agrees_with`'s exhaustive match over the pair.
     ///
     /// The order is the point rather than an accident: a principal switch at a source declared
     /// shared is refused as the disagreement it is, because that is what an operator would fix,
@@ -471,13 +429,11 @@ where
             cause,
         })?;
         let statement = fixture.create_statement(table);
-        // No parameters, deliberately, and it is worth naming because the no-injection invariant is
-        // about exactly this position: a bind parameter carries a VALUE FROM A QUESTION, and there is
-        // no question here. What makes the literals safe is that each one was parsed - see the header
-        // of `crate::importer`.
-        // And no subject bearer, for the same reason there are no parameters: a fixture load is not
-        // an answer. There is no asker to present one, and a `CREATE OR REPLACE TABLE` is a thing the
-        // identity this transport already holds does to its own dataset - handing it a subject's
+        // No parameters, deliberately, and the no-injection invariant is about exactly this
+        // position: a bind parameter carries a VALUE FROM A QUESTION, and there is no question here.
+        // What makes the literals safe is that each one was parsed - see `crate::importer`.
+        // And no subject bearer for the same reason: a `CREATE OR REPLACE TABLE` is a thing the
+        // identity this transport already holds does to its own dataset, so handing it a subject's
         // exchanged token would run a write under whoever last asked a question.
         let request = JobRequest::new(&statement, &[], &self.billing_project, &self.default_dataset, None);
         self.transport
@@ -497,7 +453,7 @@ where
     /// It takes a table name and never a statement, for the same reason `load_fixture` does: the
     /// statement is rendered from a name that parsed, and *no arbitrary SQL entry point* stays true.
     ///
-    /// Behind the same `fixtures` feature and in the same impl block, for the same two reasons.
+    /// Behind the same `fixtures` feature and in the same impl block, for `load_fixture`'s reasons.
     #[cfg(feature = "fixtures")]
     pub fn drop_table(&self, table: &TableName) -> Dropped<T::Error> {
         let statement = crate::importer::Fixture::drop_statement(table);
@@ -519,9 +475,9 @@ where
     ///
     /// It goes through [`Self::deliverable`] like every other credential-taking method, so a leg
     /// whose credential disagrees with the source's posture is refused here too rather than being
-    /// answered by a read that looks harmless.
-    /// The [`SessionUser`] answer redacts under `Debug`; explicit access and `Display` still
-    /// reveal it. Neither this read nor its return type establishes how the bearer was obtained.
+    /// answered by a read that looks harmless. The [`SessionUser`] answer redacts under `Debug`;
+    /// explicit access and `Display` still reveal it. Neither this read nor its return type
+    /// establishes how the bearer was obtained.
     ///
     /// **Not part of the [`Warehouse`] port, and that is a decision rather than an omission.** No
     /// other adapter can answer it - `sutura-exec-datafusion` and `sutura-exec-duckdb` execute in
@@ -538,165 +494,17 @@ where
     pub fn session_user(&self, presented: &Presented) -> Mapped<SessionUser, T::Error> {
         identity_read::session_user(self, presented)
     }
-
-    /// One cell, as the domain names it.
-    ///
-    /// **The mapping is deliberately the same as `sutura-exec-duckdb`'s wherever both can answer**, and
-    /// that agreement is a correctness property rather than tidiness: one plan answered by two adapters
-    /// has to produce one number, or an anchor certified against one stops reproducing against the
-    /// other. The three arms where that matters are marked below.
-    fn cell(field: &Field, value: Cell) -> Mapped<Value, T::Error> {
-        let column = || String::from(field.name());
-        let text = match value {
-            // A null is a null whatever the column is declared as, so it is answered before the type
-            // is read. **A comment here used to conclude from that "an unmapped type holding only
-            // nulls is still an error", and the code did the opposite** - which is why the schema is
-            // now checked by [`Self::mappable`] before any row is read. This arm is the belt: it
-            // cannot fire for a result that came through `rows`, and it stays because `cell` is
-            // reachable from a test on its own and because a null-answered type would be a wrong
-            // number rather than a refusal.
-            Cell::Null => return Ok(Value::Null),
-            Cell::Text(text) => text,
-        };
-        match *field.kind() {
-            FieldType::Int64 => text
-                .parse::<i64>()
-                .map(Value::Integer)
-                .map_err(|cause| BigQueryError::NotAnInteger { column: column(), cause }),
-            // CHECKED, not taken - see `BigQueryError::NotFinite`. Both SQL adapters have this arm.
-            FieldType::Float64 => {
-                let parsed = text
-                    .parse::<f64>()
-                    .map_err(|cause| BigQueryError::NotADouble { column: column(), cause })?;
-                Real::parse(parsed)
-                    .map(Value::Real)
-                    .map_err(|cause| BigQueryError::NotFinite { column: column(), cause })
-            }
-            // **Both stay TEXT, and the arms are joined because the behaviour really is one arm.** For
-            // a string that is trivial; for an exact decimal it is the whole point - turning `NUMERIC`
-            // into an `f64` here is how a total that was correct in the data system stops being
-            // correct in an answer, which is the same sentence `sutura-exec-duckdb` carries on its own
-            // `Decimal` arm.
-            FieldType::Numeric | FieldType::String => Ok(Value::Text(text)),
-            // `Integer(0 | 1)`, because the domain's `Value` has no boolean and `sutura-exec-duckdb`
-            // answers a `BOOLEAN` the same way. Agreeing matters here: the example catalog counts a
-            // `churned_in_month` flag, so the two adapters would otherwise disagree about a metric.
-            FieldType::Bool => match text.as_str() {
-                "true" => Ok(Value::Integer(1)),
-                "false" => Ok(Value::Integer(0)),
-                _ => Err(BigQueryError::NotABool { column: column() }),
-            },
-            // Parsed and re-rendered rather than passed through, so a malformed date is an error here
-            // instead of text that looks like a date downstream. `sutura-exec-duckdb` reaches the same
-            // `Value::Text(date.to_iso())` from a day count.
-            FieldType::Date => sutura_domain::calendar::Date::parse(&text)
-                .map(|date| Value::Text(date.to_iso()))
-                .map_err(|cause| BigQueryError::NotADate { column: column(), cause }),
-            FieldType::Unmapped(ref named) => Err(BigQueryError::UnmappedType {
-                column: column(),
-                named: named.clone(),
-            }),
-        }
-    }
-
-    /// Every column the endpoint declared is one this adapter maps, or the first one that is not.
-    ///
-    /// **A schema-wide pass, and it runs BEFORE any row is read - which is the whole point.** The
-    /// per-cell check in [`Self::cell`] can only see a column that HOLDS something: a null is answered
-    /// before the type is read, so a result with no rows never reached the check at all and a result
-    /// whose unmapped column happened to be entirely null passed it. A `TIMESTAMP` or a `BYTES` column
-    /// therefore came back as a successful `RowSet`, and whether this adapter mapped a type depended on
-    /// what the data happened to be. Review found it; a test pins both shapes.
-    ///
-    /// It reads the SCHEMA and nothing else, so the answer does not vary with the page.
-    fn mappable(answered: &JobRows) -> Mapped<(), T::Error> {
-        for field in answered.fields() {
-            if let FieldType::Unmapped(ref named) = *field.kind() {
-                return Err(BigQueryError::UnmappedType {
-                    column: String::from(field.name()),
-                    named: named.clone(),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    /// Which dataset one model's table path resolves in, or `None` if this adapter cannot address it.
-    ///
-    /// **The unqualified case is the connection's own pair and not a guess**, which is the same
-    /// decision the request body's `defaultDataset` carries: a bare table name resolves in the
-    /// dataset the source was opened against, inside the project the job is billed to. A qualified
-    /// path overrides one or both, and each part is re-parsed by the type for its position - the
-    /// second parse `build_bigquery` already makes for the source's own two names, for the same
-    /// reason: the value written into a request path is this crate's to accept or refuse.
-    ///
-    /// **`None` rather than an `Err`, and review is why.** It used to return
-    /// `BigQueryError::UnusableTablePath`, which [`Self::preflight`] propagated out of the grouping
-    /// loop **before any dataset was listed** - so one mixed-case project id in a forty-model bundle
-    /// turned the whole check off for that source, as a single `WARN`, which is precisely the
-    /// issue-120 failure the check exists to remove. A path this adapter cannot write into a request
-    /// is a **definite negative and not an unknown**: no question against that model could ever be
-    /// answered, whatever the dataset holds. So it is an ABSENCE, it reaches the operator as a
-    /// refusal naming the model, and it costs no round trip.
-    fn addressed(&self, table: &QualifiedTable) -> Option<DatasetAddress> {
-        let billed_to = self.billing_project.clone();
-        let Some(qualifier) = table.qualifier() else {
-            return Some(DatasetAddress::of(
-                billed_to,
-                self.billing_project.clone(),
-                self.default_dataset.clone(),
-            ));
-        };
-        let project = match qualifier.project() {
-            None => self.billing_project.clone(),
-            Some(project) => ProjectId::parse(project.as_str()).ok()?,
-        };
-        let dataset = DatasetId::parse(qualifier.dataset().as_str()).ok()?;
-        Some(DatasetAddress::of(billed_to, project, dataset))
-    }
-
-    /// A job's result, as a domain result set.
+    /// A job's result, as a domain result set. The mapping itself is [`crate::rowset`], which is
+    /// where a wrong number would come from; this is the seam the port's methods call.
     fn rows(answered: &JobRows) -> Mapped<RowSet, T::Error> {
-        // The schema first, because it is the one check whose answer does not depend on the rows -
-        // see `Self::mappable`. A page this adapter could not read whatever it contained is refused
-        // before its count is compared against anything.
-        Self::mappable(answered)?;
-        // Then the count, which refuses a wrong number before any cell work. A page whose delivered
-        // count is not what the endpoint reported is refused here rather than read as *under the cap,
-        // not truncated* - see `BigQueryError::Incomplete`.
-        if answered.rows().len() != answered.total_rows() {
-            return Err(BigQueryError::Incomplete {
-                delivered: answered.rows().len(),
-                total: answered.total_rows(),
-            });
-        }
-        let columns: Vec<String> = answered.fields().iter().map(|f| String::from(f.name())).collect();
-        let mut out: Vec<Vec<Value>> = Vec::with_capacity(answered.rows().len());
-        for (index, row) in answered.rows().iter().enumerate() {
-            // Checked here rather than left to `RowSet::new`, so the refusal can name WHICH row the
-            // endpoint sent at the wrong width. `RowSet::new` catches it too, and that is the belt:
-            // this is the one that produces a usable message.
-            if row.len() != columns.len() {
-                return Err(BigQueryError::RowWidth {
-                    row: index,
-                    cells: row.len(),
-                    columns: columns.len(),
-                });
-            }
-            let mut cells: Vec<Value> = Vec::with_capacity(row.len());
-            for (field, value) in answered.fields().iter().zip(row.iter()) {
-                cells.push(Self::cell(field, value.clone())?);
-            }
-            out.push(cells);
-        }
-        RowSet::new(columns, out).map_err(|cause| BigQueryError::Shape { cause })
+        rowset::rows(answered)
     }
 
     /// Whether an adapter error wraps the configured transport REFUSING: answered for the
     /// [`BigQueryError::Endpoint`] variant by `transport_says` and `false` for everything else -
     /// the ONE place this adapter decides a non-`Endpoint` error is never a transport refusal.
-    /// [`Self::preflight_was_refused`] and [`Self::source_refused`] delegate here, so boot-time and
-    /// query-time cannot diverge.
+    /// [`Self::preflight_was_refused`] and [`Self::source_refused`] delegate here, so
+    /// boot-time and query-time cannot diverge.
     fn refused_via(error: &BigQueryError<T::Error>, transport_says: impl Fn(&T::Error) -> bool) -> bool {
         match *error {
             BigQueryError::Endpoint { ref cause } => transport_says(cause),
@@ -783,148 +591,23 @@ where
         Self::rows(&answered).map(AnchorRows::of)
     }
 
-    /// Asks the dataset which of the bundle's tables it holds.
-    ///
-    /// **One call per DATASET and not per model, which is what makes this affordable at boot.** The
-    /// tables asked about are grouped by the pair they resolve in - the connection's own project and
-    /// dataset for an unqualified path, whatever the path names otherwise - and each group costs one
-    /// metadata read. A bundle on one dataset is therefore one call however many models it declares,
-    /// and a bundle spanning two datasets is two.
-    ///
-    /// **The comparison is case-SENSITIVE, deliberately.** `GoogleSQL` folds the case of an alias and
-    /// a result column and does not fold a table name, so a model naming `Dim_Customer` where the
-    /// dataset holds `dim_customer` is a model whose questions really would fail - reporting it
-    /// present because a case-folded comparison matched would put the failure back on the first
-    /// caller, which is the whole defect this method exists to remove.
-    ///
-    /// **A path this adapter cannot ADDRESS is an absence and never an error**, which is a review
-    /// correction rather than the original shape - [`Self::addressed`] carries the measurement of
-    /// what the original cost. It is a definite negative: no question against such a model could be
-    /// answered whatever the dataset holds, so it belongs in the absent set beside a table that is
-    /// simply not there, and it costs no round trip.
-    ///
-    /// **A listing SHORT of its own total answers about the tables it named and about no others.**
-    /// `HeldTables::total` is read here now, and what it decides is narrow on purpose: a table the
-    /// short listing named is present, and a table it did not name is
-    /// [`TablesPresent::Unaccounted`] rather than absent, because the listing has a gap the table
-    /// could be sitting in. Before this the gap was rounded down to zero and the bundle was charged
-    /// for it - a dataset answering with no readable id beside a non-zero total refused the boot
-    /// saying every table it names is missing. `telekom/sutura#275`.
-    ///
-    /// An unreadable total beside zero readable IDs answers [`TablesPresent::UnreadableInventory`]
-    /// without inventing a count. Readable IDs rejected by name filtering still count as identified.
-    /// `Unreported` beside no ids is where every boot stood before the field was decoded -
-    /// that variant's own words are that an empty listing and an empty dataset are ONE value, so
-    /// nothing in the document tells them apart - and `Accounted` beside no NAMED ids is a dataset
-    /// every id of which `usable_table_id` drops. And a gap explains a table's absence
-    /// without establishing it: this adapter cannot tell a document whose shape changed from a table
-    /// created or dropped while the listing was being read, and does not pretend to. Within one
-    /// dataset the gap only BOUNDS the answer - a shortfall of one over three unnamed tables means
-    /// two of them really are missing, and nothing here can say which, so both numbers travel.
-    ///
-    /// # Errors
-    ///
-    /// [`BigQueryError::Endpoint`] where a dataset could not be listed - no permission, no such
-    /// dataset, no answer - which the port keeps distinct from a table that is absent so an operator
-    /// is not sent to fix the wrong thing. Which of those it was is
-    /// [`Self::preflight_was_refused`]'s question, because only a permission failure is worth
-    /// stopping a boot for.
+    /// Asks the dataset which of the bundle's tables it holds. [`crate::preflight`] is the whole
+    /// answer, including what a short listing does and does not establish.
     fn preflight(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
-        // **`NotAsked` and not `All` for an empty set**, which is a review nit worth taking: `All`
-        // means *asked, nothing missing*, and nothing was asked. The composition root guards this
-        // case, so what the arm buys is that any other caller gets the honest answer.
-        if tables.is_empty() {
-            return Ok(TablesPresent::NotAsked);
-        }
-        let mut grouped: ByDataset<'_> = BTreeMap::new();
-        let mut absent: BTreeSet<QualifiedTable> = BTreeSet::new();
-        let mut unreadable: BTreeSet<QualifiedTable> = BTreeSet::new();
-        // **The gap: a set and a count in ONE binding, written together or not at all.** Two locals
-        // is how a shortfall of one comes to describe three tables, and it is also how a count
-        // computed by arithmetic gets to disagree with the set beside it - review found both shapes.
-        // A table a short listing did not name is not a table the dataset does not hold, and *how
-        // many the listing left out* is a fact about the listing rather than about the bundle, so
-        // neither number can be recovered from the other.
-        let mut gap: Option<Gap> = None;
-        for table in tables {
-            // Partitioned BEFORE anything is listed, so an unaddressable path can neither skip the
-            // loop nor cost a call: it is already an answer.
-            match self.addressed(table) {
-                Some(at) => grouped.entry(at).or_default().push(table),
-                None => {
-                    absent.insert(table.clone());
-                }
-            }
-        }
-        for (at, asked) in grouped {
-            let held = self
-                .transport
-                .list_tables(&at)
-                .map_err(|cause| BigQueryError::Endpoint { cause })?;
-            let unnamed = asked.into_iter().filter(|table| !held.holds(table.name().as_str())).cloned();
-            match held.total() {
-                // **The cross-check, connected.** A listing that reported more tables than it carried
-                // readable ids for has a gap in it, and a table the bundle names that this listing
-                // did not name may be sitting in that gap - so it is unaccounted for and NOT absent.
-                // `telekom/sutura#275` is the decision; `docs/adr/0018` carries why it is a value on
-                // the answer rather than an `Err`, which would have been the warning half.
-                ListingTotal::Short(short) => {
-                    let unnamed: BTreeSet<QualifiedTable> = unnamed.collect();
-                    // A listing that fell short and still named everything the bundle asks about
-                    // costs this deployment nothing: a short listing cannot un-name an entry it
-                    // carried, so those tables really are there and this dataset contributes no
-                    // shortfall to reason about.
-                    if !unnamed.is_empty() {
-                        gap = Some(Gap::widened(gap, unnamed, short.unaccounted()));
-                    }
-                }
-                ListingTotal::Unreadable { identified: 0 } => unreadable.extend(unnamed),
-                // Readable IDs survive this decision even when name filtering drops all of them.
-                ListingTotal::Accounted { .. } | ListingTotal::Unreported | ListingTotal::Unreadable { .. } => {
-                    absent.extend(unnamed);
-                }
-            }
-        }
-        // Among successful listings, report a definite absence first: it gives an operator a table
-        // to fix. Unreadable inventories and counted gaps also stop startup and wait for the next
-        // boot. A transport error above still short-circuits the walk; this orders answers only.
-        if !absent.is_empty() {
-            return Ok(TablesPresent::of(absent));
-        }
-        // Among answered inventories, diagnose an unreadable one before a counted gap. Keep its
-        // tables separate: the unreadable total says nothing about another dataset's shortfall.
-        if let Ok(tables) = UnaccountedTables::parse(unreadable) {
-            return Ok(TablesPresent::UnreadableInventory(tables));
-        }
-        // **There is no route from here to `AllBut`, and that is the point.** The version review
-        // broke fell back to `TablesPresent::of(unaccounted_for)` when a count arrived as zero -
-        // the defect being fixed, reachable from the public API through a hand-built `Short`. The
-        // count is `Shortfall`'s now, so a zero cannot arrive; the only reading left for an absent
-        // gap is that no listing fell short, and `map_or` answers it the way `TablesPresent::of`
-        // answers an empty difference.
-        let Some(gap) = gap else {
-            return Ok(TablesPresent::All);
-        };
-        Ok(
-            UnaccountedTables::parse(gap.unaccounted_for).map_or(TablesPresent::All, |tables| TablesPresent::Unaccounted {
-                tables,
-                shortfall: gap.shortfall,
-            }),
-        )
+        crate::preflight::preflight(self, tables)
     }
 
     /// Whether the endpoint REFUSED to list a dataset, rather than failing to answer about one.
     ///
-    /// **The split a review asked for, and the reason is in the port's own documentation:** a `403`
-    /// on `tables.list` is a grant an operator can add and will fail identically on every boot, while
-    /// a `503` from the endpoint is a condition that passes - and before this they were the same
-    /// permanent warning in the deployment least likely to read a startup log.
+    /// **The reason for the split is in the port's own documentation:** a `403` on `tables.list` is a
+    /// grant an operator can add and will fail identically on every boot, while a `503` from the
+    /// endpoint is a condition that passes - and before this they were the same permanent warning in
+    /// the deployment least likely to read a startup log.
     ///
     /// It asks the TRANSPORT, for [`Self::result_did_not_fit`]'s reason: the HTTP status is a fact
     /// about the wire and `T::Error` is the transport's own type. Every other variant is `false`
     /// exhaustively rather than through a wildcard, so a variant added to [`BigQueryError`] has to be
-    /// decided here - and `false` is the reading that keeps a deployment serving, which is the safe
-    /// direction the port states.
+    /// decided here - and `false` is the reading that keeps a deployment serving.
     fn preflight_was_refused(&self, error: &Self::Error) -> bool {
         Self::refused_via(error, |cause| self.transport.listing_was_refused(cause))
     }
@@ -959,15 +642,12 @@ where
     ///   documented paging shape - that is `MoreThanOnePage`, which `complete` refuses at the wire.
     ///   It is a reply that states *total N*, carries no page token, and delivered fewer - the
     ///   endpoint contradicting itself. Answered `true` defensively, because the caller cannot get
-    ///   the rest of this reply whatever it retries: narrowing is the only move and the shape
-    ///   returns unchanged.
-    /// - `Incomplete` where delivered is **above** the total is NOT this. That is the endpoint
-    ///   contradicting itself, and calling it a governance refusal would tell a caller not to retry a
-    ///   defect a retry might well not repeat.
+    ///   the rest of this reply whatever it retries.
+    /// - `Incomplete` where delivered is **above** the total is NOT this, and calling it a governance
+    ///   refusal would tell a caller not to retry a defect a retry might well not repeat.
     ///
     /// Exhaustive with no wildcard arm, so a variant added to `BigQueryError` has to be decided here
-    /// rather than inheriting `false` - and `false` is the answer that keeps a transport failure a
-    /// failure, which is the mistake the port's own documentation says costs more.
+    /// rather than inheriting `false`.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         match *error {
             BigQueryError::Endpoint { ref cause } => self.transport.result_did_not_fit(cause),

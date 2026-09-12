@@ -1,21 +1,17 @@
 //! The surface, driven end to end through the assembled router.
 //!
-//! Through the router and not through a spawned process: every test here builds the real
-//! `axum::Router` from real `Settings` and a fake behind the [`Surface`] port, then calls it with
-//! `tower`'s `oneshot`. That exercises the layer stack, the token gate, the limiter, the extractors
-//! and the response shapes without a socket, a catalog directory or a data system.
-//!
-//! One thing has to be supplied by hand that the real server supplies for it: the peer address.
-//! `crate::testing::request` inserts it, and that pair - the builder and `crate::testing::call` -
-//! lives there rather than here because four test modules had grown four copies of it. See its own
-//! documentation for what a copy that forgot the peer address would have looked like.
+//! Through the router and not a spawned process: the real `axum::Router` from real `Settings` over
+//! a fake behind the [`Surface`] port, called with `tower`'s `oneshot`. That reaches the layer
+//! stack, token gate, limiter, extractors and response shapes with no socket, catalog directory or
+//! data system. The peer address is the one thing the real server supplies and this does not -
+//! `crate::testing::request` inserts it, and that pair lives there because four test modules had
+//! grown four copies of it.
 
 use std::sync::Arc;
 
-use axum::Router;
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use sutura_config::{Environment, Settings, Sources};
+use axum::http::StatusCode;
+use sutura_config::Environment;
 use tower::ServiceExt as _;
 
 use crate::surface::LocalService;
@@ -24,72 +20,15 @@ use crate::testing::{
     warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
 };
 
+mod fixtures;
+use fixtures::*;
+
 /// Whether the catalog route honours the prose setting it was started with.
 ///
 /// Its own file rather than another section here, and the reason is mechanical: this one is at 1000
 /// lines, which `cargo xtask max-lines` refuses. The helpers it needs are this module's, reached
 /// through `super`.
 mod catalog_prose;
-
-/// A token that satisfies the configured floor.
-const TOKEN: &str = "0123456789abcdef0123456789abcdef";
-
-fn settings(environment: Environment, overlay: &str) -> Settings {
-    Settings::load(&Sources::defaults(environment).with_overlay(overlay)).expect("the test settings load")
-}
-
-/// The router, over a fake warehouse that answers every plan.
-fn app(settings: Settings) -> Router {
-    over(bundle(), fake_warehouse(), settings)
-}
-
-/// The router over a named bundle and a named warehouse.
-///
-/// The refusal statuses need four fixtures the default pair cannot produce - a result past the row
-/// cap, a result the data system will not return at once, a bundle whose models sit on two data
-/// systems, and an adapter claiming to be somewhere else - and each is still driven through the REAL
-/// router, which is the point of this file.
-///
-/// **Generic in the adapter rather than fixed to `FakeWarehouse`**, because the last of those four
-/// needs an adapter whose ERROR TYPE is its own: what separates a size bound from an outage is the
-/// port's predicate over that type, so a fake with a flag would let one code path pretend to be both.
-/// `ServiceState` erases the surface behind a `dyn Surface`, so there is nothing downstream of here
-/// for the parameter to reach.
-fn over<W>(pinned: sutura_domain::pinned::PinnedDefinitions, warehouses: sutura_app::Warehouses<W>, settings: Settings) -> Router
-where
-    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
-    W::Error: Send + Sync,
-{
-    crate::testing::serving(pinned, warehouses, crate::testing::broker(), settings, None)
-}
-
-/// One question, and the three things a refused caller must be given.
-///
-/// Returns the status, the `code` and the `detail`, parsed out of the body rather than matched as a
-/// substring: the assertion is about the contract, and a `detail` that happened to contain the word
-/// `code` would satisfy a substring check.
-async fn refusal(app: &Router, question: &str) -> (StatusCode, String, String) {
-    let (status, body) = call(app, request("POST", "/v1/query", None, Body::from(String::from(question)))).await;
-    let parsed: serde_json::Value = serde_json::from_str(&body).expect("a refusal is JSON");
-    assert_eq!(parsed["outcome"], "refusal", "not a refusal: {body}");
-    let code = parsed["reason"]["code"]
-        .as_str()
-        .expect("a refusal carries a code")
-        .to_owned();
-    let detail = parsed["reason"]["detail"]
-        .as_str()
-        .expect("a refusal carries a sentence")
-        .to_owned();
-    // The status is in the body as well as on the response, and the two must not disagree - a client
-    // that logged only the body has nothing else to go on.
-    assert_eq!(
-        parsed["reason"]["status"].as_u64(),
-        Some(u64::from(status.as_u16())),
-        "{body}"
-    );
-    assert!(!detail.is_empty(), "{code} refused with no sentence");
-    (status, code, detail)
-}
 
 // -------------------------------------------------------------------- health ----
 
@@ -132,17 +71,16 @@ async fn a_certified_question_is_answered_with_its_provenance() {
 
 // ------------------------------------------------------- refusals, per status ----
 //
-// **THE contract of this surface, and it changed.** A refusal used to come back `200` with
-// `outcome: refusal`, on the argument that an error status invites a client library to retry. The
-// retry premise does not survive checking - `crate::wire::refusal` has the citations - and the `200`
-// made a governance refusal indistinguishable from an answer to everything that reads a status and
-// not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose success
-// branch is `2xx`.
+// **THE contract of this surface, and it changed.** A refusal used to be `200` with
+// `outcome: refusal`, argued from "an error status invites a client library to retry" - a premise
+// that does not survive checking (`crate::wire::refusal` has the citations). The `200` made a
+// governance refusal indistinguishable from an answer to anything reading a status and not a body,
+// e.g. an error-rate alert or a generated client whose success branch is `2xx`.
 //
-// One test per status, each asserting all three things a refused caller is given: the status, the
-// `code`, and a non-empty sentence. The per-variant mapping is unit-tested in `wire::refusal`; what
-// these add is that the status survives the REAL router - a mapping the handler computes and the
-// router flattens to `200` would pass the unit test and fail here.
+// One test per status, asserting all three things a refused caller gets: the status, the `code`,
+// and a non-empty sentence. `wire::refusal` unit-tests the per-variant mapping; what these add is
+// that the status survives the REAL router, which a handler-computed mapping the router flattens
+// to `200` would not.
 
 #[tokio::test]
 async fn an_unknown_metric_is_a_404_naming_the_snapshot_that_does_not_define_it() {
@@ -159,10 +97,10 @@ async fn an_unknown_metric_is_a_404_naming_the_snapshot_that_does_not_define_it(
 
 #[tokio::test]
 async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
-    // Four codes on one status, and that is the grouping rather than a shortage: each is a well
-    // formed question outside a declared bound, the caller's move is the same in all four - narrow
-    // it - and the `code` is what says which bound. `422` is documented as the status a client should
-    // NOT expect to succeed on repetition, which is exactly the refusal's own claim.
+    // Four codes on one status, which is the grouping rather than a shortage: each is a well formed
+    // question outside a declared bound, the caller's move is the same in all four - narrow it - and
+    // the `code` says which bound. `422` is documented as the status a client should NOT expect to
+    // succeed on repetition, exactly the refusal's own claim.
     let app = app(settings(Environment::Development, ""));
     let range = r#""range":{"start":"2026-06-01","end":"2026-07-01"}"#;
 
@@ -209,10 +147,10 @@ async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
 
 #[tokio::test]
 async fn asking_outside_what_the_catalog_permits_is_a_403() {
-    // The governance statuses. Both of these are the catalog's answer to "may this be asked of this
-    // metric", which is what 403 says - and NOT a statement about a credential: this surface has no
-    // per-caller identity, and no token widens a metric's dimension set. The sentence names the
-    // metric and the dimension so nobody reads it as "get a better token".
+    // The governance statuses: the catalog's answer to "may this be asked of this metric", which is
+    // what 403 says - NOT a statement about a credential, since this surface has no per-caller
+    // identity and no token widens a metric's dimension set. The sentence names the metric and the
+    // dimension so nobody reads it as "get a better token".
     let app = app(settings(Environment::Development, ""));
     let range = r#""range":{"start":"2026-06-01","end":"2026-07-01"}"#;
 
@@ -240,13 +178,12 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 
 #[tokio::test]
 async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes() {
-    // **Still green, and it is about the FAKE rather than about the shipped set.** This runs over
-    // `fake_warehouse()`, which takes the port's defaulted `EXECUTES_LEGS`, so what it pins is the
-    // status a build whose adapter cannot run a leg gives: a 409 out of `answer`'s own gate rather
-    // than an adapter's typed refusal surfacing as a 503, the status reserved for a retryable
-    // outage. `sutura-exec-datafusion` declares the constant now, so the shipped engine no longer
-    // reaches this branch - `sutura-exec-bigquery` and any adapter taking the default still do, and
-    // this is where the transport's half of that is held.
+    // **Still green, and about the FAKE rather than the shipped set.** It runs over
+    // `fake_warehouse()`, which takes the port's defaulted `EXECUTES_LEGS`, so it pins the status a
+    // build whose adapter cannot run a leg gives: a 409 from `answer`'s own gate, not an adapter's
+    // typed refusal surfacing as the 503 reserved for a retryable outage.
+    // `sutura-exec-datafusion` declares the constant now, so the shipped engine no longer reaches
+    // this branch; `sutura-exec-bigquery` and any adapter taking the default still do.
     let app = over(two_source_bundle(), fake_warehouse(), settings(Environment::Development, ""));
     let (status, code, detail) = refusal(
         &app,
@@ -260,13 +197,12 @@ async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes(
 #[tokio::test]
 async fn an_answer_past_the_row_cap_is_a_413_that_says_it_was_not_truncated() {
     // **The case this whole change was asked for.** A result over the cap is refused rather than cut
-    // down to fit, because a partial total under a certified name is wrong in the one way nothing
-    // downstream can detect - and a caller has to be able to tell that from the response alone.
+    // down to fit: a partial total under a certified name is wrong in the one way nothing downstream
+    // can detect, and a caller has to tell that from the response alone.
     //
-    // `413` shares its status with the request-body limit on this same route, which is why the
-    // assertion below is on the code and on the sentence as well: `code` is what tells "the answer
-    // was too big" from "your request was too big", and the two bodies also differ in shape - only
-    // this one carries `outcome`.
+    // `413` is shared with the request-body limit on this same route, so the assertion covers the
+    // code and the sentence too: `code` tells "the answer was too big" from "your request was too
+    // big", and only this body carries `outcome`.
     let app = over(
         unanchored_bundle(),
         warehouse_that_answers_past_the_row_cap(),
@@ -285,15 +221,13 @@ async fn an_answer_past_the_row_cap_is_a_413_that_says_it_was_not_truncated() {
 
 #[tokio::test]
 async fn an_answer_the_data_system_would_not_return_at_once_is_the_same_413_and_not_a_503() {
-    // **The defect this bound was added for, end to end on the transport where a caller actually
-    // reads it.** A result INSIDE the row cap that a data system will not hand back in one piece used
-    // to leave `sutura_app::answer` as `ServiceError::Warehouse`, which this surface answers
-    // `503 unavailable` - the status a dead data system produces, and `docs/adr/0005`'s one refusal
-    // where retrying is reasonable. It is not an outage and the retry returns the same reply.
-    //
-    // Both halves are asserted because either alone passes on the wrong grouping: the status is the
-    // row cap's own rather than 503, and the code is `result_too_large` rather than a second code an
-    // operator would have to learn for the same remedy.
+    // **The defect this bound was added for, where a caller reads it.** A result INSIDE the row cap
+    // that a data system will not return in one piece used to leave `sutura_app::answer` as
+    // `ServiceError::Warehouse`, which this surface answers `503 unavailable` - a dead data system's
+    // status, and `docs/adr/0005`'s one retryable refusal. This is not an outage and the retry
+    // returns the same reply. Both halves are asserted because either alone passes on the wrong
+    // grouping: the status is the row cap's own, and the code is `result_too_large` rather than a
+    // second code an operator would learn for the same remedy.
     let app = over(
         unanchored_bundle(),
         crate::testing::WarehouseThatWillNotPage::new(crate::testing::source()),
@@ -322,12 +256,12 @@ async fn an_answer_the_data_system_would_not_return_at_once_is_the_same_413_and_
 
 #[tokio::test]
 async fn an_execute_failure_that_is_not_a_size_bound_is_503_not_413() {
-    // The control for the test above, and the half only a sibling fake can show: an `execute` failure
-    // whose predicate answers `false` must leave as the `503` an outage produces, not as the `413`
-    // `result_too_large` of a size bound. A caller retries an outage and the retry is reasonable;
-    // telling a caller to narrow a question because a data system was briefly unwell is the wrong
-    // instruction. `WarehouseThatFailsToExecute` is the same reach as `WarehouseThatWillNotPage`
-    // (a `dry_run` that accepts, an `execute` that fails) with the port's default `false` predicate.
+    // The control for the test above, which only a sibling fake can show: an `execute` failure whose
+    // predicate answers `false` must leave as the `503` an outage produces, not a size bound's `413`
+    // `result_too_large`. Retrying an outage is reasonable; telling a caller to narrow a question
+    // because a data system was briefly unwell is the wrong instruction.
+    // `WarehouseThatFailsToExecute` is `WarehouseThatWillNotPage`'s reach (a `dry_run` that accepts,
+    // an `execute` that fails) with the port's default `false` predicate.
     let app = over(
         unanchored_bundle(),
         crate::testing::WarehouseThatFailsToExecute::new(crate::testing::source()),
@@ -347,12 +281,12 @@ async fn an_execute_failure_that_is_not_a_size_bound_is_503_not_413() {
 
 #[tokio::test]
 async fn a_data_system_the_plan_names_and_this_process_did_not_open_is_a_503() {
-    // The one refusal where retrying is a reasonable thing for a caller to do, and it shares `503`
-    // with two failures that are not refusals - `unavailable` and `at_capacity`. So the code is what
-    // separates the three, and the body shape separates this one further: it carries `outcome`.
+    // The one refusal where retrying is reasonable, sharing `503` with two failures that are not
+    // refusals - `unavailable` and `at_capacity`. The code separates the three, and the body shape
+    // separates this one further: it carries `outcome`.
     //
-    // **No `Retry-After`.** `Failure::retry_after` already sets the rule for this surface - a number
-    // that is already known, or no header - and nothing here knows when a data system comes back.
+    // **No `Retry-After`.** `Failure::retry_after` already sets this surface's rule - a number
+    // already known, or no header - and nothing here knows when a data system comes back.
     let app = over(
         unanchored_bundle(),
         warehouse_pretending_to_be("elsewhere"),
@@ -377,10 +311,10 @@ async fn a_data_system_the_plan_names_and_this_process_did_not_open_is_a_503() {
 
 #[tokio::test]
 async fn a_refusal_keeps_the_envelope_a_client_already_parses() {
-    // The compatibility half, and the reason this is an ADDITIVE change rather than a body redesign.
-    // The status is new; `outcome`, `reason` and `code` are exactly what they were, so a client
-    // written against the old surface still finds everything it read before - it simply now also has
-    // a status that agrees with the body.
+    // The compatibility half, and why this is an ADDITIVE change rather than a body redesign: the
+    // status is new, while `outcome`, `reason` and `code` are exactly what they were - so a client
+    // written against the old surface still finds everything it read, now with a status that agrees
+    // with the body.
     let app = app(settings(Environment::Development, ""));
     let unknown = r#"{"metric":"gross_margin","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
     let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(unknown))).await;
@@ -411,11 +345,10 @@ async fn a_body_larger_than_the_configured_bound_is_refused_before_it_is_parsed(
         request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
     )
     .await;
-    // `413` and not `400`, and the distinction is the whole reason `routes::v1::query::rejected`
-    // branches on the rejection's status. The body-limit layer makes the JSON extractor reject with
-    // a length-limit error, which is a `JsonRejection` exactly like a malformed body is - so mapping
-    // every rejection to `400` made "you sent too much" indistinguishable from "you sent a typo",
-    // and a caller could not tell which thing to fix.
+    // `413` and not `400`, which is the whole reason `routes::v1::query::rejected` branches on the
+    // rejection's status. The body-limit layer makes the JSON extractor reject with a length-limit
+    // error - a `JsonRejection` exactly like a malformed body - so mapping every rejection to `400`
+    // made "you sent too much" indistinguishable from "you sent a typo".
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
     assert!(body.contains(r#""code":"too_large""#), "{body}");
     // And through a router assembled the same way, a body that is merely wrong is still a `400` - so
@@ -428,12 +361,11 @@ async fn a_body_larger_than_the_configured_bound_is_refused_before_it_is_parsed(
 
 #[tokio::test]
 async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() {
-    // Pinned `tower-http` 0.7.0 implements `TimeoutLayer::with_status_code` as
-    // `Response::new(B::default())` - the status and an EMPTY body - while the generated document
-    // and `problem.rs` both promise every `408` carries a `ProblemBody`. So the status was right and
-    // the body was nothing, which a client parsing one failure shape cannot handle.
-    // `middleware::enforce_timeout` exists for this; the assertion is that it is what the assembled
-    // router actually uses.
+    // `tower-http` implements `TimeoutLayer::with_status_code` as `Response::new(B::default())` -
+    // the status and an EMPTY body - while the generated document and `problem.rs` both promise
+    // every `408` carries a `ProblemBody`. Right status, no body, which a client parsing one
+    // failure shape cannot handle. `middleware::enforce_timeout` exists for this; the assertion is
+    // that the assembled router actually uses it.
     //
     // One second is the smallest bound `RequestTimeout::parse` accepts. The port call is HELD rather
     // than made slow, and armed only after `start`, because `start` re-executes every anchor.
@@ -464,14 +396,12 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
 
 #[tokio::test]
 async fn a_wrong_token_attempt_costs_a_rate_limit_cell() {
-    // **The ordering bug, asserted.** `Router::layer` wraps what is already there, so the LAST layer
-    // added is the outermost. With the token gate outside the limiter it answered `401` without ever
-    // calling `next.run`, so a wrong-token attempt never reached the limiter and cost nothing - an
-    // unlimited guessing loop against a 32-character shared secret, which is the one thing a rate
-    // limiter in front of a bearer token exists to bound.
-    //
-    // The burst is one, so the SECOND wrong-token attempt has to come back `429` rather than `401`:
-    // a `401` there would mean the attempt was free.
+    // **The ordering bug, asserted.** `Router::layer` wraps what is there, so the LAST layer added
+    // is outermost. With the token gate outside the limiter it answered `401` without calling
+    // `next.run`, so a wrong-token attempt never reached the limiter and cost nothing - an unlimited
+    // guessing loop against a 32-character shared secret, the one thing a rate limiter in front of a
+    // bearer token exists to bound. The burst is one, so the SECOND wrong-token attempt must be
+    // `429` and not `401`: a `401` there would mean the attempt was free.
     let app = app(settings(
         Environment::Development,
         &format!("security:\n  access_token: \"{TOKEN}\"\nrate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n"),
@@ -510,15 +440,12 @@ async fn the_documentation_subtree_charges_a_wrong_token_the_same_way() {
 
 #[tokio::test]
 async fn the_assembled_router_hands_back_the_tiers_something_has_to_sweep() {
-    // The other half of the ordering fix, and they are one change: with the limiter outermost every
+    // The other half of the ordering fix - one change, not two: with the limiter outermost every
     // path an unauthenticated caller can reach creates a bucket, and `governor`'s keyed store sheds
-    // nothing until `retain_recent` is called. Fixing the order alone turns a narrow leak into a
-    // surface-wide one.
-    //
-    // `middleware`'s own tests assert that a sweep gives the memory back and that the sweeper thread
-    // runs. What can only be asserted here is that the ROUTER produces handles at all - the leak
-    // existed because `GovernorLayer::new(Arc::new(config))` was the last anyone saw of the
-    // configuration, so there was nothing left to sweep.
+    // nothing until `retain_recent` is called, so fixing the order alone turns a narrow leak into a
+    // surface-wide one. `middleware`'s own tests cover the sweep and the sweeper thread; **only here
+    // can it be asserted that the ROUTER produces handles at all** - the leak existed because
+    // `GovernorLayer::new(Arc::new(config))` was the last anyone saw of the configuration.
     let assembled = crate::assemble(&crate::testing::state_over(
         Arc::new(
             LocalService::start(
@@ -615,12 +542,11 @@ async fn the_interface_description_is_served_in_development_and_not_in_productio
     assert!(body.contains("NEITHER IS PER-CALLER ACCESS"), "{body}");
     assert!(body.contains("no row-level"), "{body}");
 
-    // Production, fully configured, and the description is off by default: a map of the surface is
-    // something a deployment turns on rather than something it has to remember to turn off.
-    // `tls_termination: ingress` and not an "expose me anyway" switch: an off-host bind is refused
-    // until the operator says where TLS is terminated, and `ingress` is the ordinary answer - a
-    // controller in front, plaintext on the pod network. That is the deployment this surface is
-    // built for, so it must load rather than be refused.
+    // Production, fully configured, description off by default: a map of the surface is something a
+    // deployment turns on, not something it must remember to turn off. `tls_termination: ingress`
+    // rather than an "expose me anyway" switch - an off-host bind is refused until the operator says
+    // where TLS is terminated, and `ingress` is the ordinary answer (a controller in front,
+    // plaintext on the pod network). That deployment must load rather than be refused.
     let production = app(settings(
         Environment::Production,
         &format!(
@@ -658,89 +584,29 @@ async fn the_interface_description_is_behind_the_token_when_one_is_configured() 
 #[cfg(test)]
 mod metrics;
 
-/// The metrics credential, distinct from the API token, for the cases that configure one.
-const METRICS_TOKEN: &str = "0123456789abcdef0123456789abcdf0";
-
-/// Settings with both credentials and pinned process numbers.
-///
-/// The engine width and the execution bound are pinned rather than left to the machine, because one
-/// of these tests asserts the rendered exposition exactly and a machine-dependent number would make
-/// that snapshot a property of the runner.
-fn metrics_settings(environment: Environment) -> Settings {
-    settings(
-        environment,
-        &format!(
-            "security:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"sidecar\"\n  \
-             metrics_token: \"{METRICS_TOKEN}\"\nserver:\n  host: \"0.0.0.0\"\nruntime:\n  \
-             engine_worker_threads: 3\n  max_concurrent_queries: 4\n"
-        ),
-    )
-}
-
 // ------------------------------------------------------------------ the log ----
 //
 // **The defect these were written for.** `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`,
-// and pinned `tower-http` 0.7.0 seeds it from `DEFAULT_MESSAGE_LEVEL`, which is `Level::DEBUG`,
-// while `telemetry.filter` defaults to `info`. So the ONE production span was disabled in the
-// shipped default: `JsonStorageLayer` had nothing to attach, every machine-readable line carried an
-// empty span context, and the documentation promised the opposite.
+// which `tower-http` seeds from `DEFAULT_MESSAGE_LEVEL` = `Level::DEBUG`, while `telemetry.filter`
+// defaults to `info`. So the ONE production span was disabled in the shipped default:
+// `JsonStorageLayer` had nothing to attach, every machine-readable line carried an empty span
+// context, and the documentation promised the opposite.
 //
-// It is only testable as bytes. There is no return value that says "a span existed", and the whole
-// property is about what a collector receives - so these drive the real router with a subscriber
-// over a buffer and read the buffer.
-//
-// `SUTURA_TEST_LOG=1` also prints it, which is what makes a failure here readable. See
+// **Only testable as bytes:** no return value says "a span existed", and the property is about what
+// a collector receives - so these drive the real router with a subscriber over a buffer and read
+// the buffer. `SUTURA_TEST_LOG=1` also prints it, which makes a failure here readable. See
 // `sutura_runtime::testing::Capture`.
 
 #[cfg(test)]
 mod logging;
 
-/// Runs one request through `app` with a subscriber over a buffer, and returns what was written.
-///
-/// A `Runtime` built here rather than `#[tokio::test]`, and that is load-bearing:
-/// `tracing::subscriber::with_default` is scoped to the calling thread, and `block_on` drives the
-/// future on the calling thread - so the whole request is inside the scope. An ambient
-/// `#[tokio::test]` runtime would leave the dispatcher and the future on two different threads.
-///
-/// The router is built by the CALLER, outside the scope, so the buffer holds the request's lines and
-/// not the startup announcements. That is what lets the sentinel assertion below be about the whole
-/// buffer.
-fn captured(format: sutura_config::LogFormat, app: &Router, request: Request<Body>) -> (StatusCode, String, String) {
-    let sink = sutura_runtime::testing::Capture::new();
-    let telemetry = sutura_config::TelemetrySettings::new(
-        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
-        // The CONFIGURED default. Using `trace` here would enable the very span whose absence at
-        // `info` is the defect, and the test would pass over the bug.
-        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
-        format,
-        true,
-    );
-    let subscriber =
-        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("a test runtime builds");
-    let (status, body) = tracing::subscriber::with_default(subscriber, || runtime.block_on(call(app, request)));
-    (status, body, sink.contents())
-}
-
-/// The lines of a captured buffer that are JSON objects, parsed.
-fn json_lines(rendered: &str) -> Vec<serde_json::Value> {
-    rendered
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .collect()
-}
-
 #[test]
 fn a_request_produces_one_info_span_carrying_the_route_and_a_correlation_id() {
-    // RED before the fix, and for two independent reasons: the span was `DEBUG` so at the configured
-    // `info` it did not exist at all, and `DefaultMakeSpan` names no route and mints no correlation.
-    //
-    // Asserted on the bunyan rendering because that is the one a collector reads, and on the SPAN
-    // lines specifically - `tracing-bunyan-formatter` emits `[request - START]` and
-    // `[request - END]` for a span it can see, so their presence is the span's existence.
+    // RED before the fix for two independent reasons: the span was `DEBUG`, so at the configured
+    // `info` it did not exist, and `DefaultMakeSpan` names no route and mints no correlation.
+    // Asserted on the bunyan rendering because a collector reads that one, and on the SPAN lines -
+    // `tracing-bunyan-formatter` emits `[request - START]` and `[request - END]` for a span it can
+    // see, so their presence is the span's existence.
     let app = app(settings(Environment::Development, ""));
     let (status, body, rendered) = captured(
         sutura_config::LogFormat::Bunyan,
@@ -783,11 +649,11 @@ fn a_request_produces_one_info_span_carrying_the_route_and_a_correlation_id() {
         assert!(line.get("path").is_none(), "the raw request path reached the log: {line}");
     }
 
-    // The other half of the same design point, and the one a caller controls: a path that matched
-    // nothing must NOT appear anywhere in the log. It reaches the catch-all fallback, which the same
-    // layer wraps, so there is still a span - and its route is the constant. Without that, the log's
-    // cardinality is something a caller chooses by probing, and a probed path with a secret in it is
-    // a secret in the log.
+    // The same design point's other half, the one a caller controls: a path that matched nothing
+    // must NOT appear anywhere in the log. It reaches the catch-all fallback, which the same layer
+    // wraps, so there is still a span and its route is the constant. Otherwise the log's cardinality
+    // is something a caller chooses by probing, and a probed path with a secret in it is a secret in
+    // the log.
     let (status, _, rendered) = captured(
         sutura_config::LogFormat::Bunyan,
         &app,
@@ -806,43 +672,32 @@ fn a_request_produces_one_info_span_carrying_the_route_and_a_correlation_id() {
     assert_eq!(crate::router::UNMATCHED_ROUTE, "unmatched");
 }
 
-/// Would this surface read its own correlation id back?
-///
-/// The span field is text by the time it is in the log, so this is the only way to check it is a
-/// value the type would accept - which is what stops the span from carrying something the header
-/// path would refuse.
-fn is_a_correlation_id(raw: &str) -> bool {
-    crate::correlation::CorrelationId::parse(raw).is_ok()
-}
-
 #[test]
 fn a_body_that_states_its_own_subject_is_not_a_question() {
-    // **The confused deputy, at the wire.** A caller that states its own identity does not have one,
-    // so a body carrying a principal has to be refused rather than read - and the value it carried
-    // must not reach the log on the way out.
+    // **The confused deputy, at the wire.** A caller that states its own identity does not have
+    // one, so a body carrying a principal is refused rather than read, and the value must not reach
+    // the log on the way out.
     //
-    // **A REGRESSION GUARD, and it is GREEN against the unmodified code** - `deny_unknown_fields` on
-    // `QuestionBody` already refused an undeclared key, so this proves nothing about this change and
-    // everything about the next one. It is here for the same reason
-    // `a_filter_value_never_reaches_the_log` is: the property is now load-bearing in a way it was
-    // not, because a chain exists for a caller to try to state, and the shape of the mistake would
+    // **A REGRESSION GUARD, GREEN against the unmodified code** - `deny_unknown_fields` on
+    // `QuestionBody` already refused an undeclared key, so it proves nothing about this change and
+    // everything about the next. Like `a_filter_value_never_reaches_the_log`, the property is newly
+    // load-bearing because a chain now exists for a caller to try to state, and the mistake would
     // be somebody adding the field to the wire type to be helpful.
     //
-    // The other half - that the chain the sink receives is the one the transport established, with
-    // no parameter a request could reach - is `crate::surface::tests`'
-    // `a_chain_reaches_the_sink_through_no_field_a_caller_supplies`. It is there rather than here for
-    // a reason worth knowing: the record is written inside the blocking task, and a thread-scoped
-    // subscriber cannot see an event from a pool thread - `sutura_runtime::testing` records that,
-    // and `crates/sutura-runtime/tests/blocking_span.rs` is the integration test that exists because
-    // of it. So this file can assert what a caller is TOLD and not what was recorded.
+    // The other half - that the sink's chain is the transport's, reachable by no request parameter -
+    // is `crate::surface::tests`' `a_chain_reaches_the_sink_through_no_field_a_caller_supplies`,
+    // there rather than here because the record is written inside the blocking task and a
+    // thread-scoped subscriber cannot see a pool thread's event (`sutura_runtime::testing` records
+    // that; `crates/sutura-runtime/tests/blocking_span.rs` is the integration test that exists
+    // because of it). **So this file can assert what a caller is TOLD, not what was recorded.**
     const IMPERSONATED: &str = "victim@example.com";
 
     let app = app(settings(Environment::Development, ""));
 
     // ONE: a body that tries to name a principal is not a question. `deny_unknown_fields` makes it a
     // parse error that NAMES the field, so the attempt is visible rather than ignored - and the
-    // domain types carry no `Deserialize` at all, so even a wire shape that accepted the key would
-    // have nothing to turn it into.
+    // domain types carry no `Deserialize`, so even a wire shape accepting the key would have nothing
+    // to turn it into.
     let claiming = format!(
         r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"subject":"{IMPERSONATED}"}}"#
     );
@@ -863,11 +718,10 @@ fn a_body_that_states_its_own_subject_is_not_a_question() {
         "the refusal does not name the field that was rejected: {body}"
     );
 
-    // And the value a caller invented does not reach the log on the way to being refused - the same
-    // property `a_filter_value_never_reaches_the_log` pins for a filter value, applied to the field
-    // that would be far worse to echo: an identifier a record could later be read as attributing a
-    // call to. The RESPONSE names the field, which is the point of `deny_unknown_fields`; the log is
-    // where the value must not land.
+    // And the invented value does not reach the log on the way to being refused - the property
+    // `a_filter_value_never_reaches_the_log` pins, applied to the field far worse to echo: an
+    // identifier a record could later be read as attributing a call to. The RESPONSE names the
+    // field, which is the point of `deny_unknown_fields`; the log is where the value must not land.
     assert!(
         !rendered.contains(IMPERSONATED),
         "an identifier the caller invented reached the log: {rendered}"
@@ -885,13 +739,12 @@ fn a_body_that_states_its_own_subject_is_not_a_question() {
 
 #[test]
 fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
-    // **The property an operator actually uses.** Not "a span exists" but "these three lines are
-    // the same request". RED before the fix twice over: there was no span at `info` for the
-    // handler's events to sit inside, and no correlation id to tie them with.
+    // **The property an operator actually uses:** not "a span exists" but "these three lines are the
+    // same request". RED before the fix twice over - no span at `info` for the handler's events to
+    // sit inside, and no correlation id to tie them with.
     //
-    // The caller's own header is used, so the assertion is about ONE known value rather than about
-    // three unknown ones agreeing - and it also pins the ingress case, which is the reason for
-    // reading the header at all.
+    // The caller's own header is used, so the assertion is about ONE known value rather than three
+    // unknown ones agreeing - and it pins the ingress case, the reason for reading the header.
     let app = app(settings(Environment::Development, ""));
     let mut request = request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION));
     request
@@ -901,12 +754,12 @@ fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
     assert_eq!(status, StatusCode::OK, "{body}");
 
     let lines = json_lines(&rendered);
-    // `answered` was the second line here, and it is gone from this crate: the per-outcome line was
-    // replaced by the audit record `Surface::answer` writes, which is emitted from the blocking task
-    // and therefore invisible to the thread-scoped subscriber this helper installs - see
+    // `answered` was the second line here and is gone from this crate: the per-outcome line became
+    // the audit record `Surface::answer` writes, emitted from the blocking task and so invisible to
+    // the thread-scoped subscriber this helper installs - see
     // `a_body_that_states_its_own_subject_is_not_a_question`. `finished processing request` is
-    // `tower_http`'s response line, carries the status, and is written on THIS thread, so it is what
-    // makes the assertion "these lines are the same request" rather than "a line exists".
+    // `tower_http`'s response line, carries the status, and is written on THIS thread, so it makes
+    // the assertion "these lines are the same request" rather than "a line exists".
     for wanted in ["question received", "finished processing request"] {
         let line = lines
             .iter()
@@ -934,15 +787,13 @@ fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
 
 #[test]
 fn a_filter_value_never_reaches_the_log() {
-    // **A REGRESSION GUARD, not a bug fix, and it is worth saying which.** Nothing logs filter
-    // values today, so this test is GREEN against the unmodified code - it proves nothing about
-    // this change and everything about the next one. It is here because the discipline it protects
-    // is stated in a comment at one call site and enforced by nothing, and because moving fields
-    // onto a span is exactly the change that would break it: a span field is copied onto every line
-    // of the request, so a value put there by mistake leaks further than one put on an event.
-    //
-    // `sutura_domain::query`'s `a_rejected_filter_value_is_not_echoed_back` covers the refusal
-    // TYPE. Nothing covered the log.
+    // **A REGRESSION GUARD, not a bug fix.** Nothing logs filter values today, so this is GREEN
+    // against the unmodified code - it proves nothing about this change and everything about the
+    // next. It is here because the discipline is stated in a comment at one call site and enforced
+    // by nothing, and because moving fields onto a span would break it: a span field is copied onto
+    // every line of the request, so a value put there by mistake leaks further than one on an event.
+    // `sutura_domain::query`'s `a_rejected_filter_value_is_not_echoed_back` covers the refusal TYPE.
+    // **Nothing covered the log.**
     const SENTINEL: &str = "SENTINEL-MUST-NOT-BE-LOGGED";
 
     let app = app(settings(Environment::Development, ""));
@@ -964,12 +815,11 @@ fn a_filter_value_never_reaches_the_log() {
             "a filter value reached the {format} log: {rendered}"
         );
         // A line about this request is still there, so the assertion above is not passing because
-        // nothing was logged. It used to be the handler's own `refused` line; that line was replaced
-        // by the audit record, which is written from the blocking task and cannot reach a
-        // thread-scoped subscriber. `tower_http`'s response line carries the status this refusal was
-        // given and is written on this thread, so it is the honest stand-in. Matched by its message
-        // rather than by the status field, because this loop runs both renderings and only one of
-        // them writes fields as JSON.
+        // nothing was logged. It was the handler's own `refused` line, replaced by the audit record,
+        // which is written from the blocking task and cannot reach a thread-scoped subscriber.
+        // `tower_http`'s response line carries the status this refusal was given and is written on
+        // this thread, so it is the honest stand-in. Matched by message rather than status field,
+        // because this loop runs both renderings and only one writes fields as JSON.
         assert!(rendered.contains("finished processing request"), "{rendered}");
     }
 }
