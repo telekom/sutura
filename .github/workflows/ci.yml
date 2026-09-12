@@ -1231,21 +1231,30 @@ jobs:
       # `printenv` rather than `echo "$VAR"` and never `${{ }}` in a shell body: a multi-line JSON key
       # is exactly the shape that defeats naive log masking, so nothing here interpolates it, echoes it
       # or passes it as an argument. `umask 077` before the write, so it is never briefly readable.
-      - name: Place the credential outside the checkout
+      #
+      # **Three keys since the two-principal cell**, in one step: one `umask`, one write shape, one
+      # place a reviewer reads. `check-venues` reads ONE credential path - `docs/adr/0017`, eighth.
+      - name: Place the credentials outside the checkout
         env:
           SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+          SUTURA_BQ_PRINCIPAL_A: ${{ secrets.svc_suturua_bq_principal_a }}
+          SUTURA_BQ_PRINCIPAL_B: ${{ secrets.svc_suturua_bq_principal_b }}
         run: |
           set -eu
-          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
-            echo "the bq-test environment holds no svc_suturua_bq_ci secret" >&2
-            exit 1
-          fi
+          for name in SUTURA_BQ_KEY SUTURA_BQ_PRINCIPAL_A SUTURA_BQ_PRINCIPAL_B; do
+            if [ -z "$(printenv "$name" || true)" ]; then
+              echo "the bq-test environment holds no secret for $name" >&2
+              exit 1
+            fi
+          done
           umask 077
           printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
+          printenv SUTURA_BQ_PRINCIPAL_A > "$RUNNER_TEMP/bq-principal-a.json"
+          printenv SUTURA_BQ_PRINCIPAL_B > "$RUNNER_TEMP/bq-principal-b.json"
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
-          echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, outside the checkout"
+          echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, and two principal credentials beside it, outside the checkout"
 
-      # **Mask the three resource names, and this step exists because of a channel the rest of the job
+      # **Mask the resource names, and this step exists because of a channel the rest of the job
       # would otherwise open.**
       #
       # Workflow logs on a PUBLIC repository are public. The wire carries the endpoint's own `message`
@@ -1260,13 +1269,14 @@ jobs:
       # unredacted message runs the leg locally, where the log is theirs.
       #
       # **THE LIMIT, AND THIS COMMENT USED TO OVERSTATE IT (#527).** It said the names were masked
-      # "before anything can print them". For two of the three they are not. The runner prints a
+      # "before anything can print them". For four of the five they are not. The runner prints a
       # step's resolved `env:` block into that step's own `Run` group BEFORE it executes the body -
       # `PrintActionDetails` in `actions/runner`'s `src/Runner.Worker/Handlers/Handler.cs` emits
       # `env:` and every entry of the handler's environment, and `ActionRunner` calls it ahead of
-      # `RunAsync` - so `SUTURA_BQ_DATASET` and `SUTURA_BQ_TABLE` appear in cleartext ONCE, here, and
-      # are redacted from every occurrence after that. An overstated control is worse than an absent
-      # one, because a reader who believes the old sentence stops looking.
+      # `RunAsync` - so `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET` and
+      # `SUTURA_BQ_RLS_TABLE` appear in cleartext ONCE, here, and are redacted from every occurrence
+      # after that. An overstated control is worse than an absent one, because a reader who believes
+      # the old sentence stops looking.
       #
       # **AND IT CANNOT BE FIXED BY MOVING THE MASK EARLIER**, which is why the shape below is the
       # best available one rather than a defect left in place. That printed dictionary is built from
@@ -1290,6 +1300,8 @@ jobs:
           K: ${{ runner.temp }}/bq-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
           SUTURA_BQ_TABLE: ${{ vars.SUTURA_BQ_TABLE }}
+          SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
+          SUTURA_BQ_RLS_TABLE: ${{ vars.SUTURA_BQ_RLS_TABLE }}
         run: |
           set -eu
           python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
@@ -1301,7 +1313,18 @@ jobs:
             fi
             printf '::add-mask::%s\n' "$(printenv "$name")"
           done
-          echo "three resource names masked for the rest of this job"
+          # The cell's own two have the same first-occurrence limit above. Register them HERE for
+          # subsequent lines, but guard them in their own step: this step precedes the shared-key leg,
+          # so an unset value with no venue must not stop the one that HAS a green run.
+          rls_dataset="$(printenv SUTURA_BQ_RLS_DATASET || true)"
+          if [ -n "$rls_dataset" ]; then
+            printf '::add-mask::%s\n' "$rls_dataset"
+          fi
+          rls_table="$(printenv SUTURA_BQ_RLS_TABLE || true)"
+          if [ -n "$rls_table" ]; then
+            printf '::add-mask::%s\n' "$rls_table"
+          fi
+          echo "the three required resource names and any configured RLS names are masked after this step's own environment dump"
         # `K` separately, so the credential path is an environment value rather than an interpolation.
         # Same rule the rest of this file follows: no `${{ }}` reaches a shell body.
 
@@ -1322,13 +1345,41 @@ jobs:
           set -eu
           nix run .#bigquery-acceptance -- --no-capture
 
-      # Always, so a cancelled or failed run does not leave a key on a runner that some other job on
-      # the same machine could read.
-      - name: Remove the credential
+      # **The two-principal cell** - issue #123. `docs/adr/0017`'s amendment *the two-principal cell
+      # exists, and what it is not* is the whole record: its own step, its three GRANT values
+      # guarded and deliberately NOT masked, and two principals that are service accounts whose
+      # keys this job places - leg 2's SOURCE half. Cited by TITLE: that record has been the
+      # seventh, eighth and tenth amendment in three days, so an ordinal here rots on a merge.
+      - name: Two-principal leg
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          # Re-pointed at the policied dataset, as `tests/two_principals.rs` explains: the cell
+          # reaches the same environment both other legs do. **Found by review, not a run.**
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
+          SUTURA_BQ_RLS_TABLE: ${{ vars.SUTURA_BQ_RLS_TABLE }}
+          SUTURA_BQ_GROUP_COLUMN: ${{ vars.SUTURA_BQ_GROUP_COLUMN }}
+          SUTURA_BQ_PRINCIPAL_A_ROWS: ${{ vars.SUTURA_BQ_PRINCIPAL_A_ROWS }}
+          SUTURA_BQ_PRINCIPAL_B_ROWS: ${{ vars.SUTURA_BQ_PRINCIPAL_B_ROWS }}
+          SUTURA_BQ_PRINCIPAL_A_KEY: ${{ runner.temp }}/bq-principal-a.json
+          SUTURA_BQ_PRINCIPAL_B_KEY: ${{ runner.temp }}/bq-principal-b.json
+        run: |
+          set -eu
+          for name in SUTURA_BQ_RLS_DATASET SUTURA_BQ_RLS_TABLE SUTURA_BQ_GROUP_COLUMN SUTURA_BQ_PRINCIPAL_A_ROWS SUTURA_BQ_PRINCIPAL_B_ROWS; do
+            if [ -z "$(printenv "$name" || true)" ]; then
+              echo "the bq-test environment does not describe what this cell asserts on: no $name" >&2
+              exit 1
+            fi
+          done
+          nix run .#bigquery-two-principals -- --no-capture
+
+      # Always, so a cancelled or failed run leaves no key on a shared runner. All three in one
+      # command, **the CI key first and spelled exactly as above**: `check-venues` matches it.
+      - name: Remove the credentials
         if: always()
         run: |
           set -eu
-          rm -f "$RUNNER_TEMP/bq-key.json"
+          rm -f "$RUNNER_TEMP/bq-key.json" "$RUNNER_TEMP/bq-principal-a.json" "$RUNNER_TEMP/bq-principal-b.json"
 
   # THE CATEGORY AGGREGATOR, and the second required context beside `ci` (owner-held ruleset edit).
   # It performs no build and no test; it reads every category-gated leg's result and fails when a

@@ -158,7 +158,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **unrun** - the standing test is here and nothing has run it |
 | **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - one key is one identity | no - two keys is two credentials nobody asked for | no | **unrun** - the standing test is here and nothing has run it |
 | **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
-| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
+| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **wired** - the only venue that could; `bigquery-acceptance` reaches it now and no run of it has been observed | no | redundant |
 
 ## The fake at the port
 
@@ -346,23 +346,34 @@ rows differ only by arithmetic.
 
 ### What it cannot answer - read this before citing a green run
 
-1. **That the row this venue answers has been answered.** *Nothing has run it*, which the matrix says
-   in one word: **`unrun`**, not `yes` and not `can`. The five values the leg must be pointed at - the
-   policied dataset and table, the grouping column, and the value each policy grants - are not in the
-   environment that holds the two keys. **The change that wires the job into CI is the change that
-   cannot leave this cell saying `unrun`**, and `cargo xtask check-venues` is what makes that a diff
-   rather than a promise: it resolves `just bigquery-two-principals` against every task and app the
-   workflows, the local composite actions and the shared `nix/` shell invoke, and refuses this cell
-   the moment one of them reaches it. It also refuses `unrun` from a venue nothing reaches, and an
-   `unrun` cell whose section does not use the word. Until then this venue is a capability with a
-   written test and no evidence.
+1. **That the row this venue answers has been answered.** *No run has been observed*, which the
+   matrix says in one word: **`wired`**, not `yes` and not `can`. The job step exists - the
+   `bigquery-acceptance` job runs `nix run .#bigquery-two-principals` after the shared-key leg - and
+   that is the whole distance between this state and the `unrun` this cell used to be in. It is not
+   a shorter distance to evidence: a step that exists proves nothing about what it answered.
 
-   **The limit, and it is the half worth reading:** what the gate resolves is an *invocation*, not a
-   green run. It cannot see a run's result - the authority for that is the GitHub API, which is
-   unreachable from the sandbox the gate runs in - so a job that always skips reddens this cell just
-   the same, and a hand-run does not redden it at all. Moving the cell to **`yes`** is therefore
-   review's judgement with the run named beside it; what is mechanical is that leaving it at `unrun`
-   once CI reaches it is no longer possible.
+   **And the step will FAIL until somebody provisions five values**, deliberately. The policied
+   dataset and table, the grouping column, and the value each policy grants are not in the
+   environment that holds the two keys, and the step exits non-zero on any one of them being unset
+   rather than skipping - so until `just infra-set` has pushed them, the honest reading of this venue
+   is *wired, and red for a configuration reason*. That is why the change that wires it is held in
+   draft rather than merged: a job red for a configuration reason is one people learn to ignore.
+
+   **The mechanism, and what it does not reach.** `cargo xtask check-venues` resolves
+   `just bigquery-two-principals` against every task and app the workflows, the local composite
+   actions and the shared `nix/` shell invoke, and it refuses `unrun` the moment one of them reaches
+   this venue and refuses `wired` while none of them does - one rule pointing both ways, so the cell
+   cannot sit in the wrong one of the two. It also refuses either token from a venue nothing reaches,
+   and a cell whose section does not use its own word. What it resolves is an *invocation*, not a
+   green run: it cannot see a run's result, because the authority for that is the GitHub API and the
+   sandbox the gate runs in cannot reach it. So a job that always skips reads exactly like one that
+   passes, and a hand-run is invisible. Moving this cell to **`yes`** is therefore review's
+   judgement with the run named beside it. **`wired` does not expire, and nothing makes it:** a cell
+   can sit in it for as long as nobody looks, exactly as `can` could before `unrun` existed. What
+   IS mechanical is the pair of transitions around it - `unrun` is refused once CI reaches the
+   venue, `wired` is refused until it does, and both are refused for a venue whose own `Where it
+   runs` cell says it runs nowhere - so a cell cannot be in the wrong one of the two, only in the
+   right one for too long.
 2. **Whether a deployment can OBTAIN such a credential for the caller who asked.** Each bearer here is
    minted from a service-account key *on disk*, through the crate's own `Credential`, so what a green run
    establishes is that a source executes as the principal whose credential a leg carried. Nobody asked
