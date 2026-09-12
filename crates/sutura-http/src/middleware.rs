@@ -199,6 +199,9 @@ fn sweep_until_dropped(watched: &[WatchedTier], interval: Duration) {
 /// The count is the stop condition and nothing else: zero means every router that installed one of
 /// these layers has been dropped, so there is nothing left for the thread to do.
 fn sweep_once(watched: &[WatchedTier]) -> usize {
+    let mut public = None;
+    let mut general = None;
+    let mut metrics = None;
     let mut live = 0_usize;
     for entry in watched {
         // The upgrade failing is the ordinary end of a tier, not an error: the router that held the
@@ -207,10 +210,35 @@ fn sweep_once(watched: &[WatchedTier]) -> usize {
         live = live.saturating_add(1);
         shed_idle_buckets(entry.tier.as_str(), &config);
         // Sample after reaping so the published value describes the retained store rather than the
-        // stale pre-reap size for another interval.
-        entry.metrics.limiter_buckets(entry.tier, config.limiter().len());
+        // stale pre-reap size for another interval. More than one surface can have the same tier;
+        // collect first because a labeled gauge has one value and the later store must not overwrite
+        // the earlier store's live keys.
+        let count = config.limiter().len();
+        match entry.tier {
+            crate::metrics::PUBLIC_TIER => add_bucket_count(&mut public, count),
+            crate::metrics::GENERAL_TIER => add_bucket_count(&mut general, count),
+            crate::metrics::METRICS_TIER => add_bucket_count(&mut metrics, count),
+            _ => {}
+        }
+    }
+    // Every watched entry shares the same metrics atomics, so one update per label publishes the
+    // aggregate across all stores carrying that label.
+    if let Some(entry) = watched.first() {
+        if let Some(count) = public {
+            entry.metrics.limiter_buckets(crate::metrics::PUBLIC_TIER, count);
+        }
+        if let Some(count) = general {
+            entry.metrics.limiter_buckets(crate::metrics::GENERAL_TIER, count);
+        }
+        if let Some(count) = metrics {
+            entry.metrics.limiter_buckets(crate::metrics::METRICS_TIER, count);
+        }
     }
     live
+}
+
+fn add_bucket_count(total: &mut Option<usize>, count: usize) {
+    *total = Some(total.unwrap_or_default().saturating_add(count));
 }
 
 /// Drops one tier's keys whose state is indistinguishable from a fresh one, and gives the memory
@@ -547,6 +575,42 @@ mod tests {
         assert!(
             watch.upgrade().is_none(),
             "the sweeper is still holding the tier it was sweeping"
+        );
+    }
+
+    #[test]
+    fn same_label_limiter_stores_are_aggregated_in_the_bucket_gauge() {
+        let mut builder = sutura_runtime::metrics::RegistryBuilder::default();
+        let metrics = crate::metrics::Metrics::install(&mut builder);
+        let registry = builder.build();
+        let key = peer_keyed();
+        let (_first_layer, first) =
+            super::probe_rate_limit_layer(&metrics, quota(1), key.clone()).expect("the first tier builds");
+        let (_second_layer, second) = super::probe_rate_limit_layer(&metrics, quota(1), key).expect("the second tier builds");
+
+        let _first = first.config.limiter().check_key(&caller(1));
+        let _second_a = second.config.limiter().check_key(&caller(2));
+        let _second_b = second.config.limiter().check_key(&caller(3));
+        assert_eq!(first.tracked(), 1);
+        assert_eq!(second.tracked(), 2);
+
+        let watched = [
+            super::WatchedTier {
+                tier: crate::metrics::PUBLIC_TIER,
+                config: first.watch(),
+                metrics: metrics.clone(),
+            },
+            super::WatchedTier {
+                tier: crate::metrics::PUBLIC_TIER,
+                config: second.watch(),
+                metrics,
+            },
+        ];
+        assert_eq!(super::sweep_once(&watched), 2);
+        let rendered = registry.render();
+        assert!(
+            rendered.contains("sutura_rate_limit_buckets{tier=\"public\"} 3"),
+            "{rendered}"
         );
     }
 

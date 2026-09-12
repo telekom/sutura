@@ -13,7 +13,7 @@
 use sutura_domain::warehouse::ParamValue;
 
 use crate::transport::{Cell, Field, FieldType, JobRequest, JobRows, ParameterMode};
-use crate::wire::{Grid, HOST, JobBounds, WireError, Wired, bounded};
+use crate::wire::{Grid, HOST, JobBounds, ReasonCode, WireError, Wired};
 
 /// One request body, as the endpoint's `QueryRequest` spells it.
 ///
@@ -186,7 +186,8 @@ struct RefusalBody {
     errors: Vec<ErrorItem>,
 }
 
-/// One reported error. `reason` is a fixed vocabulary; the message beside it is not read.
+/// One reported error. The provider's text is mapped to [`ReasonCode`] at the error boundary; the
+/// message beside it is not read.
 #[derive(Debug, serde::Deserialize)]
 struct ErrorItem {
     #[serde(default)]
@@ -219,12 +220,15 @@ where
 {
     let envelope: RefusalEnvelope = serde_json::from_str(body).unwrap_or_default();
     let (named, detail) = envelope.error.map_or_else(
-        || (String::new(), super::EndpointMessage::bounded(None)),
+        || (ReasonCode::Absent, super::EndpointMessage::bounded(None)),
         |error| {
             // The per-error `reason` first, because it is the specific one; the envelope's `status` is
-            // the coarse fallback and is also a fixed vocabulary.
-            let first = error.errors.iter().find_map(|item| item.reason.clone());
-            (bounded(first.or(error.status)), detail(error.message))
+            // the coarse fallback. Both are mapped to the closed local vocabulary before rendering.
+            let first = error.errors.iter().find_map(|item| item.reason.as_deref());
+            (
+                ReasonCode::from_provider(first.or(error.status.as_deref())),
+                detail(error.message),
+            )
         },
     );
     WireError::Refused { status, named, detail }
@@ -294,19 +298,19 @@ pub(super) fn url(request: &JobRequest<'_>) -> String {
     format!("{HOST}/bigquery/v2/projects/{}/queries", request.billing_project().as_str())
 }
 
-/// The reason the endpoint reported against a job, bounded, or an empty string.
+/// The reason the endpoint reported against a job, mapped to the closed vocabulary or absent.
 ///
 /// **Read as a DIAGNOSTIC and never as a verdict.** `QueryResponse.errors` is documented as *"the
 /// first errors or warnings encountered"*, with the explicit note that entries *"do not necessarily
 /// mean that the job has completed or was unsuccessful"* - so a non-empty array is not a failure and
 /// an earlier version of this module was wrong to refuse on it. What it is good for is saying WHY,
 /// once one of the shape checks in `complete` has already decided that something is wrong.
-pub(super) fn reported(answer: &QueryAnswer) -> String {
+pub(super) fn reported(answer: &QueryAnswer) -> ReasonCode {
     answer
         .errors
         .iter()
-        .find_map(|item| item.reason.clone())
-        .map_or_else(String::new, |named| bounded(Some(named)))
+        .find_map(|item| item.reason.as_deref())
+        .map_or(ReasonCode::Absent, |named| ReasonCode::from_provider(Some(named)))
 }
 
 /// The rows one complete job produced, or the reason they are not a complete result.

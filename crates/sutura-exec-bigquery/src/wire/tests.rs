@@ -37,8 +37,8 @@ use crate::transport::{Cell, DatasetId, FieldType, JobRequest, JobTransport as _
 use crate::wire::credential::{AccessTokens, Bearer, QuotaProject};
 use crate::wire::document::{body, cells, columns, complete, refusal, reported, url};
 use crate::wire::{
-    BigQueryWire, BytesBilledCeiling, CallDeadline, DryRun, EndpointMessage, HOST, JobBounds, QueryDeadline, UnusableBound,
-    WireAgent, WireError, bounded,
+    BigQueryWire, BytesBilledCeiling, CallDeadline, DryRun, EndpointMessage, HOST, JobBounds, QueryDeadline, ReasonCode,
+    UnusableBound, WireAgent, WireError, bounded,
 };
 
 // ------------------------------------------------------------------- the fixtures ----
@@ -171,11 +171,11 @@ fn the_endpoints_own_message_is_redacted_under_debug_and_absent_from_display() {
     //
     // **`Display` omits the message too**, because the transports flatten a cause chain with
     // `Display` at their sinks, and the endpoint's free text is the one field here that can carry an
-    // account. The status and the bounded named reason survive - a refusal with only a code would be
+    // account. The status and the closed named reason survive - a refusal with only a code would be
     // undiagnosable, which is what `docs/adr/0018` prices - and neither names an identity.
     let refused: WireError<std::io::Error> = WireError::Refused {
         status: 403,
-        named: String::from("accessDenied"),
+        named: ReasonCode::AccessDenied,
         detail: EndpointMessage::bounded(Some(String::from(
             "Access Denied: Project p: User does not have permission: someone@example.com",
         ))),
@@ -195,7 +195,7 @@ fn the_endpoints_own_message_is_redacted_under_debug_and_absent_from_display() {
         "Display is what a cause-chain sink flattens, and it may not carry the endpoint's message: {displayed}"
     );
     assert!(!displayed.contains("Access Denied"), "{displayed}");
-    // The diagnostic half survives: the status and the bounded named reason are the whole message,
+    // The diagnostic half survives: the status and the closed named reason are the whole message,
     // and neither is an identity.
     assert!(displayed.contains("403"), "{displayed}");
     assert!(displayed.contains("accessDenied"), "{displayed}");
@@ -208,7 +208,7 @@ fn the_outer_error_does_not_render_its_cause_so_a_display_panic_carries_nothing(
     // `panic!("{err}")` leaks nothing even before the redaction above. `Debug` was the leak.
     let inner: WireError<std::io::Error> = WireError::Refused {
         status: 403,
-        named: String::from("accessDenied"),
+        named: ReasonCode::AccessDenied,
         detail: EndpointMessage::bounded(Some(String::from("names someone@example.com"))),
     };
     let outer = crate::BigQueryError::Endpoint { cause: inner };
@@ -372,25 +372,34 @@ fn a_page_of_a_larger_result_is_a_size_bound_and_every_other_failure_is_not() {
     assert!(
         wire.result_did_not_fit(&WireError::<CannotFail>::Refused {
             status: 403,
-            named: String::from("responseTooLarge"),
+            named: ReasonCode::ResponseTooLarge,
             detail: EndpointMessage::bounded(Some(String::from(
                 "the query results are larger than the maximum response size",
             ))),
         }),
         "the endpoint's own reason for too-large is the size bound"
     );
+    let decoded = refusal::<CannotFail>(403, r#"{"error":{"errors":[{"reason":"responseTooLarge"}]}}"#);
+    assert!(
+        wire.result_did_not_fit(&decoded),
+        "the documented provider reason maps to the same size bound"
+    );
     // The control, and it is the half that matters more: every other failure has to stay a failure,
     // because telling a caller not to retry a data system that is briefly unwell is the mistake the
     // port's own documentation says costs more. `NotComplete` is the sharpest of them - a job that ran
     // out of time may well finish on a retry.
     for failure in [
-        WireError::<CannotFail>::NotComplete { named: String::new() },
-        WireError::NoTotal { named: String::new() },
+        WireError::<CannotFail>::NotComplete {
+            named: ReasonCode::Absent,
+        },
+        WireError::NoTotal {
+            named: ReasonCode::Absent,
+        },
         WireError::NoSchema { rows: 1 },
         WireError::NotAScalar { row: 0, column: 0 },
         WireError::Refused {
             status: 400,
-            named: String::new(),
+            named: ReasonCode::Absent,
             detail: EndpointMessage::bounded(None),
         },
     ] {
@@ -494,31 +503,30 @@ fn a_failed_job_is_caught_by_its_shape_and_carries_the_reason_the_endpoint_gave(
     // reports one as complete with no total.
     let document = r#"{"jobComplete": true, "errors": [{"reason": "resourcesExceeded"}]}"#;
     match complete::<CannotFail>(answer(document)) {
-        Err(WireError::NoTotal { ref named }) => assert_eq!(*named, "resourcesExceeded"),
+        Err(WireError::NoTotal { named }) => assert_eq!(named, ReasonCode::Unrecognized),
         other => panic!("a failed job was mapped to {other:?}"),
     }
 
     // And an incomplete one, which is the other shape a reason attaches to.
     let document = r#"{"jobComplete": false, "errors": [{"reason": "timeout"}]}"#;
     match complete::<CannotFail>(answer(document)) {
-        Err(WireError::NotComplete { ref named }) => assert_eq!(*named, "timeout"),
+        Err(WireError::NotComplete { named }) => assert_eq!(named, ReasonCode::Unrecognized),
         other => panic!("an incomplete job was mapped to {other:?}"),
     }
 }
 
 #[test]
-fn a_reported_reason_is_a_diagnostic_and_is_bounded_like_every_other_foreign_string() {
-    // It reaches an error and therefore a log, so it goes through the same one function every other
-    // foreign short token in this crate goes through.
+fn a_reported_reason_is_a_diagnostic_and_is_mapped_to_the_closed_vocabulary() {
+    // It reaches an error and therefore a log, so provider text is mapped before ordinary rendering.
     let document = r#"{"jobComplete": true, "errors": [{"reason": "bad\nreason [31m"}]}"#;
-    assert_eq!(reported(&answer(document)), "badreason31m");
-    assert_eq!(reported(&answer(r#"{"jobComplete": true}"#)), "");
+    assert_eq!(reported(&answer(document)), ReasonCode::Unrecognized);
+    assert_eq!(reported(&answer(r#"{"jobComplete": true}"#)), ReasonCode::Absent);
 }
 
 // ------------------------------------------------------------ the refusal it maps ----
 
 #[test]
-fn a_refusal_keeps_the_endpoints_reason_and_a_bounded_message() {
+fn a_refusal_keeps_a_closed_reason_and_a_bounded_message() {
     // **This test was `..._and_never_its_message`, and the reversal is the point.** The message was
     // deliberately not a field, on the argument that what is not read cannot be logged by accident -
     // and then the first live submission came back `400 invalidQuery` and there was no way to tell
@@ -540,7 +548,7 @@ fn a_refusal_keeps_the_endpoints_reason_and_a_bounded_message() {
             ref detail,
         } => {
             assert_eq!(status, 403);
-            assert_eq!(*named, "accessDenied");
+            assert_eq!(*named, ReasonCode::AccessDenied);
             assert!(
                 detail.as_str().contains("Access Denied"),
                 "the detail lost the sentence: {}",
@@ -571,6 +579,22 @@ fn a_refusal_keeps_the_endpoints_reason_and_a_bounded_message() {
 }
 
 #[test]
+fn an_unrecognized_provider_reason_cannot_reach_ordinary_error_rendering() {
+    let document = r#"{"error":{"code":403,"errors":[{"reason":"project-secret-42"}]}}"#;
+    let mapped: WireError<CannotFail> = refusal(403, document);
+    let rendered = mapped.to_string();
+
+    assert!(
+        !rendered.contains("project-secret-42"),
+        "provider text reached Display: {rendered}"
+    );
+    assert!(
+        rendered.contains("unrecognized"),
+        "the diagnostic lost the closed reason marker: {rendered}"
+    );
+}
+
+#[test]
 fn a_message_from_the_endpoint_cannot_be_longer_than_a_log_line() {
     // The other half of the bound. A service that answered with a megabyte of prose would otherwise
     // put a megabyte into a log, which is the concern that got the field dropped in the first place -
@@ -597,7 +621,7 @@ fn a_refusal_whose_body_is_not_the_envelope_still_reports_the_status() {
                 ref detail,
             } => {
                 assert_eq!(status, 502);
-                assert!(named.is_empty(), "{document:?} produced a reason: {named}");
+                assert_eq!(*named, ReasonCode::Absent, "{document:?} produced a reason: {named}");
                 assert!(
                     detail.as_str().is_empty(),
                     "{document:?} produced a detail: {}",

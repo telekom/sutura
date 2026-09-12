@@ -1069,11 +1069,11 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
   the reported
   `reason` is folded into whichever of those fires, because it is the best diagnostic
   available at that point. See `complete`, and the limit stated there.
-- **Refusal text is bounded and filtered, not discarded.** `credential::bounded` handles the
-  `reason`; `EndpointMessage` retains the free-text `message` and redacts it under `Debug`.
-  `Display` on the refusal renders the status and the named reason and never the message, so a
-  cause-chain walk cannot carry the endpoint's free text either - see the `WireError::Refused`
-  variant for the limit.
+- **Refusal text is closed, not passed through.** `ReasonCode` maps the endpoint's reason to a
+  fixed local vocabulary and turns an unrecognized value into a static marker;
+  `EndpointMessage` retains the free-text `message` and redacts it under `Debug`. `Display` on
+  the refusal renders the status and the local reason code and never the message, so a cause-chain
+  walk cannot carry endpoint text either - see `WireError::Refused` for the limit.
 
 # What is deliberately absent
 
@@ -1170,8 +1170,8 @@ legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the
 **The refusal's own `Display` used to interpolate this field, and that made the type's
 redaction narrower than it read.** A cause-chain walk that flattens every link with `Display` -
 which is what the transports' sinks do - carried the message into a deployment's own log. That
-no longer happens: `WireError::Refused`'s `Display` renders the status and the bounded named
-reason and never this field. The limit, stated next to the claim: the endpoint's message
+no longer happens: `WireError::Refused`'s `Display` renders the status and the closed reason
+code and never this field. The limit, stated next to the claim: the endpoint's message
 remains a queryable string on the error TYPE, reached only by an explicit call - so a caller
 that deliberately opts in to rendering it can. The free text is bounded and stripped on the way
 in regardless - see `Self::bounded`.
@@ -1205,6 +1205,43 @@ guaranteed.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum ReasonCode`
+
+```rust
+pub enum ReasonCode
+```
+
+The fixed reason vocabulary this adapter exposes from an endpoint response.
+
+Provider text is parsed into this type before it reaches an error. The endpoint may add a reason
+this adapter does not know; that value becomes `Self::Unrecognized` and its text is discarded.
+This keeps ordinary error rendering useful for known conditions without allowing provider-owned
+text to become a log line.
+
+#### Variants
+
+- `Absent` - No reason was present in the response.
+- `Unrecognized` - The endpoint returned a reason outside this adapter's vocabulary.
+- `AccessDenied` - The caller was not authorized.
+- `InvalidQuery` - The request was not valid for the service.
+- `NotFound` - The requested resource was not found.
+- `RateLimitExceeded` - The request exceeded a short-term service rate limit.
+- `QuotaExceeded` - The request exceeded a service quota.
+- `ResponseTooLarge` - The response exceeded the service's maximum response size.
+- `BackendError` - The service reported a temporary backend failure.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The stable text this adapter renders for the code.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
 
 ### `enum WireError`
 

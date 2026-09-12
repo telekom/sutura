@@ -784,14 +784,15 @@ bullets down:
 The finding above - the endpoint's `message` is kept on the refusal - is narrowed where it was
 weakest. The message is still carried on the type and still bounded to 400 printable-ASCII
 characters, and `Debug` still redacts it. What changed is `Display` on `WireError::Refused`: it
-renders `{status}` and the bounded named reason and **no longer interpolates `detail`**. That was the
-path a cause-chain walk takes - the transports' sinks flatten each link with `Display` - so a
+renders `{status}` and the closed local reason code and **no longer interpolates `detail`**. That was
+the path a cause-chain walk takes - the transports' sinks flatten each link with `Display` - so a
 deployment's own log used to carry the endpoint's free text, which on a `403` quotes the resource and
 the principal it refused.
 
 `EndpointMessage` also loses its `Display` implementation, so the raw sentence is reachable only
 through `EndpointMessage::as_str`, named on purpose. Every rendering this error can meet is therefore
-one of: status plus named reason (`Display`), a redacted marker (`Debug`), or an explicit accessor.
+one of: status plus a closed reason code (`Display`), a redacted marker (`Debug`), or an explicit
+accessor.
 
 **The limit, stated next to the claim.** The endpoint's message is still a string on the error TYPE,
 and a caller that deliberately calls `as_str` can render it. This removes the accident, not the
@@ -801,3 +802,15 @@ capability, and it says nothing about what the endpoint records on its own side.
 `a_refusal_this_leg_dies_on_names_the_reason_and_never_the_message` in
 `crates/sutura-exec-bigquery/tests/exchanged_identity.rs`, which holds that the leg goes through the
 status-and-reason shape rather than rendering the error.
+
+## Third amendment, 2026-09-12: provider reason text is closed before ordinary rendering
+
+The endpoint's `errors[].reason` is provider-owned input. Bounding and filtering its characters still
+allowed an arbitrary identifier to reach `WireError::Refused`'s `Display`, so the wire now maps it to
+the closed `ReasonCode` vocabulary at decode time. Known decisions, including `responseTooLarge`,
+`rateLimitExceeded` and `quotaExceeded`, retain their behavior; an absent or unrecognized provider
+value renders only a static local marker. The same type is carried by incomplete-job and missing-total
+errors, so no ordinary rendering of a shape-derived diagnostic can carry provider text either.
+
+`an_unrecognized_provider_reason_cannot_reach_ordinary_error_rendering` in
+`crates/sutura-exec-bigquery/src/wire/tests.rs` is the regression test for the boundary.

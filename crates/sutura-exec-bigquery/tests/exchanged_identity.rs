@@ -158,7 +158,7 @@ mod tests {
     };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::SourcePosture;
-    use sutura_exec_bigquery::wire::{EndpointMessage, StsOverHttp, WireAgent, WireError};
+    use sutura_exec_bigquery::wire::{EndpointMessage, ReasonCode, StsOverHttp, WireAgent, WireError};
     use sutura_exec_bigquery::{BigQueryError, SessionUser};
     use sutura_exec_bigquery::{WorkloadIdentity, WorkloadIdentityBroker};
 
@@ -451,7 +451,7 @@ mod tests {
         let refused: BigQueryError<WireError<std::io::Error>> = BigQueryError::Endpoint {
             cause: WireError::Refused {
                 status: 403,
-                named: String::from("accessDenied"),
+                named: ReasonCode::AccessDenied,
                 detail: EndpointMessage::bounded(Some(String::from(
                     "Access Denied: Project p: User does not have bigquery.jobs.create permission: principal-a@example.com",
                 ))),
@@ -493,7 +493,7 @@ mod tests {
         let read: IdentityRead<std::io::Error> = Err(BigQueryError::Endpoint {
             cause: WireError::Refused {
                 status: 403,
-                named: String::from("accessDenied"),
+                named: ReasonCode::AccessDenied,
                 detail: EndpointMessage::bounded(Some(String::from(
                     "Access Denied: Project p: User does not have bigquery.jobs.create permission: principal-a@example.com",
                 ))),
