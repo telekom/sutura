@@ -81,6 +81,42 @@
 //! golden of the stored form, which `crates/sutura-app/tests/golden/catalogs.rs` holds for a catalog
 //! and nothing holds for a phrase.
 //!
+//! # Which generator earns its lines, measured
+//!
+//! A hand table of a few dozen adversarial values is a real alternative: both kills below report a
+//! counterexample short enough to write down. So the four families were measured the way the kills
+//! were - eight mutations of the parsers these types call, each run against the two tests here with
+//! the accepted-value count read per family. `=` is a count that did not move:
+//!
+//! | mutation | [`sweep`] 820 | [`WITNESSES`] 10 | [`perturbed`] 3 672 | [`straddling`] 174 | caught by |
+//! | --- | --- | --- | --- | --- | --- |
+//! | the leading-space flag forced on | = | = | = | = | idempotence, at 3 characters |
+//! | the same flag inverted | = | = | = | +6 | idempotence, and the count |
+//! | the pending separator never reset | = | = | -14 | = | the accepted count |
+//! | an invisible code point read as a separator | = | = | = | -6 | the accepted count |
+//! | an invisible code point kept, not dropped | = | = | = | -6 | the accepted count |
+//! | a dimension value's bound off by one | = | -2 | = | -6 | the accepted count |
+//! | a dimension value's length counted in bytes | = | = | = | -12 | the accepted count |
+//! | an invisible code point CLEARING the separator | = | = | = | = | **nothing** |
+//!
+//! **[`straddling`] is what earns a generator over a table**: four of those rows move its count and
+//! nothing else's, and it shares a fifth with [`WITNESSES`] - 174 values written as eight lines,
+//! six patterns against both sides of ten bounds. Tabulated by hand it *is* 174 rows, so a table is
+//! the expensive form of it rather than the cheap one. [`perturbed`] caught one nothing else did.
+//!
+//! **[`sweep`] moved no count in any of the eight**, which is why [`SWEEP_LEN`] is three: the one
+//! thing that family catches reports a THREE-character counterexample, and a fourth level is 6 561
+//! more candidates - 58% of the generated space - for no measured catch. All eight were re-run at
+//! three and every verdict reproduced, counterexample for counterexample.
+//!
+//! **The last row is the limit, stated next to the claim.** With `collapse_spacing` mutated so an
+//! invisible code point clears the pending separator, `a \u{200b}b` stores as `ab` - a word boundary
+//! lost from a phrase the digest covers and `phrase_identity` matches on - and it passes this
+//! crate's whole suite, not just these two tests. A normalisation that folds MORE is still
+//! idempotent and refuses nothing new, so neither half of this property can see it. What would is a
+//! golden of the stored form, which `crates/sutura-app/tests/golden/catalogs.rs` holds for a catalog
+//! and nothing holds for a phrase.
+//!
 //! # Measured, not asserted: what breaking each half of this actually reports
 //!
 //! Each half was checked by breaking the invariant and reading the counterexample, because a
