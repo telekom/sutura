@@ -30,6 +30,19 @@ pub(crate) const TASKS: &[Task] = &[
         run: compose::run_down,
     },
     Task {
+        // The QUESTION, next to the action that needs it answered. It removes nothing, and its
+        // whole contribution is the exit code: 0 clear, 1 this worktree holds resources, 3 the
+        // runtime did not say. Named for the SAFE direction on purpose - a task that exited 0 when
+        // a project was running would be called with `!`, and `!` turns the unknown code into a
+        // success, so the one answer that must never read as "nothing there" would be the one
+        // that does.
+        name: "dev-clear",
+        description: "is this worktree clear of compose resources? 0 clear, 1 holds, 3 unknown (needs docker)",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: compose::run_clear,
+    },
+    Task {
         name: "dev-endpoints",
         description: "where this worktree's services are listening, from the discovery file",
         kind: Kind::Standalone,

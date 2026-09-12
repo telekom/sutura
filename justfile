@@ -723,6 +723,13 @@ dev-down:
 dev-down-dry:
     cargo run -q -p xtask -- dev-down --dry-run
 
+# Is this worktree clear of compose resources? The EXIT CODE is the answer - 0 clear, 1 this
+# worktree holds resources, 3 the runtime did not say - so a caller writes `just dev-clear ||
+# refuse` instead of matching the sentence `just dev-down-dry` prints. Removes nothing, and unknown
+# refuses: a script that treated "I could not look" as "nothing there" would arm a teardown over it.
+dev-clear:
+    cargo run -q -p xtask -- dev-clear
+
 # NOT a gate, deliberately - the plan's own rule and #595's: a demo that fails a gate gets disabled,
 # and a disabled demo holds nothing. It needs a language model, which no gate has. The configuration,
 # image build and supervision are in `demo/start.sh`; `docs/demo.md` is the walkthrough.
