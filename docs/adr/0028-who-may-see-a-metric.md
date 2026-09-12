@@ -30,10 +30,11 @@ keeping the body could change what the note says. Its cost is that a caveat shar
 visible metrics may disappear for a caller who can see only one; the author must split such a caveat
 when each audience needs it.
 
-**The catalog declares non-empty audience identifiers on each metric, under the definition digest.**
-An audience open to every caller is explicit; a missing declaration never means everyone. Changing a
-metric's audience therefore changes the pinned bundle just as changing its description does. The
-same rule applies to the catalog-wide audience of unscoped knowledge.
+**The catalog declares one audience on each metric, under the definition digest:** either `open`, or
+`restricted` with a non-empty set of audience identifiers. Open to every verified caller is explicit;
+a missing declaration never means everyone. Changing a metric's audience therefore changes the
+pinned bundle just as changing its description does. The same rule applies to the catalog-wide
+audience of unscoped knowledge.
 
 **The deployment maps authenticated group-claim values to those audience identifiers.** The token's
 scopes continue to decide which operations the caller may invoke. They do not become per-metric
@@ -47,11 +48,34 @@ portable audience identifiers; the deployer binds verified identity-provider gro
 identifiers. The group mapping is deployment policy and is not part of the bundle digest. The caller
 cannot supply either half as query input.
 
+For a verified caller `c`, let `granted(c)` be the union of the audiences to which the deployment maps
+each value in `c`'s verified group claim. A missing claim and a claim containing only unmapped values
+both produce the empty set; an unmapped value in a mixed claim contributes nothing and does not cancel
+a mapped value. For a metadata unit `u`, visibility is exactly:
+
+```text
+visible(c, u) = audience(u) is open
+             or (audience(u) is restricted(A) and A intersects granted(c))
+```
+
+For a metric restricted to audience `finance`, the complete decision is:
+
+| Verified group claim | Deployment mapping result | Open metric | Restricted metric |
+| --- | --- | --- | --- |
+| absent | empty | visible | hidden |
+| only unmapped values | empty | visible | hidden |
+| mapped to `finance`, with or without unmapped values | includes `finance` | visible | visible |
+| mapped, but not to `finance`, with or without unmapped values | excludes `finance` | visible | hidden |
+
+Any mapped group that grants a declared audience is sufficient; unmapped groups neither grant nor
+veto visibility. The inheritance rules above are then applied to knowledge after metric visibility is
+known. An unscoped absence applies this same predicate to its catalog-wide audience.
+
 ## Invisible means absent at both doors
 
-**An invisible metric is unlisted and unaskable.** Catalog and prompt rendering will consume the same
-caller-filtered view that semantic resolution consumes. Resolving an invisible metric will therefore
-take the existing `MetricUnknown` path, exactly as a genuinely absent metric does.
+**An invisible metric is unlisted and unaskable.** On authenticated HTTP, catalog rendering and
+semantic resolution will consume the same caller-filtered view. Resolving an invisible metric will
+therefore take the existing `MetricUnknown` path, exactly as a genuinely absent metric does.
 
 The two refusals are intentionally byte-identical, including status, code and detail. An
 authorization-specific refusal would confirm that the requested metric exists. This decision gives
@@ -59,11 +83,30 @@ up an actionable distinction at this boundary in order not to provide a metadata
 The refusal may echo the name the caller supplied; it must disclose nothing learned from the hidden
 definition.
 
+The predicate takes a verified caller, not an optional one. Absence is decided before a view is built,
+and differs by surface:
+
+| Surface | When there is no verified caller |
+| --- | --- |
+| HTTP with `security.inbound` configured | The inbound gate returns `401` before either the catalog or query handler runs. Neither open nor restricted metadata is returned. |
+| HTTP without `security.inbound` | This is the explicit single-player posture. Catalog rendering and query resolution use the whole bundle; absence is not interpreted as an empty group claim. |
+| `sutura catalog`, `sutura describe` and `sutura prompt` | These are operator-side commands with no request caller and retain the whole bundle. The prompt renderer has no served endpoint today. |
+| stdio MCP | The transport cannot establish a caller or receive a token, so `describe_catalog` and `ask_metric` retain the whole bundle. Caller-specific MCP visibility waits for an authenticated transport. |
+
+The implementation must keep the verified-caller and explicit whole-bundle cases distinct. An
+`Option<VerifiedCaller>` whose absent arm silently chooses either `open` or unrestricted visibility
+would merge deployment posture with failed authentication.
+
 ## The digest is the bundle's, not the view's
 
 **The existing definition digest continues to identify the whole immutable pinned bundle from which
-the view was projected.** It is not recomputed per caller. Anchors are checked when that bundle is
-pinned, so a digest over a projection would name content no anchor-verification step certified.
+the view was projected.** It is not recomputed per caller. `PinnedDefinitions::pin` computes that
+digest from the definitions, knowledge and contribution manifest it stores; it does not run anchors.
+Later, `verify_and_validate` checks declared keys and runs declared anchors against the already-pinned
+bundle before producing the servable wrapper. A projection is neither the content `pin` hashed nor a
+bundle that `verify_and_validate` validated, so a per-view digest would define new provenance rather
+than preserve the existing one. Anchor checks reproduce declared numbers; they do not attest a
+digest.
 
 This makes `definition_digest` an origin-bundle digest, not a digest of the bytes returned by a
 filtered catalog response. Because audience declarations live in the catalog, changing a metric's
@@ -101,8 +144,9 @@ metric whose usable or explanatory metadata had been removed.
 leave the bundle digest unmoved. Portable audience identifiers belong with the authored metadata;
 only their deployment-specific group mapping belongs in settings.
 
-**A digest of each caller's projection.** Declined because it is not the digest whose anchors were
-verified and would make two callers report different provenance for the same authored metric.
+**A digest of each caller's projection.** Declined because `pin` did not compute it, and the projection
+is not a bundle `verify_and_validate` validated. It would make two callers report different
+provenance for the same authored metric; anchor checks do not attest either digest.
 
 **A distinct authorization refusal.** Declined because it confirms the hidden metric. Invisible and
 unknown deliberately share `MetricUnknown` instead.
@@ -120,8 +164,10 @@ allows the digest carried by an answer to describe definitions other than those 
   state in which a metric can be hidden at one door and used through the other.
 * Authored free text can still mention a model, column or hidden metric. Existing types constrain
   structured referents, not prose, so metadata visibility is not a content-redaction mechanism.
-* This is **metadata access only**. It changes no warehouse credential, execution posture or rows.
-  Two callers who can see the same metric still execute it under the deployment's existing identity.
-  It is neither row-level authorization nor the second leg of impersonation.
+* This is **metadata access only**. It changes no source's configured `SourcePosture`, credential path
+  or rows. A question continues through whatever posture and credential path that source already
+  uses, shared or impersonating; visibility neither selects the deployment identity nor proves that a
+  source executed as the caller. It is neither row-level authorization nor evidence that the second
+  leg of impersonation ran.
 * No visibility declaration, caller-filtered type, refusal-path change or transport integration is
   implemented by this record.
