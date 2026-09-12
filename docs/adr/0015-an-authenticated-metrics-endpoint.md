@@ -45,7 +45,7 @@ Four startup refusals, each preventing a silent collapse of the separation:
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `metrics_token` equal to `access_token`                                             | Collapses the separation this record exists for, and nothing at runtime would show it                                                 |
 | `/metrics` enabled with no `metrics_token`, in production or on a non-loopback bind | The existing `AccessTokenRequired` argument verbatim: the alternative is an unauthenticated way to read whatever the process can read |
-| An invalid `metrics_token`                                                          | A malformed secret must be refused at configuration load rather than leave a deployed endpoint nobody can scrape                    |
+| An invalid `metrics_token`                                                          | A malformed secret must be refused at configuration load rather than leave a deployed endpoint nobody can scrape                      |
 | Registry initialisation failing                                                     | A `200` carrying half the series is worse than a process that did not start                                                           |
 
 **The limiter sits OUTSIDE the gate**, as `sutura-http`'s router already requires and for the reason
