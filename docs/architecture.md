@@ -673,7 +673,10 @@ would be linted and tested by nothing. [Contributing](contributing.md) has the c
 ## What ships
 
 Four artifacts, two libc flavours on two architectures, each a distroless image holding one
-binary. `cargo xtask check-workflows` fails if a workflow names a build output that does not
+binary. The `ci` job realises those outputs in three staged `nix build` graphs, cut where the
+dependency closure falls, so the order the steps are read in is the order the work happens in;
+`.github/workflows/ci.yml` carries the measurement that found the single merged graph made that
+order a fiction. `cargo xtask check-workflows` fails if a workflow names a build output that does not
 exist, and the `one-binary` check fails if an image carries more than the binary.
 
 The musl artifacts replace the system allocator. musl's mallocng serialises the whole process on one
