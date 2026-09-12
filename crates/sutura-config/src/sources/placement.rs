@@ -397,8 +397,34 @@ impl SourcePlacement {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
+    use super::{BillingProject, DatasetId, HostName, InvalidHostName, InvalidResourceName, SourcePlacement};
     use crate::sources::SourceKind;
+
+    #[test]
+    fn a_declared_host_that_cannot_be_dialled_names_which_rule_it_broke() {
+        // Each shape gets its own variant rather than one catch-all, so a refusal names WHICH rule a
+        // host broke instead of just that it did. `Empty` is unreachable from `parse_placement`
+        // itself - `sources.rs`'s `written()` already routes an empty `host` to the
+        // `host_or_unix_socket` refusal before `HostName::parse` is ever called - so it is asserted
+        // here, on the newtype directly, and nowhere claims a composition root reaches it.
+        for (raw, expected) in [
+            ("", InvalidHostName::Empty),
+            (
+                "http://db",
+                InvalidHostName::Scheme {
+                    scheme: String::from("http"),
+                },
+            ),
+            ("db/x", InvalidHostName::PathSeparator),
+            ("db host", InvalidHostName::Whitespace),
+        ] {
+            assert_eq!(
+                HostName::parse(raw).expect_err("each of these is refused"),
+                expected,
+                "{raw:?}"
+            );
+        }
+    }
 
     #[test]
     fn a_project_id_that_could_escape_a_url_path_is_refused() {

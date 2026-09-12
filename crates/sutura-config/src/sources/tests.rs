@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use sutura_domain::model::SourceName;
 use sutura_domain::source::{AcknowledgementReason, AnchorIdentity, ConflictingSourceIdentity, VerificationIdentity};
 
+use super::placement::InvalidHostName;
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceRegistry};
 use crate::security::DeploymentIdentity;
 
@@ -589,47 +590,44 @@ fn the_two_keys_that_open_a_bigquery_source_mean_nothing_on_a_files_source() {
 
 #[test]
 fn postgres_only_keys_mean_nothing_on_a_files_or_a_bigquery_source() {
-    // Both directions again, this time for the ten `postgres`-only keys against the OTHER two
-    // kinds: a `bigquery` entry carrying `transport_mode: verified` and `transport_anchors` would
-    // otherwise load and verify against `ureq`'s compiled-in roots regardless - the operator
-    // believes the wire verifies against their anchors, and it does not.
-    let on_files = RawSourceEntry {
-        transport_mode: Some("verified"),
-        transport_anchors: Some("/etc/sutura/ca.pem"),
-        ..impersonating("local")
-    };
-    let error =
-        SourceRegistry::parse(&[on_files], Some(&single_user())).expect_err("a postgres-only key on a files source is refused");
-    assert!(
-        matches!(
-            error,
-            InvalidSourceRegistry::KeyNotForKind {
-                kind: super::SourceKind::Files,
-                key: "transport_mode",
-                ..
-            }
-        ),
-        "{error:?}"
-    );
+    // Both directions, for EACH of the ten `postgres`-only keys: `refuse_foreign_keys` names the FIRST written key, so two-at-once proves only one of them is actually observed.
+    macro_rules! entry_with {
+        ($base:expr, $field:ident, $value:expr) => {{
+            let mut e = $base();
+            e.$field = Some($value);
+            (stringify!($field), e)
+        }};
+    }
+    fn one_key_entries<'a>(base: impl Fn() -> RawSourceEntry<'a>) -> [(&'static str, RawSourceEntry<'a>); 10] {
+        [
+            entry_with!(base, host, "db"),
+            entry_with!(base, unix_socket, "/run/pg"),
+            entry_with!(base, port, 5432),
+            entry_with!(base, database, "app"),
+            entry_with!(base, user, "app"),
+            entry_with!(base, password_file, "/etc/sutura/pw"),
+            entry_with!(base, transport_mode, "verified"),
+            entry_with!(base, transport_anchors, "/etc/sutura/ca"),
+            entry_with!(base, client_certificate, "/etc/sutura/crt"),
+            entry_with!(base, client_key, "/etc/sutura/key"),
+        ]
+    }
+    fn assert_wrong_kind(error: &InvalidSourceRegistry, kind: super::SourceKind, key: &str) {
+        let InvalidSourceRegistry::KeyNotForKind { kind: k, key: n, .. } = error else {
+            panic!("expected a wrong-kind refusal for {key}");
+        };
+        assert_eq!(*k, kind);
+        assert_eq!(*n, key);
+    }
+    for (key, entry) in one_key_entries(|| impersonating("local")) {
+        let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("refused on a files source");
+        assert_wrong_kind(&error, super::SourceKind::Files, key);
+    }
 
-    let on_bigquery = RawSourceEntry {
-        transport_mode: Some("verified"),
-        transport_anchors: Some("/etc/sutura/ca.pem"),
-        ..bigquery("warehouse")
-    };
-    let error = SourceRegistry::parse(&[on_bigquery], Some(&single_user()))
-        .expect_err("a postgres-only key on a bigquery source is refused rather than silently unread");
-    assert!(
-        matches!(
-            error,
-            InvalidSourceRegistry::KeyNotForKind {
-                kind: super::SourceKind::BigQuery,
-                key: "transport_mode",
-                ..
-            }
-        ),
-        "{error:?}"
-    );
+    for (key, entry) in one_key_entries(|| bigquery("warehouse")) {
+        let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("refused on a bigquery source");
+        assert_wrong_kind(&error, super::SourceKind::BigQuery, key);
+    }
 }
 
 #[test]
@@ -756,6 +754,21 @@ fn a_postgres_source_declares_its_connection_and_its_plaintext_choice() {
             assert_eq!(*transport, super::transport::SourceTransport::Plaintext);
         }
         other => panic!("expected a postgres placement, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_declared_host_that_names_a_url_scheme_is_refused_at_the_registry() {
+    // The registry-level half of `HostName`'s own refusal, with the newtype's reason attached.
+    let entries = [RawSourceEntry {
+        host: Some("postgres://db"),
+        unix_socket: None,
+        ..postgres("warehouse")
+    }];
+    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a URL is not a usable host");
+    match error {
+        InvalidSourceRegistry::Host { cause, .. } => assert!(matches!(cause, InvalidHostName::Scheme { .. }), "{cause:?}"),
+        other => panic!("expected a host refusal, got {other:?}"),
     }
 }
 

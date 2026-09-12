@@ -30,8 +30,9 @@ pub struct PasswordFileUnreadable {
 /// Builds the driver configuration for one declared PostgreSQL connection.
 ///
 /// The password is trimmed exactly once after reading, so a trailing newline from a mounted secret
-/// is not part of the credential, then parsed into [`Secret`] before the trimmed `String` is dropped.
-/// The returned config does not select TLS; [`crate::PostgresWarehouse::connect_secured`]
+/// is not part of the credential, then parsed into [`Secret`]. The read `String` is shadowed by
+/// that `Secret`, not dropped - it is not zeroised, and it lives unzeroised until this function
+/// returns. The returned config does not select TLS; [`crate::PostgresWarehouse::connect_secured`]
 /// makes a supplied TLS client mandatory before it dials.
 ///
 /// # Errors
