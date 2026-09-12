@@ -22,6 +22,8 @@
 
 #![cfg(test)]
 
+use std::path::{Path, PathBuf};
+
 /// Every path in `dprint.json`'s `excludes`, in file order. Held here rather than counted, so a
 /// diff says which exclusion moved instead of only that the total did.
 const EXCLUDED: &[&str] = &[
@@ -52,6 +54,22 @@ const IN_FLIGHT: &[&str] = &[
     ".github/actionlint.yaml",
 ];
 
+/// The repository root, from this test binary's own manifest directory - the idiom
+/// `xtask/tests/cache_witness.rs` uses, and READ AT RUN TIME for the reason `flake.nix`'s source
+/// filter states in its own header: `include_str!` resolves against the FILTERED copy in a nix
+/// build, and `checks.clippy` compiles every test target against it. `dprint.json` is not a Cargo
+/// input, so a compile-time include of it failed with `couldn't read xtask/tests/../../dprint.json`
+/// inside the sandbox while passing under cargo and under the commit hooks - the one bug class a
+/// local gate cannot see, and the fourth time that filter has bitten. `checks.nextest` runs this
+/// on `wholeTree` and has the file. A filter arm would have worked too and costs every
+/// filtered-src check a rehash; this costs nothing.
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask/ has a parent")
+        .to_path_buf()
+}
+
 /// `dprint.json` is JSONC - the comments carrying those arguments are the point of the file - so
 /// this reads the array rather than deserialising it. Quoted lines are entries and `//` lines are
 /// not, which is the whole grammar involved.
@@ -69,7 +87,9 @@ fn excluded(config: &str) -> Vec<&str> {
 
 #[test]
 fn the_dprint_exclusions_are_pinned_and_the_unargued_group_has_not_grown() {
-    let found = excluded(include_str!("../../dprint.json"));
+    // `expect` and not a skip: a pin that silently inspects nothing is worse than no pin.
+    let config = std::fs::read_to_string(root().join("dprint.json")).expect("dprint.json is readable");
+    let found = excluded(&config);
 
     assert_eq!(
         found, EXCLUDED,
