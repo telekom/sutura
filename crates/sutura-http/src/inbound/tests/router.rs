@@ -145,7 +145,7 @@ async fn the_versioned_surface_needs_a_verified_caller_when_one_is_declared() {
 }
 
 #[tokio::test]
-async fn an_unauthenticated_client_reads_direct_metadata_and_the_challenge_points_at_it() {
+async fn an_unauthenticated_client_reads_direct_metadata() {
     let resource = "https://sutura.example.com/v1/query";
     let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
         .expect("a mock issuer generates a key pair");
@@ -162,15 +162,6 @@ async fn an_unauthenticated_client_reads_direct_metadata_and_the_challenge_point
         })
     );
 
-    let challenge = challenge_for(&app, "/v1/query", Some("sutura.example.com"))
-        .await
-        .expect("an origin-form request for the resource reaches the inbound gate");
-    assert_eq!(
-        challenge,
-        "Bearer realm=\"https://sutura.example.com/v1/query\", error=\"invalid_token\", \
-         resource_metadata=\"https://sutura.example.com/.well-known/oauth-protected-resource/v1/query\""
-    );
-    assert!(!challenge.contains("error_description"));
     assert_eq!(crate::capability_of(&axum::http::Method::GET, &path), None);
 }
 
@@ -182,6 +173,15 @@ async fn a_challenge_points_at_metadata_only_for_an_exact_origin_form_resource()
 
     let app = app_verifying(&issuer);
     let bare = "Bearer realm=\"https://sutura.example.com/v1/query\", error=\"invalid_token\"";
+    let challenge = challenge_for(&app, "/v1/query", Some("sutura.example.com"))
+        .await
+        .expect("an origin-form request for the resource reaches the inbound gate");
+    assert_eq!(
+        challenge,
+        format!("{bare}, resource_metadata=\"https://sutura.example.com/.well-known/oauth-protected-resource/v1/query\"")
+    );
+    assert!(!challenge.contains("error_description"));
+
     for (target, host) in [
         ("https://sutura.example.com/v1/query", None),
         ("HTTPS://sutura.example.com/v1/query", None),
