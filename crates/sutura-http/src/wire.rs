@@ -362,7 +362,13 @@ impl axum::response::IntoResponse for Outcome {
     /// is a number that is already known or no header, and nothing here knows when a data system
     /// comes back.
     fn into_response(self) -> axum::response::Response {
-        (self.status, axum::Json(self.body)).into_response()
+        let outcome = match &self.body {
+            OutcomeBody::Answer { rows, .. } => crate::metrics::QuestionOutcome::answered(rows.len()),
+            OutcomeBody::Refusal { .. } => crate::metrics::QuestionOutcome::refused(),
+        };
+        let mut response = (self.status, axum::Json(self.body)).into_response();
+        response.extensions_mut().insert(outcome);
+        response
     }
 }
 

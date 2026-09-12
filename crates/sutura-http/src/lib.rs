@@ -93,6 +93,7 @@ pub mod client_address;
 pub mod constants;
 pub mod correlation;
 pub mod inbound;
+pub mod metrics;
 pub mod middleware;
 pub mod openapi;
 pub(crate) mod principal;
