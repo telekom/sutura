@@ -127,8 +127,9 @@ directions. The non-obvious parts:
   pretending otherwise, and `docs/adr/0014` downgrades its own *"proof that the request transited"*
   wording to a *gateway-issued identity assertion* for that reason.
 
-The other three limits: keys come from a file and there is no JWKS endpoint; the two metadata
-documents `docs/adr/0014` describes are not served; and scopes decide **operations**, not rows.
+The other three limits: keys come from a file and there is no JWKS endpoint; of the two metadata
+documents `docs/adr/0014` describes, only protected-resource metadata is served, and only in direct
+mode; and scopes decide **operations**, not rows.
 
 ## Brokers
 

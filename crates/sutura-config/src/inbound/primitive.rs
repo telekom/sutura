@@ -487,7 +487,11 @@ fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboun
             limit: MAX_LENGTH,
         });
     }
-    if !trimmed.starts_with(REQUIRED_SCHEME) {
+    let Some(after_scheme) = trimmed.strip_prefix(REQUIRED_SCHEME) else {
+        return Err(InvalidInboundValue::NotHttps { key });
+    };
+    let authority = after_scheme.split_once('/').map_or(after_scheme, |(authority, _)| authority);
+    if authority.is_empty() {
         return Err(InvalidInboundValue::NotHttps { key });
     }
     for (position, character) in trimmed.chars().enumerate() {

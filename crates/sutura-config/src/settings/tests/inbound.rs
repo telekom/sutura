@@ -124,6 +124,23 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     assert_eq!(inbound.requirement().location().to_string(), "x-transit-proof");
 }
 
+fn assert_direct_resource_is_refused(resource: &str) {
+    let inbound = DIRECT_INBOUND.replacen("https://sutura.example.com", resource, 1);
+    let sources = Sources::defaults(Environment::Development).with_overlay(format!("security:\n{inbound}"));
+    let error = Settings::load(&sources).expect_err("a malformed resource identifier is refused");
+    assert!(matches!(error.reason(), SettingsError::InboundValue { .. }), "{error:?}");
+}
+
+#[test]
+fn an_https_scheme_without_an_authority_does_not_start() {
+    assert_direct_resource_is_refused("https://");
+}
+
+#[test]
+fn a_resource_path_cannot_stand_in_for_an_https_authority() {
+    assert_direct_resource_is_refused("https:///tenant");
+}
+
 #[test]
 fn a_deployment_token_and_the_direct_mode_are_refused_because_they_share_one_header() {
     // The collision found by building this rather than by reading the record. RFC 6750 puts an access

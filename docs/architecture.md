@@ -24,11 +24,11 @@ says why they look the way they do.
 ## Serving is MCP
 
 **Both transports are built, and one property this section describes is not.** `sutura-http` serves
-a versioned `v1` tree, a liveness probe, a generated interface description, rate limiting and a
-bearer gate; `sutura-mcp` serves the tool surface over a process's own standard input and output,
-and `just mcp-e2e` drives that one end to end. What is absent is a caller identity on the agent
-surface: a pipe has no header a token could arrive in, so it answers as the deployment and offers
-every capability, and a network-reachable agent surface needs the identity leg
+a versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated
+interface description, rate limiting and a bearer gate; `sutura-mcp` serves the tool surface over a
+process's own standard input and output, and `just mcp-e2e` drives that one end to end. What is absent
+is a caller identity on the agent surface: a pipe has no header a token could arrive in, so it answers
+as the deployment and offers every capability, and a network-reachable agent surface needs the identity leg
 [how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md) designs.
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
@@ -740,9 +740,10 @@ door: what the port bought is that the day a real source arrives, there is no co
 read as the process through.
 
 **The HTTP transport is here now**, and this sentence used to say it was not: an axum surface with a
-versioned `v1` tree, a liveness probe, a generated interface description, rate limiting, a bearer
-gate and optional in-process TLS. What it does **not** carry is a per-caller identity - the token
-authenticates the deployment - so none of the identity claims above are made true by its arrival.
+versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
+description, rate limiting, a bearer gate and optional in-process TLS. What it does **not** carry is a
+per-caller identity - the token authenticates the deployment - so none of the identity claims above
+are made true by its arrival.
 
 Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
 the row cap and the ten-year span. The spliced-statement path is designed, documented above, and
