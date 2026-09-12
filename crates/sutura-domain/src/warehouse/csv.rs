@@ -33,7 +33,10 @@
 //! crates depend on the domain and none may depend on another. It is a pure function over the CSV
 //! text; nothing here reads a file or touches a data system.
 
-use crate::model::{ColumnName, InvalidIdentifier};
+use crate::{
+    calendar::Date,
+    model::{ColumnName, InvalidIdentifier},
+};
 
 /// The column types a fixture CSV can declare, and the one classification every adapter maps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,18 +304,19 @@ fn unsigned_decimal(value: &str) -> &str {
     value.strip_prefix('-').or_else(|| value.strip_prefix('+')).unwrap_or(value)
 }
 
-/// A date-shaped value: `YYYY-MM-DD`.
+/// A date value written exactly as `YYYY-MM-DD`.
 fn is_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10 {
         return false;
     }
-    bytes.get(4) == Some(&b'-')
+    let has_exact_shape = bytes.get(4) == Some(&b'-')
         && bytes.get(7) == Some(&b'-')
         && bytes
             .iter()
             .enumerate()
-            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit());
+    has_exact_shape && Date::parse(value).is_ok()
 }
 
 #[cfg(test)]
@@ -453,5 +457,17 @@ mod tests {
         for text in ["a,b\n1\n", "a,b\n1,2,3\n"] {
             assert!(matches!(infer(text), Err(super::InferenceError::RowWidth { row: 2, .. })));
         }
+    }
+
+    #[test]
+    fn year_zero_is_text() {
+        let columns = infer("day\n0000-01-01\n").expect("a valid header");
+        assert_eq!(columns[0].kind, FixtureType::Text);
+    }
+
+    #[test]
+    fn an_impossible_calendar_day_is_text() {
+        let columns = infer("day\n2026-02-30\n").expect("a valid header");
+        assert_eq!(columns[0].kind, FixtureType::Text);
     }
 }
