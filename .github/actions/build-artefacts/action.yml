@@ -38,269 +38,269 @@ inputs:
 runs:
   using: composite
   steps:
-  # The static-linking claim is ASSERTED here rather than described, because a musl target
-  # that quietly linked dynamically would still build, still run on this runner, and fail
-  # only on the machine the artifact exists for.
-  #
-  # A LOOP OVER `BINARIES` rather than a second copy of this step, and the loop is the fix for
-  # `github.com/telekom/sutura#111`: the only artefact any release published was the
-  # command-line tool, so nothing a user could download could answer a question over HTTP.
-  # `nix/shipped.nix` is the list this one has to agree with, and `Check that every build
-  # arrived` in `publish` is what fails when they drift.
-  #
-  # THE KEY. `sutura`'s assets keep the bare triple - `sutura-<triple>.tar.gz`,
-  # `sutura-oci-<triple>.cdx.json`, the `<version>-<triple>` leaf tag - because that is what
-  # every release so far published and what a consumer's script reads. Every other binary is
-  # prefixed, so `sutura-serve-<triple>.tar.gz` sits beside `sutura-oci-serve-<triple>.cdx.json`
-  # and the leaf tag `<version>-serve-<triple>`. `keyFor` in `nix/shipped.nix` is the same rule
-  # in the same words, and `oci-${key}` is the nix attribute both of them name.
-  - name: Binaries
-    shell: bash
-    env:
-      TARGET: ${{ inputs.target }}
-      BINARIES: ${{ inputs.binaries }}
-    run: |
-      set -eu
-      # An EMPTY set is a loop that runs zero times and a step that exits 0, so the job would be
-      # green having built nothing. `set -u` covers the variable being UNSET; nothing covered it
-      # being empty, and the value arrives here as an expression.
-      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build nothing"; exit 1; }
-      mkdir -p dist stage facts
-      for bin in $BINARIES; do
-        if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
-        rm -rf stage && mkdir -p stage
-        nix build ".#${bin}-${TARGET}" -L -o "result-${key}"
-        described="$(file -b "result-${key}/bin/${bin}")"
-        echo "${bin} ${TARGET}: ${described}"
+    # The static-linking claim is ASSERTED here rather than described, because a musl target
+    # that quietly linked dynamically would still build, still run on this runner, and fail
+    # only on the machine the artifact exists for.
+    #
+    # A LOOP OVER `BINARIES` rather than a second copy of this step, and the loop is the fix for
+    # `github.com/telekom/sutura#111`: the only artefact any release published was the
+    # command-line tool, so nothing a user could download could answer a question over HTTP.
+    # `nix/shipped.nix` is the list this one has to agree with, and `Check that every build
+    # arrived` in `publish` is what fails when they drift.
+    #
+    # THE KEY. `sutura`'s assets keep the bare triple - `sutura-<triple>.tar.gz`,
+    # `sutura-oci-<triple>.cdx.json`, the `<version>-<triple>` leaf tag - because that is what
+    # every release so far published and what a consumer's script reads. Every other binary is
+    # prefixed, so `sutura-serve-<triple>.tar.gz` sits beside `sutura-oci-serve-<triple>.cdx.json`
+    # and the leaf tag `<version>-serve-<triple>`. `keyFor` in `nix/shipped.nix` is the same rule
+    # in the same words, and `oci-${key}` is the nix attribute both of them name.
+    - name: Binaries
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        BINARIES: ${{ inputs.binaries }}
+      run: |
+        set -eu
+        # An EMPTY set is a loop that runs zero times and a step that exits 0, so the job would be
+        # green having built nothing. `set -u` covers the variable being UNSET; nothing covered it
+        # being empty, and the value arrives here as an expression.
+        test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build nothing"; exit 1; }
+        mkdir -p dist stage facts
+        for bin in $BINARIES; do
+          if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
+          rm -rf stage && mkdir -p stage
+          nix build ".#${bin}-${TARGET}" -L -o "result-${key}"
+          described="$(file -b "result-${key}/bin/${bin}")"
+          echo "${bin} ${TARGET}: ${described}"
+          case "$TARGET" in
+            *-musl)
+              # `file` says "statically linked" for a plain static ELF and "static-pie linked"
+              # for a static position-independent one. Both are static and neither carries a
+              # PT_INTERP; which one you get is a rustc target-spec detail, so accept either
+              # and reject anything that names an interpreter.
+              case "$described" in
+                *"statically linked"*|*"static-pie linked"*) ;;
+                *) echo "::error::${bin} ${TARGET} is not statically linked: ${described}"; exit 1 ;;
+              esac
+              ;;
+          esac
+          # The linkage the notes report is the OBSERVED property, read out of the same `file`
+          # output the musl assertion above rejects on - not derived from the target name. A
+          # target named musl whose bytes were dynamic would already have failed that
+          # assertion; taking the label from `file` keeps the notes describing the artifact
+          # rather than the intent.
+          case "$described" in
+            *"statically linked"*|*"static-pie linked"*) linkage="static, no libc" ;;
+            *) linkage="dynamic (glibc)" ;;
+          esac
+          install -m755 "result-${key}/bin/${bin}" "stage/${bin}"
+          tar -C stage -czf "dist/${bin}-${TARGET}.tar.gz" "${bin}"
+          ( cd dist && sha256sum "${bin}-${TARGET}.tar.gz" > "${bin}-${TARGET}.tar.gz.sha256" )
+          # Feeds the release notes, and lives OUTSIDE dist/ so it cannot become an asset
+          # repeating what the notes already say. Written with `>` and not `>>`: on a re-run in
+          # a warm workspace an append would report this artefact twice.
+          printf '%s|%s|%s\n' "$bin" "$TARGET" "$linkage" > "facts/${key}.txt"
+        done
+        ls -l dist
+
+    # Built and RUN here, pushed by `publish`. Building the image in the job that holds
+    # `packages: write` was the alternative and it is worse in both directions: that job
+    # would have to compile, and the smoke tests below would be running image code under the
+    # publishing token. This way the token-holding job only ever moves bytes it does not
+    # execute.
+    #
+    # Unconditional, including on a `workflow_dispatch` from a branch where nothing will be
+    # published. A dry run that builds and runs all four images is the point of having one.
+    - name: Images
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        BINARIES: ${{ inputs.binaries }}
+      run: |
+        set -eu
+        test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build no image"; exit 1; }
+        mkdir -p dist images
+        for bin in $BINARIES; do
+          if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
+          nix build ".#oci-${key}" -L -o result-oci
+          # Written to a file once and loaded from it, rather than streamed twice: the stream
+          # script rebuilds and recompresses every layer each time it runs. The gzip is both
+          # what `publish` downloads and what the musl asset below is, so it happens once here
+          # rather than once per consumer.
+          ./result-oci > oci.tar
+          gzip -9 -c oci.tar > "images/sutura-oci-${key}.tar.gz"
+          # Each image is named after the binary it holds, so the two load under two names
+          # rather than overwriting one another - `nix/oci.nix` sets `name = bin` for exactly
+          # this reason. `publish` retags before pushing either way.
+          docker load -i oci.tar
+          rm -f oci.tar
+          case "$TARGET" in
+            x86_64-*)
+              # Only the x86_64 images can execute here. Running the arm64 pair would need
+              # qemu-user-static registered on the runner, which this job deliberately does
+              # not install: a build step should not also gain an emulator.
+              #
+              # PER BINARY, because the two have different surfaces and a shared smoke test
+              # would have to be their intersection - which is `--version`, and proves the
+              # least interesting thing about either.
+              #
+              # For the server the test is `.github/serve-smoke.sh`, which starts the image and
+              # ASKS A QUESTION - #111's provable outcome is a user asking one through a
+              # published artefact, and a liveness probe does not reach the question path at
+              # all: the image could lose `POST /v1/query` and still answer `/health`. That
+              # script is one file rather than a copy here and another in `ci.yml`, and its
+              # header carries the three assertions and why the third is the one that makes the
+              # second mean anything.
+              case "$bin" in
+                sutura)
+                  docker run --rm sutura:latest --version
+                  docker run --rm sutura:latest doctor
+                  # Prove the non-root default actually works rather than assuming it.
+                  docker run --rm --user 65532:65532 sutura:latest --version
+                  ;;
+                sutura-serve)
+                  ./.github/serve-smoke.sh "${bin}:latest"
+                  ;;
+              esac
+              ;;
+          esac
+        done
+        # The musl pair is ALSO attached to the release as a loadable tarball; the glibc pair
+        # is not. That asymmetry is deliberate and is stated in the notes so it cannot read
+        # as an omission.
+        #
+        # Measured, not assumed: the musl image is 4.7 MiB of tar and 1.0 MiB gzipped, the
+        # glibc one 41 MiB and 13.2 MiB. So the glibc pair would add roughly 26 MiB to every
+        # release, most of it a glibc layer identical from one release to the next - and a
+        # release asset is not a registry: no shared layers, no digest addressing, no expiry,
+        # so it would be re-shipped whole each time. The case for attaching any image at all
+        # is the host that cannot reach ghcr.io, and that host is served by the static one
+        # that carries no libc, at 1 MiB. For the glibc pair the published digest is the
+        # pointer, which is what a registry-reachable consumer wants anyway.
+        #
+        # A copy rather than a move: `publish` loads every target out of images/, so all four
+        # take one code path there, and the checksum describes the exact bytes of the asset.
         case "$TARGET" in
           *-musl)
-            # `file` says "statically linked" for a plain static ELF and "static-pie linked"
-            # for a static position-independent one. Both are static and neither carries a
-            # PT_INTERP; which one you get is a rustc target-spec detail, so accept either
-            # and reject anything that names an interpreter.
-            case "$described" in
-              *"statically linked"*|*"static-pie linked"*) ;;
-              *) echo "::error::${bin} ${TARGET} is not statically linked: ${described}"; exit 1 ;;
-            esac
+            for bin in $BINARIES; do
+              if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
+              cp "images/sutura-oci-${key}.tar.gz" "dist/sutura-oci-${key}.tar.gz"
+              ( cd dist && sha256sum "sutura-oci-${key}.tar.gz" > "sutura-oci-${key}.tar.gz.sha256" )
+            done
             ;;
         esac
-        # The linkage the notes report is the OBSERVED property, read out of the same `file`
-        # output the musl assertion above rejects on - not derived from the target name. A
-        # target named musl whose bytes were dynamic would already have failed that
-        # assertion; taking the label from `file` keeps the notes describing the artifact
-        # rather than the intent.
-        case "$described" in
-          *"statically linked"*|*"static-pie linked"*) linkage="static, no libc" ;;
-          *) linkage="dynamic (glibc)" ;;
-        esac
-        install -m755 "result-${key}/bin/${bin}" "stage/${bin}"
-        tar -C stage -czf "dist/${bin}-${TARGET}.tar.gz" "${bin}"
-        ( cd dist && sha256sum "${bin}-${TARGET}.tar.gz" > "${bin}-${TARGET}.tar.gz.sha256" )
-        # Feeds the release notes, and lives OUTSIDE dist/ so it cannot become an asset
-        # repeating what the notes already say. Written with `>` and not `>>`: on a re-run in
-        # a warm workspace an append would report this artefact twice.
-        printf '%s|%s|%s\n' "$bin" "$TARGET" "$linkage" > "facts/${key}.txt"
-      done
-      ls -l dist
+        ls -l dist images
 
-  # Built and RUN here, pushed by `publish`. Building the image in the job that holds
-  # `packages: write` was the alternative and it is worse in both directions: that job
-  # would have to compile, and the smoke tests below would be running image code under the
-  # publishing token. This way the token-holding job only ever moves bytes it does not
-  # execute.
-  #
-  # Unconditional, including on a `workflow_dispatch` from a branch where nothing will be
-  # published. A dry run that builds and runs all four images is the point of having one.
-  - name: Images
-    shell: bash
-    env:
-      TARGET: ${{ inputs.target }}
-      BINARIES: ${{ inputs.binaries }}
-    run: |
-      set -eu
-      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build no image"; exit 1; }
-      mkdir -p dist images
-      for bin in $BINARIES; do
-        if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
-        nix build ".#oci-${key}" -L -o result-oci
-        # Written to a file once and loaded from it, rather than streamed twice: the stream
-        # script rebuilds and recompresses every layer each time it runs. The gzip is both
-        # what `publish` downloads and what the musl asset below is, so it happens once here
-        # rather than once per consumer.
-        ./result-oci > oci.tar
-        gzip -9 -c oci.tar > "images/sutura-oci-${key}.tar.gz"
-        # Each image is named after the binary it holds, so the two load under two names
-        # rather than overwriting one another - `nix/oci.nix` sets `name = bin` for exactly
-        # this reason. `publish` retags before pushing either way.
-        docker load -i oci.tar
-        rm -f oci.tar
-        case "$TARGET" in
-          x86_64-*)
-            # Only the x86_64 images can execute here. Running the arm64 pair would need
-            # qemu-user-static registered on the runner, which this job deliberately does
-            # not install: a build step should not also gain an emulator.
+    # An SBOM of the IMAGE, per target, and what it does and does not describe is the whole
+    # point of this comment.
+    #
+    # It reads the image TARBALL rather than the daemon or the registry, so what it inventories
+    # is exactly the bytes `publish` pushes - not an image resolved by a tag that could have
+    # moved between two steps. Decompressed to a scratch file rather than piped, because
+    # `docker-archive:` seeks within the archive; the copy is transient and is deleted in the
+    # same step, so peak disk is what the `Image` step above already reached.
+    #
+    # In `build` and not in `publish`, for the reason the header gives: this is compute, and the
+    # job holding the write tokens compiles and inspects nothing.
+    #
+    # **WHAT IT COVERS.** The image's files - which is the binary, `cacert` and `tzdata`, since
+    # there is no shell and no package manager in there - AND the crate graph the binary was
+    # compiled from, because `nix/auditable.nix` builds it with `cargo auditable` and `syft`
+    # reads that ELF section back out with its `cargo-auditable-binary-cataloger`.
+    #
+    # **THE SECOND HALF IS NOT READ OUT OF A LOCK FILE, AND THAT IS THE POINT.** A document
+    # generated from `Cargo.lock` beside the binary is a CHECKED claim about it - the two can
+    # drift and neither says so - and it would also be the WRONG graph: `sutura-cli` links the
+    # engine only, while `libduckdb-sys` and the BigQuery wire put `ureq`, rustls and `ring` in
+    # the resolve for a binary that links none of them. What is inventoried here is what the
+    # compiler actually put in, from inside the bytes being scanned. `nix/auditable.nix` carries
+    # the argument; `docs/adr/0021`'s amendment is the decision.
+    #
+    # Two formats, because they have different consumers rather than because more is better.
+    # CycloneDX is what `cosign attest --type cyclonedx` carries into the registry; SPDX is what
+    # most ingestion pipelines take. Both are
+    # generated from one scan, so they cannot disagree.
+    #
+    # ASSERTED rather than described, like the static-linking and manifest-list claims either
+    # side of it, and the assertion is now about CONTENT rather than about the file existing.
+    # The failure this catches is specific and silent: if the embedded section stops being
+    # produced - a crane bump that drops `cargoBuildCommand`, a `cargo-auditable` that changes
+    # its wrapper - the scan still succeeds, still writes valid CycloneDX, and inventories three
+    # files. Nothing downstream can tell that apart from a correct run, so the count and one
+    # named crate are checked here.
+    - name: SBOM
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        BINARIES: ${{ inputs.binaries }}
+      run: |
+        set -eu
+        test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would write no SBOM"; exit 1; }
+        mkdir -p dist
+        # ONE SBOM PER SHIPPED IMAGE, so the loop is over `BINARIES` as well as over the
+        # target. The two binaries are not two views of one inventory: they link different
+        # crates - `axum`, `tokio` and the whole transport are in the server and in nothing
+        # else - so a single document would be true of neither.
+        for bin in $BINARIES; do
+          if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
+          gzip -dc "images/sutura-oci-${key}.tar.gz" > sbom-input.tar
+          nix run .#syft -- scan "docker-archive:sbom-input.tar" \
+            --source-name "${bin}-${TARGET}" \
+            --source-version "${GITHUB_REF_NAME}" \
+            -o "cyclonedx-json=dist/sutura-oci-${key}.cdx.json" \
+            -o "spdx-json=dist/sutura-oci-${key}.spdx.json"
+          rm -f sbom-input.tar
+          for sbom in "dist/sutura-oci-${key}.cdx.json" "dist/sutura-oci-${key}.spdx.json"; do
+            if [ ! -s "$sbom" ]; then
+              echo "::error::${sbom} was not written"
+              exit 1
+            fi
+            # No jq: it is not a pinned tool here, and neither question needs a JSON parser.
             #
-            # PER BINARY, because the two have different surfaces and a shared smoke test
-            # would have to be their intersection - which is `--version`, and proves the
-            # least interesting thing about either.
+            # **`grep -o ... | wc -l`, NEVER `grep -c`.** `grep -c` counts matching LINES, and
+            # syft writes JSON on ONE line - so it returns 1 for a document naming 241 packages
+            # and 1 for a document naming none. This step shipped with `grep -c` and would have
+            # failed every release; the pull-request link check is what caught it, on the branch,
+            # which is the argument for that check existing at all.
             #
-            # For the server the test is `.github/serve-smoke.sh`, which starts the image and
-            # ASKS A QUESTION - #111's provable outcome is a user asking one through a
-            # published artefact, and a liveness probe does not reach the question path at
-            # all: the image could lose `POST /v1/query` and still answer `/health`. That
-            # script is one file rather than a copy here and another in `ci.yml`, and its
-            # header carries the three assertions and why the third is the one that makes the
-            # second mean anything.
-            case "$bin" in
-              sutura)
-                docker run --rm sutura:latest --version
-                docker run --rm sutura:latest doctor
-                # Prove the non-root default actually works rather than assuming it.
-                docker run --rm --user 65532:65532 sutura:latest --version
-                ;;
-              sutura-serve)
-                ./.github/serve-smoke.sh "${bin}:latest"
-                ;;
+            # COUNTED PER FORMAT rather than through a shared key. `"name":` also appears in tool
+            # blocks, properties and metadata, so it is a proxy rather than a count; CycloneDX
+            # gives every component a `"bom-ref"` and SPDX gives every package an `"SPDXID"`, and
+            # a two-line case buys an exact number.
+            # `bomkey` and not `key`: the outer loop's `key` is the artefact's - reusing the
+            # name here would shadow it, and the shadow would be invisible because the only
+            # read of the outer one happens before this line.
+            case "$sbom" in
+              *.cdx.json) bomkey='"bom-ref"' ;;
+              *) bomkey='"SPDXID"' ;;
             esac
-            ;;
-        esac
-      done
-      # The musl pair is ALSO attached to the release as a loadable tarball; the glibc pair
-      # is not. That asymmetry is deliberate and is stated in the notes so it cannot read
-      # as an omission.
-      #
-      # Measured, not assumed: the musl image is 4.7 MiB of tar and 1.0 MiB gzipped, the
-      # glibc one 41 MiB and 13.2 MiB. So the glibc pair would add roughly 26 MiB to every
-      # release, most of it a glibc layer identical from one release to the next - and a
-      # release asset is not a registry: no shared layers, no digest addressing, no expiry,
-      # so it would be re-shipped whole each time. The case for attaching any image at all
-      # is the host that cannot reach ghcr.io, and that host is served by the static one
-      # that carries no libc, at 1 MiB. For the glibc pair the published digest is the
-      # pointer, which is what a registry-reachable consumer wants anyway.
-      #
-      # A copy rather than a move: `publish` loads every target out of images/, so all four
-      # take one code path there, and the checksum describes the exact bytes of the asset.
-      case "$TARGET" in
-        *-musl)
-          for bin in $BINARIES; do
-            if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
-            cp "images/sutura-oci-${key}.tar.gz" "dist/sutura-oci-${key}.tar.gz"
-            ( cd dist && sha256sum "sutura-oci-${key}.tar.gz" > "sutura-oci-${key}.tar.gz.sha256" )
+            named="$(grep -o "$bomkey" "$sbom" | wc -l)"
+            # A FLOOR, not a fixed number. The exact count moves with every dependency bump, so
+            # pinning it would make `just update` fail on a correct tree - and this check is not
+            # about the count being right, it is about the embedded section being THERE. Without
+            # it the answer is three files; with it, the engine alone brings DataFusion, Arrow and
+            # tokio. MEASURED on 2026-08-31: 241 CycloneDX components and 242 SPDX ids, against
+            # three files without the section - so 100 sits between the two by an order of
+            # magnitude and a dropped adapter cannot trip it.
+            if [ "${named:-0}" -lt 100 ]; then
+              echo "::error::${sbom} names ${named} thing(s), expected at least 100 - the cargo auditable section is missing, so this inventories the image's files and not the crates the binary was built from"
+              exit 1
+            fi
+            # AND the engine by name. The floor above would still pass on a document listing a
+            # hundred of the wrong things; DataFusion is the one crate NEITHER shipped binary can
+            # ship without - `sutura-cli` links it to answer a question locally and
+            # `sutura-serve` to answer one over HTTP - so its absence means the section describes
+            # something other than this binary.
+            if ! grep -q '"datafusion"' "$sbom"; then
+              echo "::error::${sbom} does not name datafusion, which the shipped binary links: this is not an inventory of the crates it was built from"
+              exit 1
+            fi
+            printf '%s: %s named entries\n' "$sbom" "$named"
           done
-          ;;
-      esac
-      ls -l dist images
-
-  # An SBOM of the IMAGE, per target, and what it does and does not describe is the whole
-  # point of this comment.
-  #
-  # It reads the image TARBALL rather than the daemon or the registry, so what it inventories
-  # is exactly the bytes `publish` pushes - not an image resolved by a tag that could have
-  # moved between two steps. Decompressed to a scratch file rather than piped, because
-  # `docker-archive:` seeks within the archive; the copy is transient and is deleted in the
-  # same step, so peak disk is what the `Image` step above already reached.
-  #
-  # In `build` and not in `publish`, for the reason the header gives: this is compute, and the
-  # job holding the write tokens compiles and inspects nothing.
-  #
-  # **WHAT IT COVERS.** The image's files - which is the binary, `cacert` and `tzdata`, since
-  # there is no shell and no package manager in there - AND the crate graph the binary was
-  # compiled from, because `nix/auditable.nix` builds it with `cargo auditable` and `syft`
-  # reads that ELF section back out with its `cargo-auditable-binary-cataloger`.
-  #
-  # **THE SECOND HALF IS NOT READ OUT OF A LOCK FILE, AND THAT IS THE POINT.** A document
-  # generated from `Cargo.lock` beside the binary is a CHECKED claim about it - the two can
-  # drift and neither says so - and it would also be the WRONG graph: `sutura-cli` links the
-  # engine only, while `libduckdb-sys` and the BigQuery wire put `ureq`, rustls and `ring` in
-  # the resolve for a binary that links none of them. What is inventoried here is what the
-  # compiler actually put in, from inside the bytes being scanned. `nix/auditable.nix` carries
-  # the argument; `docs/adr/0021`'s amendment is the decision.
-  #
-  # Two formats, because they have different consumers rather than because more is better.
-  # CycloneDX is what `cosign attest --type cyclonedx` carries into the registry; SPDX is what
-  # most ingestion pipelines take. Both are
-  # generated from one scan, so they cannot disagree.
-  #
-  # ASSERTED rather than described, like the static-linking and manifest-list claims either
-  # side of it, and the assertion is now about CONTENT rather than about the file existing.
-  # The failure this catches is specific and silent: if the embedded section stops being
-  # produced - a crane bump that drops `cargoBuildCommand`, a `cargo-auditable` that changes
-  # its wrapper - the scan still succeeds, still writes valid CycloneDX, and inventories three
-  # files. Nothing downstream can tell that apart from a correct run, so the count and one
-  # named crate are checked here.
-  - name: SBOM
-    shell: bash
-    env:
-      TARGET: ${{ inputs.target }}
-      BINARIES: ${{ inputs.binaries }}
-    run: |
-      set -eu
-      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would write no SBOM"; exit 1; }
-      mkdir -p dist
-      # ONE SBOM PER SHIPPED IMAGE, so the loop is over `BINARIES` as well as over the
-      # target. The two binaries are not two views of one inventory: they link different
-      # crates - `axum`, `tokio` and the whole transport are in the server and in nothing
-      # else - so a single document would be true of neither.
-      for bin in $BINARIES; do
-        if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
-        gzip -dc "images/sutura-oci-${key}.tar.gz" > sbom-input.tar
-        nix run .#syft -- scan "docker-archive:sbom-input.tar" \
-          --source-name "${bin}-${TARGET}" \
-          --source-version "${GITHUB_REF_NAME}" \
-          -o "cyclonedx-json=dist/sutura-oci-${key}.cdx.json" \
-          -o "spdx-json=dist/sutura-oci-${key}.spdx.json"
-        rm -f sbom-input.tar
-        for sbom in "dist/sutura-oci-${key}.cdx.json" "dist/sutura-oci-${key}.spdx.json"; do
-          if [ ! -s "$sbom" ]; then
-            echo "::error::${sbom} was not written"
-            exit 1
-          fi
-          # No jq: it is not a pinned tool here, and neither question needs a JSON parser.
-          #
-          # **`grep -o ... | wc -l`, NEVER `grep -c`.** `grep -c` counts matching LINES, and
-          # syft writes JSON on ONE line - so it returns 1 for a document naming 241 packages
-          # and 1 for a document naming none. This step shipped with `grep -c` and would have
-          # failed every release; the pull-request link check is what caught it, on the branch,
-          # which is the argument for that check existing at all.
-          #
-          # COUNTED PER FORMAT rather than through a shared key. `"name":` also appears in tool
-          # blocks, properties and metadata, so it is a proxy rather than a count; CycloneDX
-          # gives every component a `"bom-ref"` and SPDX gives every package an `"SPDXID"`, and
-          # a two-line case buys an exact number.
-          # `bomkey` and not `key`: the outer loop's `key` is the artefact's - reusing the
-          # name here would shadow it, and the shadow would be invisible because the only
-          # read of the outer one happens before this line.
-          case "$sbom" in
-            *.cdx.json) bomkey='"bom-ref"' ;;
-            *) bomkey='"SPDXID"' ;;
-          esac
-          named="$(grep -o "$bomkey" "$sbom" | wc -l)"
-          # A FLOOR, not a fixed number. The exact count moves with every dependency bump, so
-          # pinning it would make `just update` fail on a correct tree - and this check is not
-          # about the count being right, it is about the embedded section being THERE. Without
-          # it the answer is three files; with it, the engine alone brings DataFusion, Arrow and
-          # tokio. MEASURED on 2026-08-31: 241 CycloneDX components and 242 SPDX ids, against
-          # three files without the section - so 100 sits between the two by an order of
-          # magnitude and a dropped adapter cannot trip it.
-          if [ "${named:-0}" -lt 100 ]; then
-            echo "::error::${sbom} names ${named} thing(s), expected at least 100 - the cargo auditable section is missing, so this inventories the image's files and not the crates the binary was built from"
-            exit 1
-          fi
-          # AND the engine by name. The floor above would still pass on a document listing a
-          # hundred of the wrong things; DataFusion is the one crate NEITHER shipped binary can
-          # ship without - `sutura-cli` links it to answer a question locally and
-          # `sutura-serve` to answer one over HTTP - so its absence means the section describes
-          # something other than this binary.
-          if ! grep -q '"datafusion"' "$sbom"; then
-            echo "::error::${sbom} does not name datafusion, which the shipped binary links: this is not an inventory of the crates it was built from"
-            exit 1
-          fi
-          printf '%s: %s named entries\n' "$sbom" "$named"
         done
-      done
-      # NO `.sha256` sidecar, unlike the tarballs. The tarballs have one because they predate
-      # anything better and a consumer's script may read it; an SBOM ships from the first
-      # release that has signatures, and its Sigstore bundle already commits to its digest and
-      # says who produced it. Adding a bare hash beside a signature is a weaker mechanism next
-      # to a stronger one, and the failure mode is a reader checking the weak one.
-      ls -l dist
+        # NO `.sha256` sidecar, unlike the tarballs. The tarballs have one because they predate
+        # anything better and a consumer's script may read it; an SBOM ships from the first
+        # release that has signatures, and its Sigstore bundle already commits to its digest and
+        # says who produced it. Adding a bare hash beside a signature is a weaker mechanism next
+        # to a stronger one, and the failure mode is a reader checking the weak one.
+        ls -l dist

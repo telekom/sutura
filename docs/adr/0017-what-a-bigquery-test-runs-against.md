@@ -444,13 +444,13 @@ than by an intention.
 
 ### Which of the four bullets, exactly
 
-| Bullet | Where it stands |
-| --- | --- |
-| the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison. Measured: **22 accepted, 9 refused by the compiler before a statement existed** |
-| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT - *exactly* in the sense the **eleventh amendment** narrows, which is rendered content and not cell type - with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
-| the **bucket** is right | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere |
-| the result is the endpoint's **complete** answer | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence |
-| *(not one of the four)* the **anchors** hold | Measured: **6 anchors reproduced by the endpoint**, the same verdict the engine reaches |
+| Bullet                                                   | Where it stands                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison. Measured: **22 accepted, 9 refused by the compiler before a statement existed**                                                                                                                                                                                  |
+| the rows **agree with the engine's** for the same plan   | **Answered** for CONTENT - *exactly* in the sense the **eleventh amendment** narrows, which is rendered content and not cell type - with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
+| the **bucket** is right                                  | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere                                                                                                                                                                                                                                                                                                                           |
+| the result is the endpoint's **complete** answer         | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence                                                                                                                                                                                                                                                                                                                                           |
+| *(not one of the four)* the **anchors** hold             | Measured: **6 anchors reproduced by the endpoint**, the same verdict the engine reaches                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **And one claim that is not on the list and is the strongest of the four.** The corpus leg also asks
 the endpoint to reproduce every ANCHOR the engine reproduces. An anchor is a number somebody
@@ -636,10 +636,10 @@ The third amendment wrote that *all four dialects spell `NULLS LAST`*. **That is
 and the difference is the whole reason this paragraph exists.** The layer renders the keyword only where
 it is not already the target's default:
 
-| Dialect | Its own default | What renders |
-| --- | --- | --- |
-| `BigQuery` | nulls **first** | `ORDER BY x NULLS LAST` - the keyword, because it is the one that would otherwise disagree |
-| `DuckDb`, `Postgres`, `ClickHouse` | nulls **last** | a bare `ORDER BY x` - the layer collapses a keyword that changes nothing |
+| Dialect                            | Its own default | What renders                                                                               |
+| ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------ |
+| `BigQuery`                         | nulls **first** | `ORDER BY x NULLS LAST` - the keyword, because it is the one that would otherwise disagree |
+| `DuckDb`, `Postgres`, `ClickHouse` | nulls **last**  | a bare `ORDER BY x` - the layer collapses a keyword that changes nothing                   |
 
 So what converges is the **behaviour** and not the statement, and only one dialect's goldens move.
 `every_order_by_states_nulls_last` in `crates/sutura-sql/src/generate.rs` is the measurement that keeps
@@ -717,12 +717,12 @@ sign-on. The venue for that is a developer's own machine, one-off, and recorded.
 
 ### The decision: four venues, four claims
 
-| Venue | What runs there | What it is allowed to claim |
-| --- | --- | --- |
-| **CI, every run, every contributor** | **Fakes** at the port (the house rule - ports get fakes, not mocked HTTP) | Every outcome the port can produce, including each refusal |
-| **CI, in-repo runs only** | The acceptance leg, on a **service-account key** in an environment secret | `BigQuery` accepts what we generate, and the rows agree with the engine |
-| **CI, in-repo runs only** | Two distinct principals against a row access policy | *Two principals, two answers* - the mechanism, not the identity class |
-| **A developer's machine, one-off** | **Workforce** impersonation with a real person | That a human subject's own identity reaches the source |
+| Venue                                | What runs there                                                           | What it is allowed to claim                                             |
+| ------------------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **CI, every run, every contributor** | **Fakes** at the port (the house rule - ports get fakes, not mocked HTTP) | Every outcome the port can produce, including each refusal              |
+| **CI, in-repo runs only**            | The acceptance leg, on a **service-account key** in an environment secret | `BigQuery` accepts what we generate, and the rows agree with the engine |
+| **CI, in-repo runs only**            | Two distinct principals against a row access policy                       | *Two principals, two answers* - the mechanism, not the identity class   |
+| **A developer's machine, one-off**   | **Workforce** impersonation with a real person                            | That a human subject's own identity reaches the source                  |
 
 ### What each cell required, and which are now true
 
@@ -990,11 +990,11 @@ does not. Counted off the `Compiling` lines of the CRATE derivation's own log an
 units beat seconds here - for all four published triples of CI runs 33808343712, 33838360913 and
 33843494162, feature off and then on, the same in all three:
 
-| triple | OFF | ON |
-| --- | --- | --- |
-| `x86_64-unknown-linux-gnu` | 100 | 112 |
-| `aarch64-unknown-linux-gnu` | 100 | 112 |
-| `x86_64-unknown-linux-musl` | 100 | 112 |
+| triple                       | OFF | ON  |
+| ---------------------------- | --- | --- |
+| `x86_64-unknown-linux-gnu`   | 100 | 112 |
+| `aarch64-unknown-linux-gnu`  | 100 | 112 |
+| `x86_64-unknown-linux-musl`  | 100 | 112 |
 | `aarch64-unknown-linux-musl` | 100 | 112 |
 
 Re-taken on 33843494162 with the same answer in all four cells, which is the point of counting
@@ -1087,11 +1087,11 @@ The step reads a manifest now: `nix build .#feature-probes-<triple>` yields a fi
 the package, the executable and the feature, so nothing in the shell derives anything. Three
 directions were then reproduced by hand rather than argued:
 
-| Break | Before | Now |
-| --- | --- | --- |
+| Break                                         | Before                          | Now                                                         |
+| --------------------------------------------- | ------------------------------- | ----------------------------------------------------------- |
 | Probe package renamed, `probeFeatures` intact | empty set, false notice, exit 0 | probe still found and built, printed sentence still correct |
-| `probeFeatures = [ ]` | notice, exit 0 | `::error::` naming this record, **exit 1** |
-| Manifest attribute gone from the flake | not expressible | `nix build` fails, **exit 1** |
+| `probeFeatures = [ ]`                         | notice, exit 0                  | `::error::` naming this record, **exit 1**                  |
+| Manifest attribute gone from the flake        | not expressible                 | `nix build` fails, **exit 1**                               |
 
 `file` cannot carry any of this and is a readout rather than an assertion: it exits **zero** on a
 path that does not exist, measured. What asserts the link is `nix build` succeeding.
@@ -1118,10 +1118,10 @@ re-reproduced on the merged tree on 2026-09-04.** A type error was planted insid
 `open` in `crates/sutura-cli/src/sources/bigquery.rs`, and both host derivations were built from
 that one tree:
 
-| derivation | result | crate-derivation units |
-| --- | --- | --- |
-| `sutura-aarch64-apple-darwin-ci` (shipped) | **exit 0** - blind to it | 105 |
-| `sutura-bigquery-aarch64-apple-darwin-ci` (probe) | **exit 1**, `error[E0308]: mismatched types` at `bigquery.rs:70:25` | 117 |
+| derivation                                        | result                                                              | crate-derivation units |
+| ------------------------------------------------- | ------------------------------------------------------------------- | ---------------------- |
+| `sutura-aarch64-apple-darwin-ci` (shipped)        | **exit 0** - blind to it                                            | 105                    |
+| `sutura-bigquery-aarch64-apple-darwin-ci` (probe) | **exit 1**, `error[E0308]: mismatched types` at `bigquery.rs:70:25` | 117                    |
 
 The 105 and the 117 are the same +12 the four CI triples show, taken from the same pair of builds
 that produced the asymmetry - so one reproduction answers both questions. That asymmetry is the
@@ -1165,12 +1165,13 @@ where the documented source build did not compile.
 probe cannot silently disappear*. It is not the same claim: zero rows means *the CLI probe is gone* only because the other binary
 declares none, which is a property of today's data rather than of the construction. Declare a probe
 for `sutura-serve` and delete `"bigquery"` from `sutura-cli`'s, and the manifest is still non-empty
+
 - the four link legs go green and this record's claim reverts to *assumed* with no signal at all.
-The coupling that closes it is the one nothing checked: a page tells a reader to run
-`cargo build --release -p sutura-cli --features bigquery`, and `probeFeatures` had to contain that
-feature. The gate now reconciles the two, in both directions - a documented feature no probe covers
-fails, and so does a tree where no page documents such a build at all, because a reconciliation
-against nothing passes everything.
+  The coupling that closes it is the one nothing checked: a page tells a reader to run
+  `cargo build --release -p sutura-cli --features bigquery`, and `probeFeatures` had to contain that
+  feature. The gate now reconciles the two, in both directions - a documented feature no probe covers
+  fails, and so does a tree where no page documents such a build at all, because a reconciliation
+  against nothing passes everything.
 
 **WHICH TRIPLES ARE PROBED - still not held.** The link matrix in
 `.github/workflows/cross-link.yml` spells the four triples as literals, as `release.yml`'s does, and

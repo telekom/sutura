@@ -24,21 +24,21 @@ pinned bundle, or from a file an operator named.
 
 ## Where each section comes from
 
-| Section | Derived from |
-| --- | --- |
-| What this is | Fixed text. Two facts: the set of answerable questions is finite and listed, and a question outside it is declined rather than approximated |
-| What to do for every question | **The tool list.** The step that reads the catalog is present only when that operation is exposed, and is replaced by a sentence saying the list in the document is the whole of it when it is not |
-| A refusal is an answer, not an error | Every `RefusalReason` variant, with what it means and what to change. The most load-bearing section in the document |
-| Terms this deployment records as NOT defined | **The pinned bundle's knowledge**, `not_defined` kind. Present only when the provider declared that capability; a declared-and-empty capability renders the sentence that nothing is recorded, which is a different fact from not knowing |
-| The bounds a question is held to | `MAX_DIMENSIONS`, `MAX_RANGE_DAYS` and `MAX_ROWS`, read from the code rather than typed |
-| What this surface has no field for | Fixed text, and deliberately short - see below |
-| The operations you have | **The tool list**, rendered from the same slice the workflow was composed from |
-| What this deployment records about its own definitions | **The declared knowledge capabilities**, and what is *not* declared is listed too - because a kind that is not recorded is a kind an agent must not draw a conclusion from |
-| The words a question may arrive in | **The pinned bundle's knowledge**, `glossary` kind. Rendered so the *agent* does the resolving; there is no field on a question a phrase fits in |
-| The metrics this deployment defines | **The pinned bundle.** Name, grains, dimensions, permitted values, the catalog author's own prose, and any `caveat` printed under the metric it is about |
-| Worked questions | **The pinned bundle's knowledge**, `example` kind. Each carries a `Query` the bundle would not load if this surface would decline it |
-| Provenance | Fixed text: quote the version and digest with every number |
-| Instructions from this deployment's operator | `prompt.instructions_file`, when one is configured. Omitted entirely when none is |
+| Section                                                | Derived from                                                                                                                                                                                                                              |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What this is                                           | Fixed text. Two facts: the set of answerable questions is finite and listed, and a question outside it is declined rather than approximated                                                                                               |
+| What to do for every question                          | **The tool list.** The step that reads the catalog is present only when that operation is exposed, and is replaced by a sentence saying the list in the document is the whole of it when it is not                                        |
+| A refusal is an answer, not an error                   | Every `RefusalReason` variant, with what it means and what to change. The most load-bearing section in the document                                                                                                                       |
+| Terms this deployment records as NOT defined           | **The pinned bundle's knowledge**, `not_defined` kind. Present only when the provider declared that capability; a declared-and-empty capability renders the sentence that nothing is recorded, which is a different fact from not knowing |
+| The bounds a question is held to                       | `MAX_DIMENSIONS`, `MAX_RANGE_DAYS` and `MAX_ROWS`, read from the code rather than typed                                                                                                                                                   |
+| What this surface has no field for                     | Fixed text, and deliberately short - see below                                                                                                                                                                                            |
+| The operations you have                                | **The tool list**, rendered from the same slice the workflow was composed from                                                                                                                                                            |
+| What this deployment records about its own definitions | **The declared knowledge capabilities**, and what is *not* declared is listed too - because a kind that is not recorded is a kind an agent must not draw a conclusion from                                                                |
+| The words a question may arrive in                     | **The pinned bundle's knowledge**, `glossary` kind. Rendered so the *agent* does the resolving; there is no field on a question a phrase fits in                                                                                          |
+| The metrics this deployment defines                    | **The pinned bundle.** Name, grains, dimensions, permitted values, the catalog author's own prose, and any `caveat` printed under the metric it is about                                                                                  |
+| Worked questions                                       | **The pinned bundle's knowledge**, `example` kind. Each carries a `Query` the bundle would not load if this surface would decline it                                                                                                      |
+| Provenance                                             | Fixed text: quote the version and digest with every number                                                                                                                                                                                |
+| Instructions from this deployment's operator           | `prompt.instructions_file`, when one is configured. Omitted entirely when none is                                                                                                                                                         |
 
 Two of those are derived from a list rather than written down, and that is the point. A prompt that
 names an operation a deployment does not mount costs the agent the turns it spends discovering the
@@ -85,10 +85,10 @@ describe a control that does not exist.
 Two keys, in the same layered tree as everything else: embedded defaults, then `base.yaml`, then
 `<environment>.yaml`, then one environment variable per key.
 
-| Key | Default | What it does |
-| --- | --- | --- |
-| `prompt.catalog_prose` | `quoted` | `quoted` includes each metric's own prose, with `> ` at the start of every line and the trust boundary named above the block. `omitted` leaves it out, and the document then says the descriptions exist and were not included |
-| `prompt.instructions_file` | absent | A path to markdown that is appended as the document's LAST section. Absent means no operator section at all |
+| Key                        | Default  | What it does                                                                                                                                                                                                                  |
+| -------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt.catalog_prose`     | `quoted` | `quoted` includes each metric's own prose, with `>` at the start of every line and the trust boundary named above the block. `omitted` leaves it out, and the document then says the descriptions exist and were not included |
+| `prompt.instructions_file` | absent   | A path to markdown that is appended as the document's LAST section. Absent means no operator section at all                                                                                                                   |
 
 ```bash
 SUTURA__PROMPT__CATALOG_PROSE=omitted \
@@ -136,7 +136,7 @@ first is the honest limit.
 **A delimiter cannot separate instruction from data, because the content can contain the delimiter.**
 [Concepts](concepts.md#provenance-and-why-results-are-meant-to-be-arrow) already says so, so the
 mitigation is not a fence. It is a per-line prefix that sutura applies: every line of prose is
-emitted with `> ` in front of it, so **no line of catalog text can reach the document at column
+emitted with `>` in front of it, so **no line of catalog text can reach the document at column
 zero.** It cannot emit a heading, close a block, or open something that reads as a new section. That
 is checkable, and a test provokes it with a description whose lines are a heading, a fence and a bare
 instruction.

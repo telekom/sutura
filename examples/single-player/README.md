@@ -8,7 +8,7 @@ it is, and what a test holds.** The guided path - install it, ask one question, 
 be refused, write your own metric - is [getting started](../../docs/getting-started.md).
 
 `crates/sutura-cli/tests/documented.rs` runs every `sutura catalog`, `describe`, `compile` and
-`query` invocation on either page, and holds every refusal block and `-- definitions ` line they
+`query` invocation on either page, and holds every refusal block and `-- definitions` line they
 print as output against the output of the command in the fence above it. **The one command it does
 not run is `sutura mcp` below**, which speaks a protocol on its own pipes; `just mcp-e2e` drives
 that one with a client that answers. That is the whole of the exception, and it is not an honour
@@ -101,15 +101,15 @@ another. Either term is usable in either half of either shape. Beside that, a me
 filters that are part of its definition. There is no field anywhere that takes a SQL
 expression, and every combination below is here:
 
-| Metric | Measure | Why it is written that way |
-| --- | --- | --- |
-| `voice_minutes` | `simple` + `aggregate` | One aggregate over one column. Most metrics look like this |
-| `recurring_revenue` | `simple` + `aggregate` + `required_filters` | The active-only predicate is part of the name, and a caller can neither see it nor remove it |
-| `mean_subscription_mrr` | `simple` + `avg` + `required_filters` | The mean of a COLUMN. The only `avg` here, and the thing `revenue_per_customer` is not |
-| `subscription_months_billed` | `simple` + plain `count` | The only plain `count` here. Everything else counting things counts them distinctly, or counts a condition |
-| `subscriptions_churned` | `simple` + `count_if` | A count of a boolean column would count the `false` rows too |
-| `revenue_per_customer` | `ratio` of two aggregates | A sum over a distinct count of customers. Not the mean of a column, and computing it as one is a different number |
-| `churn_rate` | `ratio` with a `count_if` numerator | A conditional count over a distinct count. This is the one that needed the two levels |
+| Metric                             | Measure                                                              | Why it is written that way                                                                                            |
+| ---------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `voice_minutes`                    | `simple` + `aggregate`                                               | One aggregate over one column. Most metrics look like this                                                            |
+| `recurring_revenue`                | `simple` + `aggregate` + `required_filters`                          | The active-only predicate is part of the name, and a caller can neither see it nor remove it                          |
+| `mean_subscription_mrr`            | `simple` + `avg` + `required_filters`                                | The mean of a COLUMN. The only `avg` here, and the thing `revenue_per_customer` is not                                |
+| `subscription_months_billed`       | `simple` + plain `count`                                             | The only plain `count` here. Everything else counting things counts them distinctly, or counts a condition            |
+| `subscriptions_churned`            | `simple` + `count_if`                                                | A count of a boolean column would count the `false` rows too                                                          |
+| `revenue_per_customer`             | `ratio` of two aggregates                                            | A sum over a distinct count of customers. Not the mean of a column, and computing it as one is a different number     |
+| `churn_rate`                       | `ratio` with a `count_if` numerator                                  | A conditional count over a distinct count. This is the one that needed the two levels                                 |
 | `revenue_per_churned_subscription` | `ratio` with a `count_if` DENOMINATOR, and `zero_denominator: fails` | The mirror of `churn_rate`, and the only document here that says an empty denominator is a fault rather than a figure |
 
 Between them those eight write every shape, every term, both meanings of a zero denominator and
@@ -339,7 +339,7 @@ claim coverage the catalog has stopped carrying.
 
 `crates/sutura-cli/tests/documented.rs` reads this page and `docs/getting-started.md`. It runs every
 `sutura catalog`, `describe`, `compile` and `query` invocation out of both from a clone's working
-directory, and requires every refusal block and every `-- definitions ` stamp either page prints as
+directory, and requires every refusal block and every `-- definitions` stamp either page prints as
 output to be what the command in the fence above it printed - the whole block, from the `refused:`
 line to the end of its fence, because that is what one refusal is. A definitions digest is held
 wherever it appears in prose, this page and `docs/serving.md` included. It exists because the

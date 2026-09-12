@@ -228,6 +228,10 @@
         # The workflow parser, including hash-pinned upstream support for `concurrency.queue`.
         actionlint = import ./nix/actionlint.nix { inherit pkgs; };
 
+        # The text formatter, with its Markdown, TOML and YAML plugins pinned rather than fetched
+        # from a URL at run time; body and argument in nix/dprint.nix.
+        dprint = import ./nix/dprint.nix { inherit pkgs; };
+
         # The data system the local Warehouse adapter links against, resolved by the SAME file
         # devenv.nix imports so the dev shell and CI cannot link two different libduckdbs. It also
         # explains why the crate is built without its `bundled` feature, and why the run-time path
@@ -895,6 +899,20 @@
         apps.shellcheck = {
           type = "app";
           program = "${pkgs.shellcheck}/bin/shellcheck";
+        };
+
+        # The text formatters, under the same one-authority rule as the three linters above:
+        # what a formatter reports IS its version, so a second pin would be a second verdict.
+        # Neither is in pixi.toml, and `cargo xtask check-pins` fails a tool named in both.
+        # `nix/format-text.sh` is the only caller, so that its file list and these pins are one
+        # decision rather than two.
+        apps.dprint = {
+          type = "app";
+          program = "${dprint}/bin/dprint";
+        };
+        apps.ruff = {
+          type = "app";
+          program = "${pkgs.ruff}/bin/ruff";
         };
 
         apps.betterleaks = {

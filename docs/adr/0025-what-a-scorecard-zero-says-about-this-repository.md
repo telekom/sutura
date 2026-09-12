@@ -13,16 +13,16 @@ The first run scored **6.0** - run `34193206416`, commit `4c473cdb`, 2026-09-08.
 back at zero or below. **Three of them are not findings about this repository at all**, two are the
 recorded consequence of decisions already made, and one is a real gap with a blocker in front of it.
 
-| At 6.0 | Now | Check | What it is |
-| --- | --- | --- | --- |
-| **-1** | **10** | CI-Tests | was a 403 on a private repo; **resolved by the flip, exactly as predicted** |
-| 0 | 0 | Maintained | the repository is under 90 days old; not a defect |
-| 1 | 1 | Signed-Releases | **every artefact was already signed**; the row counts releases, not artefacts |
-| 0 | 0 | Code-Review | structurally unreachable while one identity does the reviewing |
-| 3 | 3 | Branch-Protection | capped by the merge-queue arrangement |
-| **0** | **2** | CII-Best-Practices | the badge project now exists at `in_progress`; the questionnaire is unfinished |
-| 0 | 0 | SAST | **real**; the tool that closes it was blocked and no longer is |
-| 0 | 0 | Fuzzing | real, and it is `#146`'s, not this record's |
+| At 6.0 | Now    | Check              | What it is                                                                     |
+| ------ | ------ | ------------------ | ------------------------------------------------------------------------------ |
+| **-1** | **10** | CI-Tests           | was a 403 on a private repo; **resolved by the flip, exactly as predicted**    |
+| 0      | 0      | Maintained         | the repository is under 90 days old; not a defect                              |
+| 1      | 1      | Signed-Releases    | **every artefact was already signed**; the row counts releases, not artefacts  |
+| 0      | 0      | Code-Review        | structurally unreachable while one identity does the reviewing                 |
+| 3      | 3      | Branch-Protection  | capped by the merge-queue arrangement                                          |
+| **0**  | **2**  | CII-Best-Practices | the badge project now exists at `in_progress`; the questionnaire is unfinished |
+| 0      | 0      | SAST               | **real**; the tool that closes it was blocked and no longer is                 |
+| 0      | 0      | Fuzzing            | real, and it is `#146`'s, not this record's                                    |
 
 **Re-measured at `52f7709c` (run `34212763873`), aggregate 6.1.** Two rows moved without anyone
 touching a check, and both were predicted here: the visibility flip resolved `CI-Tests` outright,
@@ -35,14 +35,14 @@ is the point - the remaining zeros are the ones this record argues are not defec
 `false` and `visibility` is `public`, read 2026-09-08 - so the re-measurement above is the first one
 that answers about the project rather than about its visibility. The original run's caveats were:
 
-* **CI-Tests failed outright** because of it, and nothing else. **Confirmed: it is now 10/10**,
+- **CI-Tests failed outright** because of it, and nothing else. **Confirmed: it is now 10/10**,
   *"30 out of 30 merged PRs checked by a CI test"*. This is the row that proves the caveat was real
   rather than a hedge.
-* **CII-Best-Practices, Code-Review and Maintained** are read from APIs that answer for a private
+- **CII-Best-Practices, Code-Review and Maintained** are read from APIs that answer for a private
   repository the same way they answer for a neglected one. Re-taken while public, `Code-Review` and
   `Maintained` did **not** move - so their zeros were never about visibility, which is what this
   record claimed and is now measured rather than argued.
-* **Signed-Releases and SAST are the two rows that do NOT depend on visibility.** They read the
+- **Signed-Releases and SAST are the two rows that do NOT depend on visibility.** They read the
   release page and the workflow files, and both answer the same way public or private. Every
   conclusion in this record about those two is therefore load-bearing; every conclusion about the
   other four is provisional until the score is re-taken while public.
@@ -245,14 +245,14 @@ predict the badge percentage, and the 28% showing today is mostly *unanswered*, 
 **Measured against the 67 passing-level criteria on 2026-09-08: 54 MET with citable evidence, 5 met
 but undocumented, 4 not met, 4 N/A.** Per category:
 
-| Category | MET | undocumented | NOT MET | N/A |
-| --- | --- | --- | --- | --- |
-| Basics | 11 | 1 | 1 | 0 |
-| Change Control | 7 | 0 | 1 | 1 |
-| Reporting | 4 | 3 | 1 | 0 |
-| Quality | **13** | 0 | **0** | 0 |
-| Security | **15** | 0 | **0** | 1 |
-| Analysis | 4 | 1 | 1 | 2 |
+| Category       | MET    | undocumented | NOT MET | N/A |
+| -------------- | ------ | ------------ | ------- | --- |
+| Basics         | 11     | 1            | 1       | 0   |
+| Change Control | 7      | 0            | 1       | 1   |
+| Reporting      | 4      | 3            | 1       | 0   |
+| Quality        | **13** | 0            | **0**   | 0   |
+| Security       | **15** | 0            | **0**   | 1   |
+| Analysis       | 4      | 1            | 1       | 2   |
 
 The two categories that usually cost a project weeks are the two that are already complete. Quality
 is 13/13 on the strength of 2738 `#[test]` plus 122 `#[tokio::test]` across 276 files, a
@@ -379,24 +379,25 @@ deliberately not added yet.**
 
 **The measurement.** CodeQL CLI `2.26.4` with `codeql/rust-all` `0.2.20` and `codeql/rust-queries`
 `0.1.41` - the bundle `codeql-bundle-v2.26.4`, which is what the action resolves to as of this date
+
 - was run over a **buildless** Rust database (`--build-mode=none`, the mode a job here would use)
-built from a probe of the exact shape this tree compiles SQL in: a caller-supplied value is
-interpolated into a statement and executed by `rusqlite::Connection::execute` - *interpolated
-instead of bound*, the failure class `SECURITY.md` names. The full default Rust query suite found
-**no** `rust/sql-injection` finding, and `rust/summary/query-sinks` and `rust/summary/taint-sources`
-confirm both endpoints are modelled in that database.
+  built from a probe of the exact shape this tree compiles SQL in: a caller-supplied value is
+  interpolated into a statement and executed by `rusqlite::Connection::execute` - *interpolated
+  instead of bound*, the failure class `SECURITY.md` names. The full default Rust query suite found
+  **no** `rust/sql-injection` finding, and `rust/summary/query-sinks` and `rust/summary/taint-sources`
+  confirm both endpoints are modelled in that database.
 
 **The cause, isolated by re-measurement rather than assumed.** Six variants, taint traced from a
 caller-supplied value to the first argument of `execute`:
 
-| Variant | Reaches the sink |
-| --- | --- |
-| value passed straight to `execute` | **yes** |
-| value bound to a local, then passed | **yes** |
-| through `format!` into a local, then passed | no |
-| `format!` inline at the call | no |
-| through `+` string concat | no |
-| through `.to_string()` | no |
+| Variant                                     | Reaches the sink |
+| ------------------------------------------- | ---------------- |
+| value passed straight to `execute`          | **yes**          |
+| value bound to a local, then passed         | **yes**          |
+| through `format!` into a local, then passed | no               |
+| `format!` inline at the call                | no               |
+| through `+` string concat                   | no               |
+| through `.to_string()`                      | no               |
 
 `.to_string()` failing rules out anything specific to string formatting: what the four failing
 variants share is that the executed value is an owned `String` produced by a **standard-library**
@@ -463,15 +464,15 @@ measures whether `rust/sql-injection` fires end to end rather than only whether 
 **The positive control fired**, which is the only thing that separates a working analysis from an
 inert one in a tree that should have no findings. Shapes, all against `prepare`:
 
-| Shape | Sink recognised | Reported by `rust/sql-injection` |
-| --- | --- | --- |
-| value passed straight to `prepare` | yes | **yes** |
-| bound to a local, then passed | yes | **yes** |
-| through `format!` | yes | no |
-| through `+` concatenation | yes | no |
-| through `.to_string()` | yes | no |
-| through `.as_str()` into `query` | yes | no |
-| `format!` into a struct field, read back through an accessor | yes | no |
+| Shape                                                        | Sink recognised | Reported by `rust/sql-injection` |
+| ------------------------------------------------------------ | --------------- | -------------------------------- |
+| value passed straight to `prepare`                           | yes             | **yes**                          |
+| bound to a local, then passed                                | yes             | **yes**                          |
+| through `format!`                                            | yes             | no                               |
+| through `+` concatenation                                    | yes             | no                               |
+| through `.to_string()`                                       | yes             | no                               |
+| through `.as_str()` into `query`                             | yes             | no                               |
+| `format!` into a struct field, read back through an accessor | yes             | no                               |
 
 The last row is the one that matters, because it is the shape this repository compiles SQL in.
 
