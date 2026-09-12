@@ -36,13 +36,16 @@ concurrency:
 permissions:
   contents: read
 
-# WHY ALL THREE JOBS RUN ON THE 16-CORE RUNNER, AND WHAT THAT IS *NOT* PROVEN BY. #614 moved the
+# WHY ALL THREE JOB KEYS (FOUR RUNS: `cross-build` HAS A TWO-ENTRY MATRIX) USE THE 16-CORE RUNNER,
+# AND WHAT THAT IS *NOT* PROVEN BY. #614 moved the
 # mostly-cached jobs at identical medians, and that measurement does NOT transfer here: every job
 # below ends in a realise that must genuinely RE-COMPILE, which is the whole publish mechanism
 # (stated again at the per-consumer block). The transferable number is this repository's own
-# `runner-probe.yml`: a cold crane closure realise on the 32-core host ran at 22.3% / 22.8% MEAN
-# utilisation with 92-96% peaks - about 7 of 32 cores busy on average. Halving the host clips the
-# peaks, not the mean. And latency here buys nothing anyone waits for: this workflow reports no
+# `runner-probe.yml`: one cold, one-root crane closure realise on the 32-core host ran at 22.3% /
+# 22.8% MEAN utilisation with 92-96% peaks - about 7 of 32 cores busy on average. That says 16 cores
+# would clip that probe's peaks, not its mean. It is a lower bound for `push`'s three-root realise,
+# not a measurement of that workload; the other two job keys realise different roots too. Latency
+# here buys nothing anyone waits for: this workflow reports no
 # status-check context (see the `push` job), so a faster publish is read only by the next run.
 #
 # THE LIMIT, AND IT IS A REAL ONE: these jobs fire on no event but a push to the default branch, so
@@ -60,7 +63,8 @@ permissions:
 # IS READ AS OUTSIDE IT: a cache writer is not a release build. Those three are `fuzz.yml`,
 # `release.yml` and `release-performance.yml`, they keep the 32-core label, and nothing here is a
 # released artifact. That reading is the decision rather than an oversight - a release push does
-# run these four jobs on 16 cores, at the cost recorded above as unmeasured.
+# run these four job runs (the matrix is why three keys become four) on 16 cores, at the cost
+# recorded above as unmeasured.
 #
 # THE EXPOSURE IF THE REALISE DOES SCALE WITH CORES is the `concurrency` group above, not the bill:
 # a slower job is likelier to be cancelled by the next push, and a cancelled publish is a commit
