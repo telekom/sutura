@@ -109,8 +109,10 @@
 //! `.expect`. Class-only output is this cell's separate choice, not a property of every formatter.
 //!
 //! Every read here goes through [`identity_or_die`], which names the refusal's status and reason
-//! code, never its message. The type's redaction is limited to `Debug`: `WireError::Refused`'s
-//! `Display` includes the message, so cause-chain logging elsewhere can still render it.
+//! code, never its message. `EndpointMessage` redacts under `Debug` and `WireError::Refused`'s
+//! `Display` omits the message, so cause-chain logging retains the status and bounded reason without
+//! carrying the endpoint's free text. The raw value remains available only through
+//! `EndpointMessage::as_str`.
 //!
 //! # How to run it
 //!
@@ -156,7 +158,7 @@ mod tests {
     };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::SourcePosture;
-    use sutura_exec_bigquery::wire::{EndpointMessage, StsOverHttp, WireAgent, WireError};
+    use sutura_exec_bigquery::wire::{EndpointMessage, ReasonCode, StsOverHttp, WireAgent, WireError};
     use sutura_exec_bigquery::{BigQueryError, SessionUser};
     use sutura_exec_bigquery::{WorkloadIdentity, WorkloadIdentityBroker};
 
@@ -449,7 +451,7 @@ mod tests {
         let refused: BigQueryError<WireError<std::io::Error>> = BigQueryError::Endpoint {
             cause: WireError::Refused {
                 status: 403,
-                named: String::from("accessDenied"),
+                named: ReasonCode::AccessDenied,
                 detail: EndpointMessage::bounded(Some(String::from(
                     "Access Denied: Project p: User does not have bigquery.jobs.create permission: principal-a@example.com",
                 ))),
@@ -491,7 +493,7 @@ mod tests {
         let read: IdentityRead<std::io::Error> = Err(BigQueryError::Endpoint {
             cause: WireError::Refused {
                 status: 403,
-                named: String::from("accessDenied"),
+                named: ReasonCode::AccessDenied,
                 detail: EndpointMessage::bounded(Some(String::from(
                     "Access Denied: Project p: User does not have bigquery.jobs.create permission: principal-a@example.com",
                 ))),

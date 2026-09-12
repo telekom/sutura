@@ -92,9 +92,11 @@
 //!   the reported
 //!   `reason` is folded into whichever of those fires, because it is the best diagnostic
 //!   available at that point. See `complete`, and the limit stated there.
-//! - **Refusal text is bounded and filtered, not discarded.** `credential::bounded` handles the
-//!   `reason`; [`EndpointMessage`] retains the free-text `message` and redacts it under `Debug`
-//!   only. `Display` and cause-chain logging can still render the message.
+//! - **Refusal text is closed, not passed through.** [`ReasonCode`] maps the endpoint's reason to a
+//!   fixed local vocabulary and turns an unrecognized value into a static marker;
+//!   [`EndpointMessage`] retains the free-text `message` and redacts it under `Debug`. `Display` on
+//!   the refusal renders the status and the local reason code and never the message, so a cause-chain
+//!   walk cannot carry endpoint text either - see [`WireError::Refused`] for the limit.
 //!
 //! # What is deliberately absent
 //!
@@ -276,30 +278,32 @@ impl DryRun {
 /// account.
 ///
 /// **A type rather than a `String`, because the rule it carries is about RENDERING and a rule about
-/// rendering cannot be held at call sites.** `Display` is the message; `Debug` is redacted. That is
-/// the whole mechanism, and it is here because the alternative was asking fourteen acceptance legs
-/// to remember which formatter they used.
+/// rendering cannot be held at call sites.** `Display` on the whole refusal omits this field;
+/// `Debug` redacts it; only an explicit accessor produces the raw value. That is the whole
+/// mechanism, and it is here because the alternative was asking fourteen acceptance legs to
+/// remember which formatter they used.
 ///
 /// **Measured, which is why this exists.** A leg ending `.expect("the endpoint answered")` formats
 /// its error with `Debug`, and `Debug` walks the struct: on a real refusal that printed
 /// `Access Denied: ... permission: <an account>` into a public workflow log. Ten of the fourteen
 /// legs `nix run .#bigquery-acceptance` invokes were in exactly that shape, and the job's
 /// `::add-mask::` step covers the project, the dataset and the table - **not an account**.
-/// `Display` keeps the message because a `400` with only a reason code is undiagnosable, which is
-/// what `docs/adr/0018` prices.
 ///
-/// **What this does NOT do, and the earlier wording here claimed otherwise.** It said a caller
-/// "has to ask for the sentence by name". It does not: [`WireError::Refused`]'s own `Display`
-/// interpolates `detail`, so anything that walks a cause chain and `to_string()`s each link renders
-/// it. `sutura_app::surface::cause_chain` does exactly that, and its output reaches
-/// `tracing::error!` in the HTTP and agent transports - reachable from a `sutura-serve --features
-/// bigquery` deployment. That path is **pre-existing and deliberate**: this workspace flattens a
-/// cause chain at the sink, and a deployment's own log is not the public workflow log this
-/// redaction targets. So the scope of the control is exactly one thing - **`Debug`**, which is what
-/// a panicking test leg prints into a world-readable CI log - and it is not a general answer to
-/// where the endpoint's message may travel.
+/// **The refusal's own `Display` used to interpolate this field, and that made the type's
+/// redaction narrower than it read.** A cause-chain walk that flattens every link with `Display` -
+/// which is what the transports' sinks do - carried the message into a deployment's own log. That
+/// no longer happens: [`WireError::Refused`]'s `Display` renders the status and the closed reason
+/// code and never this field. The limit, stated next to the claim: the endpoint's message
+/// remains a queryable string on the error TYPE, reached only by an explicit call - so a caller
+/// that deliberately opts in to rendering it can. The free text is bounded and stripped on the way
+/// in regardless - see [`Self::bounded`].
 ///
-/// It is already bounded and stripped on the way in - see [`Self::bounded`].
+/// **Why a caller would never reach the raw value by accident, and the cost of that shape:** there
+/// is no `Display` and no `Debug` here that prints the sentence - the only door is [`Self::as_str`],
+/// named on purpose - so any formatter that would have leaked it cannot be written without naming
+/// the field and calling that accessor. Keeping the raw sentence out of every ordinary rendering is
+/// the one control this type holds; it does not change what the endpoint itself records on its side.
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct EndpointMessage(String);
 
@@ -334,16 +338,77 @@ impl EndpointMessage {
     }
 }
 
-impl core::fmt::Display for EndpointMessage {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
 impl core::fmt::Debug for EndpointMessage {
     /// Redacted, and it says how much it is hiding so a reader knows the field was populated.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "<the endpoint's own message, {} char(s), redacted>", self.0.len())
+    }
+}
+
+/// The fixed reason vocabulary this adapter exposes from an endpoint response.
+///
+/// Provider text is parsed into this type before it reaches an error. The endpoint may add a reason
+/// this adapter does not know; that value becomes [`Self::Unrecognized`] and its text is discarded.
+/// This keeps ordinary error rendering useful for known conditions without allowing provider-owned
+/// text to become a log line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasonCode {
+    /// No reason was present in the response.
+    Absent,
+    /// The endpoint returned a reason outside this adapter's vocabulary.
+    Unrecognized,
+    /// The caller was not authorized.
+    AccessDenied,
+    /// The request was not valid for the service.
+    InvalidQuery,
+    /// The requested resource was not found.
+    NotFound,
+    /// The request exceeded a short-term service rate limit.
+    RateLimitExceeded,
+    /// The request exceeded a service quota.
+    QuotaExceeded,
+    /// The response exceeded the service's maximum response size.
+    ResponseTooLarge,
+    /// The service reported a temporary backend failure.
+    BackendError,
+}
+
+impl ReasonCode {
+    /// Maps provider text to the closed local vocabulary.
+    pub(crate) fn from_provider(reason: Option<&str>) -> Self {
+        match reason {
+            None => Self::Absent,
+            Some("accessDenied") => Self::AccessDenied,
+            Some("invalidQuery") => Self::InvalidQuery,
+            Some("notFound") => Self::NotFound,
+            Some("rateLimitExceeded") => Self::RateLimitExceeded,
+            Some("quotaExceeded") => Self::QuotaExceeded,
+            Some("responseTooLarge") => Self::ResponseTooLarge,
+            Some("backendError" | "jobBackendError" | "internalError") => Self::BackendError,
+            Some(_) => Self::Unrecognized,
+        }
+    }
+
+    /// The stable text this adapter renders for the code.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Absent => "no reason supplied",
+            Self::Unrecognized => "unrecognized reason",
+            Self::AccessDenied => "accessDenied",
+            Self::InvalidQuery => "invalidQuery",
+            Self::NotFound => "notFound",
+            Self::RateLimitExceeded => "rateLimitExceeded",
+            Self::QuotaExceeded => "quotaExceeded",
+            Self::ResponseTooLarge => "responseTooLarge",
+            Self::BackendError => "backendError",
+        }
+    }
+}
+
+impl core::fmt::Display for ReasonCode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -419,26 +484,28 @@ where
     },
     /// The endpoint refused.
     ///
-    /// The status, the endpoint's own `reason` in `named`, and its MESSAGE in `detail`. An absent or
-    /// unparseable error document leaves `named` empty, which is honest: the status is what is
-    /// guaranteed.
+    /// The status, the endpoint's reason mapped to [`ReasonCode`] in `named`, and its MESSAGE in
+    /// `detail`. An absent or unrecognized reason carries a static local marker rather than provider
+    /// text, which is honest: the status is what is guaranteed.
     ///
     /// **This used to say the message was deliberately not carried, and the field beside it was
     /// built from `error.message`.** The wrong half mattered: `detail` is free text the endpoint
-    /// writes, it quotes the resource and the principal it refused, and `Display` interpolates it -
-    /// so anything that renders this variant into a public log leaks both. `ci.yml`'s masking step
+    /// writes, it quotes the resource and the principal it refused, and `Display` interpolated it -
+    /// so anything that rendered this variant into a public log leaked both. `ci.yml`'s masking step
     /// exists because of exactly that, and `tests/exchanged_identity.rs` prints `status` and `named`
     /// and never `detail` for the same reason.
     ///
-    /// **`detail` is an [`EndpointMessage`], which redacts under `Debug` and not under `Display`**,
-    /// so the `#[error]` line below still renders it and every `to_string()` on this variant carries
-    /// it. That is deliberate and pre-existing, because a refusal carrying only a reason code is
-    /// undiagnosable, and it means a caller that flattens a cause chain into a log is choosing to
-    /// log the message. What the type removes is the accident: a `Debug` rendering nobody asked for.
-    #[error("the endpoint refused the job with {status}: {named}: {detail}")]
+    /// **`Display` does NOT render `detail`.** It prints the status and the closed reason code, and
+    /// nothing else: a cause-chain walk that flattens every link with `Display` - which is what the
+    /// transports' sinks do - carries the same pair and never endpoint-owned text.
+    /// `detail` is an [`EndpointMessage`], whose `Debug` is redacted and whose raw value is reached
+    /// only through an explicit accessor a caller has to opt into. Each of the three renderings
+    /// this error can meet is therefore one of those, and the one that leaks is the one a caller
+    /// cannot write by accident. `docs/adr/0018` carries this decision and its limit.
+    #[error("the endpoint refused the job with {status}: {named}")]
     Refused {
         status: u16,
-        named: String,
+        named: ReasonCode,
         detail: EndpointMessage,
     },
     /// The answer was not the document a query response is.
@@ -456,10 +523,10 @@ where
     /// **It should now be reachable only through a defect or a cancellation**, because the request
     /// carries `jobTimeoutMs` equal to the client's own wait: the service cancels the job at the same
     /// instant the client stops waiting for it, so an incomplete answer is no longer a live job this
-    /// adapter walked away from. `named` carries whatever reason the endpoint reported, which for a
-    /// cancelled job is the useful half.
+    /// adapter walked away from. `named` carries the endpoint's reason as a closed [`ReasonCode`],
+    /// which for a cancelled job is the useful half.
     #[error("the job had not finished when the endpoint answered: {named}")]
-    NotComplete { named: String },
+    NotComplete { named: ReasonCode },
     /// The answer is one page of more than one.
     #[error("the endpoint answered with one page of a larger result")]
     MoreThanOnePage,
@@ -469,10 +536,11 @@ where
     /// missing field both look like, and only one of them is an answer this adapter may certify.
     ///
     /// This is also where a FAILED job lands: the endpoint reports one as complete with no total, so
-    /// `named` carries the reason it gave and is the whole diagnostic. That is why failure is derived
-    /// from the shape here rather than from `errors` being non-empty - see `reported`.
+    /// `named` carries the endpoint's reason as a closed [`ReasonCode`] and is the whole diagnostic.
+    /// That is why failure is derived from the shape here rather than from `errors` being non-empty -
+    /// see `reported`.
     #[error("the endpoint reported the job complete and stated no total row count: {named}")]
-    NoTotal { named: String },
+    NoTotal { named: ReasonCode },
     /// The total was not a number.
     ///
     /// It arrives as text, because the endpoint writes 64-bit integers as JSON strings.
@@ -510,13 +578,13 @@ where
     ListingDidNotFinish { pages: usize },
 }
 
-/// A short token another service sent us, bounded and filtered.
+/// A short textual diagnostic another service sent us, bounded and filtered.
 ///
-/// **One function for every foreign string in this crate that reaches an error**, because there were
-/// two and they had drifted by one character in their allowed set. Both callers want the same thing:
-/// an endpoint's `reason`, an `OAuth` error code and a credential file's `type` are each a fixed
-/// vocabulary spelled in the same characters, and what has to be impossible is any of them writing a
-/// newline, an escape sequence or sixteen kilobytes into a log.
+/// **This is not the endpoint-reason decoder.** `errors[].reason` is mapped to [`ReasonCode`] before
+/// it reaches an error, so an unknown provider value becomes a static local marker. This helper is
+/// for values that remain textual diagnostics - an unusable page token, an `OAuth` error code or a
+/// credential file's `type` - and keeps any of them from writing a newline, an escape sequence or
+/// sixteen kilobytes into a log.
 ///
 /// **Not a slice**, because `clippy::string_slice` is denied and because a byte slice of foreign text
 /// can land inside a multi-byte character. Taking characters is both correct and what the ban is for.
@@ -760,15 +828,18 @@ where
     /// number as "too much data" that is actually a configured spend bound.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         match *error {
-            WireError::MoreThanOnePage => true,
             // The endpoint's own name for the same shape, arriving as an HTTP error instead of a
             // page token: `responseTooLarge` (403) is documented as *the query results are larger
             // than the maximum response size*, which IS the volume bound. Without this arm, the same
             // reply leaves as `413` when it comes back with a `pageToken` and as `503` when it comes
             // back as a refusal - which answer a caller gets then depends on the service's mood. A
-            // non-matching `named` still falls through to `false`, so this cannot make things worse
+            // non-matching reason still falls through to `false`, so this cannot make things worse
             // than the `503` it replaces.
-            WireError::Refused { ref named, .. } if named == "responseTooLarge" => true,
+            WireError::MoreThanOnePage
+            | WireError::Refused {
+                named: ReasonCode::ResponseTooLarge,
+                ..
+            } => true,
             WireError::Credential { .. }
             | WireError::Expired { .. }
             | WireError::NoClock { .. }

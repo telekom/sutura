@@ -257,18 +257,20 @@ Everything below the socket, and one thing at it.
   `answer()` a first page would read as *under the cap, not truncated*. The service's own result
   cache **off** - an anchor that reproduces from a cache has reproduced the cache, and a cached
   answer under a shared identity is shared across every asker. `max_redirects(0)`, so the bearer has
-  no second host to follow a redirect to. And every foreign string that reaches an error is bounded
-  and character-filtered through **one** shared function - the endpoint's `reason` and the credential
-  file's `type` are kept, the free-text `message` is not a field on the error type at all, and there
-  used to be two copies of the bounding that had drifted by one character in their allowed set.
+  no second host to follow a redirect to. The endpoint's `errors[].reason` is mapped to a closed
+  `ReasonCode` before it reaches an error; textual diagnostics that remain strings - the credential
+  file's `type`, an OAuth error code and an unusable page token - are bounded and character-filtered
+  through **one** shared function. The free-text `message` is carried separately, bounded to a line,
+  and redacted under ordinary rendering.
 - **Failure is derived from the RESULT SHAPE, never from `errors` being non-empty**, and the first
   version got this wrong in the direction that matters. The endpoint documents that array as *"the
   first errors or warnings encountered"* and says entries *"do not necessarily mean that the job has
   completed or was unsuccessful"* - so refusing on it **declined successful queries that merely
   warned**, and answered a caller a `503` for a result the service had produced. What refuses is
   `jobComplete`, a `pageToken`, an absent `totalRows` and a delivered count that is not the reported
-  total; the reported reason is folded into whichever of those fires, which is also where a genuinely
-  failed job lands, because the endpoint reports one as complete with no total.
+  total; the reported reason is mapped to a closed code and folded into whichever of those fires,
+  which is also where a genuinely failed job lands, because the endpoint reports one as complete with
+  no total.
 - **The bearer's DESTINATION is a constant; its ROUTE is not.** `HOST` cannot be configured,
   `https_only` is on, `max_redirects` is `0` - so nothing a deployment writes changes which service
   receives the credential. What a deployment *can* change is the path: `ureq`'s default config is
@@ -779,3 +781,39 @@ bullets down:
 - **`tables.list` reports existence and nothing else.** Not the columns a model names, and not
   whether the identity that will ask a question may read the rows: a listing grant and a read grant
   are two grants. An anchor is what covers both, for the metrics that have one.
+
+## Second amendment, 2026-09-11: the refusal's `Display` no longer carries the endpoint's message
+
+The finding above - the endpoint's `message` is kept on the refusal - is narrowed where it was
+weakest. The message is still carried on the type and still bounded to 400 printable-ASCII
+characters, and `Debug` still redacts it. What changed is `Display` on `WireError::Refused`: it
+renders `{status}` and the closed local reason code and **no longer interpolates `detail`**. That was
+the path a cause-chain walk takes - the transports' sinks flatten each link with `Display` - so a
+deployment's own log used to carry the endpoint's free text, which on a `403` quotes the resource and
+the principal it refused.
+
+`EndpointMessage` also loses its `Display` implementation, so the raw sentence is reachable only
+through `EndpointMessage::as_str`, named on purpose. Every rendering this error can meet is therefore
+one of: status plus a closed reason code (`Display`), a redacted marker (`Debug`), or an explicit
+accessor.
+
+**The limit, stated next to the claim.** The endpoint's message is still a string on the error TYPE,
+and a caller that deliberately calls `as_str` can render it. This removes the accident, not the
+capability, and it says nothing about what the endpoint records on its own side. The tests are
+`the_endpoints_own_message_is_redacted_under_debug_and_absent_from_display` in
+`crates/sutura-exec-bigquery/src/wire/tests.rs`, and
+`a_refusal_this_leg_dies_on_names_the_reason_and_never_the_message` in
+`crates/sutura-exec-bigquery/tests/exchanged_identity.rs`, which holds that the leg goes through the
+status-and-reason shape rather than rendering the error.
+
+## Third amendment, 2026-09-12: provider reason text is closed before ordinary rendering
+
+The endpoint's `errors[].reason` is provider-owned input. Bounding and filtering its characters still
+allowed an arbitrary identifier to reach `WireError::Refused`'s `Display`, so the wire now maps it to
+the closed `ReasonCode` vocabulary at decode time. Known decisions, including `responseTooLarge`,
+`rateLimitExceeded` and `quotaExceeded`, retain their behavior; an absent or unrecognized provider
+value renders only a static local marker. The same type is carried by incomplete-job and missing-total
+errors, so no ordinary rendering of a shape-derived diagnostic can carry provider text either.
+
+`an_unrecognized_provider_reason_cannot_reach_ordinary_error_rendering` in
+`crates/sutura-exec-bigquery/src/wire/tests.rs` is the regression test for the boundary.

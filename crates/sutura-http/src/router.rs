@@ -72,6 +72,12 @@ use crate::middleware::{self, LimiterHandle, LimiterNotBuilt};
 use crate::routes;
 use crate::state::ServiceState;
 
+// The metrics route lives in `routes/metrics.rs` but is declared here rather than in
+// `routes/mod.rs`, which this tree does not own. `#[path]` anchors it at its real file so the
+// source stays where a reader looks for it.
+#[path = "routes/metrics.rs"]
+mod metrics;
+
 /// What the span calls the route of a request that matched none.
 ///
 /// A constant and not the request's own path, which is the whole point: a path that matched nothing
@@ -181,7 +187,10 @@ impl core::fmt::Debug for Assembled {
 /// request never arrives at a branch that could turn a control off.
 pub fn router(state: &ServiceState) -> Result<Router, RouterNotBuilt> {
     let assembled = assemble(state)?;
-    middleware::spawn_reaper(assembled.limiters(), middleware::REAP_INTERVAL)
+    // The reaper also reports each tier's keyed-store size into the metrics registry (the
+    // `sutura_rate_limit_buckets` gauge), because the reaper is the one place that already reads
+    // that size on a schedule. The metrics handle is the state's own, cloned for the thread.
+    middleware::spawn_reaper(state.metrics(), assembled.limiters(), middleware::REAP_INTERVAL)
         .map_err(|cause| RouterNotBuilt::Reaper { cause })?;
     Ok(assembled.into_router())
 }
@@ -226,7 +235,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // wrong-token attempt costs a cell. See the module documentation.
     let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
     let versioned = if limits.enabled() {
-        let (layer, handle) = middleware::api_rate_limit_layer(limits.api(), key.clone()).map_err(limiter)?;
+        let (layer, handle) = middleware::api_rate_limit_layer(state.metrics(), limits.api(), key.clone()).map_err(limiter)?;
         limiters.push(handle);
         versioned.layer(layer)
     } else {
@@ -252,11 +261,37 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
             .map_or_else(Router::new, crate::routes::protected_resource::ProtectedResource::router),
     );
     let public = if limits.enabled() {
-        let (layer, handle) = middleware::probe_rate_limit_layer(limits.probe(), key.clone()).map_err(limiter)?;
+        let (layer, handle) =
+            middleware::probe_rate_limit_layer(state.metrics(), limits.probe(), key.clone()).map_err(limiter)?;
         limiters.push(handle);
         public.layer(layer)
     } else {
         public.layer(middleware::disabled_rate_limit_layer())
+    };
+    // The metrics endpoint. On the ONE listener (Decision 2 of `docs/adr/0015`), outside the
+    // version prefix so a scrape config survives a version bump, and gated by its own token - never
+    // the deployment token - so a scrape cannot interrogate the business. Its state is
+    // `metrics::MetricsState` (declared above via `#[path]`), which holds only the registry and
+    // deliberately no `Surface`. Behind a tighter limiter tier of its own - a scrape every fifteen
+    // to sixty seconds - outside the token gate for the same reason the API limiter is: a
+    // wrong-token scrape attempt costs a cell. When limiting is off the endpoint remains mounted
+    // behind its token gate; an identity layer simply takes the limiter's place.
+    let metrics = Router::from(
+        OpenApiRouter::new()
+            .routes(utoipa_axum::routes!(metrics::scrape))
+            .with_state(metrics::MetricsState::new(state.registry())),
+    )
+    .route_layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        middleware::require_metrics_token,
+    ));
+    let metrics = if limits.enabled() {
+        let (layer, handle) =
+            middleware::metrics_rate_limit_layer(state.metrics(), limits.probe(), key.clone()).map_err(limiter)?;
+        limiters.push(handle);
+        metrics.layer(layer)
+    } else {
+        metrics.layer(middleware::disabled_rate_limit_layer())
     };
 
     let (documentation, documentation_limiter) = documentation(state, &settings, &key)?;
@@ -264,6 +299,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
 
     let router = Router::new()
         .merge(documentation)
+        .merge(metrics)
         .merge(versioned)
         // Both ordinary subtrees registered every route above with Axum's checks enabled. The escape
         // begins only at the final merge of the already-built public subtree for the same literal
@@ -292,7 +328,14 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
                         .level(tracing::Level::INFO)
                         .latency_unit(tower_http::LatencyUnit::Millis),
                 ),
-        );
+        )
+        // The final outer boundary sees every terminal response, including one produced by a layer
+        // above the handler. Route plus method identifies the governed question capability; typed
+        // response extensions carry the outcome without parsing a body.
+        .layer(axum::middleware::from_fn_with_state(
+            state.metrics().clone(),
+            middleware::record_response,
+        ));
     Ok(Assembled { router, limiters })
 }
 
@@ -495,7 +538,8 @@ fn documentation(state: &ServiceState, settings: &Settings, key: &ClientAddress)
     let limits = settings.rate_limit();
     let served = served.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
     if limits.enabled() {
-        let (layer, handle) = middleware::probe_rate_limit_layer(limits.probe(), key.clone()).map_err(limiter)?;
+        let (layer, handle) =
+            middleware::probe_rate_limit_layer(state.metrics(), limits.probe(), key.clone()).map_err(limiter)?;
         Ok((served.layer(layer), Some(handle)))
     } else {
         Ok((served.layer(middleware::disabled_rate_limit_layer()), None))

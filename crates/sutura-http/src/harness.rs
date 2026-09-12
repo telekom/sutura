@@ -108,64 +108,12 @@ async fn health_answers_without_a_token_and_says_nothing_about_the_deployment() 
 }
 
 // ------------------------------------------------------------- the token gate ----
+//
+// The three questions about a deployment that configures `security.access_token`. Its own file
+// because this one is at the `max-lines` bound.
 
-#[tokio::test]
-async fn the_versioned_api_needs_the_token_when_one_is_configured() {
-    let app = app(settings(
-        Environment::Development,
-        &format!("security:\n  access_token: \"{TOKEN}\"\n"),
-    ));
-
-    let (status, body) = call(&app, request("GET", "/v1/catalog", None, Body::empty())).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert!(body.contains(r#""code":"unauthorized""#), "{body}");
-
-    let (status, _) = call(
-        &app,
-        request(
-            "GET",
-            "/v1/catalog",
-            Some("wrong-but-long-enough-to-be-a-token"),
-            Body::empty(),
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-
-    let (status, body) = call(&app, request("GET", "/v1/catalog", Some(TOKEN), Body::empty())).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("revenue"), "{body}");
-}
-
-#[tokio::test]
-async fn an_unmatched_path_answers_not_found_without_holding_a_credential() {
-    // **This test asserts the CURRENT behaviour, and it is not the behaviour this file first
-    // claimed.** `route_layer` runs only for a request that matched a route in that subtree, so a
-    // path under the version prefix that matches nothing skips the token gate and falls through to
-    // the top-level `404`.
-    //
-    // Kept as `404` rather than contorted into a `401`, because what it discloses is only *which
-    // paths exist* - and the paths are in the interface description, which is published. Every path
-    // that resolves to a handler does hold a credential, which is asserted by the test above. If
-    // that judgement ever changes, this test is where it changes.
-    let app = app(settings(
-        Environment::Development,
-        &format!("security:\n  access_token: \"{TOKEN}\"\n"),
-    ));
-    let (status, body) = call(&app, request("GET", "/v1/catalog/secret", None, Body::empty())).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    // What matters either way: the response says nothing about the deployment.
-    assert!(body.is_empty(), "{body}");
-}
-
-#[tokio::test]
-async fn a_loopback_development_service_with_no_token_configured_answers_without_one() {
-    // The permissive branch, and the reason it is safe: this configuration is only loadable on a
-    // loopback bind outside production, which `sutura-config` enforces with a startup refusal.
-    let app = app(settings(Environment::Development, ""));
-    let (status, _) = call(&app, request("GET", "/v1/catalog", None, Body::empty())).await;
-    assert_eq!(status, StatusCode::OK);
-}
+#[cfg(test)]
+mod token;
 
 // ------------------------------------------------------------------- queries ----
 
@@ -675,7 +623,9 @@ async fn the_interface_description_is_served_in_development_and_not_in_productio
     // built for, so it must load rather than be refused.
     let production = app(settings(
         Environment::Production,
-        &format!("server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"ingress\"\n"),
+        &format!(
+            "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"ingress\"\n  metrics_token: \"0123456789abcdef0123456789abcdf0\"\n"
+        ),
     ));
     let (status, _) = call(&production, request("GET", "/openapi.json", Some(TOKEN), Body::empty())).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -698,6 +648,33 @@ async fn the_interface_description_is_behind_the_token_when_one_is_configured() 
             .0,
         StatusCode::OK
     );
+}
+
+// ------------------------------------------------------------------ the metrics ----
+//
+// The credential, the exact series set, the refusal-versus-fault split, the disclosure exclusions
+// and the scrape-under-load cell. Its own file because this one is at the `max-lines` bound.
+
+#[cfg(test)]
+mod metrics;
+
+/// The metrics credential, distinct from the API token, for the cases that configure one.
+const METRICS_TOKEN: &str = "0123456789abcdef0123456789abcdf0";
+
+/// Settings with both credentials and pinned process numbers.
+///
+/// The engine width and the execution bound are pinned rather than left to the machine, because one
+/// of these tests asserts the rendered exposition exactly and a machine-dependent number would make
+/// that snapshot a property of the runner.
+fn metrics_settings(environment: Environment) -> Settings {
+    settings(
+        environment,
+        &format!(
+            "security:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"sidecar\"\n  \
+             metrics_token: \"{METRICS_TOKEN}\"\nserver:\n  host: \"0.0.0.0\"\nruntime:\n  \
+             engine_worker_threads: 3\n  max_concurrent_queries: 4\n"
+        ),
+    )
 }
 
 // ------------------------------------------------------------------ the log ----

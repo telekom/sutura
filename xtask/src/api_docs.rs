@@ -20,7 +20,7 @@
 //!     decides a change "cannot affect the docs" is a heuristic that will one day be wrong
 //!     silently, which is the exact failure this gate exists to remove.
 //!   * IT NOW ALSO JUDGES THE DOC LINKS, and not by looking at them. `broken_intra_doc_links` is
-//!     forbidden in the workspace lint table, so the `cargo rustdoc` line below fails on a link
+//!     forbidden in the workspace lint table, so the `cargo doc` line below fails on a link
 //!     rustdoc cannot resolve - 15 of those were warnings behind exit 0 until
 //!     `github.com/telekom/sutura#360`. **This is the only venue that enforces it**: the doctest
 //!     lane does not, measured. This check also documents each binary-only target, without
@@ -37,7 +37,7 @@
 //!     `--document-private-items` is what points it at them, `writer` is what keeps `just api`
 //!     passing the identical flag, and the visibility filter in the generator is why no private
 //!     item reaches a page.
-//!   * IT IS THE SAME CODE PATH. The `cargo rustdoc` line and the generator script are the ones
+//!   * IT IS THE SAME CODE PATH. The `cargo doc` line and the generator script are the ones
 //!     the `api` recipe in the justfile runs. A gate that reimplemented the rendering could
 //!     disagree with `just api`, and then the fix its own message asks for would not make it
 //!     pass. Never inline the rendering here.
@@ -49,7 +49,7 @@
 //! its own so the docs never share artifacts with another run's, and `SUTURA_API_DOCS_PROFILE` so
 //! its compile is at opt-level 0.
 //!
-//! Every gate runs on the nightly toolchain now, so the `cargo rustdoc` line here needs no
+//! Every gate runs on the nightly toolchain now, so the `cargo doc` line here needs no
 //! wrapping or un-wrapping rationale. It is `Kind::Standalone` because `cargo xtask hygiene` is a
 //! cheap sweep that should run on hosts with no Rust nightly at all.
 
@@ -95,7 +95,7 @@ pub(crate) const GENERATED_MARKER: &str = "<!-- GENERATED FILE - do not edit.";
 /// materialise a pixi environment. See [`python_command`].
 const PYTHON_ENV: &str = "SUTURA_API_DOCS_PYTHON";
 
-/// Names the cargo profile the `cargo rustdoc` child compiles under.
+/// Names the cargo profile the `cargo doc` child compiles under.
 ///
 /// For the same caller as [`PYTHON_ENV`]: the Nix check. Unset means "say nothing", which leaves
 /// cargo on its default `dev` - the right answer in a dev shell, where `target/` is already warm
@@ -165,7 +165,7 @@ struct Outcome {
     problems: Vec<String>,
     /// The doc-link lint's level, and the three counts that say it reached every member.
     arming: lints::Arming,
-    /// Binary-only targets whose rustdoc invocation succeeded, not generated pages.
+    /// Binary-only targets the workspace run documented for links, not generated pages.
     binaries: usize,
     /// The rustdoc flags `just api` and this gate agree on - see [`writer`].
     flags: Vec<String>,
@@ -194,9 +194,9 @@ fn check(root: &Path) -> Result<Outcome, String> {
     if let Some((package, binary)) = colliding_json(&packages, &binaries) {
         return Err(format!(
             "binary target `{package}/{binary}` would write {}, which is a library crate's page \
-             input - rename the binary target. The binary and library rustdoc runs share one \
-             target directory so the binary runs reuse the library closure instead of rebuilding \
-             it, and that sharing only holds while the two cannot write the same file.",
+             input - rename the binary target. One `cargo doc --workspace` documents the library \
+             and the binary as two units of the SAME run, so a shared file name is a race rather \
+             than an overwrite: whichever unit finishes last decides what the generator reads.",
             json_file_name(binary)
         ));
     }
@@ -208,9 +208,20 @@ fn check(root: &Path) -> Result<Outcome, String> {
     selftest_renderer(root, &generator)?;
 
     let cargo = cargo_bin();
+    // ONE cargo invocation for every member, and the serial loop it replaces was the whole cost
+    // of this gate: 19 of them (16 libraries, 3 binary-only targets) took 216 s of the 225 s
+    // buildPhase - 96.0% of it - inside a 254 s CI step whose next-largest sibling was 49 s, on
+    // a 16-core host 25.9% busy on average (run 34646880506). Paired and load-matched in the nix
+    // sandbox on one host, that buildPhase is 188 s before this change and 50 s after.
+    // The larger half is not the lost parallelism. `-p <one> --all-features` is a DIFFERENT
+    // feature resolution from the `--workspace --all-features` that `sutura-deps` is built
+    // under, so every feature-gated dependency fell outside the warm artifacts and was
+    // recompiled - the defect `flake.nix` records against `checks.nextest` at 67 third-party
+    // crates, and this gate was the last consumer still asking a question the closure could not
+    // answer. Asking the closure's own question is what makes the artifacts reusable here.
+    rustdoc_json(&cargo, root)?;
     let mut inputs = Vec::new();
     for package in &packages {
-        rustdoc_json(&cargo, root, package, None)?;
         let json = target_dir.join("doc").join(json_file_name(package));
         if !json.is_file() {
             return Err(format!(
@@ -221,16 +232,6 @@ fn check(root: &Path) -> Result<Outcome, String> {
             ));
         }
         inputs.push(json);
-    }
-    // THE SAME target directory as the libraries above, and that is the whole cost of this
-    // phase. A directory of its own made the first binary rebuild the workspace's dependency
-    // closure from nothing while the warm one sat next to it: MEASURED at 86 s of a 280 s CI
-    // step (run 34572387467, `sutura-sql` at 07:04:39 to the last binary at 07:06:05), for
-    // three packages that produce no page at all. Sharing is sound only while no binary's
-    // rustdoc JSON can land on a library's page input, which [`colliding_json`] refuses.
-    for (package, binary) in &binaries {
-        rustdoc_json(&cargo, root, package, Some(binary))
-            .map_err(|error| format!("binary target `{package}/{binary}`: {error}"))?;
     }
 
     let scratch = scratch_dir()?;
@@ -390,7 +391,8 @@ fn json_file_name(package: &str) -> String {
 /// CAN be named after a library crate, and rustdoc names its JSON after the Rust identifier
 /// rather than the package. Nothing else in this module would notice: the generator would render
 /// the binary's surface onto the library's page and the byte comparison would call it a drift.
-/// It is a refusal and not a workaround because the workaround is what cost the 86 s above.
+/// It is a refusal and not a workaround: the two are units of one cargo invocation, so there is
+/// no ordering left to impose that would make a shared file name safe.
 fn colliding_json<'a>(packages: &BTreeSet<String>, binaries: &'a BinaryTargets) -> Option<(&'a str, &'a str)> {
     let pages: BTreeSet<String> = packages.iter().map(|package| json_file_name(package)).collect();
     binaries
@@ -408,16 +410,26 @@ fn cargo_bin() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo"))
 }
 
-/// Produce one crate's rustdoc JSON.
+/// Produce every workspace member's rustdoc JSON, in one cargo invocation.
 ///
 /// The arguments are the ones the `api` recipe's writer uses, in the same order, for the
 /// same-code-path reason in this module's header.
+///
+/// `cargo doc` and not `cargo rustdoc`, and the two differences are the point. It documents MANY
+/// units, so cargo schedules them across the host instead of this function serialising them; and
+/// it resolves features ONCE over the whole workspace, which is the resolution `sutura-deps` was
+/// built under, so the warm artifacts are reusable rather than partially invalid. It takes no
+/// trailing rustdoc arguments in exchange - there is no single unit for them to belong to - so the
+/// flags travel in [`writer::RUSTDOCFLAGS`], which is the copy `writer` compares.
+///
+/// `--no-deps` is load-bearing: without it `--workspace` documents the entire dependency closure
+/// rather than the members, which is a different and far larger job.
 ///
 /// THE ONE STEP THAT NEEDS NIGHTLY, and it is a CHILD PROCESS. `cargo` here is whichever cargo
 /// the caller named - `$CARGO`, which the Nix check sets to the nightly. This binary itself is
 /// compiled on the same nightly toolchain every gate uses, which is why the check can share their
 /// dependency closure.
-fn rustdoc_json(cargo: &str, root: &Path, package: &str, binary: Option<&str>) -> Result<(), String> {
+fn rustdoc_json(cargo: &str, root: &Path) -> Result<(), String> {
     let profile = std::env::var(PROFILE_ENV).ok();
     let status = std::process::Command::new(cargo)
         .current_dir(root)
@@ -429,25 +441,23 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str, binary: Option<&str>) -
         // is what every other non-dev-shell caller of cargo already gets.
         .env_remove("CARGO_PROFILE_DEV_CODEGEN_BACKEND")
         .env_remove("CARGO_UNSTABLE_CODEGEN_BACKEND")
-        .args(["rustdoc", "-q", "-p", package, "--all-features"])
-        .args(binary.into_iter().flat_map(|name| ["--bin", name]))
+        .env(writer::RUSTDOCFLAGS, writer::RUSTDOC_ARGS.join(" "))
+        .args(["doc", "-q", "--no-deps", "--workspace", "--all-features"])
         .args(profile_args(profile.as_deref()))
-        .arg("--")
-        .args(writer::RUSTDOC_ARGS)
         .status()
-        .map_err(|error| format!("could not run `{cargo} rustdoc`: {error}"))?;
+        .map_err(|error| format!("could not run `{cargo} doc`: {error}"))?;
     if status.success() {
         return Ok(());
     }
-    Err(format!(
-        "`cargo rustdoc -p {package} ... --output-format json` failed, and rustdoc's own output \
-         above says which of two things happened.\n  \
+    Err(String::from(
+        "`cargo doc --workspace --no-deps ... --output-format json` failed, and rustdoc's own \
+         output above names the crate and says which of two things happened.\n  \
          A DOC LINK it could not resolve: `broken_intra_doc_links` is forbidden in the workspace \
          lint table, so that is an error here rather than a warning behind exit 0. Fix the link - the \
          `crate::`-qualified inline form `[`x`](crate::path::x)` resolves without an import and \
          the page keeps the code span.\n  \
          Or the TOOLCHAIN: `--output-format json` is unstable, so this gate needs the nightly pin \
-         (devco/rust-toolchain-nightly.toml), which is what the shell's bare `cargo` IS."
+         (devco/rust-toolchain-nightly.toml), which is what the shell's bare `cargo` IS.",
     ))
 }
 

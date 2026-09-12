@@ -2041,6 +2041,124 @@ behalf of an unauthenticated caller.** Eight kibibytes is generous for an access
 groups and an actor chain, and far below the header limit the HTTP implementation would otherwise
 be the only bound at. An unbounded input is a denial-of-service primitive whatever else it is.
 
+## Module `metrics`
+
+The metric series the HTTP surface observes, and the one place their labels are closed.
+
+# It is a boundary, not a pass-through
+
+This module owns the transport's half of `docs/adr/0015`'s series table: the outcome counters,
+the duration histogram, the admission series, the rate-limit visibility, the unauthorized
+counter and the answer-rows histogram. The registry lives in `sutura-runtime`; this type holds
+the handles and names the series. Every labeled registration and update accepts
+`sutura_runtime::metrics::Label`; the values are chosen here from the transport's own fixed code
+vocabulary and the complete set is registered at boot, so an unknown observation cannot mint a
+series (Decision 5).
+
+# Registration is boot-only, and this type is the WHOLE of it here
+
+`Metrics::install` is the only place in this crate that registers a series, and it takes a
+`sutura_runtime::metrics::RegistryBuilder` to do it - never a built
+`sutura_runtime::metrics::Registry`. The two series whose value is the deployment rather than a
+request - `sutura_engine_worker_threads` and `sutura_catalog_metrics` - are registered against
+the same builder by `crate::state::ServiceState::new`, which is the one place that has both the
+settings and the served bundle. A built registry cannot be registered against, so the set is
+closed once the builder is consumed.
+
+# What this does NOT hold
+
+The three engine-pool series `docs/adr/0015` specifies - reserved bytes, the limit and refusals -
+are deliberately absent, following that record's own *absent rather than zero*: the pool bounds
+the engine's own operators and nothing else, and a gauge an operator would alert on as process
+memory is worse than no gauge. Nothing here closes that gap.
+
+### `struct Metrics`
+
+```rust
+pub struct Metrics
+```
+
+The transport's metrics handles, installed for one service state.
+
+`Clone` is cheap and shares the same underlying atomics. The built `sutura_runtime::metrics::Registry`
+is shared with the `/metrics` route separately, through the state, never through this type.
+
+#### Methods
+
+```rust
+pub fn install(builder: &mut RegistryBuilder) -> Self
+```
+
+Registers every transport series against `builder`, and returns the handles to observe them.
+
+The only registration site in this crate. It takes a builder because registration is
+boot-only - the caller registers the deployment-wide series beside these, then builds the
+registry, and a built registry has no registration door.
+
+```rust
+pub fn limiter_buckets(&self, tier: Label, count: usize)
+```
+
+Records how many keys a limiter tier's store is holding.
+
+```rust
+pub fn rate_limited(&self, tier: Label)
+```
+
+Records a rate-limit refusal for a tier. **Surface-wide, by design** - the limiter stands
+outside the question handler and can honestly attribute only the tier it refused on. It must
+not move the question family itself; the route-aware completion layer does that only for a
+matched question response.
+
+```rust
+pub fn set_capacity(&self, bound: usize)
+```
+
+The capacity denominator, reported when the bound is known.
+
+```rust
+pub fn shed(&self)
+```
+
+Records a shed: a slot not granted, distinct from a fault.
+
+Counts only the admission event. The outer completion layer records the question outcome and
+duration from the response extension, as it does for every other terminal response.
+
+```rust
+pub fn slot_started(&self) -> SlotGuard
+```
+
+Records a slot starting; the returned guard releases it when dropped.
+
+The guard is `#[must_use]` on its type precisely so a call site has to name what it does with
+it: the guard must be owned by the blocking work a slot was granted for, so a caller that
+times out and drops the request cannot release the in-use count before the work ends.
+
+```rust
+pub fn unauthorized(&self)
+```
+
+Records an unauthorized attempt. **Surface-wide, by design** - a `401` from the token gate or
+from `/metrics`'s own gate is a credential problem, not a question outcome, and it must not
+move the question family. The outer completion layer owns that accounting.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct SlotGuard`
+
+```rust
+pub struct SlotGuard
+```
+
+A held execution slot being counted as in use; released when the work ends.
+
+#### Implements
+
+`Drop`
+
 ## Module `middleware`
 
 The two layers that stand in front of a handler, and the reason there are exactly two.
@@ -2153,7 +2271,7 @@ none. This way an impossible state is a refusal to start.
 ### `fn spawn_reaper`
 
 ```rust
-pub fn spawn_reaper(handles: &[LimiterHandle], interval: std::time::Duration) -> Result<(), std::io::Error>
+pub fn spawn_reaper(metrics: &crate::metrics::Metrics, handles: &[LimiterHandle], interval: std::time::Duration) -> Result<(), std::io::Error>
 ```
 
 Sweeps every tier's keyed state on a fixed interval, until nothing is left to sweep.
@@ -2182,10 +2300,38 @@ handler and this has to run for a whole subtree. It runs for every path in that 
 RESOLVES to a handler; a path under the prefix matching no route skips it and falls through to
 the top-level `404`, which `crate::router` states along with why that is acceptable.
 
+### `fn require_metrics_token`
+
+```rust
+pub async fn require_metrics_token(__arg0: axum::extract::State<crate::state::ServiceState>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+```
+
+Requires the metrics token, which is a DIFFERENT credential from the API token.
+
+`docs/adr/0015` Decision 1: a holder of the API token can ask any question the catalog
+certifies and a scrape needs none of that, so `/metrics` is gated by its own
+`security.metrics_token`. This mirrors `require_token`'s shape - the presented bearer is
+compared through the same `AccessToken::matches_in_constant_time`, reused rather than copied -
+and a `401` here is the same three-shape answer a wrong API token gets.
+
+### `fn record_response`
+
+```rust
+pub async fn record_response(__arg0: axum::extract::State<crate::metrics::Metrics>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+```
+
+Records surface-wide response observations and every matched question completion.
+
+This layer sits outside authentication, authorization, rate limiting, timeout handling,
+extraction and the handler. Every failure response declares a typed outcome, which lets this
+one boundary count an unauthorized response from any credential gate. On the question route a
+missing declaration is an operational defect and is counted as `internal` rather than
+disappearing.
+
 ### `fn probe_rate_limit_layer`
 
 ```rust
-pub fn probe_rate_limit_layer(quota: sutura_config::Quota, key: crate::client_address::ClientAddress) -> Result<(RateLimit, LimiterHandle), LimiterNotBuilt>
+pub fn probe_rate_limit_layer(metrics: &crate::metrics::Metrics, quota: sutura_config::Quota, key: crate::client_address::ClientAddress) -> Result<(RateLimit, LimiterHandle), LimiterNotBuilt>
 ```
 
 The tier for what an unauthenticated caller can reach.
@@ -2193,10 +2339,22 @@ The tier for what an unauthenticated caller can reach.
 ### `fn api_rate_limit_layer`
 
 ```rust
-pub fn api_rate_limit_layer(quota: sutura_config::Quota, key: crate::client_address::ClientAddress) -> Result<(RateLimit, LimiterHandle), LimiterNotBuilt>
+pub fn api_rate_limit_layer(metrics: &crate::metrics::Metrics, quota: sutura_config::Quota, key: crate::client_address::ClientAddress) -> Result<(RateLimit, LimiterHandle), LimiterNotBuilt>
 ```
 
 The tier for the versioned API.
+
+### `fn metrics_rate_limit_layer`
+
+```rust
+pub fn metrics_rate_limit_layer(metrics: &crate::metrics::Metrics, quota: sutura_config::Quota, key: crate::client_address::ClientAddress) -> Result<(RateLimit, LimiterHandle), LimiterNotBuilt>
+```
+
+The tier for `/metrics`, a scrape about once a second - the `docs/adr/0015` tier, deliberately
+distinct from the API's and the probe's so one surface's burst cannot exhaust another's.
+
+It reuses the probe quota's numbers, because a scrape is not a thing an operator needs to tune
+separately - the probe burst is already the tightest here.
 
 ### `fn disabled_rate_limit_layer`
 
@@ -2636,9 +2794,11 @@ restart.
 
 What every handler is handed.
 
-Three things, each cheap to clone, so cloning the state per connection is a few pointer bumps:
-the `Surface` the question goes to, the `Settings` the token gate and the assembled router
-were built from, and the `Admission` bound the query handler takes a slot from.
+Each field is cheap to clone, so cloning the state per connection is a few pointer bumps: the
+`Surface` the question goes to, the `Settings` the token gate and assembled router were built
+from, the `Admission` bound the query handler takes a slot from, the metrics registry with the
+transport handles that write it, and an optional inbound identity gate. See
+`ServiceState::new` for why the registry is built here and frozen at construction.
 
 The settings are kept rather than read once at assembly time because the token gate needs them
 per request. Nothing else does - the layers were all decided at startup - and that is
@@ -2687,9 +2847,6 @@ pub const fn admission(&self) -> &Admission
 
 The bound on how many questions execute at once.
 
-Borrowed rather than cloned, so a handler takes a slot from *this* bound. A clone would be
-correct too - `Admission` shares its permit set - and a borrow says so at the call site.
-
 ```rust
 pub fn definitions(&self) -> &sutura_domain::pinned::PinnedDefinitions
 ```
@@ -2707,6 +2864,13 @@ to reach the validator, which is why the middleware takes the gate as its own st
 reading it back out of this one.
 
 ```rust
+pub const fn metrics(&self) -> &crate::metrics::Metrics
+```
+
+The transport's metrics observer: records question outcomes, admission and rate-limit
+events against the shared registry.
+
+```rust
 pub fn new(surface: Arc<dyn Surface>, settings: Arc<Settings>, admission: Admission) -> Self
 ```
 
@@ -2720,6 +2884,24 @@ decides there is only ever one.
 same argument as the surface one line above it, one bound further: the permit set belongs to
 the process, so the only component that may decide there is one of it is the composition
 root. See the module documentation for what deriving it cost.
+
+**The registry is built here, and it is the one place that can see both halves of it.** The
+transport series come from `crate::metrics::Metrics::install`; the two deployment-wide
+numbers - the engine width and the catalog's governed coverage - come from the settings this
+state serves under and the pinned bundle its surface already holds. Registering them together
+is what makes `/metrics` show the deployment rather than only its requests, and the builder is
+consumed here so no later caller can add a series to a registry a scrape is already reading.
+
+```rust
+pub fn registry(&self) -> Arc<Registry>
+```
+
+This state's metrics registry, shared with its `/metrics` route.
+
+Handlers observe question outcomes through it; the metrics route renders it. Neither can
+mutate the series set at request time. The shipped composition root builds one service state,
+but this type does not enforce process-wide ownership: separately constructed states have
+separate registries.
 
 ```rust
 pub fn settings(&self) -> &Settings

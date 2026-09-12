@@ -114,6 +114,14 @@ async fn the_versioned_surface_needs_a_verified_caller_when_one_is_declared() {
         .expect("a stranger signs a token");
     let refused = call(&app, Some(&forged)).await;
     assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+
+    let metrics = asked(&app, "GET", "/metrics", None).await;
+    assert_eq!(metrics.status, StatusCode::OK, "{}", metrics.body);
+    assert!(
+        metrics.body.contains("sutura_unauthorized_total 2"),
+        "both verified-caller rejections are counted: {}",
+        metrics.body
+    );
 }
 
 #[tokio::test]

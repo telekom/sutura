@@ -9,19 +9,23 @@ mod tests {
 
     const PAGE: &str = "<!-- GENERATED FILE - do not edit. -->\nfixture\n";
     const METADATA_CALL: &str = "<metadata><--format-version><1><--locked><--no-deps>\n";
-    const LIBRARY_CALL: &str = "<rustdoc><-q><-p><doc-library><--all-features><--profile><ci><--><-Z><unstable-options><--output-format><json><--document-private-items>\n";
+    /// ONE cargo invocation documents every member. The rustdoc flags are NOT on this line -
+    /// `cargo doc` takes no trailing rustdoc arguments - so the fake asserts them out of
+    /// `RUSTDOCFLAGS` instead, which is the only thing that proves they reached the child.
+    const DOC_CALL: &str = "<doc><-q><--no-deps><--workspace><--all-features><--profile><ci>\n";
+    const WROTE_JSON: &str = "<documented><target>\n";
     const RENDERED: &str = "<render><library-only>\n";
 
-    /// The `just api` writer the gate compares its own rustdoc flags against, as a CONTINUED
-    /// shell line - the shape `nix/api-docs.nix` really has, so the fixture exercises the join
-    /// rather than a one-line convenience. The cargo arguments before `--` differ from the
-    /// gate's on purpose; only what rustdoc reads is held equal.
+    /// The `just api` writer the gate compares itself against - the shape `nix/api-docs.nix`
+    /// really has. Two anchored lines now: the flags, which travel in the environment, and the
+    /// selection arguments, which decide feature unification. The rest of the cargo line differs
+    /// from the gate's on purpose; only those two things are held equal.
     const WRITER: &str = r#"
 pkgs.writeShellApplication {
   text = ''
-    # cargo rustdoc is named in this comment and must not be read as the invocation.
-    cargo rustdoc -q -p "$lib" --all-features --profile ci -- \
-      -Z unstable-options --output-format json --document-private-items
+    # cargo doc is named in this comment and must not be read as the invocation.
+    export RUSTDOCFLAGS="-Z unstable-options --output-format json --document-private-items"
+    cargo doc -q --no-deps --workspace --all-features --profile ci
   '';
 }
 "#;
@@ -37,23 +41,20 @@ if [ "$1" = metadata ]; then
 fi
 [ "${CARGO_UNSTABLE_CODEGEN_BACKEND+x}" != x ] || exit 42
 [ "${CARGO_PROFILE_DEV_CODEGEN_BACKEND+x}" != x ] || exit 42
+# The flags are on no argument list now, so this is the ONLY witness that they reached rustdoc.
+[ "$RUSTDOCFLAGS" = '-Z unstable-options --output-format json --document-private-items' ] || exit 42
 docs_target=${CARGO_TARGET_DIR:-"$PWD/target"}
-if [ "$4" = doc-library ]; then
-  [ "$*" = 'rustdoc -q -p doc-library --all-features --profile ci -- -Z unstable-options --output-format json --document-private-items' ] || exit 42
-  printf '{}\n' >"$docs_target/doc/doc_library.json"
-  exit 0
-fi
-[ "$*" = "rustdoc -q -p $4 --all-features --bin $7 --profile ci -- -Z unstable-options --output-format json --document-private-items" ] || exit 42
-case "$4/$7" in
-  bin-one/tool-a|bin-two/doc-library-extra|bin-two/doc_library|bin-two/tool-b|bin-two/tool-c) ;;
-  *) exit 42 ;;
-esac
-printf '<binary-target><%s>\n' "${docs_target#"$PWD/"}" >>"$SUTURA_DOC_LEDGER"
-printf 'binary %s\n' "$7" >"$docs_target/doc/${7//-/_}.json"
-if [ "$SUTURA_DOC_CASE" = broken ] && [ "$4/$7" = bin-two/tool-c ]; then
-  printf 'unresolved link in final binary\n' >&2
+[ "$*" = 'doc -q --no-deps --workspace --all-features --profile ci' ] || exit 42
+if [ "$SUTURA_DOC_CASE" = broken ]; then
+  printf 'unresolved link in a binary target\n' >&2
   exit 23
 fi
+# One run documents every member: the library page input, and each binary-only target for links.
+printf '{}\n' >"$docs_target/doc/doc_library.json"
+for binary in tool-a doc-library-extra tool-b tool-c; do
+  printf 'binary %s\n' "$binary" >"$docs_target/doc/${binary//-/_}.json"
+done
+printf '<documented><%s>\n' "${docs_target#"$PWD/"}" >>"$SUTURA_DOC_LEDGER"
 exit 0
 "#;
 
@@ -185,34 +186,40 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
         }
     }
 
+    /// The ledger of a run that documented everything: metadata, the one cargo call, and the
+    /// JSON it wrote. A second cargo line appearing here is the serial loop coming back.
     fn documented() -> String {
-        use std::fmt::Write as _;
         let mut expected = String::from(METADATA_CALL);
-        expected.push_str(LIBRARY_CALL);
-        for (package, binary) in [
-            ("bin-one", "tool-a"),
-            ("bin-two", "doc-library-extra"),
-            ("bin-two", "tool-b"),
-            ("bin-two", "tool-c"),
-        ] {
-            writeln!(expected,
-                "<rustdoc><-q><-p><{package}><--all-features><--bin><{binary}><--profile><ci><--><-Z><unstable-options><--output-format><json><--document-private-items>"
-            ).expect("expected invocation ledger");
-            expected.push_str("<binary-target><target>\n");
-        }
+        expected.push_str(DOC_CALL);
+        expected.push_str(WROTE_JSON);
         expected
     }
 
+    /// A rustdoc failure anywhere in the workspace run refuses before a page is rendered.
+    ///
+    /// The gate no longer wraps the diagnostic with a package name, because it no longer knows
+    /// which unit failed - rustdoc's own output does, and passing it through unaltered is what
+    /// keeps the failure attributable. So the assertion is on rustdoc's message reaching the
+    /// reader and on the renderer never running, not on a name the gate would have to invent.
     #[test]
-    fn a_bad_final_binary_refuses_before_rendering() {
+    fn a_failed_unit_refuses_before_rendering() {
         let observed = observe("broken");
         assert_eq!(observed.output.status.code(), Some(1), "{observed:?}");
-        assert_eq!(observed.ledger, documented(), "every binary reached, renderer unreached");
+        let mut expected = String::from(METADATA_CALL);
+        expected.push_str(DOC_CALL);
+        assert_eq!(
+            observed.ledger, expected,
+            "cargo reached, no JSON written, renderer unreached"
+        );
         let stderr = String::from_utf8(observed.output.stderr).expect("diagnostics");
-        assert!(stderr.contains("bin-two/tool-c"), "{stderr}");
-        assert!(stderr.contains("unresolved link in final binary"), "{stderr}");
+        assert!(stderr.contains("unresolved link in a binary target"), "{stderr}");
+        assert!(
+            stderr.contains("cargo doc --workspace --no-deps"),
+            "name the invocation: {stderr}"
+        );
     }
 
+    /// One invocation covers every binary-only target, and only library JSON becomes a page.
     #[test]
     fn every_binary_only_target_is_checked_but_only_library_json_is_rendered() {
         let observed = observe("clean");
@@ -225,11 +232,10 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
         );
     }
 
-    // The binary runs share the library target directory, which is what keeps them cheap - a
-    // directory of their own made the first one rebuild the whole dependency closure. The
-    // fixture's `<binary-target><target>` ledger line above is what says they share it, and this
-    // is the refusal that makes the sharing sound: a binary named after a library crate writes
-    // that crate's page input, and a page rendered from a binary's surface reads as a drift.
+    // Library and binary are units of ONE cargo run now, so a shared JSON file name is a race
+    // rather than an overwrite and there is no ordering left to impose. This refusal is what
+    // keeps that impossible: a binary named after a library crate writes that crate's page
+    // input, and a page rendered from a binary's surface reads as a drift.
     #[test]
     fn a_binary_named_after_a_library_crate_refuses_before_documenting_anything() {
         let observed = observe("collision");
