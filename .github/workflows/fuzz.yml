@@ -155,7 +155,7 @@ jobs:
       - name: Replay the committed corpus
         run: bash nix/run-fuzz.sh smoke
 
-  # The half that finds things. One leg per target so two budgets run in parallel rather than in
+  # The half that finds things. One leg per target so three budgets run in parallel rather than in
   # series, and so a crash names its target in the job list.
   fuzz:
     # No `if:` any more. It read `github.event_name != 'pull_request'`, which kept the expensive
@@ -174,6 +174,7 @@ jobs:
         target:
           - sql_expression
           - question_body
+          - token
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

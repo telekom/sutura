@@ -3061,6 +3061,7 @@ is bound.
 - `Unreadable` - The file could not be read at all: absent, or not readable by this process.
 - `NoCertificate` - The file was read and held no PEM certificate.
 - `NoKey` - The file was read and held no PEM private key.
+- `TooLarge` - The file is larger than any certificate chain or private key is.
 - `Malformed` - A PEM block was found and did not parse.
 - `KeyDoesNotMatch` - The key does not belong to the certificate.
 - `NotConfigurable` - The server configuration itself would not build.
