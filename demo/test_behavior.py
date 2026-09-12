@@ -28,17 +28,30 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, _format: str, *_args: object) -> None:
         pass
 
-    def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
+    def do_GET(self) -> None:
         mode = self.server.mode
         self.server.paths.append(self.path)
         if self.path == "/health" and mode == "sutura":
             self._reply(200, {"status": "ok"})
         elif self.path == "/openapi.json":
-            self._reply(200, {"paths": {"/v1/catalog": {"get": {}}, "/v1/query": {"post": {}}}})
-        elif self.path == "/health" and mode == "webui":
+            paths = {"/v1/catalog": {"get": {}}, "/v1/query": {"post": {}}}
+            if mode == "sutura-missing-operation":
+                del paths["/v1/query"]
+            elif mode == "sutura-extra-operation":
+                paths["/v1/admin"] = {"get": {}}
+            self._reply(200, {"paths": paths})
+        elif self.path == "/health" and mode.startswith("webui"):
             self._reply(200, {"status": True})
-        elif self.path == "/api/v1/tools/" and mode == "webui":
-            self._reply(200, [{"id": "server:sutura"}])
+        elif self.path == "/api/v1/tools/" and mode.startswith("webui"):
+            self.server.webui_authorization.append(self.headers.get("Authorization"))
+            if self.headers.get("Authorization") != "Bearer demo-session":
+                self._reply(401, {"detail": "Not authenticated"})
+            elif mode == "webui-missing-registration":
+                self._reply(200, [{"id": "server:other"}])
+            elif mode == "webui-extra-registration":
+                self._reply(200, [{"id": "server:sutura"}, {"id": "server:other"}])
+            else:
+                self._reply(200, [{"id": "server:sutura"}])
         elif self.path == "/models" and mode in {"model", "redirect"}:
             self.server.authorization.append(self.headers.get("Authorization"))
             if mode == "model":
@@ -47,6 +60,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self.send_response(302)
                 self.send_header("Location", "/elsewhere")
                 self.end_headers()
+        else:
+            self.send_error(404)
+
+    def do_POST(self) -> None:
+        self.server.paths.append(self.path)
+        if self.path == "/api/v1/auths/signin" and self.server.mode.startswith("webui"):
+            if self.server.mode == "webui-auth-fail":
+                self._reply(401, {"detail": "Invalid credentials"})
+            else:
+                self._reply(200, {"token": "demo-session", "token_type": "Bearer"})
         else:
             self.send_error(404)
 
@@ -64,6 +87,7 @@ def server(mode: str):
     instance = _Server(("127.0.0.1", 0), _Handler)
     instance.mode = mode
     instance.authorization = []
+    instance.webui_authorization = []
     instance.paths = []
     thread = threading.Thread(target=instance.serve_forever, daemon=True)
     thread.start()
@@ -83,7 +107,9 @@ def load_healthcheck():
     return module
 
 
-def launcher_fakes(root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, dict[str, str]]:
+def launcher_fakes(
+    root: pathlib.Path,
+) -> tuple[pathlib.Path, pathlib.Path, dict[str, str]]:
     fake_bin = root / "bin"
     fake_bin.mkdir()
     log = root / "cargo.log"
@@ -110,7 +136,9 @@ def launcher_fakes(root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, dict
 
 
 class DemoBehavior(unittest.TestCase):
-    def test_transport_policy_refuses_cleartext_or_missing_credentials_without_echoing(self) -> None:
+    def test_transport_policy_refuses_cleartext_or_missing_credentials_without_echoing(
+        self,
+    ) -> None:
         for endpoint, key in (
             ("http://api.example.com/v1", ""),
             ("http://host.docker.internal:11434/v1", "test-key"),
@@ -142,7 +170,7 @@ class DemoBehavior(unittest.TestCase):
             "http://127.0.0.1:11434@api.example.com/v1",
         ):
             with tempfile.TemporaryDirectory() as directory:
-                fake_bin, cargo_log, fake_env = launcher_fakes(pathlib.Path(directory))
+                _fake_bin, cargo_log, fake_env = launcher_fakes(pathlib.Path(directory))
                 environment = {
                     **fake_env,
                     "SUTURA_DEMO_MODEL_ENDPOINT": endpoint,
@@ -180,7 +208,9 @@ class DemoBehavior(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn(environment["SUTURA_DEMO_MODEL_ENDPOINT"], result.stdout + result.stderr)
+        self.assertNotIn(
+            environment["SUTURA_DEMO_MODEL_ENDPOINT"], result.stdout + result.stderr
+        )
 
     def test_remote_ipv6_keeps_its_brackets_in_the_container_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -239,41 +269,104 @@ class DemoBehavior(unittest.TestCase):
             self.assertNotIn("load", docker_args)
             self.assertNotIn("test-key", result.stdout + result.stderr)
 
-    def _run_healthcheck(self, model_mode: str, key: str):
+    def _run_healthcheck(
+        self,
+        model_mode: str,
+        key: str,
+        webui_mode: str = "webui",
+        sutura_mode: str = "sutura",
+    ):
         healthcheck = load_healthcheck()
-        with server("sutura") as (sutura_port, _):
-            with server("webui") as (webui_port, _):
-                with server(model_mode) as (model_port, model_server):
-                    with tempfile.TemporaryDirectory() as directory:
-                        pathlib.Path(directory, "token").write_text(
-                            "deployment-token", encoding="utf-8"
-                        )
-                        old = os.environ.copy()
-                        os.environ.update(
-                            {
-                                "SUTURA_DEMO_SUTURA_PORT": str(sutura_port),
-                                "SUTURA_DEMO_WEBUI_PORT": str(webui_port),
-                                "SUTURA_DEMO_MODEL_ENDPOINT": f"http://127.0.0.1:{model_port}",
-                                "SUTURA_DEMO_MODEL_API_KEY": key,
-                                "SUTURA_DEMO_RUN_DIR": directory,
-                            }
-                        )
-                        stdout = io.StringIO()
-                        try:
-                            with contextlib.redirect_stdout(stdout):
-                                healthcheck.main()
-                        finally:
-                            os.environ.clear()
-                            os.environ.update(old)
-                        return stdout.getvalue(), model_server.authorization
+        with (
+            server(sutura_mode) as (sutura_port, sutura_server),
+            server(webui_mode) as (webui_port, webui_server),
+            server(model_mode) as (model_port, model_server),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            pathlib.Path(directory, "token").write_text(
+                "deployment-token", encoding="utf-8"
+            )
+            old = os.environ.copy()
+            os.environ.update(
+                {
+                    "SUTURA_DEMO_SUTURA_PORT": str(sutura_port),
+                    "SUTURA_DEMO_WEBUI_PORT": str(webui_port),
+                    "SUTURA_DEMO_MODEL_ENDPOINT": f"http://127.0.0.1:{model_port}",
+                    "SUTURA_DEMO_MODEL_API_KEY": key,
+                    "SUTURA_DEMO_RUN_DIR": directory,
+                }
+            )
+            stdout = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(stdout):
+                    healthcheck.main()
+            finally:
+                os.environ.clear()
+                os.environ.update(old)
+            return (
+                stdout.getvalue(),
+                model_server.authorization,
+                sutura_server.paths,
+                webui_server.paths,
+                webui_server.webui_authorization,
+            )
 
     def test_keyless_model_probe_sends_no_authorization_and_checks_tools(self) -> None:
-        output, authorization = self._run_healthcheck("model", "")
+        output, authorization, sutura_paths, webui_paths, webui_authorization = (
+            self._run_healthcheck("model", "")
+        )
         self.assertIn("tool registry", output)
         self.assertEqual(authorization, [None])
+        self.assertIn("/api/v1/auths/signin", webui_paths)
+        self.assertIn("/api/v1/tools/", webui_paths)
+        self.assertEqual(webui_authorization, ["Bearer demo-session"])
+        self.assertIn("/openapi.json", sutura_paths)
 
-    def test_keyed_model_probe_sends_exact_bearer_and_redirect_is_not_followed(self) -> None:
-        _output, authorization = self._run_healthcheck("model", "test-key")
+    def test_registry_authentication_failure_fails_readiness(self) -> None:
+        healthcheck = load_healthcheck()
+        with (
+            server("sutura") as (sutura_port, _),
+            server("webui-auth-fail") as (webui_port, _),
+            server("model") as (model_port, _),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            pathlib.Path(directory, "token").write_text(
+                "deployment-token", encoding="utf-8"
+            )
+            old = os.environ.copy()
+            os.environ.update(
+                {
+                    "SUTURA_DEMO_SUTURA_PORT": str(sutura_port),
+                    "SUTURA_DEMO_WEBUI_PORT": str(webui_port),
+                    "SUTURA_DEMO_MODEL_ENDPOINT": f"http://127.0.0.1:{model_port}",
+                    "SUTURA_DEMO_RUN_DIR": directory,
+                }
+            )
+            try:
+                with self.assertRaises(SystemExit) as raised:
+                    healthcheck.main()
+            finally:
+                os.environ.clear()
+                os.environ.update(old)
+            self.assertEqual(raised.exception.code, 1)
+
+    def test_missing_registry_registration_fails_readiness(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            self._run_healthcheck("model", "", webui_mode="webui-missing-registration")
+        self.assertEqual(raised.exception.code, 1)
+
+    def test_extra_or_missing_served_operation_fails_readiness(self) -> None:
+        for mode in ("sutura-extra-operation", "sutura-missing-operation"):
+            with self.subTest(mode=mode), self.assertRaises(SystemExit) as raised:
+                self._run_healthcheck("model", "", sutura_mode=mode)
+            self.assertEqual(raised.exception.code, 1)
+
+    def test_keyed_model_probe_sends_exact_bearer_and_redirect_is_not_followed(
+        self,
+    ) -> None:
+        _output, authorization, _sutura_paths, _webui_paths, _webui_authorization = (
+            self._run_healthcheck("model", "test-key")
+        )
         self.assertEqual(authorization, ["Bearer test-key"])
         healthcheck = load_healthcheck()
         with (
@@ -297,9 +390,11 @@ class DemoBehavior(unittest.TestCase):
             )
             stderr = io.StringIO()
             try:
-                with contextlib.redirect_stderr(stderr):
-                    with self.assertRaises(SystemExit) as raised:
-                        healthcheck.main()
+                with (
+                    contextlib.redirect_stderr(stderr),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    healthcheck.main()
             finally:
                 os.environ.clear()
                 os.environ.update(old)
@@ -324,8 +419,8 @@ class DemoBehavior(unittest.TestCase):
             backend = root / "backend"
             backend.mkdir()
             (backend / "start.sh").write_text(
-                "#!/bin/sh\nprintf '%s\\n' \"$OPENAI_API_KEY\" > \"$SUTURA_DEMO_RUN_DIR/key\"\n"
-                "printf '%s\\n' \"$ENABLE_PERSISTENT_CONFIG\" > \"$SUTURA_DEMO_RUN_DIR/persistent\"\n"
+                '#!/bin/sh\nprintf \'%s\\n\' "$OPENAI_API_KEY" > "$SUTURA_DEMO_RUN_DIR/key"\n'
+                'printf \'%s\\n\' "$ENABLE_PERSISTENT_CONFIG" > "$SUTURA_DEMO_RUN_DIR/persistent"\n'
                 "exit 0\n",
                 encoding="utf-8",
             )
@@ -383,8 +478,12 @@ class DemoBehavior(unittest.TestCase):
                     timeout=5,
                 )
                 self.assertNotEqual(result.returncode, 0)
-                self.assertEqual((run_dir / "key").read_text(encoding="utf-8"), f"{key}\n")
-                self.assertEqual((run_dir / "persistent").read_text(encoding="utf-8"), "false\n")
+                self.assertEqual(
+                    (run_dir / "key").read_text(encoding="utf-8"), f"{key}\n"
+                )
+                self.assertEqual(
+                    (run_dir / "persistent").read_text(encoding="utf-8"), "false\n"
+                )
                 if key:
                     self.assertNotIn(key, result.stdout)
                     self.assertNotIn(key, result.stderr)

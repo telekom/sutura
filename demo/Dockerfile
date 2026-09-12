@@ -5,8 +5,9 @@
 # `sutura-server` build context; no global intermediate image tag exists for another worktree to
 # replace. The chat client's image supplies the shell and Python around that release binary.
 #
-# NOT a release artifact. `just demo` builds this locally from the two images below; a release
-# publishes the server image on its own. A compose service may not build here (see
+# NOT a release artifact. `just demo` builds this locally from the Open WebUI base image and the
+# named Nix server package context; a release publishes the server image on its own. A compose
+# service may not build here (see
 # `no_service_in_the_tier_is_built_here`), so `demo/start.sh` still owns this derived build.
 ARG SUTURA_DEMO_BASE_IMAGE=docker.io/openwebui/open-webui:0.11.3
 

@@ -33,11 +33,70 @@ def fetch(url: str, token: str | None = None, timeout: float = 4.0) -> bytes:
         return response.read()
 
 
+def webui_session_token(port: int) -> str:
+    """Sign in through the pinned no-auth flow before reading the protected registry."""
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/v1/auths/signin",
+        data=json.dumps({"email": "", "password": ""}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with NO_REDIRECT.open(request, timeout=4) as response:
+            body = json.loads(response.read())
+    except (urllib.error.URLError, OSError, json.JSONDecodeError):
+        fail("the chat client rejected the readiness signin")
+    token = body.get("token")
+    if not isinstance(token, str) or not token:
+        fail("the chat client signin did not return a session")
+    return token
+
+
 def fail(reason: str) -> None:
     # stderr, and only the reason - never a header, a token or an environment value.
     print(f"healthcheck: {reason}", file=sys.stderr)
     sys.exit(1)
 
+
+def model_endpoint_is_reachable() -> None:
+    """Probe the configured model's `/models` endpoint without following redirects."""
+    endpoint = os.environ.get("SUTURA_DEMO_MODEL_ENDPOINT", "")
+    if not endpoint:
+        fail("the model endpoint is not configured")
+    request = urllib.request.Request(endpoint.rstrip("/") + "/models")
+    key = os.environ.get("SUTURA_DEMO_MODEL_API_KEY", "")
+    if key:
+        request.add_header("Authorization", f"Bearer {key}")
+    try:
+        with NO_REDIRECT.open(request, timeout=4) as response:
+            if response.status >= 400:
+                fail(f"the model endpoint answered {response.status}")
+    except urllib.error.HTTPError as problem:
+        if 300 <= problem.code < 400:
+            fail("the model endpoint attempted a redirect")
+        fail(f"the model endpoint answered {problem.code}")
+    except (urllib.error.URLError, OSError) as problem:
+        reason = getattr(problem, "reason", problem)
+        fail(
+            f"the model endpoint did not answer from the container: {type(reason).__name__}"
+        )
+
+
+def webui_tools_are_registered(port: int) -> None:
+    """Require Open WebUI's persisted tool registry to expose the sutura server."""
+    token = webui_session_token(port)
+    try:
+        tools = json.loads(fetch(f"http://127.0.0.1:{port}/api/v1/tools/", token))
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as problem:
+        fail(
+            f"the chat client's tool registry did not answer: {type(problem).__name__}"
+        )
+    if not any(
+        tool.get("id") == "server:sutura" or tool.get("name") == "server:sutura"
+        for tool in tools
+        if isinstance(tool, dict)
+    ):
+        fail("the chat client's tool registry does not list server:sutura")
 
 def main() -> None:
     sutura_port = int(os.environ.get("SUTURA_DEMO_SUTURA_PORT", "9000"))
@@ -63,8 +122,10 @@ def main() -> None:
         document = json.loads(
             fetch(f"http://127.0.0.1:{sutura_port}/openapi.json", token)
         )
-    except (urllib.error.URLError, OSError) as problem:
-        fail(f"the served interface description did not read back: {problem}")
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as problem:
+        fail(
+            f"the served interface description did not read back: {type(problem).__name__}"
+        )
     paths = document.get("paths", {})
     for route, method in OPERATIONS:
         if method not in paths.get(route, {}):
