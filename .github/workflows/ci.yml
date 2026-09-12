@@ -1,9 +1,13 @@
-# Order: classify -> lints -> tests. Explicit steps rather than one `nix flake check`, because
-# flake checks run in arbitrary order and the classifications below deliberately skip work a diff
-# cannot affect. Release-profile builds and images belong to the tag-triggered release workflow.
+# Order: classify -> closure-free gates -> xtask and lint -> tests -> the metrics ABOUT the tests.
+# Three staged `nix build` graphs realise it in that sequence, which is what makes the order of the
+# steps the order of the work; the stage-1 header in the `ci` job carries why the stages are cut
+# where they are, what the split gives up, and the measurement that found the sequence was a
+# fiction. Explicit steps rather than one `nix flake check`, because flake checks run in arbitrary
+# order and the classifications below deliberately skip work a diff cannot affect. Release-profile
+# builds and images belong to the tag-triggered release workflow.
 #
-# Steps are gated on the classification, which fails open. The structural gates never are:
-# they judge docs too.
+# Steps AND the graph roots that realise them are gated on the classification, which fails open.
+# Licensing, the structural gates and the secret scan never are: they judge docs too.
 #
 # Every action is pinned by commit. A tag is mutable and these run with the job's token.
 name: ci
@@ -331,14 +335,6 @@ jobs:
         with:
           scope: ci
 
-      # The writable `target/causality-target` the tail apps recompile into, carried on the SAME
-      # digest the store cache uses so a lockfile/manifest change invalidates it and restores the
-      # previous generation's recompile otherwise. Restored here (before the apps run) and saved
-      # from main; `save:` inside the action owns the write, so this caller carries no `if:`.
-      - uses: ./.github/actions/causality-target-cache
-        with:
-          scope: ci
-
       - name: Toolchain in use
         run: |
           set -eu
@@ -417,71 +413,101 @@ jobs:
             nix run .#xtask -- classify
           fi
 
-      # >>> ONE INVOCATION, SO THE SCHEDULER CAN FILL THE HOST. <<<
+      # >>> THREE STAGES, AND THEY ARE THE EXECUTION ORDER (#639 slice I). <<<
       #
-      # The nine checks below were nine SEQUENTIAL `nix build` calls, which hands nix one root at a
-      # time - and nix starts only as many builds as there are runnable derivations, so a single root
-      # over a crane closure is one heavy cargo derivation behind a wide fan of fetches. Measured by
-      # `runner-probe.yml` on a 32-core host: the best job configuration still left the host **77%
-      # idle on average** while peaking above 90%. `max-jobs` was never the constraint - the number
-      # of roots was.
+      # WHAT WAS HERE, AND WHY IT WAS A LIE OF SEQUENCE. One `nix build` took every check root at
+      # once - hygiene, licensing, formatting, lint, tests, both service tiers and doctests,
+      # unconditionally - so the "lint, then tests" order of the steps below was not the order
+      # anything executed in. Every one of those steps then merely READ an already-realised result,
+      # and the timings say so: over the 324 successful `ci` jobs of 2026-09-09..2026-09-12,
+      # `Structural gates`, `Licensing`, `Format`, `Clippy`, `Tests`, both tiers, `Doctests` and
+      # `API reference pages` each have a median of 0 s and a MAXIMUM of 1 s, while the merged step
+      # itself ran a median of 273 s (p90 353 s). Two consequences, paid on every run:
       #
-      # THIS STEP IS A PREFETCH, NOT A VERDICT, and that is what keeps per-step attribution. Each
-      # check below still runs its own `nix build`, still owns its own log, and still fails its own
-      # step by name - it just finds its result already in the local store. So a reader who sees
-      # `Clippy` red still gets clippy's output, which is exactly what merging the steps into one
-      # invocation would have cost.
+      #   * A CHEAP GATE COULD NOT REPORT UNTIL THE TEST CLOSURE HAD BEEN BUILT. Of the 43 `ci`
+      #     jobs that failed in that window, 15 first failed at `Format`, `Clippy` or `Structural
+      #     gates` - median 492 s into the job, of which 478 s was burnt before the failing step
+      #     even started.
+      #   * AND A LATER CLASSIFICATION AVOIDED NOTHING. The roots were unconditional bar
+      #     `api-docs`, so 45 of those 324 jobs realised BOTH service tiers and then skipped both
+      #     tier steps, and 5 realised the Rust closure and skipped every Rust verdict.
       #
-      # `continue-on-error` is therefore correct rather than a way to hide a red: the authoritative
-      # verdicts are the steps that follow, and if a derivation fails here the step that owns it
-      # fails immediately afterwards with its own attributed output. `--keep-going` is what makes
-      # that true - without it the first failure would abandon the other eight and this step would
-      # slow the job it exists to speed up.
+      # THE CUT IS WHERE THE DEPENDENCY CLOSURE FALLS, not where a reader would group the checks,
+      # because that is the only line a stage can actually gate on:
       #
-      # `api-docs` is the long root (#562) and is GATED ON THE `api` CLASSIFICATION, so a run that
-      # did not select `api` does not waste the graph on it - the authoritative `API reference
-      # pages` step below was already `api`-gated, so this only removes a prefetch that warmed
-      # nothing. When `api` IS selected the root stays in the SAME graph (an array, appended
-      # conditionally), so it still overlaps the other roots instead of serialising after them -
-      # the choice that does not depend on any host-utilisation figure, all of which were the
-      # mislabelled number #564 withdrew. `check-workflows` still sees `api-docs` referenced by
-      # the literal `API reference pages` step.
-      - name: Realise all checks in one graph and report host utilisation
+      #   1. `fmt` and `reuse` need no `cargoArtifacts` at all - `craneLib.cargoFmt` reads the
+      #      filtered source and `nix/reuse.nix` runs a tool over the tree - so they can report
+      #      BEFORE `sutura-deps` is substituted or built. That is what makes this stage a gate
+      #      rather than a relabelling.
+      #   2. `hygiene` and `clippy` both take `inheritedArtifacts ciArtifacts` (`flake.nix`) -
+      #      hygiene compiles the xtask binary, clippy the workspace - so neither can precede the
+      #      closure, and this is the stage that pays for it.
+      #   3. the test roots: the expensive half that a red in stage 1 or 2 no longer launches.
+      #
+      # WITHIN a stage the roots still reach nix in ONE invocation, which keeps #562's measurement
+      # rather than trading it away: nix starts only as many builds as it has runnable derivations,
+      # so a single root over a crane closure is one heavy cargo derivation behind a wide fan of
+      # fetches, and the host sat **77% idle on average** that way (`runner-probe.yml`, 32-core).
+      # `max-jobs` was never the constraint - the number of roots was.
+      #
+      # WHAT THIS GIVES UP, SAID PLAINLY: overlap ACROSS stages. `clippy` no longer compiles while
+      # `nextest` does. That is the price of the ask and not an oversight - and these three steps
+      # are also the instrument that finally prices it, because one merged step could report only a
+      # single total, which is why no figure above attributes time to any individual check.
+      #
+      # WHAT IT DOES NOT FIX. `API reference pages` was the first red in 17 of those 43 failures -
+      # the largest single cause - at a median of 758 s. `api-docs` needs the same closure and is
+      # itself the long root, so it stays in stage 3 overlapping the tests and its latency is
+      # unchanged. Staging cannot make a gate report sooner when that gate IS the long pole.
+      #
+      # EVERY ROOT NOW CARRIES ITS OWN STEP'S CONDITION. `classify` fails open - `run_all` subsumes
+      # every area, `xtask/src/changes.rs` - so a root gated on the same expression its step
+      # carries cannot narrow coverage below what that step already had. `reuse` and `hygiene` stay
+      # unconditional because their own steps are: they judge every file in the tree.
+      #
+      # NO GATE PAIRS A ROOT WITH ITS STEP, and the reason that is tolerable is the blast radius,
+      # stated rather than assumed. If someone narrows a step's `if:` and forgets its root, or the
+      # reverse, nothing here reddens - but nothing goes UNCHECKED either, because each step below
+      # still runs its own `nix build` and is still the authoritative verdict. A drift costs
+      # prefetch, never coverage, and it is visible in the one place that already measures it: a
+      # verdict step whose median is 0 s stops being 0 s the moment its root is not realised above.
+      #
+      # EACH STAGE IS A PREFETCH, NOT A VERDICT, and that is what keeps per-step attribution. Every
+      # check below still runs its own `nix build`, still owns its own log and still fails its own
+      # step by name - it just finds its result already in the local store. So `continue-on-error`
+      # is not a way to hide a red: if a derivation fails here, the step that owns it fails
+      # immediately afterwards with its own attributed output. `--keep-going` is what makes that
+      # true, by stopping one failing root from abandoning its siblings.
+      #
+      # The classification reaches these bodies through step-level `env:` and never as `${{ }}`
+      # inside the shell, which is `zizmor`'s template-injection finding and would redden
+      # `Workflow static analysis` below.
+      - name: Realise the closure-free gates in one graph
         continue-on-error: true
         # The ONLY runner-utilisation telemetry CI has: this samples /proc/stat once a second
-        # across the merged graph and reports cpus/memory/model + the nix max-jobs/cores pair in
-        # force + mean/peak CPU-busy, so a later analysis can see whether the host was saturated
-        # or idle while the checks ran. `busy` is TRUE busy since #564 (idle+iowait as not-busy),
-        # sampled by the shared nix/cpu-busy.sh. ~0 cost side effect. It lands in the job summary
-        # AND as a `measure-host(<label>):` line in this job's log - grep that prefix, since the
-        # summary is served to a browser and to nothing a script can read.
+        # across the stage and reports cpus/memory/model + the nix max-jobs/cores pair in force +
+        # mean/peak CPU-busy, so a later analysis can see whether the host was saturated or idle
+        # while the checks ran. `busy` is TRUE busy since #564 (idle+iowait as not-busy), sampled
+        # by the shared nix/cpu-busy.sh. ~0 cost side effect. It lands in the job summary AND as a
+        # `measure-host(<label>):` line in this job's log - grep that prefix, since the summary is
+        # served to a browser and to nothing a script can read. One label per stage, which is what
+        # makes the three separable in that log.
         uses: ./.github/actions/measure-host
         env:
-          API: ${{ steps.classify.outputs.api }}
+          RUST: ${{ steps.classify.outputs.rust }}
         with:
-          label: merged check graph
+          label: closure-free gate graph
           run: |-
             set -eu
-            checks=(
-              .#checks.x86_64-linux.hygiene
-              .#checks.x86_64-linux.reuse
-              .#checks.x86_64-linux.fmt
-              .#checks.x86_64-linux.clippy
-              .#checks.x86_64-linux.nextest
-              .#checks.x86_64-linux.keycloak-tier
-              .#checks.x86_64-linux.postgres-tier
-              .#checks.x86_64-linux.doctest
-            )
-            if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
+            checks=(.#checks.x86_64-linux.reuse)
+            if [ "$RUST" = "true" ]; then checks+=(.#checks.x86_64-linux.fmt); fi
             nix build -L --keep-going "${checks[@]}"
 
-      - name: Structural gates
-        run: nix build .#checks.x86_64-linux.hygiene -L
-
-      # UNCONDITIONAL, like the structural gates above and for the same reason: it judges every
-      # file, so gating it on the `rust` classification would let a docs or workflow file arrive
-      # attributed to nobody. It is seconds - no cargo, no dependency closure - so there is
-      # nothing to save by skipping it.
+      # UNCONDITIONAL, like `Structural gates` two stages down and for the same reason: it judges
+      # every file, so gating it on the `rust` classification would let a docs or workflow file
+      # arrive attributed to nobody. It needs no cargo and no dependency closure, which is also why
+      # its root is in stage 1 and hygiene's is not - there is nothing to save by skipping it and
+      # nothing to wait for before running it.
       - name: Licensing
         run: nix build .#checks.x86_64-linux.reuse -L
 
@@ -489,28 +515,17 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.fmt -L
 
-      - name: Clippy
-        if: steps.classify.outputs.rust == 'true'
-        run: nix build .#checks.x86_64-linux.clippy -L
-
-      # An app, not a check: it fetches the advisory database and a build sandbox has no
-      # network. The app also supplies the pinned cargo.
-      - name: Supply chain
-        if: steps.classify.outputs.deps == 'true'
-        run: nix run .#deny
-
       # The authoritative secret scan. The pre-commit hook is best-effort - it can be
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has
       # to be here. Never gated on classification: a credential can be committed in any file.
       - name: Secrets
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
-      # NOT gated on classification: a licence value can move without `Cargo.lock` moving. The
-      # document is generated and not committed, so there is nothing to byte-compare - this
-      # generates one and refuses an incomplete result, which needs a resolvable registry. The
-      # hygiene half holds the ABSENCE of a committed copy and needs nothing.
-      - name: The attribution document generates completely
-        run: nix run .#xtask -- check-attribution
+      # An app, not a check: it fetches the advisory database and a build sandbox has no
+      # network. The app also supplies the pinned cargo.
+      - name: Supply chain
+        if: steps.classify.outputs.deps == 'true'
+        run: nix run .#deny
 
       # `nix/lint-workflows.sh` rather than inline, because the composite-action pass below it had
       # TWO callers and was written twice - here and in the justfile - and two copies of a gate are
@@ -521,6 +536,83 @@ jobs:
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'
         run: bash nix/lint-workflows.sh
+
+      # >>> STAGE 2: THE GATES THAT NEED THE DEPENDENCY CLOSURE BUT NOT THE TESTS. <<<
+      #
+      # `hygiene` compiles the xtask binary and `clippy` the workspace, both on top of
+      # `ciArtifacts`, so this is the stage that pays for `sutura-deps` and stage 3 reuses it from
+      # the local store - which is how the shared dependency artifact survives the split. The
+      # stage-1 header above carries why the cut is here and what the lost cross-stage overlap
+      # costs.
+      - name: Realise the xtask and lint gates in one graph
+        continue-on-error: true
+        uses: ./.github/actions/measure-host
+        env:
+          RUST: ${{ steps.classify.outputs.rust }}
+        with:
+          label: xtask and lint gate graph
+          run: |-
+            set -eu
+            checks=(.#checks.x86_64-linux.hygiene)
+            if [ "$RUST" = "true" ]; then checks+=(.#checks.x86_64-linux.clippy); fi
+            nix build -L --keep-going "${checks[@]}"
+
+      - name: Structural gates
+        run: nix build .#checks.x86_64-linux.hygiene -L
+
+      - name: Clippy
+        if: steps.classify.outputs.rust == 'true'
+        run: nix build .#checks.x86_64-linux.clippy -L
+
+      # NOT gated on classification: a licence value can move without `Cargo.lock` moving. The
+      # document is generated and not committed, so there is nothing to byte-compare - this
+      # generates one and refuses an incomplete result, which needs a resolvable registry. The
+      # hygiene half holds the ABSENCE of a committed copy and needs nothing.
+      - name: The attribution document generates completely
+        run: nix run .#xtask -- check-attribution
+
+      # >>> STAGE 3: THE TEST ROOTS, WHICH A RED IN STAGE 1 OR 2 NO LONGER LAUNCHES. <<<
+      #
+      # Every root carries the condition of the step that reads it, which is the half that was
+      # unconditional before: 45 of 324 successful jobs realised both service tiers - a Keycloak
+      # JVM and a Postgres server - and then skipped both tier steps. `doctest` inherits
+      # `checks.nextest`'s artifacts (`flake.nix`), so it was never parallel with nextest and this
+      # stage does not make it serial. `api-docs` sits here rather than in stage 2 although it
+      # needs only `ciArtifacts`: it is the long root, so hoisting it would put every test behind
+      # it and buy nothing - see the stage-1 header on the failure it is most often the cause of.
+      #
+      # AN EMPTY SELECTION IS A LEGITIMATE DOCS-ONLY RUN and not a misconfiguration, so it is
+      # answered before the array is expanded - `set -u` refuses an empty `"${checks[@]}"` on bash
+      # older than 4.4, and the runner's bash is not the only shell this has to survive.
+      - name: Realise the test graph in one invocation
+        continue-on-error: true
+        uses: ./.github/actions/measure-host
+        env:
+          RUST: ${{ steps.classify.outputs.rust }}
+          API: ${{ steps.classify.outputs.api }}
+          TIERS: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' }}
+          IDENTITY: ${{ steps.classify.outputs.identity }}
+          POSTGRES: ${{ steps.classify.outputs.data_source_postgres }}
+        with:
+          label: test graph
+          run: |-
+            set -eu
+            checks=()
+            if [ "$RUST" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.nextest .#checks.x86_64-linux.doctest)
+            fi
+            if [ "$TIERS" = "true" ] || [ "$IDENTITY" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.keycloak-tier)
+            fi
+            if [ "$TIERS" = "true" ] || [ "$POSTGRES" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.postgres-tier)
+            fi
+            if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
+            if [ "${#checks[@]}" -eq 0 ]; then
+              echo "no test root is selected by this classification"
+              exit 0
+            fi
+            nix build -L --keep-going "${checks[@]}"
 
       - name: Tests
         if: steps.classify.outputs.rust == 'true'
@@ -557,6 +649,122 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.doctest -L
 
+      # The pages under docs/api/ are GENERATED from the library crates' doc comments and
+      # COMMITTED. rustdoc JSON (`--output-format json`) is nightly-only, so this is its own
+      # flake output rather than a fold into an ordinary check: the output packages its own
+      # rustdoc JSON generator and its own interpreter, run with `--all-features`. A committed
+      # generated file rots silently, so this regenerates them and byte-compares: a doc
+      # comment that changed without a regeneration fails here instead of publishing a stale
+      # page as current. Locally the same gate is `cargo xtask check-api-docs`, and the fix
+      # it asks for is `just api`.
+      #
+      # rustdoc JSON is unstable nightly-only, which is the whole reason this step is a flake
+      # output of its own rather than one of the checks above: the generator needs a nightly
+      # that can accept `--output-format json`. That is no longer "the only nightly step" in
+      # the way an older comment claimed - the stable/nightly split is gone, and every build,
+      # every gate and every shipped artifact here runs the SAME single pinned nightly from
+      # devco/rust-toolchain-nightly.toml. The step stays separate for the packaging of the
+      # generator and interpreter, not because the rest of the tree is stable.
+      #
+      # `api` is set by classify for a library crate's sources, for the generator, for the
+      # committed pages, and for the manifests - the pages are generated with `--all-features`,
+      # so a feature or a dependency can add a public re-export with no doc comment touched. The
+      # gate is self-scoping on top of that: a change touching only private code regenerates to
+      # identical output and passes, so nothing here has to guess which Rust changes reach the
+      # public surface.
+      - name: API reference pages
+        if: steps.classify.outputs.api == 'true'
+        run: nix build .#checks.x86_64-linux.api-docs -L
+
+      # The writable `target/causality-target` the three tail apps recompile into, carried on the
+      # SAME digest the store cache uses so a lockfile/manifest change invalidates it and restores
+      # the previous generation's recompile otherwise. Saved from main; `save:` inside the action
+      # owns the write, so this caller carries no `if:`.
+      #
+      # RESTORED HERE - immediately before its first reader - RATHER THAN BESIDE THE STORE CACHE
+      # AT THE TOP OF THE JOB (#639 slice I). It restores nothing any check above needs: only
+      # `apps.causality`, `apps.default-features` and `apps.default-feature-tests` read that
+      # directory. Two things that buys, and one that it does not:
+      #
+      #   * A RUN THAT REDDENS ABOVE NEVER PAYS FOR IT. Measured over the 213 jobs that had this
+      #     step: median 28 s, p90 43 s, max 213 s - spent before the first gate had reported.
+      #   * THE GRAPH STAGES GET THE DISK BACK. A hit unpacks up to 13.7 GB into the workspace
+      #     (the witness's own reading), against a budget `./.github/actions/reclaim-disk` has to
+      #     clear 25 GB for, and both `Doctests` and `Test causality` have died here on
+      #     `No space left on device`. Restoring after the test graph means that 13.7 GB is not
+      #     occupied while the closure is being built.
+      #   * IT DOES NOT SHORTEN A GREEN RUN. The same bytes are still restored, just later; what
+      #     moves is which failures pay for them. Any claim beyond that needs a measurement.
+      #
+      # NARROWING it was considered and refused: the entry already holds exactly one directory
+      # (`paths: target/causality-target`, `nix: false`), and the three apps SHARE that directory
+      # by design, so there is no per-app subset to restore. The lever here is when, not how much.
+      - uses: ./.github/actions/causality-target-cache
+        with:
+          scope: ci
+
+      # THE ONLY TWO STEPS HERE THAT TOUCH CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
+      # publishes and no other venue in this job uses. Every compiling gate above passes
+      # `--all-features`, `Clippy` and `Tests` included, so a `#[cfg(feature = ..)]` arm only ever
+      # compiled with the feature ON was a hard error in the exact configuration a release builds
+      # while every step here was green. That shipped once, and its `cfg(not(..))` TEST was compiled
+      # by the gate below and executed by nothing at all.
+      #
+      # Apps rather than checks for `Supply chain`'s reason: both shell out to cargo, which needs a
+      # registry and a writable target directory the sandbox has not got.
+      #
+      # ADJACENT, AND THAT IS THE ONE THING THE ORDER DECIDES. The two ask cargo the SAME narrow
+      # question - one shipped package, no feature flags - which the v2 resolver gives a narrower
+      # feature set than the workspace-wide union `craneLib.buildDepsOnly` warmed, so about a third
+      # of each dependency graph is compiled again. Whichever runs first pays that; the second
+      # reuses it. `xtask/src/default_features.rs` carries the measurement and says why the
+      # recompile is the price of the question rather than a defect. Neither position makes the warm
+      # start possible: the stage-2 graph puts the closure in the store before either of these
+      # steps, whichever way round they sit.
+      #
+      # BEFORE `Test causality` AND BEFORE `CRAP score` NOW (#639 slice I), where they used to
+      # follow both. The old order was argued as a correctness one - `Test causality` regenerates
+      # build script output whose baked `OUT_DIR` did not survive the unpack - and that argument
+      # does not hold, because the purge is not the causality step's to do: all three tail apps
+      # reach the writable dir through `cargoWarmStart` in `nix/cargo-env.nix`, which embeds
+      # `nix/purge-baked-out-dirs.sh` itself. So the sweep happens in whichever of the three runs
+      # first, and the order decides only which step pays for it - exactly as the sentence this
+      # replaces already conceded. What the new order buys is the ask: the shipped feature set is
+      # test BEHAVIOUR, and it now reports before the two steps that measure a property OF the
+      # tests rather than the tests themselves.
+      #
+      # `rust` and not a narrower classification, for both: the package list is derived from
+      # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
+      #
+      # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
+      # so the `cross` legs stay the authority on a musl LINK - and nothing here reaches a
+      # feature no shipped binary enables, which is what the `--all-features` gates are for.
+      #
+      # BOTH WRAPPED IN `measure-host` (#562): the post-graph cargo tail (~300-450 s) had NO
+      # utilisation telemetry at all - `measure-host` covered only the then-merged graph step - so
+      # nobody could say whether it was CPU-bound or waiting. Sampling it (true busy since #564) is cheap and
+      # answers that next question. The `run:` is the same command, `nix run .#default-features`;
+      # only the wrapper is added.
+      - name: The shipped feature set compiles and lints
+        if: steps.classify.outputs.rust == 'true'
+        uses: ./.github/actions/measure-host
+        with:
+          label: shipped feature set compiles and lints
+          run: |-
+            set -eu
+            nix run .#default-features
+
+      # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
+      # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
+      - name: The shipped feature set runs its tests
+        if: steps.classify.outputs.rust == 'true'
+        uses: ./.github/actions/measure-host
+        with:
+          label: shipped feature set runs its tests
+          run: |-
+            set -eu
+            nix run .#default-feature-tests
+
       # CRAP: cyclomatic complexity weighted by the tests that cover it. Neither a complexity
       # limit nor a coverage percentage catches the combination on its own, which is what makes it
       # worth a step of its own.
@@ -565,13 +773,15 @@ jobs:
       # SEPARATE PROFILE: `-C instrument-coverage` shares nothing with the artifacts the `Tests`
       # step above just cached. Measured in the dev container on 16 cores, `--workspace` coverage
       # spent over 80 CPU-minutes and 6m18 wall recompiling DataFusion, Arrow and DuckDB and never
-      # reached a single test. On this runner's four vCPUs that is twenty minutes and up, added to
-      # a job whose timeout has already had to be raised once because the tests alone killed it.
-      # That belongs nowhere in CI, let alone here.
+      # reached a single test. **The extrapolation that used to follow is void and is not replaced
+      # with a guess:** it read "on this runner's four vCPUs that is twenty minutes and up", and
+      # this job runs on `rust-mcp-16core` - the same core count the measurement was taken at. So
+      # the 6m18 wall applies as measured rather than multiplied, and 6m18 of recompiling that
+      # reaches no test belongs nowhere in CI, let alone in the one required job.
       #
       # What runs instead is scoped to `sutura-domain`, whose dependency set is serde and
       # thiserror. MEASURED in the sandbox: 10.2 s of instrumented compile, on top of the
-      # dependency derivation the Clippy and Tests steps above already build - the check shares
+      # dependency derivation the stage-2 and stage-3 graphs above already build - the check shares
       # `cargoArtifacts` with them, so no second one is created. At that price a blocking step in
       # the job that already gates the branch is the right home; a scheduled or non-blocking job
       # would let a regression merge and be noticed later, which for a metric about untested
@@ -728,33 +938,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # The pages under docs/api/ are GENERATED from the library crates' doc comments and
-      # COMMITTED. rustdoc JSON (`--output-format json`) is nightly-only, so this is its own
-      # flake output rather than a fold into an ordinary check: the output packages its own
-      # rustdoc JSON generator and its own interpreter, run with `--all-features`. A committed
-      # generated file rots silently, so this regenerates them and byte-compares: a doc
-      # comment that changed without a regeneration fails here instead of publishing a stale
-      # page as current. Locally the same gate is `cargo xtask check-api-docs`, and the fix
-      # it asks for is `just api`.
-      #
-      # rustdoc JSON is unstable nightly-only, which is the whole reason this step is a flake
-      # output of its own rather than one of the checks above: the generator needs a nightly
-      # that can accept `--output-format json`. That is no longer "the only nightly step" in
-      # the way an older comment claimed - the stable/nightly split is gone, and every build,
-      # every gate and every shipped artifact here runs the SAME single pinned nightly from
-      # devco/rust-toolchain-nightly.toml. The step stays separate for the packaging of the
-      # generator and interpreter, not because the rest of the tree is stable.
-      #
-      # `api` is set by classify for a library crate's sources, for the generator, for the
-      # committed pages, and for the manifests - the pages are generated with `--all-features`,
-      # so a feature or a dependency can add a public re-export with no doc comment touched. The
-      # gate is self-scoping on top of that: a change touching only private code regenerates to
-      # identical output and passes, so nothing here has to guess which Rust changes reach the
-      # public surface.
-      - name: API reference pages
-        if: steps.classify.outputs.api == 'true'
-        run: nix build .#checks.x86_64-linux.api-docs -L
-
       # A changed test must fail against base behaviour and pass with the change. Compiles
       # twice in a worktree, so it needs git history and a writable tree.
       #
@@ -834,61 +1017,6 @@ jobs:
           fi
           exit "$status"
 
-      # THE ONLY TWO STEPS HERE THAT TOUCH CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
-      # publishes and no other venue in this job uses. Every compiling gate above passes
-      # `--all-features`, `Clippy` and `Tests` included, so a `#[cfg(feature = ..)]` arm only ever
-      # compiled with the feature ON was a hard error in the exact configuration a release builds
-      # while every step here was green. That shipped once, and its `cfg(not(..))` TEST was compiled
-      # by the gate below and executed by nothing at all.
-      #
-      # Apps rather than checks for `Supply chain`'s reason: both shell out to cargo, which needs a
-      # registry and a writable target directory the sandbox has not got.
-      #
-      # ADJACENT, AND THAT IS THE ONE THING THE ORDER DECIDES. The two ask cargo the SAME narrow
-      # question - one shipped package, no feature flags - which the v2 resolver gives a narrower
-      # feature set than the workspace-wide union `craneLib.buildDepsOnly` warmed, so about a third
-      # of each dependency graph is compiled again. Whichever runs first pays that; the second
-      # reuses it. `xtask/src/default_features.rs` carries the measurement and says why the
-      # recompile is the price of the question rather than a defect. Neither position makes the warm
-      # start possible: `Structural gates` puts the closure in the store before any of these steps.
-      #
-      # AFTER `Test causality`, which is a correctness order rather than a cost one: that step
-      # regenerates build script output whose baked `OUT_DIR` did not survive the unpack. Both apps
-      # below carry `nix/purge-baked-out-dirs.sh` themselves where they need it, so this is which
-      # step pays for it and not whether it happens.
-      #
-      # `rust` and not a narrower classification, for both: the package list is derived from
-      # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
-      #
-      # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
-      # so the `cross` legs stay the authority on a musl LINK - and nothing here reaches a
-      # feature no shipped binary enables, which is what the `--all-features` gates are for.
-      #
-      # BOTH WRAPPED IN `measure-host` (#562): the post-graph cargo tail (~300-450 s) had NO
-      # utilisation telemetry at all - `measure-host` covered only the graph step - so nobody could
-      # say whether it was CPU-bound or waiting. Sampling it (true busy since #564) is cheap and
-      # answers that next question. The `run:` is the same command, `nix run .#default-features`;
-      # only the wrapper is added.
-      - name: The shipped feature set compiles and lints
-        if: steps.classify.outputs.rust == 'true'
-        uses: ./.github/actions/measure-host
-        with:
-          label: shipped feature set compiles and lints
-          run: |-
-            set -eu
-            nix run .#default-features
-
-      # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
-      # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
-      - name: The shipped feature set runs its tests
-        if: steps.classify.outputs.rust == 'true'
-        uses: ./.github/actions/measure-host
-        with:
-          label: shipped feature set runs its tests
-          run: |-
-            set -eu
-            nix run .#default-feature-tests
-
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
 
@@ -908,6 +1036,7 @@ jobs:
         run: |
           set -eu
           printf '%s' "$SHA" > last-validated
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
@@ -938,9 +1067,27 @@ jobs:
   # `check-workflows` runs inside a derivation with no network. What it CAN do is what it does: pin
   # the environment name and the pull_request gating, and pair them.
   #
-  # The READ side is the half that IS held in text, and it is unchanged: the default branch never
-  # lists the pull-request store's public key, so no merged-main resolve substitutes from it. That
-  # is what stops an in-repository pull-request author reaching main, and `docs/adr/0027` records it.
+  # **THE READ SIDE IS HELD IN TEXT, AND WHAT IT CONTAINS IS NARROWER THAN THIS COMMENT CLAIMED
+  # (#639 slice I).** What is true and unchanged: the default branch never lists the pull-request
+  # store's public key, so no merged-main resolve substitutes from `sutura-prs` - which is the
+  # containment for POISONED CONTENT IN THAT STORE, and `docs/adr/0027` records it.
+  #
+  # What it does NOT do is what the sentence here used to say, that it "stops an in-repository
+  # pull-request author reaching main". Read-key separation cannot contain a writer authorised for
+  # the main store, and by the paragraph three above this one the pull-request and mixed credentials
+  # are restricted on neither store nor branch - so a holder of one can write `sutura` directly, and
+  # `sutura` is a store the default branch DOES name and DOES trust by key. The read-key boundary
+  # closes one route to main; it does not close the route that the credential scope leaves open.
+  #
+  # So the actual bound on that route is **who can reach the `cachix-push-pr` environment's
+  # secret**, which is forge configuration this repository cannot read - the same owner-held control
+  # `docs/adr/0027` files under "What is NOT held by a mechanism". Retaining or changing that
+  # credential posture is an owner decision and is not taken here; correcting the guarantee is.
+  #
+  # **NEITHER HALF WAS INDEPENDENTLY VERIFIED FOR THIS CORRECTION.** The credential's scope was not
+  # inspected and no poisoning was attempted; what is corrected is an argument that did not follow
+  # from the facts already written beside it, which is the cheapest kind of defect to leave standing
+  # and the most expensive kind to rely on.
   pr-cache:
     needs: [ci]
     # `!cancelled()` RATHER THAN NOTHING, AND IT IS THE WHOLE REASON THIS CACHE READ AS UNUSED.
@@ -1407,7 +1554,7 @@ jobs:
           fi
           echo "ci-aggregate: ok - every category-gated leg green"
 
-  # `needs: [ci]` keeps the file's stated order - classify, lints, tests, then build - so a
+  # `needs: [ci]` keeps the file's stated order - classify, gates, tests, then build - so a
   # tree that fails clippy does not spend four runners proving it also links.
   #
   # THE BODY IS `.github/workflows/cross-link.yml`, and only the gating is here. That file's header
