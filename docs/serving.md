@@ -702,10 +702,9 @@ start, and there is no fallback.
 
 Postgres is behind the default-off `postgres` feature on both binaries. A default build refuses the
 entry by name and tells the operator which feature is absent; current published artifacts leave it
-off. A source build enables it explicitly:
-
-`just build-all` builds the binary with every adapter feature, including `postgres`; release
-packaging still chooses the default set unless it is changed deliberately.
+off. A source build enables it explicitly with `--features postgres`, the same shape as
+`--features bigquery` above; no `just` task and no nix package builds it, and release packaging
+chooses the default set.
 
 One remote, server-verified source is declared like this:
 

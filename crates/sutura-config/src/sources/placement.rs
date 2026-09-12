@@ -260,9 +260,10 @@ pub enum SourcePlacement {
     /// A `PostgreSQL` database, reached over a connection the deployment declares.
     ///
     /// **The static-credential half of Postgres: one connection under the declared identity.** The
-    /// password never appears in the settings tree - it is declared as a FILE, because a literal
-    /// would fight `sutura_domain::identity::Secret`, which makes the inlining accident a compile
-    /// error rather than a redaction. Reading the file is the adapter's job, at boot, once.
+    /// password never appears in the settings tree - it is declared as a FILE, and there is no
+    /// `password` key at all: `crate::raw::RawSource` is `deny_unknown_fields`, so an inlined literal
+    /// is refused as an unknown key rather than read and redacted. Reading the file is the adapter's
+    /// job, at boot, once.
     ///
     /// `host` and `port` are the network dial; when the source sits on a unix socket, `unix_socket`
     /// is written instead. The two cannot both be set, and which one an operator chooses is what

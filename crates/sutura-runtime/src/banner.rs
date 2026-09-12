@@ -10,6 +10,7 @@
 //! whatever a collector is ingesting. It is for an operator, and the lines that matter most are
 //! the ones about what this service does *not* do.
 
+use sutura_config::sources::transport::TrustAnchors;
 use sutura_config::{Environment, InboundIdentity, Settings, SourcePlacement};
 
 /// The name, in block letters.
@@ -240,16 +241,29 @@ fn announce_surface(settings: &Settings) {
     // that a transport is a named choice rather than an inherited default, and a choice that never
     // reaches the log is indistinguishable from a default - the reason `announce_token_class` exists
     // one function down. `describe()` is the enum's own word for the mode, so this line cannot claim
-    // one the type does not have.
+    // one the type does not have. The anchors are printed beside it because `system` is reachable
+    // only by writing it, and the log is where that choice becomes distinguishable from a default.
     for (source, configured) in settings.sources().each() {
-        let channel = match configured.placement() {
-            SourcePlacement::Postgres { transport, .. } => transport.describe(),
+        let (channel, anchors) = match configured.placement() {
+            SourcePlacement::Postgres { transport, .. } => (
+                transport.describe(),
+                transport.anchors().map(|anchors| match anchors {
+                    TrustAnchors::System => String::from("system"),
+                    TrustAnchors::File(path) => path.display().to_string(),
+                }),
+            ),
             // The kinds with no per-source channel: `files` is a directory this process reads, and
             // the `bigquery` wire owns its own TLS rather than taking a declaration. Saying so beats
             // inventing a word for either.
-            SourcePlacement::Files { .. } | SourcePlacement::BigQuery { .. } => "none declared",
+            SourcePlacement::Files { .. } | SourcePlacement::BigQuery { .. } => ("none declared", None),
         };
-        tracing::info!(source = %source, kind = configured.kind().as_str(), channel, "source channel");
+        tracing::info!(
+            source = %source,
+            kind = configured.kind().as_str(),
+            channel,
+            anchors = anchors.as_deref().unwrap_or("none"),
+            "source channel"
+        );
     }
 }
 
