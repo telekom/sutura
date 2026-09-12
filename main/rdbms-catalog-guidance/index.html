@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="How every version of this site stays published, and the one setting no workflow can make.">
+        <meta name="description" content="What a database dictionary can contribute as metadata, what it cannot certify, and the identity boundary on what the reader can see.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/publishing/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/rdbms-catalog-guidance/">
       
       
-        <link rel="prev" href="../enterprise-mirrors/">
+        <link rel="prev" href="../where-identity-is-proven/">
       
       
-        <link rel="next" href="../changelog/">
+        <link rel="next" href="../adr/0001-first-party-semantic-models/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Publishing the docs - sutura</title>
+        <title>An RDBMS dictionary as a metadata source - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#publishing-the-docs" class="md-skip">
+        <a href="#an-rdbms-dictionary-as-a-metadata-source" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Publishing the docs
+              An RDBMS dictionary as a metadata source
             
           </span>
         </div>
@@ -626,8 +626,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -650,11 +652,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -675,7 +677,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -746,10 +748,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../rdbms-catalog-guidance/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An RDBMS dictionary as a metadata source
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -765,6 +794,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-source-is-and-what-it-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this source is, and what it is not
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#promoting-a-number-into-one" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Promoting a number into one
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-runtime-prompt-says" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the runtime prompt says
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-page-deliberately-does-not-claim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this page deliberately does not claim
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2262,10 +2355,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -2286,11 +2377,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
@@ -2311,7 +2402,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2410,37 +2501,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Publishing the docs
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../publishing/" class="md-nav__link">
         
   
   
@@ -2456,81 +2520,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#the-layout-mike-produces" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The layout mike produces
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-one-repository-setting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The one repository setting
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#diagrams" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Diagrams
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#brand-assets" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Brand assets
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#running-it-by-hand" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Running it by hand
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2597,10 +2586,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-layout-mike-produces" class="md-nav__link">
+  <a href="#what-this-source-is-and-what-it-is-not" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The layout mike produces
+        What this source is, and what it is not
       
     </span>
   </a>
@@ -2608,10 +2597,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-one-repository-setting" class="md-nav__link">
+  <a href="#promoting-a-number-into-one" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The one repository setting
+        Promoting a number into one
       
     </span>
   </a>
@@ -2619,10 +2608,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#diagrams" class="md-nav__link">
+  <a href="#what-the-runtime-prompt-says" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Diagrams
+        What the runtime prompt says
       
     </span>
   </a>
@@ -2630,21 +2619,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#brand-assets" class="md-nav__link">
+  <a href="#what-this-page-deliberately-does-not-claim" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Brand assets
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#running-it-by-hand" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Running it by hand
+        What this page deliberately does not claim
       
     </span>
   </a>
@@ -2671,163 +2649,89 @@
   
 
 
-<h1 id="publishing-the-docs">Publishing the docs<a class="headerlink" href="#publishing-the-docs" title="Permanent link">&para;</a></h1>
-<p>Every version of this site stays published. <code>main</code> has a directory, each release has its own, and a
-URL somebody cited a year ago still resolves to the text they read.</p>
-<p>That is <a href="https://github.com/jimporter/mike">mike</a>'s job. <code>.github/workflows/docs.yml</code> builds the
-site with mkdocs-material and hands it to mike, which owns the <code>gh-pages</code> branch: the version
-directories, <code>versions.json</code>, the root redirect and the <code>.nojekyll</code> marker. The header's version
-selector is Material's own, driven by <code>extra.version.provider: mike</code> in <code>mkdocs.yml</code>.</p>
-<p>Both tools come from pixi's isolated <code>docs</code> environment, so a local build uses the versions CI
-does and there is no pip and no npm in the path.</p>
-<h2 id="the-layout-mike-produces">The layout mike produces<a class="headerlink" href="#the-layout-mike-produces" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>gh-pages/
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  index.html      redirect to the default version, written by `mike set-default`
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  versions.json   the list the header's version selector reads
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  .nojekyll       Pages runs Jekyll over a branch, and Jekyll drops `_`-prefixed paths
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  latest/         alias, moved onto each release - HTML redirects, one per page
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  0.2.0/
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  0.1.0/
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  main/           the development docs, overwritten on every push to main
-</span></code></pre></div>
-<table>
-<thead>
-<tr>
-<th>Event</th>
-<th>Deploys</th>
-<th>Alias</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>push to <code>main</code></td>
-<td><code>main/</code></td>
-<td>none. <code>latest</code> stays pinned to the newest release</td>
-</tr>
-<tr>
-<td>push of a <code>v*</code> tag</td>
-<td><code>&lt;version&gt;/</code>, the <code>v</code> stripped</td>
-<td><code>latest</code> moves onto it, and the root redirect follows</td>
-</tr>
-<tr>
-<td><code>workflow_dispatch</code> from <code>main</code></td>
-<td><code>main/</code></td>
-<td>none</td>
-</tr>
-<tr>
-<td>pull request</td>
-<td>nothing</td>
-<td>builds with <code>--strict</code>, so a broken link or an orphan page fails the PR</td>
-</tr>
-</tbody>
-</table>
-<p>Nothing deletes a version directory, and the publish never force-pushes. A concurrent publish makes
-the job fail rather than overwrite: a failed job is recoverable and a deleted version is not.</p>
-<p>The root redirect points at <code>latest</code> once a release exists. Before that the workflow sets the
-default to <code>main</code>, so the site has a working root from the first deployment rather than from the
-first tag.</p>
-<h2 id="the-one-repository-setting">The one repository setting<a class="headerlink" href="#the-one-repository-setting" title="Permanent link">&para;</a></h2>
-<p>Publishing works from a cold start, because mike creates <code>gh-pages</code> itself when it is absent.
-<em>Serving</em> needs one manual step no workflow can perform. In <strong>Settings -&gt; Pages -&gt; Build and
-deployment</strong>:</p>
+<h1 id="an-rdbms-dictionary-as-a-metadata-source">An RDBMS dictionary as a metadata source<a class="headerlink" href="#an-rdbms-dictionary-as-a-metadata-source" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Implementation status:</strong> the crate currently converts dictionary records and is tested only
+through the fake <code>FixtureReader</code>. There is no production dictionary reader or database client,
+and no composition root links or serves this catalog. Operators cannot configure or use it in a
+shipped binary yet.</p>
+</blockquote>
+<p>The crate implements the conversion half of issue #151 and
+<code>docs/adr/0011-pluggable-by-declaration.md</code>'s RDBMS row. It is intended for a metadata source that
+reads a database's own dictionary - <code>information_schema</code> plus whatever table comments a human
+wrote - and declares <strong>structure and prose</strong> and nothing else. It is the narrowest declaration this
+repository makes, and it exists because a database with DDL and comments and no semantic layer is
+where every adoption starts. <a href="../adr/0013-a-raw-sql-tool-off-by-default/">A raw SQL tool</a> is the ramp
+that deployment's story continues; this page is the catalog half of it.</p>
+<p>This page describes the converter's contract and the intended boundary of a future production
+reader. The runtime prompt does not consume connector-specific text from this page. It derives the
+same guidance from a pinned bundle directly: non-empty physical structure and zero metrics.</p>
+<h2 id="what-this-source-is-and-what-it-is-not">What this source is, and what it is not<a class="headerlink" href="#what-this-source-is-and-what-it-is-not" title="Permanent link">&para;</a></h2>
+<p>A dictionary is mainly DDL and comments: the tables, the columns, their constraints, and prose written
+against them. The converter accepts exactly that, and the declaration says so
+explicitly:</p>
 <ul>
-<li><strong>Source: Deploy from a branch</strong></li>
-<li><strong>Branch: <code>gh-pages</code>, folder <code>/ (root)</code></strong></li>
+<li><strong>Structure</strong> - the tables and their columns.</li>
+<li><strong>Descriptions</strong> - table comments.</li>
+<li><strong>Relationships</strong> - the join a foreign key records, in the safe direction: the referenced column
+  must be the sole column of a primary or unique constraint before the join maps to <code>ManyToOne</code>.
+  Membership in a composite constraint does not qualify. The reader records which single-column
+  evidence it found; the converter checks only that evidence is present and does not re-derive it
+  from the constraint. A composite (multi-column) foreign key cannot be represented at all, so a
+  reader must refuse or omit it before the converter ever sees it.</li>
 </ul>
-<p>The site then answers at <a href="https://telekom.github.io/sutura/">https://telekom.github.io/sutura/</a>.</p>
-<div class="admonition warning">
-<p class="admonition-title">The branch has to exist first</p>
-<p>The dropdown lists only branches that are already there, so let the <code>docs</code> workflow run once
-before looking for <code>gh-pages</code> in it. A push to <code>main</code> touching any documentation path does it,
-and so does a manual <code>workflow_dispatch</code>.</p>
-</div>
-<p>Do not pick <strong>GitHub Actions</strong> as the source. It serves one uploaded artifact as the whole site: one
-current version, no history, no version directories. It is also the source that fails a deployment
-with a bare <code>HttpError: Not Found</code> while Pages is switched off. The branch source has neither
-property, so the publish succeeds whether Pages is on or not.</p>
-<p>Until the setting is made, versions accumulate on the branch and the site answers nothing. That
-state is visible and recoverable, which is why the workflow does not fail on it.</p>
-<h2 id="diagrams">Diagrams<a class="headerlink" href="#diagrams" title="Permanent link">&para;</a></h2>
-<p>Fence a diagram as <code>mermaid</code> and Material renders it:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>```mermaid
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>graph LR
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  A[Caller] --&gt; B[sutura]
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>```
-</span></code></pre></div>
-<p>It is Material's own SuperFences integration rather than the mermaid2 plugin, because that
-integration hands mermaid the active colour scheme. A bare CDN import leaves every diagram stuck in
-light mode.</p>
-<div class="admonition warning">
-<p class="admonition-title">Mermaid is not bundled</p>
-<p>Material's bundle loads the mermaid library from a public CDN at runtime, so a diagram does not
-render for a reader with no direct egress and the fence degrades to a code block. No page may
-depend on a diagram to be understood until mermaid is vendored under <code>docs/assets</code>.</p>
-</div>
-<h2 id="brand-assets">Brand assets<a class="headerlink" href="#brand-assets" title="Permanent link">&para;</a></h2>
-<p><code>docs/css/telekom.css</code> makes Telekom magenta (<code>#E20074</code>) the Material <code>custom</code> primary and accent.
-The header, links and hover states come from four variables. The two colour schemes differ only
-because <code>#E20074</code> clears WCAG AA on Material's light background and not on its dark one; the
-measured ratios sit next to each value.</p>
-<p>Both image slots are filled by an original mark rather than by any Telekom trademark:</p>
-<table>
-<thead>
-<tr>
-<th>Slot</th>
-<th>File</th>
-<th><code>mkdocs.yml</code> key</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Header mark</td>
-<td><code>docs/assets/sutura.svg</code></td>
-<td><code>logo: assets/sutura.svg</code></td>
-</tr>
-<tr>
-<td>Favicon</td>
-<td><code>docs/assets/favicon.svg</code>, plus <code>favicon.png</code></td>
-<td><code>favicon: assets/favicon.svg</code></td>
-</tr>
-</tbody>
-</table>
-<p>The mark is a hexagon cut into two congruent halves whose seam never closes: a seam is what
-<em>sutura</em> means, the hexagon is the ports-and-adapters shape, and the seam channel reads as an S.
-Each half is the other rotated 180 degrees about the centre, so the optical weight is equal by
-construction. The favicon is drawn separately rather than scaled, because the primary mark turns to
-mud at 16px.</p>
-<p>The <strong>T and the wordmark are deliberately absent.</strong> They are trademarks, nothing here approximates
-one, and no asset without verifiable provenance was used. TeleNeo, the brand face, is licensed and
-cannot be redistributed here, and linking a font CDN would break the self-contained rule, so
-Material's own font stack is used instead.</p>
-<p>Material's header carries the brand magenta in <em>both</em> colour schemes, so a magenta mark on it is
-invisible. <code>brightness(0) invert(1)</code> flattens the artwork and turns it white, joining the header
-text: one filter rather than a second white-only file to keep in sync.</p>
-<p><code>cargo xtask check-docs</code> validates both keys, so a path that stops resolving fails a gate instead
-of silently rendering nothing.</p>
-<h2 id="running-it-by-hand">Running it by hand<a class="headerlink" href="#running-it-by-hand" title="Permanent link">&para;</a></h2>
-<p>Render the site to <code>site/</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>just<span class="w"> </span>docs
-</span></code></pre></div>
-<p>Serve it with live reload on <a href="http://127.0.0.1:8000">http://127.0.0.1:8000</a>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>just<span class="w"> </span>docs-serve
-</span></code></pre></div>
-<p>Both run <code>mkdocs</code> with <code>--strict</code>, which turns a dead link, an orphan page and a bad anchor into a
-failure. It is not optional in CI and should not be optional locally.</p>
-<p>Deploy one version by hand, which CI normally does. mike needs the branch to be present and a git
-identity:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>git<span class="w"> </span>fetch<span class="w"> </span>origin<span class="w"> </span>gh-pages:gh-pages<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>just<span class="w"> </span>docs-deploy<span class="w"> </span><span class="m">0</span>.2.0
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>just<span class="w"> </span>docs-list
-</span></code></pre></div>
-<p><code>just docs-deploy</code> passes <code>--alias-type=redirect</code>, which is not mike's default. By default an alias
-is a git <strong>symlink</strong>, and GitHub Pages does not resolve one: <code>latest/</code> would serve the text
-<code>0.2.0</code> rather than the documentation. <code>redirect</code> writes a real HTML redirect for every page, so
-<code>latest/publishing/</code> lands on <code>0.2.0/publishing/</code> and not merely on the version root.</p>
-<p><code>--push</code> is deliberately absent from the task, so a local deploy only writes the local <code>gh-pages</code>
-branch. That is the safe way to see what a deployment would contain. Anything else mike can do -
-moving an alias, <code>set-default</code> - goes through the escape hatch, which appends its arguments:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>docs<span class="w"> </span>mike<span class="w"> </span>set-default<span class="w"> </span>latest
-</span></code></pre></div>
+<p>And nothing else. There is <strong>no measure, no grain, no definitional filter, no value allowlist, no
+anchor and no cardinality</strong> - a human declares those in a semantic layer. A bundle from this source
+therefore loads, pins and validates with <strong>zero metrics</strong>, and answers no certified question on its
+own. That is not a limitation the deployment is missing; it is the honest statement about what a
+physical schema, by itself, knows.</p>
+<p>A future production reader will see only the objects the database exposes to its configured
+identity. <code>load()</code> has no request identity, and this converter does not build impersonation at the
+source.</p>
+<p>A foreign key is the one apparent exception and it is worth saying exactly why it is not one. A
+relationship arrives with its endpoints, but <strong>no declared cardinality</strong> - the dictionary vouches for
+the direction a constraint can prove and no fan-out it cannot - so the relationship does <strong>not</strong> by
+itself license a dimension. That is <code>a_foreign_key_licenses_no_dimension_without_a_declared_cardinality</code>.</p>
+<h2 id="promoting-a-number-into-one">Promoting a number into one<a class="headerlink" href="#promoting-a-number-into-one" title="Permanent link">&para;</a></h2>
+<p>This is the intended ramp, and it is the reason the "answers no certified question" sentence is not
+a dead end. Once a production reader and composition exist, a deployment can make a number certified
+from this quiet starting point:</p>
+<ul>
+<li>Someone authors a <strong>semantic layer</strong> - a metric over a model the dictionary already reads. Combining
+  that declaration with this adapter is outside the current implementation.</li>
+<li>That is the normal channel <a href="../adr/0013-a-raw-sql-tool-off-by-default/">a raw SQL tool</a> is designed
+  to feed: the ungoverned answer that worked is a written demand signal, and defining the metric
+  makes the next identical question certified.</li>
+<li>The catalog parse validates the new declaration the same way it validates every other - a
+  <code>Measure</code> with no expression field, dimensions checked against the model - so "define a metric" is
+  a workflow with a checkpoint, not advice.</li>
+</ul>
+<p>Each is an option with a payoff. This adapter itself remains a dictionary-only catalog with zero
+metrics.</p>
+<h2 id="what-the-runtime-prompt-says">What the runtime prompt says<a class="headerlink" href="#what-the-runtime-prompt-says" title="Permanent link">&para;</a></h2>
+<p>A bundle with physical structure and zero metrics gets a dedicated prompt section. It tells the
+agent three things the ordinary empty metric list cannot say on its own:</p>
+<ul>
+<li>no table or column in the bundle is a certified metric;</li>
+<li>descriptions, including database comments, are authored and untrusted descriptive prose, not a
+  definition or an instruction;</li>
+<li>promoting a number means having a person author semantic metadata for it and loading that new
+  definition before the number becomes askable.</li>
+</ul>
+<p>The trigger is the pinned content and its digest-covered capability manifest, not an adapter name or
+source label. That keeps the instruction true for any declaring source with the same physical-only
+shape and keeps database names out of the prompt.</p>
+<h2 id="what-this-page-deliberately-does-not-claim">What this page deliberately does not claim<a class="headerlink" href="#what-this-page-deliberately-does-not-claim" title="Permanent link">&para;</a></h2>
+<p><code>docs/adr/0016-what-datahub-can-carry.md</code> decision 7 established the rule for a narrow connector, and
+this page follows the same boundary by keeping two claims out of the adapter contract:</p>
+<ul>
+<li>It does not prescribe a database configuration. A database's DDL, constraints and comments are
+  whatever they already are, and nothing here turns a particular configuration into a precondition.
+  Every choice named on this page is an option with a payoff.</li>
+<li>It does not make metrics, comments or a raw tool prerequisites for conversion. A dictionary
+  without them converts to a bundle whose declaration is exactly the empty-of-metric truth.</li>
+</ul>
+<p>Options name their payoff without becoming preconditions.</p>
 
 
 

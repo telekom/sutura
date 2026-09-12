@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-exec-postgres/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-catalog-rdbms/">
       
       
-        <link rel="prev" href="../sutura-exec-bigquery/">
+        <link rel="prev" href="../sutura-catalog-datahub/">
       
       
-        <link rel="next" href="../sutura-app/">
+        <link rel="next" href="../sutura-semantic/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>sutura-exec-postgres - sutura</title>
+        <title>sutura-catalog-rdbms - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sutura-exec-postgres" class="md-skip">
+        <a href="#sutura-catalog-rdbms" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              sutura-exec-postgres
+              sutura-catalog-rdbms
             
           </span>
         </div>
@@ -1859,10 +1859,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../sutura-catalog-rdbms/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1878,6 +1887,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -2027,37 +2037,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    sutura-exec-postgres
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -2073,126 +2056,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-postgreserror" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum PostgresError
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum PostgresError">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-postgreswarehouse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct PostgresWarehouse
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct PostgresWarehouse">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#module-fixture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Module fixture
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2637,114 +2500,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#limits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limits
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enum-postgreserror" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        enum PostgresError
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="enum PostgresError">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#variants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Variants
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-postgreswarehouse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct PostgresWarehouse
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct PostgresWarehouse">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#module-fixture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Module fixture
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -2768,178 +2523,279 @@
      Edit the doc comments in the crate source instead, then regenerate.
      The commands are on the API reference landing page. -->
 
-<h1 id="sutura-exec-postgres">sutura-exec-postgres<a class="headerlink" href="#sutura-exec-postgres" title="Permanent link">&para;</a></h1>
-<p>The public API of <code>sutura-exec-postgres</code>, rendered from rustdoc JSON.</p>
-<p>A <code>Warehouse</code> adapter over PostgreSQL - one connection under the deployment's declared
-identity (<code>SharedServiceUser</code>). The static half of Postgres: no OAuth, no impersonation.</p>
-<p>The client is async and the <code>Warehouse</code> port is not, so this adapter owns a <code>tokio</code> runtime
-and <code>block_on</code>s each call. <code>tokio-postgres</code> is pure Rust and links nothing native. SQL renders
-through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here is compiled or translated.</p>
-<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
-<ul>
-<li><code>NoTls</code>, unconditional: a <code>hostssl</code>-only server refuses this connection.</li>
-<li>A <code>statement_timeout</code> is set at connect, so a slow server statement cannot hold a
-  blocking-pool thread past the caller's request deadline.</li>
-</ul>
-<h2 id="enum-postgreserror"><code>enum PostgresError</code><a class="headerlink" href="#enum-postgreserror" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PostgresError</span>
+<h1 id="sutura-catalog-rdbms">sutura-catalog-rdbms<a class="headerlink" href="#sutura-catalog-rdbms" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-catalog-rdbms</code>, rendered from rustdoc JSON.</p>
+<p>A <code>SemanticCatalog</code> over an RDBMS dictionary - the narrowest declaration, and the one that
+needs no service.</p>
+<p><code>docs/adr/0011-pluggable-by-declaration.md</code> defines the role this conversion implements. A
+database dictionary is mainly DDL and comments: the tables, the columns, their constraints, and
+table prose. It is not a
+semantic layer and does not pretend to be one - which is the whole point of a <strong>declaring</strong>
+adapter. It says which kinds it provides and which it does not, and it is measured against that
+declaration rather than against the golden adapters' oracle.</p>
+<p>This crate implements the dictionary conversion from <code>github.com/telekom/sutura#151</code>. A live
+reader remains outside it; the runtime prompt derives the zero-metric physical-schema guidance
+from the pinned bundle rather than coupling the application to this adapter.</p>
+<h1 id="what-a-real-dictionary-yields">What a real dictionary yields<a class="headerlink" href="#what-a-real-dictionary-yields" title="Permanent link">&para;</a></h1>
+<p>ADR 0016's method, applied here: read a real dictionary before writing the adapter. A throwaway
+reader, measured once against a two-table Postgres 18 schema (two tables, a primary key each, one
+foreign key, and table comments), reported the following:</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>tables</td>
+<td>2</td>
+</tr>
+<tr>
+<td>columns</td>
+<td>6</td>
+</tr>
+<tr>
+<td>tables carrying a comment</td>
+<td>2</td>
+</tr>
+<tr>
+<td>foreign keys</td>
+<td>1</td>
+</tr>
+<tr>
+<td>primary/unique constraints</td>
+<td>2</td>
+</tr>
+</tbody>
+</table>
+<p>Three findings, and two of them are the declaration's content:</p>
+<ol>
+<li><strong>A dictionary yields structure and prose, and nothing else.</strong> Tables and columns are the
+   <code>Structure</code> half; table comments are
+   the <code>Descriptions</code>
+   half. A dictionary carries <strong>no measure, no grain, no definitional filter, no value allowlist
+   and no anchor</strong> - those are declared by a human in a semantic layer, which is what ADR 0011's
+   table says ("certified metrics, measures, grains, allowed values: <strong>no</strong> - a human declares
+   those elsewhere").</li>
+<li><strong>A foreign key carries no metric cardinality.</strong> It names the source and target columns, so
+   this adapter declares the <code>Cardinality</code> <em>capability</em> absent: a dictionary carries no metric to
+   reach a dimension <code>via</code> a relationship.</li>
+<li><strong>A single-column primary or unique key is evidence, and only the safe direction.</strong> ADR
+   0011's "part worth having this connector for" is the one-direction uniqueness argument: a
+   reader must supply a <code>SingleColumnTargetUniqueness</code> before the foreign key maps to
+   <code>JoinType::ManyToOne</code>. Membership in a composite constraint is not evidence that one column
+   is unique. Without the single-column evidence, loading refuses rather than asserting the
+   relationship. The variant records what the reader found; this converter does not re-derive
+   it from the constraint itself.</li>
+</ol>
+<h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
+<p><code>SemanticCatalog::capabilities</code> provides <code>Structure</code> and may provide <code>Descriptions</code> and
+<code>Relationships</code>. A sparse dictionary - structure with no comments or foreign keys - is therefore
+faithful without making structure optional. What is declared is nothing more: no <code>Cardinality</code>
+(a foreign key vouches for no metric fan-out), no <code>Metrics</code>, no
+<code>Grains</code>, no <code>RequiredFilters</code>, no <code>AllowedValues</code>, no <code>Anchors</code>, and an empty knowledge half.
+A bundle from this source therefore <strong>loads, pins and validates with zero metrics</strong>, and answers
+no certified question - which is issue #115's shape and the whole reason the declaration exists:
+a deployment whose whole model is a physical schema must not be told it has metrics it does not.</p>
+<h1 id="what-is-built-here-and-what-is-not">What is built here, and what is NOT<a class="headerlink" href="#what-is-built-here-and-what-is-not" title="Permanent link">&para;</a></h1>
+<p>This crate contains the conversion <code>RdbmsCatalog</code> applies to dictionary records, and it is
+tested against a fake reader that serves a recorded dictionary - the port gets a fake,
+not mocked SQL (<code>github.com/telekom/sutura#151</code>'s thing 4). What it does not contain is a
+database client in the library closure: <code>DictionaryReader</code> is the seam a real reader over a
+Postgres socket will implement, and the only implementor today is the recorded fixture source in
+<code>fixture</code>. A production reader is outside this crate's current scope.</p>
+<p><strong>And nothing serves it:</strong> no composition root links this crate (its only dependant is
+<code>sutura-app</code>, as a dev-dependency), so this is a registered, declaring catalog rather than a
+served one - exactly the state <code>sutura-catalog-datahub</code> holds, which is the precedent copied.</p>
+<h2 id="trait-dictionaryreader"><code>trait DictionaryReader</code><a class="headerlink" href="#trait-dictionaryreader" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">DictionaryReader</span>
 </span></code></pre></div>
-<p>Why this data system could not answer.</p>
+<p>Where a dictionary's records come from.</p>
+<p><strong>The fake seam.</strong> Everything above this trait is decided and tested against a recorded
+dictionary served by <code>fixture::FixtureReader</code>; a real implementor speaks to a Postgres socket,
+reads <code>information_schema</code> / <code>pg_catalog</code>, decodes into <code>Dictionary</code>, and maps its own failures
+into <code>RdbmsError::Read</code>. A port rather than a method on <code>RdbmsCatalog</code> for the same reason
+the warehouse port exists: a catalog that could be swapped for a live source without the
+conversion changing is the point.</p>
+<p>A <code>Relationship</code> carries exactly one origin column and one target column, so a composite
+(multi-column) foreign key is not representable in it. A real implementor must therefore either
+refuse the whole read or omit that one foreign key when it encounters one, and must document
+which of the two it does - the conversion below never sees a foreign key that a reader omitted,
+so it cannot enforce or even detect either choice.</p>
+<h2 id="enum-rdbmserror"><code>enum RdbmsError</code><a class="headerlink" href="#enum-rdbmserror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RdbmsError</span>
+</span></code></pre></div>
+<p>Why a dictionary could not be read as a catalog.</p>
+<p>Every variant is a typed contract rather than a message; the message is for a human and the
+variant is what a caller can branch on. The mapping variants carry the table or column they were
+refused on, because a dictionary is many rows and "invalid identifier" with no table name sends
+a reader back to all of them.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>Runtime</code></li>
-<li><code>Connect</code></li>
-<li><code>Prepare</code></li>
-<li><code>Execute</code></li>
-<li><code>DivisionByZero</code> - The server refused a statement as <code>division by zero</code> (SQLSTATE <code>22012</code>).</li>
-<li><code>UnsupportedType</code> - A column came back as a type this adapter does not map. An error, not a stringified value.</li>
-<li><code>NotFinite</code> - A floating-point (or <code>NUMERIC</code>) column came back as a value that is not a number.</li>
-<li><code>NotADate</code> - A day came back that is not a date this build can represent.</li>
-<li><code>Shape</code></li>
-<li><code>KeyCounts</code> - A key probe's result was not the pair of counts its statement projects.</li>
-<li><code>Render</code></li>
-<li><code>Fixture</code> - A fixture import failed.</li>
-<li><code>FixtureRead</code></li>
-<li><code>InvalidColumnName</code> - A CSV header named a column that is not a valid identifier. Refused, not interpolated.</li>
-<li><code>FixtureSchema</code> - The shared conformance fixture schema could not be inferred.</li>
-<li><code>InvalidSchemaName</code> - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.</li>
-<li><code>InvalidStatementTimeout</code> - The dev-only <code>statement_timeout</code> tuning value is not a <code>u32</code> millisecond count.</li>
-<li><code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</li>
-<li><code>PresentedDisagreesWithPosture</code></li>
-<li><code>LegWithoutCombiner</code> - One leg of a federated answer, which nothing here can assemble above.</li>
+<li><code>Read</code> - The reader could not fetch the dictionary.</li>
+<li><code>NoVisibleTables</code> - The reader returned no table, so this bundle cannot honour its required <code>Structure</code> claim.</li>
+<li><code>ModelName</code> - A table's semantic name did not parse as a model name.</li>
+<li><code>CatalogName</code> - A table's catalog did not parse as the top part of a qualified table name.</li>
+<li><code>SchemaName</code> - A table's schema did not parse as the middle part of a qualified table name.</li>
+<li><code>TableName</code> - A physical table's own name did not parse.</li>
+<li><code>DuplicateTable</code> - Two semantic models named the same physical table.</li>
+<li><code>UnknownRelationshipTable</code> - A foreign key named a physical table absent from the dictionary.</li>
+<li><code>ColumnName</code> - A column's name did not parse.</li>
+<li><code>RelationshipName</code> - A foreign key's name did not parse.</li>
+<li><code>Description</code> - A table description did not pass the authored-prose rule.</li>
+<li><code>TargetUniquenessUnknown</code> - The referenced column had no single-column primary or unique-key evidence.</li>
+<li><code>Inconsistent</code> - The assembled definitions did not hold together.</li>
+<li><code>Digest</code> - Pinning failed.</li>
 </ul>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
-<h2 id="struct-postgreswarehouse"><code>struct PostgresWarehouse</code><a class="headerlink" href="#struct-postgreswarehouse" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PostgresWarehouse</span>
+<h2 id="struct-rdbmscatalog"><code>struct RdbmsCatalog</code><a class="headerlink" href="#struct-rdbmscatalog" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RdbmsCatalog</span><span class="o">&lt;</span><span class="n">R</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>A <code>PostgreSQL</code> connection, behind the <code>Warehouse</code> port.</p>
+<p>A catalog read from an RDBMS dictionary.</p>
+<p>Generic in its reader rather than holding a boxed one, matching the warehouse adapters: there is
+one per composition and a generic keeps the chosen reader visible. It carries the declared name
+and version it is recorded under, the same way the other catalog adapters carry their own.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">DefinitionVersion</span><span class="p">,</span><span class="w"> </span><span class="n">reader</span><span class="p">:</span><span class="w"> </span><span class="nc">R</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>Opens one connection under the supplied <code>tokio_postgres::Config</code> and keeps it for this
-adapter's life.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect_in_schema</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">source</span><span class="p">::</span><span class="n">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span><span class="p">,</span><span class="w"> </span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Like <code>connect</code>, but every unqualified table name resolves to a fresh,
-private schema - so several warehouses can share one Postgres without clobbering each other.
-The caller-supplied schema name is validated to a word before it reaches <code>CREATE SCHEMA</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Exposes a fixture CSV as a table: infers column types, recreates the table, then pushes the
-rows through <code>COPY ... FROM STDIN</code>. Re-inferring from the committed CSV each run cannot
-drift from it, and recreating makes a run idempotent.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_fixture_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">PostgresError</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Exposes a conformance fixture with the same exact types as the other adapter bindings.</p>
-<p>Available only with the default-off <code>fixtures</code> feature.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">local_config</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">credential</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">fixture</span><span class="p">::</span><span class="n">FixtureCredential</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio_postgres</span><span class="p">::</span><span class="n">Config</span>
-</span></code></pre></div>
-<p>A connection config for the fixture tier, over a credential that has already been parsed.</p>
-<p><strong>It TAKES the credential and reads no environment of its own</strong>, which is the whole change:
-<code>host</code> and <code>port</code> are parameters, so this function cannot know it is talking to an ephemeral
-local server, and the shape it replaced offered <code>sutura</code>/<code>sutura</code>/<code>sutura</code> to whatever host
-it was handed whenever nothing was set. There is no unconfigured state to substitute for now
-- <code>fixture::FixtureCredential</code> cannot hold one - so this stays infallible.</p>
+<p>Opens a catalog over a dictionary reader.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code>, <code>Warehouse</code></p>
+<p><code>Clone</code>, <code>Debug</code>, <code>SemanticCatalog</code></p>
+<h2 id="struct-tableaddress"><code>struct TableAddress</code><a class="headerlink" href="#struct-tableaddress" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TableAddress</span>
+</span></code></pre></div>
+<p>A table's physical address as a dictionary reports it.</p>
+<p>A schema is required because it is the first part that distinguishes same-named tables in one
+database. The catalog is optional because not every target renders a three-part table path.</p>
+<h3 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">catalog</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The catalog above the schema, when the dictionary reports one for generated statements.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_schema</span><span class="p">(</span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A table in a schema of the connected catalog.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">catalog</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">schema</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A physical table address, split into the dictionary fields that own its identity.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">schema</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The schema immediately above the table.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The table's own name.</p>
+<h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="struct-table"><code>struct Table</code><a class="headerlink" href="#struct-table" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Table</span>
+</span></code></pre></div>
+<p>One semantic model, the physical table it selects, and the prose written against it.</p>
+<h3 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">address</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
+</span></code></pre></div>
+<p>The physical table address, as the dictionary spells each part.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The columns the table exposes.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The table's comment, if a human wrote one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The semantic model name assigned to this table.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">address</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A semantic model over a physical table.</p>
+<h3 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="struct-dictionary"><code>struct Dictionary</code><a class="headerlink" href="#struct-dictionary" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Dictionary</span>
+</span></code></pre></div>
+<p>A dictionary: the tables, and the relationships a foreign key between them records.</p>
+<h3 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">tables</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Table</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relationships</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Relationship</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A dictionary assembled from what a reader fetched.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Relationship</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The relationships a foreign key records.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Table</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The tables the dictionary names.</p>
+<h3 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="enum-singlecolumntargetuniqueness"><code>enum SingleColumnTargetUniqueness</code><a class="headerlink" href="#enum-singlecolumntargetuniqueness" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SingleColumnTargetUniqueness</span>
+</span></code></pre></div>
+<p>Why the target column of a foreign key is known to be individually unique.</p>
+<p>This variant records what the reader found in the dictionary; it carries no constraint name and
+no column list, so this converter checks only that a variant is present and cannot re-derive or
+verify that the underlying constraint is truly single-column.</p>
+<h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>PrimaryKey</code> - The target column is the sole column of a primary key.</li>
+<li><code>UniqueConstraint</code> - The target column is the sole column of a unique constraint.</li>
+</ul>
+<h3 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="struct-relationship"><code>struct Relationship</code><a class="headerlink" href="#struct-relationship" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Relationship</span>
+</span></code></pre></div>
+<p>A join a foreign key records: the two endpoints, their columns, and single-column target-key
+evidence.</p>
+<p><code>SingleColumnTargetUniqueness</code> is evidence for the safe <code>ManyToOne</code> direction, not a metric
+cardinality. Without it, loading refuses before a domain relationship is emitted.</p>
+<h3 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The foreign key's name, if the dictionary named it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">origin_table</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">origin_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">target_table</span><span class="p">:</span><span class="w"> </span><span class="nc">TableAddress</span><span class="p">,</span><span class="w"> </span><span class="n">target_column</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">target_uniqueness</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">SingleColumnTargetUniqueness</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A relationship's endpoints, with target-key evidence if the reader has any.</p>
+<p>Loading refuses this value when <code>target_uniqueness</code> is <code>None</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The column the foreign key starts from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
+</span></code></pre></div>
+<p>The table the foreign key starts from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The column the foreign key points to.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableAddress</span>
+</span></code></pre></div>
+<p>The table the foreign key points to.</p>
+<h3 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
-<p>The fixture tier's credential - a value that cannot exist unconfigured.</p>
-<p><strong>Behind the default-off <code>fixtures</code> feature</strong>, because both callers are tests
-(<code>crates/sutura-exec-postgres/tests/conformance.rs</code> and
-<code>crates/sutura-app/tests/adapters/mod.rs</code>) and <code>nix/shipped.nix</code> builds cargo's DEFAULT set: so
-no artefact a release publishes contains this module or the connection config over it, which
-deletes the <em>reachable from a consumer</em> half rather than hardening it. <code>--all-features</code> compiles,
-lints and tests it on every run.
-The fixture tier's credential: <strong>configured, or refused by name.</strong></p>
-<h1 id="what-this-replaces-and-why-the-old-shape-was-wrong-in-a-way-its-strength-cannot-fix">What this replaces, and why the old shape was wrong in a way its strength cannot fix<a class="headerlink" href="#what-this-replaces-and-why-the-old-shape-was-wrong-in-a-way-its-strength-cannot-fix" title="Permanent link">&para;</a></h1>
-<p><code>local_config</code> used to read <code>SUTURA_DEV_USER</code> / <code>SUTURA_DEV_PASSWORD</code> / <code>SUTURA_DEV_DB</code> through
-an <code>unwrap_or_else(|_| "sutura")</code> fallback, in a <code>pub fn</code> that was neither <code>#[cfg(test)]</code> nor
-feature-gated. The reasoning beside the compose file - <em>these are fixtures, nothing outside the
-host can reach them, every port is published ephemerally</em> - is sound, and it is sound <strong>about a
-container.</strong> It does not reach a function whose <code>host</code> and <code>port</code> are PARAMETERS: this code
-cannot know it is talking to an ephemeral local server, so the property <em>"that credential only
-ever reaches one"</em> was held by the function's name and by the discipline of its callers.
-<code>AGENTS.md</code>: invariants are held by a type, a lint, a hook or a gate, never by recall.</p>
-<p>And the doc comment inverted the default - <em>"so a host that objects to a weak default can change
-one value"</em> makes hardening <strong>opt-in</strong>. That inversion is the defect, more than the strength of
-the password: a weak default a caller must object to is the opposite of secure by design.</p>
-<h1 id="the-shape-now">The shape now<a class="headerlink" href="#the-shape-now" title="Permanent link">&para;</a></h1>
-<p><code>crate::fixture::FixtureCredential</code> is the only way to hold one, its three values are private, and
-<code>FixtureCredential::parse</code> is the only way in. So <em>unconfigured</em> is not a value
-<code>PostgresWarehouse::local_config</code> can be handed - it is unrepresentable rather than rejected -
-and there is no branch left for a fallback to live in.</p>
-<h1 id="where-the-values-come-from-because-nothing-set-them-before">Where the values come from, because nothing set them before<a class="headerlink" href="#where-the-values-come-from-because-nothing-set-them-before" title="Permanent link">&para;</a></h1>
-<p><strong>The provisioner publishes them, and it is not the compose file.</strong> There is no Postgres
-service in <code>compose.services.yaml</code> at all - this tier is nixpkgs' <code>postgresql_18</code>, started by
-<code>nix/postgres-tier.nix</code>, which now generates a password per worktree and prints the three
-exports from <code>sutura-postgres-tier credentials</code>. <code>nix/with-tier.sh</code> evaluates them exactly where
-it already exports <code>SUTURA_DEV_REQUIRE_TIER</code>, so <em>the server is there</em> and <em>the client knows how
-to log in</em> cannot come apart, and <code>checks.postgres-tier</code> drives that subcommand's two answers.</p>
-<p>The variables are <code>SUTURA_POSTGRES_TIER_*</code> rather than the old <code>SUTURA_DEV_*</code>: the names were
-shared with the compose fixture credential while nothing in that file provisions a Postgres, and
-a shared name is what made a coupling look real. The compose anchors keep their own defaults and
-their own argument.</p>
-<h1 id="two-limits-stated-with-the-claim">Two limits, stated with the claim<a class="headerlink" href="#two-limits-stated-with-the-claim" title="Permanent link">&para;</a></h1>
-<ul>
-<li><strong>A unix socket under this tier authenticates by <code>trust</code>.</strong> <code>nix/postgres-tier.nix</code> runs
-  <code>initdb</code> with no <code>--auth</code>, so the password is not what admits a client to <em>that</em> server. What
-  the refusal buys is that no OTHER host is offered a guessable one, which is the half the old
-  <code>pub fn</code> could not hold.</li>
-<li><strong>The role name and the database name are still <code>sutura</code>.</strong> They are names the provisioner
-  CHOOSES and publishes, not values a client guesses when nothing is set - which is the
-  distinction this module is about. Only the password is generated.</li>
-</ul>
-<h3 id="enum-fixturevariable"><code>enum FixtureVariable</code><a class="headerlink" href="#enum-fixturevariable" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FixtureVariable</span>
+<p>The recorded dictionary corpus and the fake reader that serves it.</p>
+<p>This is the only <code>crate::DictionaryReader</code> implementor today, and it is the <strong>fake</strong> the port is
+tested against - a recorded dictionary, not mocked SQL (<code>github.com/telekom/sutura#151</code>'s thing 4).
+Until a real reader exists this is what a <code>crate::RdbmsCatalog</code> reads.</p>
+<p>The corpus mirrors exactly what a throwaway reader measured once against a two-table Postgres
+18 schema: two tables (one fact, one lookup), a column set per table, table comments, and one
+foreign key from the fact table to the lookup. There are <strong>no metrics</strong> - that is the whole
+point of the narrowest metadata source, and what makes
+<code>a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question</code> pass.</p>
+<h3 id="struct-fixturereader"><code>struct FixtureReader</code><a class="headerlink" href="#struct-fixturereader" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
 </span></code></pre></div>
-<p>One of the three values the Postgres fixture tier publishes into the environment.</p>
-<p>An enum rather than a <code>&amp;'static str</code>, because a refusal has to carry WHICH value was missing as
-data: a caller that read the variable's name out of the message would be matching on prose.</p>
-<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
-<ul>
-<li><code>User</code> - The login role the tier created.</li>
-<li><code>Password</code> - That role's password, generated per worktree by <code>nix/postgres-tier.nix</code>.</li>
-<li><code>Database</code> - The database the tier created and owns.</li>
-</ul>
-<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<p>The fake <code>DictionaryReader</code> that serves the recorded corpus.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>DictionaryReader</code></p>
+<h3 id="fn-corpus"><code>fn corpus</code><a class="headerlink" href="#fn-corpus" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">corpus</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Dictionary</span>
 </span></code></pre></div>
-<p>The environment variable's name, spelled once.</p>
-<p>One definition, because a refusal that tells somebody to set a name the reader spells
-differently is a fix that does not work and looks like it should.</p>
-<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>PartialEq</code></p>
-<h3 id="enum-unconfiguredfixture"><code>enum UnconfiguredFixture</code><a class="headerlink" href="#enum-unconfiguredfixture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
+<p>The recorded dictionary: the two tables the spike named, with their comments, and the one
+foreign key between them.</p>
+<h3 id="fn-over_fixture_source"><code>fn over_fixture_source</code><a class="headerlink" href="#fn-over_fixture_source" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">RdbmsCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Why there is no fixture credential to connect with.</p>
-<p><strong>Two variants, and no third that carries a substitute.</strong> The failure is that this process was
-not told the credential, and the only honest answers to it are <em>say which variable</em> and <em>stop</em> -
-so there is nowhere in this type for a default to be returned from.</p>
-<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
-<ul>
-<li><code>Unset</code> - The variable is not in the environment at all.</li>
-<li><code>Blank</code> - The variable is set to nothing, which a shell script exporting <code>""</code> is the ordinary way to reach. Read as a credential it is a login attempt as the empty user, so it is refused here rather than at the server.</li>
-</ul>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
-<h3 id="struct-fixturecredential"><code>struct FixtureCredential</code><a class="headerlink" href="#struct-fixturecredential" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
-</span></code></pre></div>
-<p>The fixture tier's credential.</p>
-<p>Exists only if all three values were present, so nothing downstream asks again. No <code>Display</code>,
-no <code>PartialEq</code>, no public field and no public accessor: the password is a
-<code>sutura_domain::identity::Secret</code>, which has neither <code>Display</code> nor <code>==</code>, and the two names
-leave this crate only as arguments to <code>PostgresWarehouse::local_config</code>.</p>
-<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>This process's credential, as the tier exported it.</p>
-<p>The production entry point, and a one-line adapter over <code>FixtureCredential::parse</code> on
-purpose - see that function for why the seam is there.</p>
-<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
-<p><code>Debug</code></p>
+<p>A <code>crate::RdbmsCatalog</code> over the recorded corpus.</p>
+<p>The constructor the conformance registry uses to register the adapter; it is <code>pub</code> because an
+integration suite is a separate crate and cannot reach a <code>#[cfg(test)]</code> item.</p>
 
 
 

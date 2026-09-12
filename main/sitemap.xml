@@ -49,6 +49,10 @@
          <lastmod>2026-09-12</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/rdbms-catalog-guidance/</loc>
+         <lastmod>2026-09-12</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/serving/</loc>
          <lastmod>2026-09-12</lastmod>
     </url>
@@ -186,6 +190,10 @@
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-catalog-local/</loc>
+         <lastmod>2026-09-12</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/api/sutura-catalog-rdbms/</loc>
          <lastmod>2026-09-12</lastmod>
     </url>
     <url>
