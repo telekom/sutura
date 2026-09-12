@@ -72,16 +72,17 @@ mod worktree_state;
 
 use std::process::ExitCode;
 
-// The registry's types live in `registry` and the TABLE in `task_table`, both because of
-// `max-lines` - see those module headers. Re-exported here so every gate's `crate::Verdict` and
-// every reader's `crate::TASKS` resolve unchanged: this file stays the router.
+// The registry's types live in `registry` and the TABLE in `task_table`, split by area there,
+// both because of `max-lines` - see those module headers. Re-exported here so every gate's
+// `crate::Verdict` and every reader's `crate::tasks()` resolve through one path: this file stays
+// the router.
 use registry::{Kind, Task};
 pub(crate) use registry::{Reads, Verdict};
-pub(crate) use task_table::TASKS;
+pub(crate) use task_table::tasks;
 
 /// Every task name. `check-guidance` reads this to reject a doc citing a task that is gone.
 pub(crate) fn task_names() -> impl Iterator<Item = &'static str> {
-    TASKS.iter().map(|t| t.name)
+    tasks().map(|t| t.name)
 }
 
 /// Every gate the `hygiene` sweep collects, with what it reads.
@@ -89,7 +90,7 @@ pub(crate) fn task_names() -> impl Iterator<Item = &'static str> {
 /// Derived from the same table and the same predicate `run_hygiene` filters on, because a second
 /// list of the sweep's members is the drift this table was built to end.
 pub(crate) fn hygiene_gates() -> impl Iterator<Item = (&'static str, Reads)> {
-    TASKS.iter().filter_map(|t| match t.kind {
+    tasks().filter_map(|t| match t.kind {
         Kind::Hygiene(reads) => Some((t.name, reads)),
         Kind::Standalone => None,
     })
@@ -100,7 +101,7 @@ pub(crate) fn hygiene_gates() -> impl Iterator<Item = (&'static str, Reads)> {
 /// Stopping rather than collecting: these are ordered cheapest-first, so the first failure is
 /// usually the cheapest to read, and a wall of output from eight gates is worse than one.
 fn run_hygiene(_args: &[String]) -> Verdict {
-    let gates: Vec<&Task> = TASKS.iter().filter(|t| matches!(t.kind, Kind::Hygiene(_))).collect();
+    let gates: Vec<&Task> = tasks().filter(|t| matches!(t.kind, Kind::Hygiene(_))).collect();
     for task in &gates {
         // No arguments: a hygiene gate takes none, which is what `Kind::Hygiene` asserts.
         match (task.run)(&[]) {
@@ -125,7 +126,7 @@ fn main() -> ExitCode {
             usage();
             ExitCode::SUCCESS
         }
-        Some(requested) => TASKS.iter().find(|t| t.name == requested).map_or_else(
+        Some(requested) => tasks().find(|t| t.name == requested).map_or_else(
             || {
                 eprintln!("xtask: unknown task `{requested}`");
                 usage();
@@ -142,7 +143,7 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!("usage: cargo xtask <task>");
-    for task in TASKS {
+    for task in tasks() {
         // A leading dot marks a member of the `hygiene` sweep, so the set is readable here
         // rather than only in the source.
         let mark = if matches!(task.kind, Kind::Hygiene(_)) { "." } else { " " };
@@ -153,11 +154,10 @@ fn usage() {
     eprintln!(
         "{} of {} hygiene gate(s) have a written own-rule falsifier; the rest await the per-gate \
          seed programme (`telekom/sutura#371`)",
-        TASKS
-            .iter()
+        tasks()
             .filter(|t| matches!(t.kind, Kind::Hygiene(_)) && t.falsifier.in_scope.is_some())
             .count(),
-        TASKS.iter().filter(|t| matches!(t.kind, Kind::Hygiene(_))).count()
+        tasks().filter(|t| matches!(t.kind, Kind::Hygiene(_))).count()
     );
 }
 
@@ -184,7 +184,7 @@ fn cargo_metadata(extra: &[&str]) -> Result<serde_json::Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TASKS, task_names};
+    use super::{task_names, tasks};
 
     #[test]
     fn task_names_are_unique() {
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn every_task_has_a_help_line() {
-        for task in TASKS {
+        for task in tasks() {
             assert!(!task.description.is_empty(), "{} has no --help line", task.name);
         }
     }
@@ -206,7 +206,7 @@ mod tests {
     fn the_hygiene_set_is_not_empty() {
         // An empty set would make `hygiene` a green no-op - the failure this whole change
         // exists to prevent, arrived at from the other direction.
-        assert!(TASKS.iter().any(|t| matches!(t.kind, super::Kind::Hygiene(_))));
+        assert!(tasks().any(|t| matches!(t.kind, super::Kind::Hygiene(_))));
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn hygiene_does_not_contain_itself() {
         // Marked `Standalone`, so `run_hygiene` cannot collect and re-enter itself.
-        let me = TASKS.iter().find(|t| t.name == "hygiene").expect("hygiene is registered");
+        let me = tasks().find(|t| t.name == "hygiene").expect("hygiene is registered");
         assert_eq!(me.kind, super::Kind::Standalone);
     }
 
@@ -256,7 +256,7 @@ mod tests {
             "check-devenv-linter",
         ];
         for name in needs_args {
-            let task = TASKS.iter().find(|t| t.name == name).expect("task is registered");
+            let task = tasks().find(|t| t.name == name).expect("task is registered");
             assert_eq!(task.kind, super::Kind::Standalone, "{name} must not be in the hygiene set");
         }
     }
@@ -267,7 +267,7 @@ mod tests {
         // COST and REACH: it compiles the library crates and needs the nightly toolchain for
         // rustdoc's unstable JSON output, while the hygiene sweep runs on every commit and
         // inside the Nix sandbox, neither of which has a nightly.
-        let task = TASKS.iter().find(|t| t.name == "check-api-docs").expect("task is registered");
+        let task = tasks().find(|t| t.name == "check-api-docs").expect("task is registered");
         assert_eq!(task.kind, super::Kind::Standalone);
     }
 
@@ -276,7 +276,7 @@ mod tests {
         // It takes no REQUIRED arguments, so the argument test above would not catch this one, and
         // it is the entry in this table that can DELETE things. A hygiene sweep runs on every
         // commit; a task that removes a branch may not be in it whatever its default mode is.
-        let task = TASKS.iter().find(|t| t.name == "clean-branches").expect("task is registered");
+        let task = tasks().find(|t| t.name == "clean-branches").expect("task is registered");
         assert_eq!(task.kind, super::Kind::Standalone);
     }
 
@@ -286,15 +286,15 @@ mod tests {
         // one either: `crap` takes no arguments. It compiles the scoped crates under
         // `-C instrument-coverage` and shells out to two tools the cheap sweep must not require -
         // and the Nix sandbox and the commit hook both run that sweep.
-        let task = TASKS.iter().find(|t| t.name == "crap").expect("task is registered");
+        let task = tasks().find(|t| t.name == "crap").expect("task is registered");
         assert_eq!(task.kind, super::Kind::Standalone);
         // Its configuration half IS cheap and must stay in the sweep: that is what stops the
         // policy file from rotting on a tree nobody has run the expensive half against.
-        let cheap = TASKS.iter().find(|t| t.name == "check-crap").expect("task is registered");
+        let cheap = tasks().find(|t| t.name == "check-crap").expect("task is registered");
         assert!(matches!(cheap.kind, super::Kind::Hygiene(_)));
         // And the DELTA half is standalone for a third reason: it needs a baseline that arrives
         // over the network in CI, and the hygiene sweep runs in a sandbox with no network.
-        let delta = TASKS.iter().find(|t| t.name == "crap-delta").expect("task is registered");
+        let delta = tasks().find(|t| t.name == "crap-delta").expect("task is registered");
         assert_eq!(delta.kind, super::Kind::Standalone);
     }
 

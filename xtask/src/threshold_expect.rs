@@ -77,7 +77,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // verdict without survives a scope predicate that stopped matching. This one is the crate's
     // `[[bin]]` root: every `.rs` scan in the tree can name it, and a binary cannot lose its root
     // file, so it will not vanish. It held the task table until `#610` moved that to
-    // `task_table.rs`; the anchor never depended on the table, only on the file existing.
+    // `task_table/`; the anchor never depended on the table, only on the file existing.
     // Named with its type at the call site: a [`repo::Scope`] is a bare `fn` pointer, so a
     // closure - the only place an ordinal counter could live - does not compile here.
     let scope: repo::Scope = rust_source;
