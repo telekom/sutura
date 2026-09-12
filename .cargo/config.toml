@@ -10,8 +10,8 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld", "-Z", "next-solver=coherence"]
 # ARMv8.3-A FLOOR for the two aarch64 targets. `flake.nix` compiles the allocator's C with
 # `-march=armv8.3-a`; these are the Rust half of that agreement, so both compilers target the
 # same floor: `+lse` (v8.1) for `cas`/`ldadd` atomics instead of `ldxr`/`stxr` retry loops, and
-# `+rcpc` (v8.3) for `ldapr` acquire loads, which is the mimalloc 3.5.0 win. Enumerated rather
-# than the tidier `+v8.3a`, because rustc 1.98 accepts that but reports it as an UNSTABLE
+# `+rcpc` (v8.3) for `ldapr` acquire loads, which is the pinned mimalloc's win. Enumerated
+# rather than the tidier `+v8.3a`, because the pinned rustc accepts that but reports it as an UNSTABLE
 # `-Ctarget-feature` and would warn on every build; `+lse` and `+rcpc` are stable. These
 # aarch64 artifacts require ARMv8.3-A or later.
 [target.aarch64-unknown-linux-gnu]

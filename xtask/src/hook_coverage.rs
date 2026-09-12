@@ -11,7 +11,7 @@
 //!
 //! # Why the total is DERIVED from the hook config rather than counted from the output
 //!
-//! Because a silenced hook prints no row at all. **Measured against prek 0.4.14:**
+//! Because a silenced hook prints no row at all. **Measured against the pinned prek:**
 //! `PREK_SKIP=hygiene,rust-tests prek run --dry-run` emits eight rows where an unset run emits
 //! ten - the two named hooks are absent, not marked. So a verdict computed from the rows would
 //! have reported *8 of 8 ran* over a run with two gates switched off from the environment, which
@@ -117,7 +117,7 @@ impl Coverage {
 
 /// prek's status column, and what each status says about coverage.
 ///
-/// MEASURED against prek 0.4.14 rather than taken from its documentation: these four are literals
+/// MEASURED against the pinned prek rather than taken from its documentation: these four are literals
 /// in the binary, and the row format is `<name><dots>[(<reason>)]<status>` with no space anywhere
 /// in the padding.
 const STATUSES: &[(&str, Coverage)] = &[
@@ -595,7 +595,7 @@ fn verdict(failures: &[String], reported: usize, changed: usize) -> Verdict {
 mod tests {
     use super::{Coverage, Row, Surface};
 
-    /// prek 0.4.14's **`--dry-run`** commit-stage output over a diff of one README, `--color
+    /// The pinned prek's **`--dry-run`** commit-stage output over a diff of one README, `--color
     /// never`. Captured 2026-09-05 and pasted verbatim.
     ///
     /// **Its doc used to call this prek's real output, and it is not** - reported in review and
@@ -621,7 +621,7 @@ mod tests {
         "fuzz (git delta)...............................(no files to check)Skipped\n",
     );
 
-    /// prek 0.4.14's REAL commit-stage output, `--color never`, over a diff of one README on a
+    /// The pinned prek's REAL commit-stage output, `--color never`, over a diff of one README on a
     /// host with nix - so `structural gates`, the suite, the doctests and the secret scan actually
     /// executed. Captured on 2026-09-05, exit 0, and pasted verbatim.
     ///
@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn a_hook_silenced_from_the_environment_is_a_failure_and_not_a_smaller_denominator() {
-        // MEASURED on prek 0.4.14: `PREK_SKIP=hygiene,rust-tests` removes the two rows outright.
+        // MEASURED on the pinned prek: `PREK_SKIP=hygiene,rust-tests` removes the two rows outright.
         // So the denominator has to come from the config, and the missing rows have to be named.
         let declared = declared();
         let none = super::BTreeSet::new();

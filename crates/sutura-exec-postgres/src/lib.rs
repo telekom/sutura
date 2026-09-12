@@ -577,7 +577,7 @@ fn execute_err_mapped(cause: tokio_postgres::Error) -> PostgresError {
 
 /// A `NUMERIC`, decoded from the wire as its exact components.
 ///
-/// `tokio-postgres` 0.7 ships NO `FromSql` for `NUMERIC` (the type OID exists, a Rust type does
+/// `tokio-postgres` at the resolved version ships NO `FromSql` for `NUMERIC` (the type OID exists, a Rust type does
 /// not), and `sum(int8)` / `AVG` over an integer column return exactly `NUMERIC`. So this is a
 /// hand-rolled decoder of the documented binary format - the same decision as [`PgDate`]: the raw
 /// bytes are all the driver gives. It is kept EXACT (there is no `f64` on the value), for the reason

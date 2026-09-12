@@ -67,7 +67,7 @@
 //! **`telekom/sutura#339`: the admission window was the only bounded wait on this surface.** A
 //! question that could not get a slot came back inside `runtime.admission_timeout_seconds`; a
 //! question that GOT one waited as long as the data system took, with nothing in the picture to end
-//! it. rmcp 3.1.4 applies no per-request deadline of its own, so there was no other bound to
+//! it. The pinned rmcp applies no per-request deadline of its own, so there was no other bound to
 //! inherit - measured on the pinned SDK and not read off its documentation.
 //!
 //! So [`AgentSurface::new`] takes `server.request_timeout_seconds` as well, and the one function
@@ -105,7 +105,7 @@
 //! the peer gets does not say *try again*: repeating the question would take a second slot while
 //! the first is still running. Making running work stoppable is #160's subject, on the port.
 //!
-//! **Peer cancellation ends this transport's wait and nothing below it.** rmcp 3.1.4 delivers
+//! **Peer cancellation ends this transport's wait and nothing below it.** The pinned rmcp delivers
 //! `notifications/cancelled` through `RequestContext::ct`, and [`ServerHandler::call_tool`] selects
 //! on that token while a question is pending. The handler returns before its configured deadline;
 //! the pinned rmcp then suppresses its response on the wire. The blocking `Surface::answer`

@@ -480,7 +480,7 @@ async fn a_body_larger_than_the_configured_bound_is_refused_before_it_is_parsed(
 
 #[tokio::test]
 async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() {
-    // Pinned `tower-http` 0.7.0 implements `TimeoutLayer::with_status_code` as
+    // The pinned `tower-http` implements `TimeoutLayer::with_status_code` as
     // `Response::new(B::default())` - the status and an EMPTY body - while the generated document
     // and `problem.rs` both promise every `408` carries a `ProblemBody`. So the status was right and
     // the body was nothing, which a client parsing one failure shape cannot handle.
@@ -703,7 +703,7 @@ async fn the_interface_description_is_behind_the_token_when_one_is_configured() 
 // ------------------------------------------------------------------ the log ----
 //
 // **The defect these were written for.** `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`,
-// and pinned `tower-http` 0.7.0 seeds it from `DEFAULT_MESSAGE_LEVEL`, which is `Level::DEBUG`,
+// and the pinned `tower-http` seeds it from `DEFAULT_MESSAGE_LEVEL`, which is `Level::DEBUG`,
 // while `telemetry.filter` defaults to `info`. So the ONE production span was disabled in the
 // shipped default: `JsonStorageLayer` had nothing to attach, every machine-readable line carried an
 // empty span context, and the documentation promised the opposite.

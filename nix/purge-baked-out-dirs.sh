@@ -39,7 +39,7 @@
 # A generated file naming some OTHER absolute directory - the source root, a sibling crate's
 # `OUT_DIR` - is invisible here, and so is a path written into a compiled artifact rather than into
 # the bytes of the output directory. The search also excludes the sibling `$unitDir/output`, but
-# retained directive bytes are not necessarily the values Cargo gives rustc. Cargo 1.98 reads the
+# retained directive bytes are not necessarily the values Cargo gives rustc. The pinned Cargo reads the
 # previous `OUT_DIR` from `root-output` and replaces that literal with the current directory in
 # parsed `cargo:` and `cargo::` directive values; see `prev_build_output` and `BuildOutput::parse`:
 # https://github.com/rust-lang/cargo/blob/rust-1.98.0/src/cargo/core/compiler/custom_build.rs

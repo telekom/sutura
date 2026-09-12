@@ -366,7 +366,7 @@ the asymmetry that makes the collision reachable: a table `Orders` is a distinct
 qualifier `Orders` still resolves to a select-list alias spelled `orders`.
 
 **`DuckDb` is `InsensitiveAscii`, and that was MEASURED rather than read.** On the pinned
-`DuckDB` 1.5.5, a table created as a quoted `Orders` is bound by a quoted `orders` qualifier and
+the pinned `DuckDB`, a table created as a quoted `Orders` is bound by a quoted `orders` qualifier and
 returns a result - so an identifier is folded when it is RESOLVED, even though the same engine
 keeps two projected aliases differing only in case as two distinct output columns. Declaring
 the coarser of the two behaviours covers both.

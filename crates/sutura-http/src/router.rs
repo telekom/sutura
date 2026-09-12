@@ -282,7 +282,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
 ///
 /// # Why this exists at all: the default span is switched off in the shipped default
 ///
-/// `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`, and pinned `tower-http` 0.7.0 seeds it
+/// `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`, and the pinned `tower-http` seeds it
 /// from `DEFAULT_MESSAGE_LEVEL`, which is `Level::DEBUG`. `telemetry.filter` defaults to `info`. So
 /// the one span this service had was **disabled in every default deployment**: `JsonStorageLayer`
 /// had no span to collect fields from, every machine-readable line carried an empty span context,
