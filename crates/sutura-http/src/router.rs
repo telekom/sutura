@@ -250,9 +250,10 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
             .routes(utoipa_axum::routes!(routes::health::liveness))
             .with_state(state.clone()),
     )
-    // `merge` inserts the other router's paths again. Disable Axum's 0.7 marker check only after the
-    // fixed liveness route was registered, immediately before the configured metadata route whose
-    // literal resource path may contain a segment beginning `:` or `*`.
+    // `merge` inserts the other router's paths again. Disable Axum's legacy `:param`/`*wild`
+    // marker check only after the fixed liveness route was registered, immediately before the
+    // configured metadata route whose literal resource path may contain a segment beginning `:`
+    // or `*`.
     .without_v07_checks()
     .merge(
         state

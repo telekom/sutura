@@ -107,8 +107,9 @@ impl ProtectedResource {
         let body = self.body.clone();
         Router::new()
             // A configured resource path may legally contain a segment beginning `:` or `*`. Axum
-            // 0.8 treats both as literals but refuses their old 0.7 spellings unless this check is
-            // disabled. `{capture}` cannot arrive: the parsed resource alphabet contains no braces.
+            // treats both as literals but refuses their legacy `:param`/`*wild` spellings unless
+            // this check is disabled. `{capture}` cannot arrive: the parsed resource alphabet
+            // contains no braces.
             .without_v07_checks()
             .route(
                 &self.path,
