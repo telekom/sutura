@@ -957,11 +957,12 @@ private to `causality::base` - so `base::earned` is the only place that can mint
 spell a non-zero measured numerator without a compile error; that it prints no measured sentence at
 all is a unit test. #331's body had to say in prose which numerator was which; there is one to say.
 
-**Which verdicts pass.** One of them proved something: *ok - red on base, green on head*. **Five more
+**Which verdicts pass.** One of them proved something: *ok - red on base, green on head*. **Six more
 pass having run NEITHER run** - `no changed tests`, *tests changed but no implementation did*,
-`EVERY ADDED TEST IS #[ignore]d`, `NO BASE BEHAVIOUR TO COMPARE AGAINST` and
-`NOT MECHANICALLY SEPARABLE` - and every one of them asks for evidence instead: the command you ran,
-the failure before, the pass after. Four of the five carry `0 of M` beside the prose; the paragraph
+`EVERY ADDED TEST IS #[ignore]d`, `NO BASE BEHAVIOUR TO COMPARE AGAINST`,
+`NOT MECHANICALLY SEPARABLE` and `nothing to measure - a declared test-file cleanup` - and every one
+of them asks for evidence instead: the command you ran, the failure before, the pass after. Five of
+the six carry `0 of M` beside the prose; the paragraph
 on those five further down has the accounting and says which one prints no number. This list named
 two of the five, so an author whose verdict was *tests changed but no implementation did* did not
 find it and read that everything else fails. **The two INCONCLUSIVE answers are neither pass nor
@@ -1046,17 +1047,20 @@ fail-on-mismatch rule would have reddened every branch in the sample, and a gate
 correct work gets disabled. **What it therefore is not:** nothing forces the remainder to be
 proven. `7 of 8` is an instruction to run a mutation by hand, not a mechanism.
 
-**FIVE passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
+**SIX passing arms run NEITHER run, and *every verdict carries the ratio* was false for them** -
 which is the same defect class one level up, so it is worth the row. `no changed tests`,
 *tests changed but no implementation did*, `EVERY ADDED TEST IS #[ignore]d`,
-`NO BASE BEHAVIOUR TO COMPARE AGAINST` and `NOT MECHANICALLY SEPARABLE` all return exit 0 without
-either run having happened, and two of the thirteen replayed branches landed on one of them with 3
-and 7 added tests. **Four of the five print a ZERO-numerator line** (`0 of 3`), because the numerator
-is what the filterset NAMES and that equals what was measured only once both runs are done. The fifth
-prints no number at all: `no changed tests` has a denominator of zero by construction, and `0 of 0`
-reads as *the diff added none* rather than as *none was measured*. This paragraph said *four* and
+`NO BASE BEHAVIOUR TO COMPARE AGAINST`, `NOT MECHANICALLY SEPARABLE` and
+`nothing to measure - a declared test-file cleanup` all return exit 0 without either run having
+happened, and two of the thirteen replayed branches landed on one of them with 3 and 7 added tests.
+**Five of the six print a ZERO-numerator line** (`0 of 3`), because the numerator is what the
+filterset NAMES and that equals what was measured only once both runs are done. The one that prints
+no number at all is `no changed tests`: its denominator is zero by construction, and `0 of 0` reads
+as *the diff added none* rather than as *none was measured*. This paragraph said *four* and
 *they all do*; both were corrected by #319, and the count was wrong because
-`NOT MECHANICALLY SEPARABLE` was left out of a list the same sentence claimed to include.
+`NOT MECHANICALLY SEPARABLE` was left out of a list the same sentence claimed to include. **It has
+now been wrong twice for one reason - an arm was added and a sentence carrying a NUMBER was not
+re-counted - so what to cite from here is the LIST, never the number.**
 **So the citable claim is: a branch that ran the two runs prints the ratio, and a branch that did not
 either says it measured nothing or had nothing to count.**
 
@@ -1275,3 +1279,183 @@ which is what the sharing comment always claimed the gate paid. It is bounded to
 workspace MEMBER at that one profile, so anything else in that directory can still be stale, which
 is why *remove `target/causality-target`* is still the last-resort remedy the gate prints. Two runs
 of ONE tree still share artifacts, which is cargo's ordinary path and the whole point of sharing.
+
+**A TEST-FILE SPLIT MAY DECLARE ITSELF, AND THE DECLARATION IS CHECKED RATHER THAN BELIEVED.** The
+1000-line cap makes splitting a near-cap test file necessary, and the remedy above - move the
+harness, leave every assertion where it is - works exactly once: a file left at 892 lines carrying
+29 assertions and its imports has no lever left. `Cleanup-Split: <path>` as a commit TRAILER says
+*this commit moves test code and changes none*, and `causality::relocation` is the check that holds
+the claim. Five conditions, all of them: every path GIT says changed reached the diff reader and is
+compiled Rust; every changed line except a BLANK one is test code - an added line in the
+post-image, a removed line in the BASE image; every added `mod <name>;` resolves to a file this
+diff contains; and the code-line multiset is equal on both sides, keyed on the TRIMMED line outside
+a string literal and on the RAW line inside one. The only lines that may be in surplus are a
+`#[cfg(test)]`, a `mod` declaration and a `super::`-relative `use` - and only on the ADDED side,
+which is what makes a re-pointed import a refusal rather than a wash. The verdict is
+`nothing to measure - a declared test-file cleanup`, exit 0. **Trailer present and any one of those
+conditions broken is a FAILURE** - *the `Cleanup-Split:` trailer claims a cleanup this diff is not*,
+naming every line that broke it - so the trailer narrows what may pass and never disables
+red-before-green. **Trailer absent changes nothing at all**, which is the half that makes it not a
+loophole: the same pure diff without the trailer reaches exactly the arm it reached before. Trimmed
+rather than raw because a test leaving `mod tests { .. }` for its own file loses an indentation
+level; keyed on the line's TEXT rather than on a count because a reworded assertion holds the count.
+A commit trailer rather than a flag or an allowlist entry, for three reasons that are each one
+alternative's failure: *one-time* becomes a property of the object, so there is no entry anyone must
+remember to delete; it is visible in `git log` and in review forever, which a flag typed once into a
+shell is not; and the venue running the gate cannot supply it, so CI and a hand run read the same
+claim off the same commit.
+
+**MEASURED BY ATTACK, on one 998-line file split 998 -> 760 + 242 five ways, because a gate nobody
+has seen refuse is not known to refuse.** The point of the table is the two columns together: the
+trailer is neither necessary nor sufficient on its own.
+
+| The diff | With the trailer | Without it |
+| --- | --- | --- |
+| moves every line, changes none | `nothing to measure` · **0** | `FAILED - the tests this diff added did not run on base` · **1** |
+| + one added `#[test]` | `FAILED - … claims a cleanup this diff is not` (`+1 -0` per unbalanced line) · **1** | unchanged - `Unclaimed` is a no-op arm |
+| one assertion REWORDED, count held | `FAILED - …` naming both spellings (`+0 -1` and `+1 -0`) · **1** | unchanged |
+| + one production line | `FAILED - …` naming it twice: `not test code: …lib.rs:95 added at head` AND `did not balance` · **1** | unchanged |
+| one assertion DELETED | `FAILED - …` naming the missing line `+0 -1` · **1** | unchanged |
+
+The right-hand column's *unchanged* is structural rather than measured, and the distinction belongs
+here: `Relocation::Unclaimed` is an empty match arm, so an untagged run executes the same code it
+always did - held by `the_trailer_is_necessary_and_the_same_pure_move_without_one_changes_nothing`
+and by the diff, not by four more seven-minute runs. **Only the first row's right-hand cell was
+measured end to end**, and it is the one that had to be: it is the failure the trailer exists to
+answer.
+
+**WHAT A PURE-RELOCATION PASS DOES NOT PROVE.** That the diff moved test lines is the whole of it.
+It says nothing about whether those assertions are any good, and nothing about behaviour - there is
+no behaviour in the diff to be about. It does not run the head suite either: like every arm that
+answers before the proof block it returns first, and *the suite is green* is `just test`'s property
+and the nix `nextest` check's, never this gate's. And **the multiset reads COUNTS, so a REORDERING
+balances** - two test lines that swapped places between two test functions pass it. Production
+statements cannot reorder past it, because every changed line except a blank one has to be test
+code in its own image; what stays in reach is test code shuffled within test code, which smuggles
+no untested change in. **The surviving exemption is an added `super::`-relative import**, which can
+change which name a byte-identical assertion resolves to - the verdict NAMES every exempt line for
+that reason, so it is a thing a reviewer reads rather than a thing nobody can see. A `#[path]`
+declaration reads as unresolved, which is a false REFUSAL and the direction this is allowed to be
+wrong in. The uncommitted case is the carrier's own limit: `git diff <base>` compares base
+against the WORKING TREE, so a hand run over an uncommitted split has a diff and no message to
+declare it with. That direction is closed on purpose - a claim that is not in a commit is not in
+review either.
+
+**AND THE PREMISE THE TRAILER WAS ASKED FOR ON IS HALF FALSE, measured on that same split.** *Every
+new test-bearing module must be declared from the file being reverted, so the orphaning failure is
+unavoidable for any assertion-extraction from a test file* is not true: **the DECLARATION'S FORM
+decides it.** Same file, same assertions moved, nothing varying but how the new module is declared
+and whether the new file itself reads as test code:
+
+| The split, otherwise identical | The verdict | Exit |
+| --- | --- | --- |
+| `#[cfg(test)] mod spans;`, new file carries no `#[cfg(test)]` | `tests changed but no implementation did` | 0 |
+| bare `mod spans;`, new file carries no `#[cfg(test)]` | `NOT MECHANICALLY SEPARABLE` | 0 |
+| bare `mod spans;`, new file carries `#![cfg(test)]` | `FAILED - the tests this diff added did not run on base` | 1 |
+
+`causality::attributes::says` is the whole reason: `#[cfg(test)] mod x;` answers `Adds::TestModule`
+so the declaring file is HELD at HEAD and the declaration survives into the base tree, while a bare
+`mod x;` answers `Adds::Nothing` so that file is REVERTED and the declaration goes with it. Only the
+third row both reverts the declarer AND leaves the new file looking like test code, which is what it
+takes to be separable and therefore measured - and therefore orphaned. **So the cheapest remedy for
+the orphaning failure is one attribute on the declaration, and it needs no trailer and no gate
+change.** The trailer is for the split that has no such form available - one landing beside real
+implementation changes in the same diff. **Read the middle row as a trap of its own:**
+`NOT MECHANICALLY SEPARABLE` at exit 0 there means the new module read as PRODUCTION code - no
+`#[cfg(test)]` region, not under `tests/` - so its assertions were held OUT of the proof and that
+exit 0 covered nothing. Three rows, three different answers a reader would have predicted as one.
+
+**AND THE GATE ALREADY KNEW IT WAS A MOVE AND FAILED ANYWAY, which is the alternative that was NOT
+taken.** On that third row the run printed, before either verdict,
+`already at base: <name>  (a `.rs` file this diff also touched had it - a MOVE, not an addition)`
+for all four tests in scope and then `Every test in scope is one of those, so a green base run
+proves nothing here` - `provenance::Moved::Wholly`, computed before the base run and passed into
+`classify_base` - and still exited 1. The reason is narrow: `classify_base` consults `moved` only on
+the SUCCEEDED branch, so `BaseOutcome::GreenAfterAMove` catches a move whose base run went green and
+`BaseOutcome::NotRun` - the filterset matching nothing, which is what orphaning produces - never
+reads it at all. Teaching that one arm to answer `Inconclusive` for `Moved::Wholly` is a three-line
+change reusing a discriminator this gate already trusts, and it would fix the untagged case with no
+declaration at all. **It was rejected deliberately**, on two grounds worth keeping: it is a SILENT
+computed exception where the decision asked for a declaration a human makes and review can see, and
+it would break *trailer absent changes nothing* - the property that makes the trailer's own check
+meaningful. If that trade is ever revisited, this paragraph is the measurement it starts from.
+
+**AND THE FIRST VERSION OF THAT CHECK INHERITED A HEURISTIC AS A PERMISSION, which is the most
+transferable thing on this page.** Conditions 3 and 5 both delegated *does this line do anything* to
+`regions::carries_no_behaviour`, whose own docstring calls itself a heuristic: it treats a blank
+line, a COMMENT and an ATTRIBUTE as carrying no behaviour. That is right for the question it was
+written for - is this file separable - and catastrophic as the thing that decides what may PASS.
+Measured on that head with the trailer present, every one of these was exit 0, each with a
+same-shape control one line away that is refused twice over:
+
+| The diff, trailer present | Why it slipped |
+| --- | --- |
+| `#[serde(deny_unknown_fields)]` DELETED from the tool surface's `Query` | an attribute "carries no behaviour" - and `sutura/invariants` names that exact line as a mechanism |
+| `#[ignore]` ADDED to a live test | likewise; and no gate in `cargo xtask --help` censuses ignored tests, so nothing else would have said so either |
+| **a doctest assertion ADDED in a production file** | a doc comment is a comment - so **an added test skipped red-before-green**, under a verdict printing *no assertion was added*, which is this gate's entire subject |
+| the `compile_fail` doctest pinning `Secret`'s missing `Display`, DELETED | same, in the deleting direction |
+| an attribute-only change in a SIBLING commit | the claim is range-wide, so it rode along |
+
+**The repair is the shape to remember: an exemption is a SHORT LIST OF EXACT SHAPES, never a
+category.** *Any attribute* waves through `#[ignore]`; *any comment* waves through a doctest; *any
+`use`* waves through a re-point. Three shapes are exempt now and each is spelled out, the predicate
+is `relocation`'s own rather than borrowed, and `has_non_test_additions` is left exactly as it was -
+because the defect was never that predicate, it was asking it a question it does not answer.
+
+**THREE MORE, each measured and each closed by a different mechanism.** *Trimming is whitespace-blind
+inside a string literal*, and an expected-output fixture is exactly what a test asserts on - so the
+region lexer now answers which lines BEGIN inside a literal and those are keyed on their raw text,
+blank ones included. *A re-pointed import* changes what a byte-identical assertion asserts - so the
+scaffold surplus is added-side only, which leaves the removed half of a re-point with nothing to
+balance against. *An added `mod legacy;` beside an untouched `legacy.rs`* compiles a whole module of
+pre-existing tests, and `scoped`'s refusal for that shape sits AFTER this arm - so a declaration
+that resolves to no file in the diff is its own refusal here. **The general lesson in the third one:
+an arm that answers EARLY inherits none of the refusals that come later, so every one of them has to
+be re-asked or re-established.**
+
+**AND THE DIFF READER NEVER SEES A DELETED FILE, which is pre-existing and was newly asserted over.**
+`causality::diff` builds from the POST-image, so a file this branch `git rm`'d has no entry at all -
+its `+++` is `/dev/null`, and `worktree::touched`'s own docstring says so. A 785-line test file with
+29 tests could therefore be deleted under *this diff MOVED test code and changed none*, because not
+one of its lines was ever read. Git's `--name-only` list is a second input now, and **any path git
+says changed that the reader produced no entry for is a refusal** - which is broader than deletions
+on purpose, because the next shape that reader cannot see gets the same answer. **The question worth
+carrying: for any check that iterates what a reader produced, what does the reader NOT produce?**
+
+**AND THIS CHANGE BROKE THE CAP IT EXISTS TO MAKE SURVIVABLE, which is the cheapest demonstration
+of the whole problem.** Adding the literal lexer took `causality/regions.rs` over the cap - 1007
+lines at the commit that added it, and nothing under `xtask/` may be listed in
+`devco/max-lines-ignore`. It happened TWICE in one branch: the review round's own test cell took
+`relocation.rs` over as well. Both splits are the rule on this page applied to itself -
+`regions/literals.rs` and `relocation/probe.rs` each carry **implementation or fixtures only**,
+never a `#[test]`, because a file that adds one is held at HEAD while the file declaring
+`mod x;` is reverted, so the declaration would outlive its target. That is what keeps the verdict
+on this branch `NOT MECHANICALLY SEPARABLE` rather than the exit-3 `DidNotCompile` a
+tests-carrying split produces. **And the trailer could not help either time**, which is the honest
+boundary: a commit that adds a lexer or a test cell is not a pure relocation, so its own check
+refuses the declaration. **No live line count is written here on purpose** - `cargo xtask
+max-lines` answers it, a number copied into guidance rots, and this page has now been wrong about
+one.
+
+**A TWO-SIDED PROPERTY ASKED ON ONE SIDE PASSES HALF ITS TESTS, and the literal fix shipped that
+way.** *Is this line's whitespace part of a string's value* is two questions, not one: a line that
+BEGINS inside a literal carries its LEADING whitespace as value, and a line that ENDS inside one
+carries its TRAILING bytes. They are different lines - the line that OPENS a multi-line literal
+begins outside it - so a lexer asking only *did this line begin inside* trimmed the opening line's
+trailing bytes away, and dropping two trailing spaces from an expected-output fixture was **exit 0**
+under *the multiset is equal on both sides, so this diff MOVED test code and changed none*. The
+repair is the same lexer asked on both sides of the feed, and keeping the two answers APART is what
+still lets a relocation dedent that line - its leading margin is code layout, its trailing margin is
+value. **The transferable question: for any property of a span, does the check ask it at both
+edges?** The first version of the fix was reviewed, tested and wrong in the half nobody probed.
+
+**AND A MUTATION TABLE IS NOT A CENSUS. A table proves the cells you chose; a census finds the one
+you did not.** An 8-mutation census over this check killed 7 by name and left one alive: widen
+`relocation`'s position check to exempt any `#`-prefixed line and **all sixteen tests still passed**,
+because every one of them reached the multiset instead. The gap was exact - position is the SOLE
+refusal for an ATTRIBUTE moved out of production into a test file, since removing it once and adding
+it once BALANCES - so the comment half of that claim was asserted and the attribute half was not.
+**That is `#636`'s own finding one level down**, an exemption widening into a permission, which is
+why it earned the same treatment: a regression cell, measured to fail under exactly that mutation
+and under no other. The cell asserts the multiset is NOT doing the work, so it cannot be satisfied
+for the wrong reason.
