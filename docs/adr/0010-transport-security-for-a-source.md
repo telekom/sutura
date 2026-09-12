@@ -46,11 +46,11 @@ on public TLS, one local file with no transport at all.
 
 What a source declaration may carry:
 
-| | |
-| --- | --- |
-| client certificate and key | What sutura presents. The key is a secret and travels as one, with the redaction that implies |
+|                              |                                                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| client certificate and key   | What sutura presents. The key is a secret and travels as one, with the redaction that implies         |
 | trust anchors for the source | Which certificate authority signs the SOURCE's chain, so verification is explicit rather than ambient |
-| server name | Verified against the presented chain, and separate from the host actually dialled |
+| server name                  | Verified against the presented chain, and separate from the host actually dialled                     |
 
 Four rules, each with the failure it prevents:
 

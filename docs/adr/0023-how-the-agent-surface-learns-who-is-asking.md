@@ -25,15 +25,15 @@ Every row below was read off `origin/main` at `5ae3bde` on 2026-09-06, with
 `git cat-file blob origin/main:<path>` and `git grep -n <pattern> origin/main -- <path>`. The
 command is written here because a bare figure in prose is one nobody can re-check.
 
-| Measured | Value |
-| --- | --- |
-| occurrences of `broker`, case-insensitive, in the agent surface's composition root `crates/sutura-cli/src/mcp.rs` | **0**. `git cat-file blob origin/main:crates/sutura-cli/src/mcp.rs \| grep -c -i broker` over a file `grep -c ''` reports at 471 lines |
-| `crates/sutura-mcp/src/lib.rs:162` | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through** |
-| what that function opens | `rmcp::transport::stdio()` - the process's own pipes |
-| `crates/sutura-mcp/Cargo.toml` first-party dependencies | `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`. **No adapter and no broker** |
-| the chain the agent surface establishes | `crates/sutura-mcp/src/principal.rs`: `pub(crate) const fn established() -> RequestContext` returning `RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))` - **a `const fn` with no inputs**, which is the honest shape for a transport that authenticates nobody |
-| what capabilities that surface grants | `crates/sutura-cli/src/mcp.rs:133` and `:233` pass `Permitted::every_capability()`, fixed at construction |
-| the same question on the HTTP surface | `crates/sutura-http/src/capability.rs:138` `pub fn permitted_for(request: &Request) -> Permitted`, **per request**, from the verified caller's scopes |
+| Measured                                                                                                          | Value                                                                                                                                                                                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| occurrences of `broker`, case-insensitive, in the agent surface's composition root `crates/sutura-cli/src/mcp.rs` | **0**. `git cat-file blob origin/main:crates/sutura-cli/src/mcp.rs \| grep -c -i broker` over a file `grep -c ''` reports at 471 lines                                                                                                                                              |
+| `crates/sutura-mcp/src/lib.rs:162`                                                                                | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through**                                                                                                                                                      |
+| what that function opens                                                                                          | `rmcp::transport::stdio()` - the process's own pipes                                                                                                                                                                                                                                |
+| `crates/sutura-mcp/Cargo.toml` first-party dependencies                                                           | `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`. **No adapter and no broker**                                                                                                                                                                                      |
+| the chain the agent surface establishes                                                                           | `crates/sutura-mcp/src/principal.rs`: `pub(crate) const fn established() -> RequestContext` returning `RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))` - **a `const fn` with no inputs**, which is the honest shape for a transport that authenticates nobody |
+| what capabilities that surface grants                                                                             | `crates/sutura-cli/src/mcp.rs:133` and `:233` pass `Permitted::every_capability()`, fixed at construction                                                                                                                                                                           |
+| the same question on the HTTP surface                                                                             | `crates/sutura-http/src/capability.rs:138` `pub fn permitted_for(request: &Request) -> Permitted`, **per request**, from the verified caller's scopes                                                                                                                               |
 
 Two things follow, and they are different. The first is that the pipe is the cause: a `Permitted`
 fixed at construction and a `const fn` chain are both correct for a transport whose caller is
@@ -391,10 +391,10 @@ measured here.
 
 Concretely, three cases and one answer each:
 
-| Case | Answer |
-| --- | --- |
-| no verified caller on the request | refuse; never the deployment's own identity |
-| a verified caller, exchange refused by the provider | refuse; never an earlier hop's credential and never the source's own |
+| Case                                                                | Answer                                                                    |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| no verified caller on the request                                   | refuse; never the deployment's own identity                               |
+| a verified caller, exchange refused by the provider                 | refuse; never an earlier hop's credential and never the source's own      |
 | a verified caller, no workload declared for an impersonating source | refuse as `credential_unavailable`, which is the port's existing fallback |
 
 ## Ordering, fixed

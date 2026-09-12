@@ -1,24 +1,26 @@
 //! The dprint exclusion list is pinned, because a formatter's blind spot grows in silence.
 //!
-//! THIRTEEN PATHS ARE EXCLUDED AND SEVEN OF THEM ARE ARGUED, each by a named mechanism a reformat
-//! would break: `check-api-docs` byte-compares the generated pages against a fresh generation,
-//! `check-skills` reads content-hash-locked imports and reported 23 as local forks the one time
-//! dprint saw them, `check-gate-classification` and `check-venues` match table rows as exact lines
-//! that cell padding defeats, a digest pins the catalog fixture, and a vendored tree's whole value
-//! is a readable diff against upstream. Those are permanent, and `dprint.json` argues each in
-//! place.
+//! SEVEN PATHS ARE EXCLUDED AND EACH NAMES A MECHANISM a reformat would break: `check-api-docs`
+//! byte-compares the generated pages against a fresh generation, `check-skills` reads
+//! content-hash-locked imports and reported 23 as local forks the one time dprint saw them,
+//! `check-gate-classification` and `check-venues` match table rows as exact lines that cell padding
+//! defeats, a digest pins the catalog fixture, and a vendored tree's whole value is a readable diff
+//! against upstream. `dprint.json` argues each in place.
 //!
-//! THE OTHER SIX ARE NOT ARGUED. `dprint.json` calls them "work in flight" and "a follow-up, not a
-//! policy" - which is a rule with no mechanism, and this test is the mechanism. They cover 32
-//! tracked text files that no formatter inspects, and before this pin nothing in the tree would
-//! have noticed a seventh being added: the gate would stay green while its coverage shrank, which
-//! is the failure mode a formatter is least likely to be caught in.
+//! THE SIX THAT WERE DEFERRED WORK ARE GONE, by the owner's decision. `dprint.json` called them
+//! "work in flight" and "a follow-up, not a policy" - a rule with no mechanism - and they hid 32
+//! tracked files from the formatter, 28 ADRs among them. Coverage is now 154 of 276 candidates,
+//! where it was 120 of 274, and the deferred group is EMPTY.
 //!
-//! THE PIN IS THE ENTRY LIST AND NOT THE FILE COUNT, which is a measurement rather than a taste.
-//! `docs/adr/**` alone is 27 of those 32 files, so a count pinned at 32 would refuse the next ADR
-//! anybody writes - an unrelated lane reddened by an exclusion it never touched, and the repair a
-//! reviewer reaches for first is to bump the number without reading why. The glob list moves only
-//! when somebody changes what is excluded, and that is the event worth refusing.
+//! THE PIN IS THE ENTRY LIST, so an exclusion cannot be added, removed or reworded without editing
+//! it, which is the moment somebody has to say which mechanism it protects. [`RETIRED`] names the
+//! six separately, so re-adding one fails with its own reason rather than passing as a new entry.
+//!
+//! MEASURED BEFORE THE SIX WERE DROPPED, because the risk was real and specific: dprint pads table
+//! cells, and ADR tables do get padded - ADR 0012's impersonation row now carries 100+ spaces. No
+//! gate matches an ADR row. The one gate-matched needle in an ADR is
+//! `guidance::claims::contradicted`'s "3016 sysroot files" in ADR 0025, which is PROSE, and
+//! `textWrap: maintain` does not move a prose line break.
 
 #![cfg(test)]
 
@@ -34,18 +36,12 @@ const EXCLUDED: &[&str] = &[
     "docs/implementation-plan-identity-and-services.md",
     "docs/where-identity-is-proven.md",
     "test-infra/README.md",
-    "docs/adr/**",
-    "crates/sutura-conformance/**",
-    ".github/workflows/ci.yml",
-    ".github/workflows/cross-link.yml",
-    ".github/workflows/docs.yml",
-    ".github/actionlint.yaml",
 ];
 
-/// The subset excluded only because work is in flight over it, and the reason this file exists.
-/// A path LEAVING this list is a blind spot closed and wants no ceremony; a path ARRIVING needs an
-/// argument written beside it in `dprint.json`, which is what editing this pin makes someone do.
-const IN_FLIGHT: &[&str] = &[
+/// The six exclusions that were deferred work rather than a mechanism, dropped when the owner
+/// decided them and the formatter was pointed at what they hid. Named here rather than simply
+/// deleted, so re-adding one fails with its own reason instead of passing as a new entry.
+const RETIRED: &[&str] = &[
     "docs/adr/**",
     "crates/sutura-conformance/**",
     ".github/workflows/ci.yml",
@@ -86,7 +82,7 @@ fn excluded(config: &str) -> Vec<&str> {
 }
 
 #[test]
-fn the_dprint_exclusions_are_pinned_and_the_unargued_group_has_not_grown() {
+fn the_dprint_exclusions_are_pinned_and_no_deferred_exclusion_came_back() {
     // `expect` and not a skip: a pin that silently inspects nothing is worse than no pin.
     let config = std::fs::read_to_string(root().join("dprint.json")).expect("dprint.json is readable");
     let found = excluded(&config);
@@ -96,16 +92,12 @@ fn the_dprint_exclusions_are_pinned_and_the_unargued_group_has_not_grown() {
         "dprint.json's excludes moved - argue the change, then pin it"
     );
 
-    // The reader must not be able to drift from the file: an in-flight path that is no longer
-    // excluded at all would otherwise sit here forever, overstating the hole it describes.
-    for path in IN_FLIGHT {
-        assert!(found.contains(path), "{path} is pinned as in-flight but is not excluded");
+    // The deferred group is empty and must not grow back. Re-adding one of the six reads as a
+    // normal new entry to the assertion above; here it reads as the thing it is.
+    for path in RETIRED {
+        assert!(
+            !found.contains(path),
+            "{path} was retired as deferred work - excluding it again needs a mechanism, not a follow-up"
+        );
     }
-
-    let unargued = found.iter().filter(|path| IN_FLIGHT.contains(path)).count();
-    assert_eq!(
-        unargued, 6,
-        "the unargued exclusions changed: {unargued} in the file, 6 pinned - a new one needs an \
-         argument in dprint.json, and a removed one should shrink this pin"
-    );
 }

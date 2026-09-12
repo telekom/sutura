@@ -42,11 +42,11 @@ dependencies.
 
 Three answers were possible and each implies different work:
 
-| If DataHub supplies | It is | What it costs |
-| --- | --- | --- |
-| complete `Definitions` | a second adapter held to the golden adapters' own contract | low - a registration, as the invariant promises |
-| descriptions and a glossary only | a `Knowledge` source, which this repository confines to descriptive content with the prompt as its only consumer | a different feature, arguably a different port |
-| **part** - the physical model and the prose, the measure still authored | a **declaring** adapter: it says which kinds it provides and which it does not, and is tested against that | a required capability declaration on `SemanticCatalog`, which does not exist yet |
+| If DataHub supplies                                                     | It is                                                                                                            | What it costs                                                                    |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| complete `Definitions`                                                  | a second adapter held to the golden adapters' own contract                                                       | low - a registration, as the invariant promises                                  |
+| descriptions and a glossary only                                        | a `Knowledge` source, which this repository confines to descriptive content with the prompt as its only consumer | a different feature, arguably a different port                                   |
+| **part** - the physical model and the prose, the measure still authored | a **declaring** adapter: it says which kinds it provides and which it does not, and is tested against that       | a required capability declaration on `SemanticCatalog`, which does not exist yet |
 
 **It is the third.** The reason is not the one that was expected, and the difference matters enough to
 be the substance of this record: the expectation was that DataHub has no metric at all. As of
@@ -65,16 +65,16 @@ signature. `SemanticCatalog::load` returns a `PinnedDefinitions`; its two halves
 and a `Knowledge`; and `Definitions::assemble` is the only constructor of the first. So *can a source
 express our model* is really *can it fill these fields, and survive these checks.*
 
-| What has to be filled | The type in `sutura-domain` |
-| --- | --- |
-| a physical table and the column set it exposes | `Model` - `ModelName`, `SourceName`, `TableName`, `BTreeSet<ColumnName>`, `Description` |
-| a join | `Relationship` - a name, two `(ModelName, ColumnName)` endpoints, and a `JoinType` of `OneToOne`, `ManyToOne` or `OneToMany` |
-| what a metric measures | `Measure` - `Simple(Term)` or `Ratio { numerator, denominator, zero_denominator }`, over a `Term` of `Aggregate(AggregatedColumn)` or `CountIf { column }`, where `Aggregate` is the closed set `sum`, `count`, `count_distinct`, `avg`, `min`, `max` |
-| a predicate that is part of what the metric MEANS | `Vec<RequiredFilter>` - `Equals`, `NotEquals`, `IsTrue`, `IsNotNull`, values typed as `DimensionValue` |
-| when, and at what resolution | `ColumnName` plus a `BTreeSet<Grain>` |
-| what it may be broken down by | `Dimension` - a column, optionally `via` one relationship, optionally an allowlist of at most `MAX_VALUES_PER_DIMENSION` values |
-| the number it produced when it was certified | `Option<Anchor>` - a `TimeRange` and a value as text |
-| what a reader has to know | `Knowledge` - phrases, caveats, reviewed absences and worked examples, each carrying a `Referent` that names a metric, a dimension of one, or a declared value of one |
+| What has to be filled                             | The type in `sutura-domain`                                                                                                                                                                                                                           |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a physical table and the column set it exposes    | `Model` - `ModelName`, `SourceName`, `TableName`, `BTreeSet<ColumnName>`, `Description`                                                                                                                                                               |
+| a join                                            | `Relationship` - a name, two `(ModelName, ColumnName)` endpoints, and a `JoinType` of `OneToOne`, `ManyToOne` or `OneToMany`                                                                                                                          |
+| what a metric measures                            | `Measure` - `Simple(Term)` or `Ratio { numerator, denominator, zero_denominator }`, over a `Term` of `Aggregate(AggregatedColumn)` or `CountIf { column }`, where `Aggregate` is the closed set `sum`, `count`, `count_distinct`, `avg`, `min`, `max` |
+| a predicate that is part of what the metric MEANS | `Vec<RequiredFilter>` - `Equals`, `NotEquals`, `IsTrue`, `IsNotNull`, values typed as `DimensionValue`                                                                                                                                                |
+| when, and at what resolution                      | `ColumnName` plus a `BTreeSet<Grain>`                                                                                                                                                                                                                 |
+| what it may be broken down by                     | `Dimension` - a column, optionally `via` one relationship, optionally an allowlist of at most `MAX_VALUES_PER_DIMENSION` values                                                                                                                       |
+| the number it produced when it was certified      | `Option<Anchor>` - a `TimeRange` and a value as text                                                                                                                                                                                                  |
+| what a reader has to know                         | `Knowledge` - phrases, caveats, reviewed absences and worked examples, each carrying a `Referent` that names a metric, a dimension of one, or a declared value of one                                                                                 |
 
 Two of those are worth restating because they are the checks rather than the fields.
 `Definitions::assemble` **refuses** a dimension reached through a relationship whose declared
@@ -113,20 +113,20 @@ other side of.
 
 ### The shapes, verbatim
 
-| Schema | Fields, as read |
-| --- | --- |
-| `metric/MetricInfo.pdl` | `name: string`, `description: optional string`, `created`, `lastModified`, `semanticModel: optional Urn`, `expression: optional MetricExpression`. **That is the entire calculation surface.** |
-| `metric/MetricExpression.pdl` | one field: `dialects: array[DialectExpression]` |
-| `metric/DialectExpression.pdl` | `dialect: Dialect`, `expression: string` - doc comment *"The raw expression string."* |
-| `metric/Dialect.pdl` | `ANSI_SQL`, `SNOWFLAKE`, `MDX`, `TABLEAU`, `DATABRICKS`, `MAQL`, `OTHER` |
-| `semanticmodel/SemanticFieldAnnotation.pdl` | `type: SemanticFieldType`, `expression: MetricExpression`, `aggregationFunction: optional string`, `dimension: optional Dimension` |
-| `semanticmodel/SemanticFieldType.pdl` | `DIMENSION`, `MEASURE`, `FILTER`, `OTHER` |
-| `semanticmodel/Dimension.pdl` | one field: `isTime: boolean = false`, and the record documents itself as intentionally minimal |
-| `semanticmodel/SemanticModelRelationship.pdl` | `name`, `from`, `fromColumns`, `to`, `toColumns`, `aiContext`, `cardinality: optional ERModelRelationshipCardinality` |
-| `ermodelrelation/ERModelRelationshipCardinality.pdl` | `ONE_ONE`, `ONE_N`, `N_ONE`, `N_N` |
-| `schema/SchemaMetadata.pdl` | `fields: array[SchemaField]`, `primaryKeys: optional array[SchemaFieldPath]`, `foreignKeys: optional array[ForeignKeyConstraint]`, plus a deprecated `foreignKeysSpecs` |
-| `schema/ForeignKeyConstraint.pdl` | `name`, `sourceFields: array[Urn]`, `foreignFields: array[Urn]`, `foreignDataset: Urn`. **No cardinality field.** |
-| `glossary/GlossaryTermInfo.pdl` | `id`, `name`, `definition: string`, `parentNode`, `termSource`, `sourceRef`, `sourceUrl`, a deprecated `rawSchema`, plus custom properties. **No synonyms field.** |
+| Schema                                               | Fields, as read                                                                                                                                                                                |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metric/MetricInfo.pdl`                              | `name: string`, `description: optional string`, `created`, `lastModified`, `semanticModel: optional Urn`, `expression: optional MetricExpression`. **That is the entire calculation surface.** |
+| `metric/MetricExpression.pdl`                        | one field: `dialects: array[DialectExpression]`                                                                                                                                                |
+| `metric/DialectExpression.pdl`                       | `dialect: Dialect`, `expression: string` - doc comment *"The raw expression string."*                                                                                                          |
+| `metric/Dialect.pdl`                                 | `ANSI_SQL`, `SNOWFLAKE`, `MDX`, `TABLEAU`, `DATABRICKS`, `MAQL`, `OTHER`                                                                                                                       |
+| `semanticmodel/SemanticFieldAnnotation.pdl`          | `type: SemanticFieldType`, `expression: MetricExpression`, `aggregationFunction: optional string`, `dimension: optional Dimension`                                                             |
+| `semanticmodel/SemanticFieldType.pdl`                | `DIMENSION`, `MEASURE`, `FILTER`, `OTHER`                                                                                                                                                      |
+| `semanticmodel/Dimension.pdl`                        | one field: `isTime: boolean = false`, and the record documents itself as intentionally minimal                                                                                                 |
+| `semanticmodel/SemanticModelRelationship.pdl`        | `name`, `from`, `fromColumns`, `to`, `toColumns`, `aiContext`, `cardinality: optional ERModelRelationshipCardinality`                                                                          |
+| `ermodelrelation/ERModelRelationshipCardinality.pdl` | `ONE_ONE`, `ONE_N`, `N_ONE`, `N_N`                                                                                                                                                             |
+| `schema/SchemaMetadata.pdl`                          | `fields: array[SchemaField]`, `primaryKeys: optional array[SchemaFieldPath]`, `foreignKeys: optional array[ForeignKeyConstraint]`, plus a deprecated `foreignKeysSpecs`                        |
+| `schema/ForeignKeyConstraint.pdl`                    | `name`, `sourceFields: array[Urn]`, `foreignFields: array[Urn]`, `foreignDataset: Urn`. **No cardinality field.**                                                                              |
+| `glossary/GlossaryTermInfo.pdl`                      | `id`, `name`, `definition: string`, `parentNode`, `termSource`, `sourceRef`, `sourceUrl`, a deprecated `rawSchema`, plus custom properties. **No synonyms field.**                             |
 
 Each of those was read at
 `https://raw.githubusercontent.com/datahub-project/datahub/master/metadata-models/src/main/pegasus/com/linkedin/<path>`
@@ -143,21 +143,21 @@ pedantic: one aspect's schema version already differs between the tag and the br
 
 ## Field by field
 
-| What we need | What DataHub has | Verdict |
-| --- | --- | --- |
-| `Model.table`, `.columns` | a `dataset` entity with `schemaMetadata.fields` | **faithful** |
-| `Model.source` | the `dataPlatform` URN, and `dataPlatformInstance` | **faithful**, with a name mapping a deployment decides |
-| `Model.description` | `datasetProperties`, `editableDatasetProperties`, `documentation`, `institutionalMemory` | **faithful, and richer than ours** - separate ingested and human-edited prose, and multiple documentation sources |
-| `Relationship` endpoints | `SemanticModelRelationship.from`/`fromColumns`/`to`/`toColumns`, or `schemaMetadata.foreignKeys` | **faithful, and WIDER**: both are arrays, so a multi-column join is expressible where ours is one column each |
-| `Relationship.join_type` | `SemanticModelRelationship.cardinality`, and `ERModelRelationshipProperties.cardinality` | **present, and declared unsupported anyway** - see below |
-| `Measure` | `MetricInfo.expression`, or a `MEASURE`-annotated field's `aggregationFunction` | **NOT faithful** - see below |
-| `Metric.required_filters` | nothing first-class | **absent** - see below |
-| `Metric.time_column` | `Dimension.isTime` marks a dimension as temporal | **partly**: which dimension is time, not which column a metric measures time on |
-| `Metric.grains` | nothing | **absent.** No grain, no resolution, no time-bucket vocabulary anywhere in the two packages |
-| `Dimension.allowed_values` | nothing on a field. `glossaryRelatedTerms.values` is a term-to-term `HasValue` edge; `structuredProperty` has an `allowedValues` array bounding its OWN value | **absent** for a column allowlist. Both near-misses are enumerations over something else |
-| `Anchor` | nothing, and by design - see the FAQ quoted above | **absent** |
-| `Knowledge` glossary | `glossaryTerm` with a required `definition`, `glossaryNode` for hierarchy, `glossaryRelatedTerms` for `IsA`/`HasA`/`HasValue`/`IsRelatedTo` | **partly** - rich, and no synonym field; a second spelling has to be a second term related to the first |
-| lineage | `upstreamLineage`, `fineGrainedLineages`, `metricUpstreams` with dataset and field edges | **we have no shape at all** - see below |
+| What we need               | What DataHub has                                                                                                                                              | Verdict                                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `Model.table`, `.columns`  | a `dataset` entity with `schemaMetadata.fields`                                                                                                               | **faithful**                                                                                                      |
+| `Model.source`             | the `dataPlatform` URN, and `dataPlatformInstance`                                                                                                            | **faithful**, with a name mapping a deployment decides                                                            |
+| `Model.description`        | `datasetProperties`, `editableDatasetProperties`, `documentation`, `institutionalMemory`                                                                      | **faithful, and richer than ours** - separate ingested and human-edited prose, and multiple documentation sources |
+| `Relationship` endpoints   | `SemanticModelRelationship.from`/`fromColumns`/`to`/`toColumns`, or `schemaMetadata.foreignKeys`                                                              | **faithful, and WIDER**: both are arrays, so a multi-column join is expressible where ours is one column each     |
+| `Relationship.join_type`   | `SemanticModelRelationship.cardinality`, and `ERModelRelationshipProperties.cardinality`                                                                      | **present, and declared unsupported anyway** - see below                                                          |
+| `Measure`                  | `MetricInfo.expression`, or a `MEASURE`-annotated field's `aggregationFunction`                                                                               | **NOT faithful** - see below                                                                                      |
+| `Metric.required_filters`  | nothing first-class                                                                                                                                           | **absent** - see below                                                                                            |
+| `Metric.time_column`       | `Dimension.isTime` marks a dimension as temporal                                                                                                              | **partly**: which dimension is time, not which column a metric measures time on                                   |
+| `Metric.grains`            | nothing                                                                                                                                                       | **absent.** No grain, no resolution, no time-bucket vocabulary anywhere in the two packages                       |
+| `Dimension.allowed_values` | nothing on a field. `glossaryRelatedTerms.values` is a term-to-term `HasValue` edge; `structuredProperty` has an `allowedValues` array bounding its OWN value | **absent** for a column allowlist. Both near-misses are enumerations over something else                          |
+| `Anchor`                   | nothing, and by design - see the FAQ quoted above                                                                                                             | **absent**                                                                                                        |
+| `Knowledge` glossary       | `glossaryTerm` with a required `definition`, `glossaryNode` for hierarchy, `glossaryRelatedTerms` for `IsA`/`HasA`/`HasValue`/`IsRelatedTo`                   | **partly** - rich, and no synonym field; a second spelling has to be a second term related to the first           |
+| lineage                    | `upstreamLineage`, `fineGrainedLineages`, `metricUpstreams` with dataset and field edges                                                                      | **we have no shape at all** - see below                                                                           |
 
 ## The four sticking points
 
@@ -466,21 +466,21 @@ what makes the source safe to use. **Every *does NOT provide* below that a deplo
 property can supply is narrowed by the *Amendment, 2026-09-02*** to a declared-and-empty may-provide, and
 the adapter's own capability declaration - not this table - is the authority for which those are:
 
-| Kind | DataHub declares | On the evidence of |
-| --- | --- | --- |
-| Structure - tables, columns, types | **provides** | `dataset` + `schemaMetadata.fields` |
-| Descriptions | **provides**, and richer than ours | four aspects, ingested and human-edited kept apart |
-| Relationships - the join columns | **provides**, with a caveat below | `SemanticModelRelationship`, or `schemaMetadata.foreignKeys` |
-| Relationship CARDINALITY | **does NOT provide** | optional on the semantic join; on the physical relationship it *defaults to `N_N`*, so a default is indistinguishable from a decision |
-| Metrics and measures | **does NOT provide** | `MetricInfo.expression` is a raw string in a dialect set that does not intersect ours; `aggregationFunction` contradicts it with nothing reconciling the two |
-| Definitional filters | **does NOT provide** | no aspect carries a predicate; the nearest record has no `@Aspect`; structured properties are scalars |
-| Grains | **does NOT provide** | nothing in either package; `Dimension` is one boolean |
-| Value allowlists | **does NOT provide** | no field-level enumeration; the two near-misses enumerate something else |
-| Anchors | **does NOT provide** | DataHub's own FAQ: value computation stays in the BI tool |
-| Glossary phrases | **provides, conditionally** | `AiContext.synonyms` plus `glossaryTermInfo.definition` - and only where the bundle already declares a metric for a `Referent` to name |
-| Caveats | **provides, conditionally** | `institutionalMemory`, `documentation`, `deprecation.note` - same `Referent` condition |
-| Reviewed absences | **does NOT provide** | there is no *deliberately undefined* concept; `deprecation` and `status.removed` are different claims |
-| Worked examples | **does NOT provide** | `AiContext.examples` is free text, and an `Example` must carry a `Query` that validates against the metric's grains, dimensions and allowlists |
+| Kind                               | DataHub declares                   | On the evidence of                                                                                                                                           |
+| ---------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Structure - tables, columns, types | **provides**                       | `dataset` + `schemaMetadata.fields`                                                                                                                          |
+| Descriptions                       | **provides**, and richer than ours | four aspects, ingested and human-edited kept apart                                                                                                           |
+| Relationships - the join columns   | **provides**, with a caveat below  | `SemanticModelRelationship`, or `schemaMetadata.foreignKeys`                                                                                                 |
+| Relationship CARDINALITY           | **does NOT provide**               | optional on the semantic join; on the physical relationship it *defaults to `N_N`*, so a default is indistinguishable from a decision                        |
+| Metrics and measures               | **does NOT provide**               | `MetricInfo.expression` is a raw string in a dialect set that does not intersect ours; `aggregationFunction` contradicts it with nothing reconciling the two |
+| Definitional filters               | **does NOT provide**               | no aspect carries a predicate; the nearest record has no `@Aspect`; structured properties are scalars                                                        |
+| Grains                             | **does NOT provide**               | nothing in either package; `Dimension` is one boolean                                                                                                        |
+| Value allowlists                   | **does NOT provide**               | no field-level enumeration; the two near-misses enumerate something else                                                                                     |
+| Anchors                            | **does NOT provide**               | DataHub's own FAQ: value computation stays in the BI tool                                                                                                    |
+| Glossary phrases                   | **provides, conditionally**        | `AiContext.synonyms` plus `glossaryTermInfo.definition` - and only where the bundle already declares a metric for a `Referent` to name                       |
+| Caveats                            | **provides, conditionally**        | `institutionalMemory`, `documentation`, `deprecation.note` - same `Referent` condition                                                                       |
+| Reviewed absences                  | **does NOT provide**               | there is no *deliberately undefined* concept; `deprecation` and `status.removed` are different claims                                                        |
+| Worked examples                    | **does NOT provide**               | `AiContext.examples` is free text, and an `Example` must carry a `Query` that validates against the metric's grains, dimensions and allowlists               |
 
 **Two of those are "does not provide" where the field EXISTS, and that is the interesting kind.**
 Cardinality and the measure are both present in DataHub and both declared unsupported here - not

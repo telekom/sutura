@@ -49,15 +49,7 @@
     // page is excluded rather than the constant rewritten.
     "docs/implementation-plan-identity-and-services.md",
     "docs/where-identity-is-proven.md",
-    "test-infra/README.md",
-    // Work in flight, kept out so a reformat does not manufacture a conflict. Each is a
-    // follow-up, not a policy.
-    "docs/adr/**",
-    "crates/sutura-conformance/**",
-    ".github/workflows/ci.yml",
-    ".github/workflows/cross-link.yml",
-    ".github/workflows/docs.yml",
-    ".github/actionlint.yaml"
+    "test-infra/README.md"
   ],
   // Empty on purpose: `nix/dprint.nix` supplies the three plugins as store paths.
   "plugins": []

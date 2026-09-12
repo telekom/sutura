@@ -24,13 +24,13 @@ people actually certify.
 Measured rather than argued. Against the seven metrics of a real semantic layer, that vocabulary
 could express **two**. These are the five it could not:
 
-| Metric | What it means | What was missing |
-| --- | --- | --- |
-| `mrr` | `SUM(mrr_eur)`, over rows where `status = 'active'` | The aggregate fitted. The filter had no field at all |
-| `active_subscribers` | `COUNT(DISTINCT subscription_key)`, over the same rows | The same absent field |
-| `arpu` | `SUM(mrr_eur) / COUNT(DISTINCT customer_key)` | A ratio of two aggregates over two different columns |
-| `churn_rate` | `COUNTIF(churned_in_month) / COUNT(DISTINCT subscription_key)` | A ratio, and a conditional count inside it |
-| `avg_data_usage_gb` | `SUM(data_gb) / COUNT(DISTINCT subscription_key)` | A ratio again |
+| Metric               | What it means                                                  | What was missing                                     |
+| -------------------- | -------------------------------------------------------------- | ---------------------------------------------------- |
+| `mrr`                | `SUM(mrr_eur)`, over rows where `status = 'active'`            | The aggregate fitted. The filter had no field at all |
+| `active_subscribers` | `COUNT(DISTINCT subscription_key)`, over the same rows         | The same absent field                                |
+| `arpu`               | `SUM(mrr_eur) / COUNT(DISTINCT customer_key)`                  | A ratio of two aggregates over two different columns |
+| `churn_rate`         | `COUNTIF(churned_in_month) / COUNT(DISTINCT subscription_key)` | A ratio, and a conditional count inside it           |
+| `avg_data_usage_gb`  | `SUM(data_gb) / COUNT(DISTINCT subscription_key)`              | A ratio again                                        |
 
 Two gaps, then, and each of them appears more than once: a predicate that is part of what the metric
 means, with nowhere to write it, and an aggregate divided by another aggregate.
@@ -51,15 +51,15 @@ Two levels. A **term** is what one number is computed from; a **shape** says how
 is a variant the generator has an arm for, and each is named by a word the author writes rather than
 inferred from which fields happen to be present:
 
-| Term | What it says | Why it is not a special case of the other |
-| --- | --- | --- |
-| `aggregate` | One aggregate from the closed set, over one declared column: `SUM(amount_cents)` | It is the original vocabulary, unchanged |
-| `count_if` | How many rows have this boolean column true | `COUNT(col)` counts non-null rows, so it counts the `false` ones too. Saying "how many are true" as a count of a boolean column is a wrong number that raises no error, and rendering it correctly differs per dialect |
+| Term        | What it says                                                                     | Why it is not a special case of the other                                                                                                                                                                              |
+| ----------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aggregate` | One aggregate from the closed set, over one declared column: `SUM(amount_cents)` | It is the original vocabulary, unchanged                                                                                                                                                                               |
+| `count_if`  | How many rows have this boolean column true                                      | `COUNT(col)` counts non-null rows, so it counts the `false` ones too. Saying "how many are true" as a count of a boolean column is a wrong number that raises no error, and rendering it correctly differs per dialect |
 
-| Shape | What it says | Why it is not a special case of the other |
-| --- | --- | --- |
-| `simple` | One term | It is the original vocabulary, unchanged |
-| `ratio` | One term divided by another, over possibly different columns | `SUM(revenue) / COUNT(DISTINCT customer)` is not the mean of a column, and computing it as `avg(revenue)` is a different and wrong number |
+| Shape    | What it says                                                 | Why it is not a special case of the other                                                                                                 |
+| -------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `simple` | One term                                                     | It is the original vocabulary, unchanged                                                                                                  |
+| `ratio`  | One term divided by another, over possibly different columns | `SUM(revenue) / COUNT(DISTINCT customer)` is not the mean of a column, and computing it as `avg(revenue)` is a different and wrong number |
 
 Beside them, `required_filters`: predicates over the metric's own columns, with four operators -
 `equals`, `not_equals`, `is_true`, `is_not_null`.
@@ -156,15 +156,15 @@ cannot parse.
 Every guarantee the earlier record listed still has the same mechanism behind it. These are the ones
 this decision could plausibly have broken:
 
-| Guarantee | Still held by |
-| --- | --- |
-| A catalog holds no free-text SQL | Every shape, every term and every operator is an enum variant, with `deny_unknown_fields` at every depth. An unrecognised shape or term is an error naming what it found, and a misspelled key is a load failure rather than a field silently dropped. A term is read through a `try_from` struct rather than by an external tag, because the tag word and the field word would be the same word; `#[serde(untagged)]` is refused for the reason it always was - it reports "data did not match any variant", which names nothing |
-| No value from a question reaches the statement as text | Unchanged, and now wider than the question: a definitional filter's value is bound too, so the generator has one path for a value rather than two |
-| Every column a measure reads is a column its model declares | `Measure::columns()` reports all of them in one place and the consistency check walks it - now as `Term::column` mapped over `Measure::terms`, so a term cannot be reported by one shape and forgotten by another. A shape whose second column went unreported would let a metric name a column its model does not have, which is why the ratio shape reporting both is a test rather than a convention |
-| A join cannot silently change a measure | A relationship declares its cardinality, and a dimension reached through one that may duplicate rows is refused. The ratio shape raises the stakes without changing the mechanism: fan-out corrupts a denominator as readily as a sum |
-| Two result columns cannot share a label | Unchanged. A measure is projected under the metric's own name, and a dimension may not take that label or the time bucket's |
-| A definition cannot change meaning between two invocations | The digest is over the canonical form of the parsed definitions, so a new shape or an added required filter moves it, and it travels with the answer |
-| No SQL, table, predicate or row id on the tool surface | `Query` still has no field for one. This decision widens what a *catalog* may say and nothing about what a *caller* may say - and a required filter is the sharpest case of that, being a predicate the caller can neither express, see, nor remove |
+| Guarantee                                                   | Still held by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A catalog holds no free-text SQL                            | Every shape, every term and every operator is an enum variant, with `deny_unknown_fields` at every depth. An unrecognised shape or term is an error naming what it found, and a misspelled key is a load failure rather than a field silently dropped. A term is read through a `try_from` struct rather than by an external tag, because the tag word and the field word would be the same word; `#[serde(untagged)]` is refused for the reason it always was - it reports "data did not match any variant", which names nothing |
+| No value from a question reaches the statement as text      | Unchanged, and now wider than the question: a definitional filter's value is bound too, so the generator has one path for a value rather than two                                                                                                                                                                                                                                                                                                                                                                                 |
+| Every column a measure reads is a column its model declares | `Measure::columns()` reports all of them in one place and the consistency check walks it - now as `Term::column` mapped over `Measure::terms`, so a term cannot be reported by one shape and forgotten by another. A shape whose second column went unreported would let a metric name a column its model does not have, which is why the ratio shape reporting both is a test rather than a convention                                                                                                                           |
+| A join cannot silently change a measure                     | A relationship declares its cardinality, and a dimension reached through one that may duplicate rows is refused. The ratio shape raises the stakes without changing the mechanism: fan-out corrupts a denominator as readily as a sum                                                                                                                                                                                                                                                                                             |
+| Two result columns cannot share a label                     | Unchanged. A measure is projected under the metric's own name, and a dimension may not take that label or the time bucket's                                                                                                                                                                                                                                                                                                                                                                                                       |
+| A definition cannot change meaning between two invocations  | The digest is over the canonical form of the parsed definitions, so a new shape or an added required filter moves it, and it travels with the answer                                                                                                                                                                                                                                                                                                                                                                              |
+| No SQL, table, predicate or row id on the tool surface      | `Query` still has no field for one. This decision widens what a *catalog* may say and nothing about what a *caller* may say - and a required filter is the sharpest case of that, being a predicate the caller can neither express, see, nor remove                                                                                                                                                                                                                                                                               |
 
 One new check arrives with the decision, and it is mechanical rather than argued: **a definitional
 predicate is in the plan for every question about its metric, and its value is in the parameter list
