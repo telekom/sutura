@@ -1172,6 +1172,7 @@ reviewed, so the refusal is what carries the names.
 #### Variants
 
 - `Empty` - Nothing was contributed; a deployment serves at least one metadata source.
+- `Manifest` - The composed contributions are not a manifest: nothing to record, or two of them naming one source. Distinct from `CompositionError::Empty`, which is this function's own check on its input - this one is the manifest refusing to record a composition it cannot represent, and neither of its causes is reachable from here today. `ContributionManifest::parse` states that limit beside its own checks.
 - `NotASingleContribution` - A contribution's own manifest did not name exactly one source, so this bundle cannot say who contributed it. The `count` is what a reader needs: the manifest is supposed to be the per-source record, and a value that failed to be one has nothing to merge under.
 - `VersionMismatch` - Two contributors certify different snapshots. A bundle is one version, and `docs/adr/0011`'s amendment records the decision: two sources certified at different times is the "answers that differ across a refresh boundary" shape, refused rather than papered over.
 - `MetricCollision` - The one interpretation has no precedence, declared or otherwise: two definitions of one number is the failure this system exists to prevent.
