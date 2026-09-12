@@ -25,7 +25,7 @@ use axum::http::StatusCode;
 use sutura_dev::issuer::{MockIssuer, Token};
 
 use crate::testing::{
-    Answered, accepted_by, an_issuer, asked, broker, bundle, declared_inbound, direct_overlay, fake_warehouse, serving,
+    Answered, accepted_by, an_issuer, asked, broker, bundle, declared_inbound, direct_overlay, fake_warehouse, request, serving,
     settings_with,
 };
 
@@ -116,7 +116,6 @@ async fn a_verified_caller_reaches_only_the_routes_its_scopes_name() {
 
     let answered = asked(&app, "GET", "/v1/catalog", Some(&catalog_only)).await;
     assert_eq!(answered.status, StatusCode::OK, "the granted capability is reachable");
-    assert_eq!(answered.cache_control.as_deref(), Some("private, no-store"));
 
     let refused = call(&app, Some(&catalog_only)).await;
     assert_eq!(
@@ -131,6 +130,24 @@ async fn a_verified_caller_reaches_only_the_routes_its_scopes_name() {
     assert_eq!(
         asked(&app, "GET", "/v1/catalog", Some(&ask_only)).await.status,
         StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn a_catalog_response_is_private_and_not_stored() {
+    use tower::ServiceExt as _;
+
+    let issuer = an_issuer();
+    let token = granting(&issuer, sutura_app::Capability::DescribeCatalog.scope());
+    let response = app_verifying(&issuer)
+        .oneshot(request("GET", "/v1/catalog", Some(&token), axum::body::Body::empty()))
+        .await
+        .expect("the router is infallible as a service");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(axum::http::header::CACHE_CONTROL),
+        Some(&axum::http::HeaderValue::from_static("private, no-store"))
     );
 }
 
