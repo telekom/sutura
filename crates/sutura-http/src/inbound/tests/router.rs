@@ -38,9 +38,22 @@ use super::gate_over;
 /// deliberately, because the rotation bound needs a source that changes.
 const UNREAD: &str = "/unread.json";
 
+const METADATA_PATH: &str = "/.well-known/oauth-protected-resource";
+
 /// A router for a deployment that verifies `issuer`, over that issuer's own key set.
 fn app_verifying(issuer: &MockIssuer) -> axum::Router {
     app(&direct_overlay(issuer, UNREAD), Some(&issuer.key_set()))
+}
+
+/// A gateway declaration over `issuer`, whose keys are handed to [`app`] rather than read from here.
+fn gateway_overlay(issuer: &MockIssuer) -> String {
+    format!(
+        "security:\n  inbound:\n    mode: \"behind-gateway\"\n    transit_header: \"X-Transit-Proof\"\n    \
+         transit_issuer: \"{}\"\n    transit_audience: \"{}\"\n    key_set_file: \"{UNREAD}\"\n    \
+         algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n",
+        issuer.issuer(),
+        issuer.audience(),
+    )
 }
 
 /// A router for a deployment whose declaration is `declared`, with a gate over one key set document.
@@ -53,6 +66,26 @@ fn app(declared: &str, document: Option<&str>) -> axum::Router {
 /// One question through the real router, carrying `token` if there is one.
 async fn call(app: &axum::Router, token: Option<&str>) -> Answered {
     asked(app, "POST", "/v1/query", token).await
+}
+
+/// Reads the challenge, if routing one request-target reaches the inbound gate.
+async fn challenge_for(app: &axum::Router, target: &str, host: Option<&str>) -> Option<String> {
+    use tower::ServiceExt as _;
+
+    let mut request = request("POST", target, None, axum::body::Body::from(crate::testing::A_QUESTION));
+    if let Some(host) = host {
+        let value = axum::http::HeaderValue::from_str(host).expect("a test Host is a header value");
+        let _previous = request.headers_mut().insert(axum::http::header::HOST, value);
+    }
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("the router is infallible as a service");
+    response
+        .headers()
+        .get(axum::http::header::WWW_AUTHENTICATE)
+        .map(|challenge| challenge.to_str().expect("the challenge is visible ASCII").into())
 }
 
 /// A token this issuer signed, carrying `scope` and nothing else.
@@ -108,6 +141,153 @@ async fn the_versioned_surface_needs_a_verified_caller_when_one_is_declared() {
         metrics.body.contains("sutura_unauthorized_total 2"),
         "both verified-caller rejections are counted: {}",
         metrics.body
+    );
+}
+
+#[tokio::test]
+async fn an_unauthenticated_client_reads_direct_metadata() {
+    let resource = "https://sutura.example.com/v1/query";
+    let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
+        .expect("a mock issuer generates a key pair");
+    let app = app_verifying(&issuer);
+    let path = format!("{METADATA_PATH}/v1/query");
+    let metadata = asked(&app, "GET", &path, None).await;
+    assert_eq!(metadata.status, StatusCode::OK, "the metadata route is public");
+    let document: serde_json::Value = serde_json::from_str(&metadata.body).expect("the metadata is JSON");
+    assert_eq!(
+        document,
+        serde_json::json!({
+            "resource": resource,
+            "authorization_servers": [issuer.issuer()],
+        })
+    );
+
+    assert_eq!(crate::capability_of(&axum::http::Method::GET, &path), None);
+}
+
+#[tokio::test]
+async fn a_challenge_points_at_metadata_only_for_an_exact_origin_form_resource() {
+    let resource = "https://sutura.example.com/v1/query";
+    let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
+        .expect("a mock issuer generates a key pair");
+
+    let app = app_verifying(&issuer);
+    let bare = "Bearer realm=\"https://sutura.example.com/v1/query\", error=\"invalid_token\"";
+    let challenge = challenge_for(&app, "/v1/query", Some("sutura.example.com"))
+        .await
+        .expect("an origin-form request for the resource reaches the inbound gate");
+    assert_eq!(
+        challenge,
+        format!("{bare}, resource_metadata=\"https://sutura.example.com/.well-known/oauth-protected-resource/v1/query\"")
+    );
+    assert!(!challenge.contains("error_description"));
+
+    for (target, host) in [
+        ("https://sutura.example.com/v1/query", Some("sutura.example.com")),
+        ("HTTPS://sutura.example.com/v1/query", Some("sutura.example.com")),
+        ("http://sutura.example.com/v1/query", Some("sutura.example.com")),
+        ("https://other.example.com/v1/query", Some("sutura.example.com")),
+        ("/v1/query", None),
+        ("/v1/query", Some("Sutura.example.com")),
+        ("/v1/query", Some("sutura.example.com:443")),
+        ("/v1/query?x=1", Some("sutura.example.com")),
+        ("/v1/query/", Some("sutura.example.com")),
+        ("/v1/catalog", Some("sutura.example.com")),
+        ("/v1/query", Some("other.example.com")),
+    ] {
+        let challenge = challenge_for(&app, target, host).await;
+        assert!(
+            challenge.as_deref().is_none_or(|challenge| challenge == bare),
+            "{target} with Host {host:?} is not the configured resource spelling: {challenge:?}"
+        );
+    }
+
+    let spelled_resource = "https://Sutura.Example.com:443/v1/query";
+    let spelled_issuer = MockIssuer::generating(crate::testing::ISSUER, spelled_resource, crate::testing::KID)
+        .expect("a mock issuer generates a key pair");
+    let spelled_app = app_verifying(&spelled_issuer);
+    let spelled_bare = format!("Bearer realm=\"{spelled_resource}\", error=\"invalid_token\"");
+    assert_eq!(
+        challenge_for(&spelled_app, "/v1/query", Some("Sutura.Example.com:443")).await,
+        Some(format!(
+            "{spelled_bare}, resource_metadata=\"https://Sutura.Example.com:443/.well-known/oauth-protected-resource/v1/query\""
+        )),
+        "the configured authority is preserved byte for byte"
+    );
+    assert_eq!(
+        challenge_for(&spelled_app, "/v1/query", Some("sutura.example.com")).await,
+        Some(spelled_bare),
+        "a normalized Host is not the configured resource spelling"
+    );
+    let metadata = asked(&spelled_app, "GET", "/.well-known/oauth-protected-resource/v1/query", None).await;
+    assert_eq!(metadata.status, StatusCode::OK);
+    let document: serde_json::Value = serde_json::from_str(&metadata.body).expect("the metadata is JSON");
+    assert_eq!(document["resource"], spelled_resource);
+
+    let root = an_issuer();
+    assert_eq!(
+        challenge_for(&app_verifying(&root), "/v1/query", Some("sutura.example.com"))
+            .await
+            .as_deref(),
+        Some("Bearer realm=\"https://sutura.example.com\", error=\"invalid_token\""),
+        "root metadata is direct-discovery-only and cannot describe a child URL"
+    );
+}
+
+#[tokio::test]
+async fn direct_metadata_derives_the_rfc_9728_path_for_roots_and_paths() {
+    for (resource, path) in [
+        ("https://sutura.example.com", String::from(METADATA_PATH)),
+        ("https://sutura.example.com/", String::from(METADATA_PATH)),
+        ("https://sutura.example.com/tenant/", format!("{METADATA_PATH}/tenant/")),
+        (
+            "https://sutura.example.com/:tenant/*leaf",
+            format!("{METADATA_PATH}/:tenant/*leaf"),
+        ),
+    ] {
+        let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
+            .expect("a mock issuer generates a key pair");
+        let metadata = asked(&app_verifying(&issuer), "GET", &path, None).await;
+        assert_eq!(metadata.status, StatusCode::OK, "{resource} must be served at {path}");
+        let document: serde_json::Value = serde_json::from_str(&metadata.body).expect("the metadata is JSON");
+        assert_eq!(document["resource"], resource);
+    }
+}
+
+#[tokio::test]
+async fn protected_resource_metadata_exists_only_for_direct_inbound_identity() {
+    let direct = an_issuer();
+    assert_eq!(
+        asked(&app_verifying(&direct), "GET", METADATA_PATH, None).await.status,
+        StatusCode::OK
+    );
+
+    let gateway = an_issuer();
+    let gateway_app = app(&gateway_overlay(&gateway), Some(&gateway.key_set()));
+    assert_eq!(
+        asked(&gateway_app, "GET", METADATA_PATH, None).await.status,
+        StatusCode::NOT_FOUND
+    );
+
+    let single_player_app = app("", None);
+    assert_eq!(
+        asked(&single_player_app, "GET", METADATA_PATH, None).await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn protected_resource_metadata_uses_the_public_probe_rate_limit() {
+    let issuer = an_issuer();
+    let overlay = format!(
+        "{}rate_limit:\n  enabled: true\n  probe_per_second: 1\n  probe_burst: 1\n",
+        direct_overlay(&issuer, UNREAD)
+    );
+    let app = app(&overlay, Some(&issuer.key_set()));
+    assert_eq!(asked(&app, "GET", METADATA_PATH, None).await.status, StatusCode::OK);
+    assert_eq!(
+        asked(&app, "GET", METADATA_PATH, None).await.status,
+        StatusCode::TOO_MANY_REQUESTS
     );
 }
 

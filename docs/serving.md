@@ -109,7 +109,7 @@ is refused at startup.
 security:
   inbound:
     mode: "direct"
-    resource: "https://sutura.example.com"
+    resource: "https://sutura.example.com/v1/query"
     authorization_server: "https://issuer.example.com" # the `iss` value, exactly
     key_set_file: "/etc/sutura/keys/jwks.json"
     algorithms: ["RS256"]
@@ -168,9 +168,24 @@ What the checks are, in both modes:
 | `scope`                         | Parsed, bounded, and **read** - it decides which of this surface's operations the caller may invoke. See *What a scope grants* below. A per-caller ceiling derived from a scope is still not built                                                                                                                                                                                                                                                                                                                                           |
 
 A refused request in the `direct` mode gets `401` with a `WWW-Authenticate: Bearer
-realm="<your resource identifier>", error="invalid_token"`. It deliberately does **not** say which
-check failed: "the signature verified and the audience did not" tells a caller which half of a forgery
-to fix. The log says, in the cause chain, where an operator can read it.
+realm="<your resource identifier>", error="invalid_token"`. When an origin-form request's raw `Host`
+and request target reproduce the exact configured resource identifier, the challenge also carries
+`resource_metadata="<absolute metadata URL>"`. RFC 9728 requires clients to discard metadata naming
+any other resource, so the parameter is absent for every other spelling. Absolute-form request
+targets are not matched either: the HTTP URI parser canonicalises standard schemes, so a match there
+would compare against a normalised spelling rather than the byte-exact one configured. The challenge
+deliberately does **not** say which check
+failed: "the signature verified and the audience did not" tells a caller which half of a forgery to
+fix. The log says, in the cause chain, where an operator can read it.
+
+The metadata URL is public and needs no token. It serves RFC 9728 JSON whose `resource` is the exact
+configured resource identifier and whose one `authorization_servers` entry is the exact configured
+issuer. For `https://sutura.example.com/v1/query`, the route is
+`GET /.well-known/oauth-protected-resource/v1/query`; a resource with no path uses
+`GET /.well-known/oauth-protected-resource` for direct discovery, but that root document cannot be
+advertised from a child path. It is outside `/v1` and capability authorization, uses the probe rate
+limit, and exists only in `direct` mode. Authorization-server metadata remains the authorization
+server's document, not one served here.
 
 **In `behind-gateway` there is no challenge**, and that is deliberate rather than missing: the caller
 holds no bearer token for this resource, so an instruction to present one is one it cannot follow - and
@@ -239,20 +254,20 @@ bound that surface exactly as they bound this one.
 
 ## The endpoints
 
-| Method and path     | Token                                                                               | What it is                                                                                                                                                                                                                              |
-| ------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`       | no                                                                                  | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                         |
-| `GET /v1/catalog`   | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is | The metrics this catalog defines, with grains, dimensions and the values a filter may use                                                                                                                                               |
-| `POST /v1/query`    | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is  | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
-| `GET /metrics`      | its own token, never `security.access_token`                                        | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                  |
-| `GET /openapi.json` | yes, when one is configured                                                         | The generated interface description                                                                                                                                                                                                     |
-| `GET /docs`         | yes, when one is configured                                                         | A browser interface over that description                                                                                                                                                                                               |
+| Method and path                                               | Token                                                                               | What it is                                                                                                                                                                                                                              |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                                 | no                                                                                  | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                         |
+| `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                              | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                       |
+| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is | The metrics this catalog defines, with grains, dimensions and the values a filter may use                                                                                                                                               |
+| `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is  | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
+| `GET /metrics`                                                | its own token, never `security.access_token`                                        | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                  |
+| `GET /openapi.json`                                           | yes, when one is configured                                                         | The generated interface description                                                                                                                                                                                                     |
+| `GET /docs`                                                   | yes, when one is configured                                                         | A browser interface over that description                                                                                                                                                                                               |
 
 `/health` is outside the version prefix on purpose: a probe must keep working across a version bump
 without an orchestrator being reconfigured. It carries no version, no build identifier, no
-dependency list, no configuration and no catalog content, because it is the one path an
-unauthenticated caller can always reach - so every field it might have is a field handed to anybody
-who can route a packet.
+dependency list, no configuration and no catalog content, because an unauthenticated caller can
+always reach it - so every field it might have is a field handed to anybody who can route a packet.
 
 The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.
@@ -577,7 +592,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | `server.tls_certificate`                        | absent                               | A PEM chain. Only with `tls_termination: in-process`                                                                                                                                                                                                                                                                                           |
 | `server.tls_key`                                | absent                               | The matching PEM private key. Both halves or neither                                                                                                                                                                                                                                                                                           |
 | `rate_limit.enabled`                            | follows the environment              | Off in development and test, on in production. `false` in production is refused                                                                                                                                                                                                                                                                |
-| `rate_limit.probe_per_second`                   | `2`                                  | Liveness and the interface description                                                                                                                                                                                                                                                                                                         |
+| `rate_limit.probe_per_second`                   | `2`                                  | Liveness, protected-resource metadata, and the interface description                                                                                                                                                                                                                                                                           |
 | `rate_limit.probe_burst`                        | `5`                                  |                                                                                                                                                                                                                                                                                                                                                |
 | `rate_limit.api_per_second`                     | `10`                                 | The versioned API                                                                                                                                                                                                                                                                                                                              |
 | `rate_limit.api_burst`                          | `20`                                 |                                                                                                                                                                                                                                                                                                                                                |
@@ -1038,9 +1053,6 @@ Named rather than implied, because an absence that reads as an oversight gets as
   id, and the rate limit on that refetch - and a sidecar that rewrites a mounted key set is how a
   process with no egress rotates. **The limit a file has:** no cache header, so a key rotated *without*
   its id changing is one this deployment keeps using.
-- **No protected-resource metadata.** A `401` carries an RFC 6750 challenge naming the realm and no
-  `resource_metadata` parameter, so a client learns which authorization server governs this resource
-  out of band rather than by reading a document here.
 - **No replay protection on a gateway assertion.** The *window* is bounded - an `iat` is required and
   `exp - iat` is capped - and inside it an intercepted assertion replays. Closing that needs the
   assertion bound to the request (a hash of the method, path and body the component computes) or a
@@ -1111,10 +1123,11 @@ unauthenticated caller can create a rate-limit bucket on any path that resolves 
 buckets are swept on an interval, so the memory is bounded rather than growing for the life of the
 process.
 
-An unauthenticated caller can reach `/health` and learn that the process is up, and can learn which
-paths exist - a path under the version prefix that matches no route answers `404` without holding a
-credential. The paths are in the published interface description in any case. Every path that
-resolves to a handler holds a credential: the API's, or `/metrics`'s own.
+An unauthenticated caller can reach `/health` and learn that the process is up. In `direct` mode it
+can also read the protected-resource metadata that tells clients which authorization server governs
+the resource. A path under the version prefix that matches no route answers `404` without holding a
+credential. The paths are in the published interface description in any case. Every other path that
+resolves to a handler holds the API credential when one is configured, or `/metrics`'s own.
 
 A caller with the token can occupy every execution slot and shed everybody else, inside their own
 rate limit, by asking questions that each cost more than the request timeout. The `503` the others

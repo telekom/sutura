@@ -6,20 +6,19 @@
 //! spellings of the same identifier compare unequal - or two different identifiers compare equal -
 //! is a hole, and the place to close it is where the value comes into existence.
 //!
-//! # Why there is no URL parser here
+//! # Why URL parsing does not normalise the stored value
 //!
-//! `url` is already in this workspace's lock file and is deliberately not a dependency of this
-//! crate, because **a URL parser normalises and normalisation is the wrong behaviour for this
-//! value.** `https://Example.com:443/` and `https://example.com/` are the same URL and are not the
-//! same audience: RFC 8707 says a resource indicator is compared as a string, and an authorization
-//! server puts into `aud` whatever it was configured with. A parser that lower-cased the host or
-//! dropped a default port would make this deployment accept a token minted for a *different*
-//! spelling than the one an operator wrote down, which is the opposite of what the check is for.
+//! A URL parser validates the structure and is then discarded, because **normalisation is the wrong
+//! behaviour for this value.** `https://Example.com:443/` and `https://example.com/` are the same URL
+//! and are not the same audience: RFC 8707 says a resource indicator is compared as a string, and an
+//! authorization server puts into `aud` whatever it was configured with. Storing the parser's
+//! lower-cased host or elided default port would make this deployment accept a token minted for a
+//! *different* spelling than the one an operator wrote down.
 //!
-//! So what happens instead is a parse in the strict sense: the accepted shape is an allowlist of
-//! characters plus a required scheme plus two refused delimiters, and the value is stored exactly as
-//! it was written. Nothing is folded, nothing is trimmed except the surrounding whitespace a YAML
-//! file adds, and the refusals name a position rather than quoting the value back.
+//! The accepted shape is an allowlist of characters, a required scheme, two refused delimiters and a
+//! structurally valid URL with a host. The value is stored exactly as written. Nothing is folded,
+//! nothing is trimmed except the surrounding whitespace a YAML file adds, and the refusals name a
+//! position rather than quoting the value back.
 //!
 //! # Why the algorithms are an enum with no symmetric variant
 //!
@@ -75,6 +74,12 @@ pub enum InvalidInboundValue {
          byte against a token claim must have exactly one spelling"
     )]
     NotHttps { key: &'static str },
+    /// The scheme is right, but the remainder is not a URL a client can use.
+    #[error(
+        "{key} must be an absolute `https://` URL with a host, a valid port, balanced brackets, and \
+         complete percent escapes"
+    )]
+    MalformedUrl { key: &'static str },
     /// A `#` or a `?`.
     ///
     /// Both are refused for the same reason and it is not a style rule: a resource indicator with a
@@ -487,8 +492,12 @@ fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboun
             limit: MAX_LENGTH,
         });
     }
-    if !trimmed.starts_with(REQUIRED_SCHEME) {
+    let Some(after_scheme) = trimmed.strip_prefix(REQUIRED_SCHEME) else {
         return Err(InvalidInboundValue::NotHttps { key });
+    };
+    let authority = after_scheme.split_once('/').map_or(after_scheme, |(authority, _)| authority);
+    if authority.is_empty() {
+        return Err(InvalidInboundValue::MalformedUrl { key });
     }
     for (position, character) in trimmed.chars().enumerate() {
         if character == '#' || character == '?' {
@@ -530,9 +539,28 @@ fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboun
             });
         }
     }
+    let parsed = url::Url::parse(trimmed).map_err(|_cause| InvalidInboundValue::MalformedUrl { key })?;
+    if parsed.host_str().is_none() || !percent_escapes_are_complete(trimmed) {
+        return Err(InvalidInboundValue::MalformedUrl { key });
+    }
     // Stored exactly as written past the trim. See the module documentation: nothing is normalised,
     // because the comparison downstream is byte for byte against what an issuer was configured with.
     Ok(String::from(trimmed))
+}
+
+fn percent_escapes_are_complete(raw: &str) -> bool {
+    let mut bytes = raw.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%'
+            && !matches!(
+                (bytes.next(), bytes.next()),
+                (Some(first), Some(second)) if first.is_ascii_hexdigit() && second.is_ascii_hexdigit()
+            )
+        {
+            return false;
+        }
+    }
+    true
 }
 
 impl ResourceIdentifier {

@@ -128,9 +128,10 @@ struct Absence {
 /// numbers derive from iterating it, so they are two counters from one source and collapse together;
 /// the arm that refuses that is what makes them a floor rather than a decoration.
 ///
-/// Each entry is a limit somebody is told to work around - configure a client out of band, do not
-/// alert on a gauge, do not read an accessor as covered - so the day it stops being true is the day
-/// an instruction has to be withdrawn. That is the property held here, not the sentence.
+/// Each entry is a limit somebody is told to work around - do not blame the pinned bundle for an
+/// assembler's own defect, do not alert on a gauge, do not read an accessor as covered - so the day
+/// it stops being true is the day an instruction has to be withdrawn. That is the property held
+/// here, not the sentence.
 ///
 /// **Not here, and deliberately.** The combiner sentence `#370` opens with is corrected rather than
 /// registered: it is already false, so an entry for it would be a gate that fails on landing, and
@@ -139,26 +140,6 @@ struct Absence {
 /// SUCCEEDS, twice, so a nonce store turns that test red and puts all four of its sentences in front
 /// of somebody. An entry duplicating a test that already fails is a second thing to keep true.
 const ABSENCES: &[Absence] = &[
-    Absence {
-        // `#370` row D. Authored places say it and generated pages republish it, and until this
-        // entry nothing read any of them: adding the parameter at the challenge would have left
-        // every gate and every test green while `docs/serving.md` went on telling an operator to
-        // configure a client's issuer out of band.
-        name: "the `401` challenge names no protected-resource metadata",
-        // The clause they all share. The sentences around it differ - one says the client is
-        // configured out of band, another that it learns the authorization server out of band - and
-        // registering the shared clause is what makes a sibling that was missed a failure rather
-        // than a survivor.
-        claimed: &["no `resource_metadata` parameter"],
-        stated_in: &["crates/sutura-http/src/**/*.rs", "docs/**/*.md"],
-        refuted_by: &[Sighting {
-            // The transport crate's own source, which is where the challenge is built. A parameter
-            // added anywhere else is not a challenge parameter.
-            over: &["crates/sutura-http/src/**/*.rs"],
-            holds: "resource_metadata",
-            means: "the challenge, or something on its path, now names protected-resource metadata",
-        }],
-    },
     Absence {
         // `#370` row E, first item. The accessor reads as covered and is called from a `tests/`
         // target alone; `docs/adr/0016` is what the doc comment sends a reader to.

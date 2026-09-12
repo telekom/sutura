@@ -19,11 +19,12 @@
 //! # What a refused request is told, and what it is not
 //!
 //! A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
-//! validating deployment is its own resource identifier. `docs/adr/0014` step 1 asks for *"a challenge
-//! naming where to look"*, and this is the half of that which exists: **the two metadata documents the
-//! record describes are not built**, so the challenge carries no `resource_metadata` parameter and a
-//! client learns the authorization server out of band. That is a named gap rather than a silent one -
-//! see `crate::inbound`.
+//! validating deployment is its own resource identifier. When an origin-form target and raw `Host`
+//! reproduce that exact resource, its `resource_metadata` parameter is the absolute URL of the public
+//! RFC 9728 document built from the same token requirement as the validator. It is omitted for any
+//! other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
+//! gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode offers no
+//! Bearer challenge.
 //!
 //! What the response does **not** say is which check failed. The log says - through the `#[source]`
 //! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -34,6 +35,7 @@ use std::time::Instant;
 
 use axum::extract::{Request, State};
 use axum::http::HeaderMap;
+use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
 use sutura_config::{InboundIdentity, TokenLocation};
@@ -75,6 +77,8 @@ pub struct InboundGate {
     bearer_prefixed: bool,
     /// What the challenge names as its realm.
     realm: String,
+    /// The public discovery document and the exact absolute URL the challenge points at.
+    protected_resource: Option<crate::routes::protected_resource::ProtectedResource>,
 }
 
 /// The gate could not be built.
@@ -114,6 +118,7 @@ impl InboundGate {
     /// without a filesystem, which is the same argument `AGENTS.md` makes for a port getting a fake.
     pub(crate) fn over(inbound: &InboundIdentity, keys: KeySetCache) -> Self {
         let requirement = inbound.requirement();
+        let protected_resource = crate::routes::protected_resource::ProtectedResource::for_requirement(requirement);
         let (header, bearer_prefixed) = match requirement.location() {
             TokenLocation::AuthorizationBearer => (String::from(AUTHORIZATION), true),
             TokenLocation::Header { name } => (String::from(name.as_str()), false),
@@ -124,6 +129,7 @@ impl InboundGate {
             keys: Arc::new(keys),
             header,
             bearer_prefixed,
+            protected_resource,
         }
     }
 
@@ -165,12 +171,32 @@ impl InboundGate {
     /// **No `error_description`** in the direct case, and that is the same decision the response body
     /// makes: a description would have to say which check failed to be worth anything, and that is the
     /// one thing a caller must not learn.
+    ///
+    /// Both request parts are required because an origin-form target carries its path in the URI and
+    /// its authority in the raw `Host` value. Absolute-form targets are not matched: `http::Uri`
+    /// canonicalises standard schemes, so a match there would compare against a normalised spelling
+    /// rather than the configured identifier's exact bytes.
     #[must_use]
-    pub fn challenge(&self) -> Option<String> {
+    pub fn challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> Option<String> {
         if !self.bearer_prefixed {
             return None;
         }
-        Some(format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm))
+        let mut challenge = format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm);
+        if let Some(protected_resource) = self
+            .protected_resource
+            .as_ref()
+            .filter(|protected_resource| protected_resource.describes(request_uri, headers))
+        {
+            challenge.push_str(", resource_metadata=\"");
+            challenge.push_str(protected_resource.url());
+            challenge.push('"');
+        }
+        Some(challenge)
+    }
+
+    /// The discovery document this gate built, only in the direct mode.
+    pub(crate) const fn protected_resource(&self) -> Option<&crate::routes::protected_resource::ProtectedResource> {
+        self.protected_resource.as_ref()
     }
 
     /// Establishes who is asking, or says why it could not.
@@ -264,7 +290,7 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
             drop(request.extensions_mut().insert(caller));
             next.run(request).await
         }
-        Err(rejected) => refused(&gate, &rejected),
+        Err(rejected) => refused(&gate, &rejected, request.uri(), &headers),
     }
 }
 
@@ -273,7 +299,7 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
 /// A function of its own so the middleware above stays a branch rather than a body: two log fields, a
 /// header that may not build and a response to return was over the cognitive-complexity threshold in
 /// `clippy.toml`, and the split puts the whole "what a refused caller is told" decision in one place.
-fn refused(gate: &InboundGate, rejected: &TokenRejected) -> Response {
+fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, headers: &HeaderMap) -> Response {
     // The cause chain, not the variant alone: which of signature, expiry, issuer and audience failed is
     // what an operator needs, and it goes here rather than to the caller.
     tracing::warn!(
@@ -283,7 +309,7 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected) -> Response {
         "no verified caller: the presented token did not establish one"
     );
     let mut response = Failure::Unauthorized.into_response();
-    if let Some(challenge) = gate.challenge() {
+    if let Some(challenge) = gate.challenge(request_uri, headers) {
         challenged(&mut response, &challenge);
     }
     response
