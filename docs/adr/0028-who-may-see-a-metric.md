@@ -126,6 +126,10 @@ bundle. Per request, verified group membership is mapped to audiences and a view
 bundle; it neither loads definitions nor caches a caller-specific copy. Filtering is metadata access
 over pinned content, never a new source of definitions.
 
+Every HTTP catalog response is `Cache-Control: private, no-store`. `Vary: Authorization` is not
+enough: a gateway deployment may establish the caller from a separately configured assertion
+header, so a shared cache cannot derive the complete caller key from one fixed header name.
+
 The later type must make that boundary structural: no constructor taking a path, catalog port or I/O
 handle, and no renderer or resolver that can bypass the filtered input when inbound visibility is
 configured. This record does not claim such a type exists yet.

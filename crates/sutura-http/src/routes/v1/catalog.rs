@@ -14,6 +14,8 @@
 
 use axum::Json;
 use axum::extract::State;
+use axum::http::header;
+use axum::response::IntoResponse;
 
 use crate::state::ServiceState;
 use crate::wire::CatalogBody;
@@ -45,7 +47,7 @@ const TAG: &str = "catalog";
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
     )
 )]
-pub(crate) async fn catalog(State(state): State<ServiceState>) -> Json<CatalogBody> {
+pub(crate) async fn catalog(State(state): State<ServiceState>) -> impl IntoResponse {
     // No blocking pool and no data system: this reads a bundle that was pinned at startup and has
     // not changed since. A catalog edit cannot reach this - it would be a different process.
     //
@@ -57,8 +59,11 @@ pub(crate) async fn catalog(State(state): State<ServiceState>) -> Json<CatalogBo
     // composition root forgot would take `CatalogProse::default()`, which is `quoted`, and ship the
     // prose of a deployment that asked for none. The settings are the one place that cannot be out
     // of date about what the operator wrote.
-    Json(CatalogBody::of(
-        state.definitions(),
-        state.settings().prompt().catalog_prose(),
-    ))
+    (
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(CatalogBody::of(
+            state.definitions(),
+            state.settings().prompt().catalog_prose(),
+        )),
+    )
 }

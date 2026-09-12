@@ -116,6 +116,7 @@ async fn a_verified_caller_reaches_only_the_routes_its_scopes_name() {
 
     let answered = asked(&app, "GET", "/v1/catalog", Some(&catalog_only)).await;
     assert_eq!(answered.status, StatusCode::OK, "the granted capability is reachable");
+    assert_eq!(answered.cache_control.as_deref(), Some("private, no-store"));
 
     let refused = call(&app, Some(&catalog_only)).await;
     assert_eq!(

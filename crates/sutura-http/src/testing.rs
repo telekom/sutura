@@ -854,7 +854,7 @@ pub(crate) async fn call(app: &axum::Router, request: axum::extract::Request) ->
     (answered.status, answered.body)
 }
 
-/// Everything a test asks of one response: the status, the challenge and the body.
+/// Everything a test asks of one response: status, selected headers and body.
 ///
 /// A named struct rather than a three-tuple, because the three modules that need it each wanted a
 /// different two of the three and a tuple made every call site restate which.
@@ -862,6 +862,7 @@ pub(crate) struct Answered {
     pub(crate) status: axum::http::StatusCode,
     /// The RFC 6750 challenge, where the response carried one.
     pub(crate) challenge: Option<String>,
+    pub(crate) cache_control: Option<String>,
     pub(crate) body: String,
 }
 
@@ -885,12 +886,18 @@ async fn answer(app: &axum::Router, request: axum::extract::Request) -> Answered
         .get(axum::http::header::WWW_AUTHENTICATE)
         .and_then(|value| value.to_str().ok())
         .map(String::from);
+    let cache_control = response
+        .headers()
+        .get(axum::http::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(String::from);
     let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
         .await
         .expect("the test response body is readable");
     Answered {
         status,
         challenge,
+        cache_control,
         body: String::from_utf8_lossy(&bytes).into_owned(),
     }
 }
