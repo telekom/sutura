@@ -448,11 +448,11 @@ mod tests {
                 route.route()
             );
         }
-        // Liveness is outside the version prefix and still described, which is what an orchestrator
-        // reads the document for.
+        // Liveness is outside the governed interface description. It remains mounted and public,
+        // but it is a process probe rather than an operation a client may invoke.
         assert!(
-            !document["paths"][sutura_http::constants::HEALTH_PATH].is_null(),
-            "the served document does not describe the liveness probe: {}",
+            document["paths"][sutura_http::constants::HEALTH_PATH].is_null(),
+            "the served document describes the liveness probe: {}",
             document["paths"]
         );
     }

@@ -89,7 +89,6 @@ metric. And no request field carries an identity: a body naming a subject is a 4
     ),
     components(schemas(
         crate::problem::ProblemBody,
-        crate::routes::health::HealthBody,
         crate::wire::CatalogBody,
         crate::wire::DimensionBody,
         crate::wire::FilterBody,
@@ -102,7 +101,6 @@ metric. And no request field carries an identity: a body naming a subject is a 4
         crate::wire::RefusalBody,
     )),
     tags(
-        (name = "health", description = "Liveness. Unversioned, unauthenticated, and carries no information about the deployment."),
         (name = "catalog", description = "What this catalog defines: metrics, grains, dimensions and the values a filter may use."),
         (name = "query", description = "Asking one certified question."),
     ),
@@ -113,12 +111,19 @@ pub struct ApiDoc;
 ///
 /// A `v2` adds one line here and nothing else, which is what makes versioning additive: the
 /// fragment carries its own absolute paths because the prefix is applied by the `nest` below.
+///
+/// **It describes the GOVERNED operations and nothing else.** Liveness is mounted on its own
+/// router (`crate::router`) and deliberately left out: it is a property of the process rather than
+/// an operation of the API (`crate::constants::HEALTH_PATH` says so), and every operation this
+/// document lists becomes a tool a client such as a chat interface may offer its model. A probe in
+/// that list is a tool nothing should call. The set is exhaustive in both directions - a route the
+/// document describes that `crate::capability::governed` does not name, and a governed route it
+/// omits, are each a failure (`tests/operations.rs`).
 #[must_use]
 pub fn document() -> utoipa::openapi::OpenApi {
     let mut document = ApiDoc::openapi();
     document.merge(
         utoipa_axum::router::OpenApiRouter::new()
-            .routes(utoipa_axum::routes!(routes::health::liveness))
             .nest(API_V1_PREFIX, routes::v1::openapi_router())
             .into_openapi(),
     );
@@ -135,147 +140,4 @@ pub fn document_json() -> Result<String, serde_json::Error> {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::constants::{API_V1_PREFIX, HEALTH_PATH, base_paths};
-
-    use super::{document, document_json};
-
-    #[test]
-    fn the_document_is_byte_stable_across_independent_builds() {
-        // THE determinism check, and the one that matters. Each call builds a fresh document, so
-        // each call builds fresh maps - which is what makes this sensitive to a `HashMap`-backed
-        // extension rather than only to a process-wide seed. If it ever fails, the module
-        // documentation says what to build.
-        let first = document_json().expect("the document serializes");
-        let second = document_json().expect("the document serializes");
-        assert_eq!(first, second);
-    }
-
-    #[test]
-    fn every_route_the_router_mounts_is_in_the_document() {
-        // The two are generated from one attribute per handler, so this asserts the wiring rather
-        // than the generator: a handler registered on the router and not merged into the document
-        // is the mistake it catches.
-        let paths = document().paths;
-        for expected in [
-            HEALTH_PATH,
-            &format!("{API_V1_PREFIX}{}", base_paths::CATALOG),
-            &format!("{API_V1_PREFIX}{}", base_paths::QUERY),
-        ] {
-            assert!(
-                paths.paths.contains_key(expected),
-                "{expected} is missing from the document: {:?}",
-                paths.paths.keys().collect::<Vec<_>>()
-            );
-        }
-    }
-
-    /// **This crate's half of `both_transports_describe_the_same_tools`, in the DOCUMENT.**
-    ///
-    /// `crate::capability::tests` asserts the route table covers `sutura_app::Capability::every()`.
-    /// This asserts the generated interface description names the same capabilities by the same
-    /// identifiers - so a client reading the document and an agent reading `tools/list` see one tool
-    /// set under one set of names.
-    ///
-    /// It matters because the two are written down twice: the table is Rust, the `operation_id` is a
-    /// literal inside a `#[utoipa::path]` attribute, and an attribute cannot take a `const`. This is
-    /// the test that catches the pair drifting.
-    #[test]
-    fn both_transports_describe_the_same_tools() {
-        let document = document();
-        let mut documented: Vec<String> = Vec::new();
-        for (route, item) in &document.paths.paths {
-            if !route.starts_with(API_V1_PREFIX) {
-                continue;
-            }
-            for operation in [item.get.as_ref(), item.post.as_ref()].into_iter().flatten() {
-                documented.push(
-                    operation
-                        .operation_id
-                        .clone()
-                        .unwrap_or_else(|| format!("{route} declares no operation_id")),
-                );
-            }
-        }
-        documented.sort();
-        let mut expected: Vec<String> = sutura_app::Capability::every()
-            .map(|capability| String::from(capability.id()))
-            .collect();
-        expected.sort();
-        assert_eq!(documented, expected, "{documented:?}");
-    }
-
-    #[test]
-    fn liveness_is_documented_outside_the_version_prefix() {
-        // Deliberate: an orchestrator's probe must not need reconfiguring for a version bump.
-        let paths = document().paths;
-        assert!(paths.paths.keys().any(|path| path == HEALTH_PATH));
-        assert!(!HEALTH_PATH.starts_with(API_V1_PREFIX));
-    }
-
-    #[test]
-    fn the_document_tells_a_reader_that_identity_is_not_access() {
-        // The one thing somebody integrating against this surface will otherwise assume. It is in
-        // the document rather than only in an operator's log, because they are different readers.
-        //
-        // **The notice changed shape with leg 1 and the assertion changed with it.** It used to read
-        // "NO PER-CALLER IDENTITY", which is now true of some deployments and false of others - and a
-        // document served by both cannot say either. What it says instead is the half that is
-        // unconditional and the half somebody acts on wrongly: whichever way a deployment
-        // authenticates, no question runs as the asker.
-        let rendered = document_json().expect("the document serializes");
-        assert!(
-            rendered.contains("NEITHER IS PER-CALLER ACCESS"),
-            "the description lost the notice"
-        );
-        assert!(rendered.contains("WHO IS ASKING"), "the description lost the identity notice");
-        assert!(
-            rendered.contains("refusal is a RESULT"),
-            "the description lost the refusal notice"
-        );
-    }
-
-    #[test]
-    fn every_refusal_status_is_declared_on_the_query_operation() {
-        // The document is what somebody integrating reads, and a status nothing declares is a status
-        // they will meet in production instead. Asserted through the merged document rather than by
-        // reading the attribute, because the attribute is only half the wiring.
-        // Read out of the SERIALIZED document rather than off the typed tree: the JSON is what a
-        // client generator consumes, and it is also the thing that does not move under a `utoipa`
-        // release that renames a type in its path model.
-        let rendered = document_json().expect("the document serializes");
-        let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("the document is JSON");
-        let responses = &parsed["paths"][format!("{API_V1_PREFIX}{}", base_paths::QUERY)]["post"]["responses"];
-        for status in ["200", "403", "404", "409", "413", "422", "503"] {
-            let declared = &responses[status];
-            assert!(!declared.is_null(), "{status} is not declared on POST /v1/query: {responses}");
-            let description = declared["description"].as_str().unwrap_or_default();
-            assert!(!description.is_empty(), "{status} is declared with no meaning given");
-        }
-        // And the refusal statuses say so, so a reader can tell them from the failures that share a
-        // number with them.
-        for status in ["403", "404", "409", "413", "422"] {
-            assert!(
-                responses[status]["description"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .contains("outcome: refusal"),
-                "{status} does not tell a reader it carries a refusal"
-            );
-        }
-    }
-
-    #[test]
-    fn no_security_scheme_is_declared() {
-        // Absent on purpose: a declared scheme reads as an authentication model, and a shared
-        // deployment secret is not one. If this ever becomes false it should be because a credential
-        // broker exists, and this test is where that decision surfaces.
-        assert!(
-            document()
-                .components
-                .and_then(|components| { (!components.security_schemes.is_empty()).then_some(components.security_schemes.len()) })
-                .is_none(),
-            "a security scheme was declared without a per-caller identity behind it"
-        );
-    }
-}
+mod tests;

@@ -22,10 +22,50 @@ endpoint="${SUTURA_DEMO_MODEL_ENDPOINT:?SUTURA_DEMO_MODEL_ENDPOINT is required}"
 model="${SUTURA_DEMO_MODEL:?SUTURA_DEMO_MODEL is required}"
 acknowledged="${SUTURA_DEMO_ACKNOWLEDGE:?SUTURA_DEMO_ACKNOWLEDGE is required}"
 api_key="${SUTURA_DEMO_MODEL_API_KEY:-}"
-
 case "$acknowledged" in
-    *'"'* | *\\* | *$'\n'*)
+    *'"'* | *\\* | *[[:cntrl:]]*)
         printf 'sutura-demo: SUTURA_DEMO_ACKNOWLEDGE must be one line without a double quote or a backslash\n' >&2
+        exit 1
+        ;;
+esac
+
+# Repeat the host launcher's transport boundary here so starting the image by hand cannot bypass it.
+# The endpoint has already been rewritten for the container: host gateway is local; loopback is the
+# container itself; everything else is remote.
+case "$endpoint" in
+    *@*)
+        printf 'sutura-demo: SUTURA_DEMO_MODEL_ENDPOINT must not contain userinfo\n' >&2
+        exit 1
+        ;;
+esac
+case "$endpoint" in
+    *://localhost | *://localhost/* | *://localhost:* | \
+    *://127.0.0.1 | *://127.0.0.1/* | *://127.0.0.1:* | \
+    *://\[::1\] | *://\[::1\]/* | *://\[::1\]:*)
+        printf 'sutura-demo: the model endpoint is loopback, which is the container itself; point it at the host gateway instead\n' >&2
+        exit 1
+        ;;
+esac
+case "$endpoint" in
+    http://host.docker.internal | http://host.docker.internal/* | http://host.docker.internal:*)
+        if [ -n "$api_key" ]; then
+            printf 'sutura-demo: refusing an http:// model endpoint that carries a credential\n' >&2
+            exit 1
+        fi
+        ;;
+    http://*)
+        printf 'sutura-demo: refusing an http:// model endpoint that is not on this machine\n' >&2
+        exit 1
+        ;;
+    https://host.docker.internal | https://host.docker.internal/* | https://host.docker.internal:*) ;;
+    https://*)
+        if [ -z "$api_key" ]; then
+            printf 'sutura-demo: a remote model endpoint requires SUTURA_DEMO_MODEL_API_KEY\n' >&2
+            exit 1
+        fi
+        ;;
+    *)
+        printf 'sutura-demo: SUTURA_DEMO_MODEL_ENDPOINT must be an http:// or https:// URL\n' >&2
         exit 1
         ;;
 esac
@@ -69,16 +109,24 @@ chmod 0600 "$run_dir/base.yaml"
 export SUTURA_CONFIG_DIR="$run_dir"
 export SUTURA_ENVIRONMENT="development"
 
-# The chat client's own configuration. The tool connection is the NATIVE OpenAPI shape - no plugin:
-# `type: openapi`, the server's loopback URL, `path: openapi.json`, a bearer `auth_type`, and
-# `config.enable`. The document it reads describes exactly the two semantic operations.
+# Open WebUI marks this and the other settings below as ConfigVar values. The disposable demo must
+# remain authoritative over a reused named volume, so persisted database values cannot override this
+# environment. This also makes the registration observed by healthcheck deterministic.
+export ENABLE_PERSISTENT_CONFIG="false"
 export OPENAI_API_BASE_URL="$endpoint"
-export OPENAI_API_KEY="${api_key:-local}"
+export OPENAI_API_KEY="$api_key"
 export DEFAULT_MODELS="$model"
 # A single-user demo: no signup, no login. The port is loopback-bound by the compose block, so this
 # is one person on one machine, which is the deployment this page describes and no more.
 export WEBUI_AUTH="false"
 export ENABLE_SIGNUP="false"
+# The tool connection, in the NATIVE OpenAPI shape - no plugin: `type: openapi`, the server's
+# loopback URL, `path: openapi.json`, a bearer `auth_type`, and `config.enable`. `config.enable`
+# makes the connection LOAD the document and become LISTABLE as `server:sutura`; it does NOT select
+# anything for a chat. Selection is per chat and client-side (`tool_ids`), so the walkthrough's
+# Integrations -> Tools -> `sutura` step is the one that puts the tools in front of the model, and
+# `demo/healthcheck.py` proves only the registration half. The document it reads describes exactly
+# the two governed operations.
 export TOOL_SERVER_CONNECTIONS="[{\"type\": \"openapi\", \"url\": \"http://127.0.0.1:${sutura_port}\", \"spec_type\": \"url\", \"spec\": \"\", \"path\": \"openapi.json\", \"auth_type\": \"bearer\", \"key\": \"${token}\", \"config\": {\"enable\": true}, \"info\": {\"id\": \"sutura\", \"name\": \"sutura\", \"description\": \"Certified metric questions\"}}]"
 
 printf 'sutura-demo: starting the server on 127.0.0.1:%s and the chat client on 127.0.0.1:%s\n' \
