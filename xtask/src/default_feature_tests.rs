@@ -271,7 +271,7 @@ mod tests {
         // `a_comment_is_not_a_reference` holds to skipping a `#` line.
         let root = crate::repo::root().expect("the repo root");
         assert!(
-            crate::TASKS.iter().any(|task| task.name == TASK),
+            crate::tasks().any(|task| task.name == TASK),
             "{TASK} is not a registered task"
         );
         let body = crate::tasks::recipe_body(&root, RECIPE).expect("a `gates` recipe in the justfile");

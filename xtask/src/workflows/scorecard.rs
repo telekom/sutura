@@ -7,11 +7,13 @@
 //! a badge whose mechanism is gone has to be a failing check rather than a discovery made by
 //! whoever believed it.
 //!
-//! **A RULE OF `check-workflows` rather than a gate of its own.** Partly because
-//! `xtask/src/main.rs` stands at 999 lines against a 1000-line cap that `crates/` and `xtask/`
-//! cannot be exempted from - so a new task-table entry is not available - and mostly because the
-//! question is already this gate's: it reads `.github/**` and `flake.nix` and walks every place CI
-//! invokes something from. A second gate over the same walk would be a second answer.
+//! **A RULE OF `check-workflows` rather than a gate of its own**, because the question is already
+//! this gate's: it reads `.github/**` and `flake.nix` and walks every place CI invokes something
+//! from, and a second gate over the same walk would be a second answer. The `max-lines` cap on
+//! `xtask/src/main.rs` was cited here too, and `github.com/telekom/sutura#610` found that half of
+//! the reason did not hold up - the sentence above is the whole of it. No line count is
+//! transcribed here any more: a measurement copied into prose rots, and this one had (999 against
+//! a tree measuring 992).
 //!
 //! # What it holds
 //!
