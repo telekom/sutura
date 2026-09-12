@@ -8947,6 +8947,8 @@ Why a fixture column could not be classified.
 - `UnsupportedQuotedSyntax` - Quoted CSV syntax has reader-specific semantics and is outside the shared fixture grammar.
 - `DecimalNotCarryable` - A fixed-point value or possible subtotal was wider than the exact shared type.
 - `RowWidth` - A data row did not have exactly the number of cells declared by the header.
+- `DuplicateColumn` - Two headers name one column under a reader's case-insensitive lookup.
+- `WhitespaceOnlyRow` - A whitespace-only row is data for some readers and absent for others.
 
 ##### Implements
 

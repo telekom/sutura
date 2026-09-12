@@ -95,6 +95,12 @@ pub enum InferenceError {
     /// A data row did not have exactly the number of cells declared by the header.
     #[error("fixture row {row} has {found} cells, but the header declares {expected}")]
     RowWidth { row: usize, expected: usize, found: usize },
+    /// Two headers name one column under a reader's case-insensitive lookup.
+    #[error("fixture column {column} is declared more than once")]
+    DuplicateColumn { column: String },
+    /// A whitespace-only row is data for some readers and absent for others.
+    #[error("fixture row {row} contains only whitespace")]
+    WhitespaceOnlyRow { row: usize },
 }
 
 const CANDIDATES: &[FixtureType] = &[
@@ -126,13 +132,28 @@ pub fn infer(text: &str) -> Result<Vec<Column>, InferenceError> {
 
     let mut parsed_names = Vec::with_capacity(column_count);
     for name in &names {
-        parsed_names.push(ColumnName::parse(name)?);
+        let parsed = ColumnName::parse(name)?;
+        // ponytail: fixture headers are tiny; use a normalized set if that changes.
+        if parsed_names
+            .iter()
+            .any(|existing: &ColumnName| existing.as_str().eq_ignore_ascii_case(parsed.as_str()))
+        {
+            return Err(InferenceError::DuplicateColumn {
+                column: String::from(parsed.as_str()),
+            });
+        }
+        parsed_names.push(parsed);
     }
 
     let mut accumulators: Vec<Vec<String>> = names.iter().map(|_| Vec::new()).collect();
     for (index, line) in lines.enumerate() {
-        if line.trim().is_empty() {
+        if line.is_empty() {
             continue;
+        }
+        if line.trim().is_empty() {
+            return Err(InferenceError::WhitespaceOnlyRow {
+                row: index.saturating_add(2),
+            });
         }
         let cells = split_row(line);
         if cells.len() != column_count {
@@ -457,6 +478,24 @@ mod tests {
         for text in ["a,b\n1\n", "a,b\n1,2,3\n"] {
             assert!(matches!(infer(text), Err(super::InferenceError::RowWidth { row: 2, .. })));
         }
+    }
+
+    #[test]
+    fn headers_are_unique_under_the_readers_case_policy() {
+        for text in ["a,a\n1,2\n", "a,A\n1,2\n"] {
+            assert!(matches!(
+                infer(text),
+                Err(super::InferenceError::DuplicateColumn { column }) if column == "a" || column == "A"
+            ));
+        }
+    }
+
+    #[test]
+    fn a_whitespace_only_row_is_outside_the_shared_grammar() {
+        assert!(matches!(
+            infer("only\n \n"),
+            Err(super::InferenceError::WhitespaceOnlyRow { row: 2 })
+        ));
     }
 
     #[test]
