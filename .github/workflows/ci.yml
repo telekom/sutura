@@ -1056,11 +1056,12 @@ jobs:
   #
   # **AND THIS COMMENT USED TO OVERSTATE IT.** It said the credential carries "Write on sutura-prs,
   # no Write on `sutura`". It does not. The credential for the main store is the narrow one - one
-  # store, default branch only - while the pull-request and mixed credentials are restricted on
-  # neither store nor branch. So the separation between the two write paths is convention and
-  # configuration, NOT capability. That posture is an accepted decision and is recorded here rather
-  # than implied, because an overstated control is itself the defect: a reader who saw "no Write on
-  # `sutura`" stopped looking for the thing that would have made it true.
+  # store, default branch only - while the pull-request and mixed credentials must be treated as able
+  # to write either store until their scope is independently verified. So the separation between the
+  # two write paths is convention and configuration, NOT a verified capability. That posture is an
+  # accepted decision and is recorded here rather than implied, because an overstated control is
+  # itself the defect: a reader who saw "no Write on `sutura`" stopped looking for the thing that would
+  # have made it true.
   #
   # **THE LIMIT, STATED NEXT TO THE CLAIM: a gate cannot read a credential's scope and cannot read a
   # branch policy.** Nothing in this repository can verify any of the paragraph above -
@@ -1074,10 +1075,10 @@ jobs:
   #
   # What it does NOT do is what the sentence here used to say, that it "stops an in-repository
   # pull-request author reaching main". Read-key separation cannot contain a writer authorised for
-  # the main store, and by the paragraph three above this one the pull-request and mixed credentials
-  # are restricted on neither store nor branch - so a holder of one can write `sutura` directly, and
-  # `sutura` is a store the default branch DOES name and DOES trust by key. The read-key boundary
-  # closes one route to main; it does not close the route that the credential scope leaves open.
+  # the main store, and the pull-request and mixed credentials must be treated as able to write
+  # `sutura` directly until their scope is independently verified. `sutura` is a store the default
+  # branch DOES name and DOES trust by key. The read-key boundary closes one route to main; it does
+  # not close the route that an unverified credential scope may leave open.
   #
   # So the actual bound on that route is **who can reach the `cachix-push-pr` environment's
   # secret**, which is forge configuration this repository cannot read - the same owner-held control

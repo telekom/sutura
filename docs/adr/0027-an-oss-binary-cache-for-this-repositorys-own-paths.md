@@ -16,14 +16,14 @@ pull-request runs publish their own realised store paths to it and trust its key
 key boundary is what contains *poisoned content in that store*, not the text gate: a compromised PR
 run that poisoned `sutura-prs` is read by no merged-main resolver, because main's resolver never
 names that store. **Corrected 2026-09-12 (#639 slice I): that boundary is not the whole security
-bound, and calling it so was an overstatement.** The pull-request and mixed write credentials are
-restricted on neither store nor branch (see "The write credential" below), so a holder of one can
-write `sutura` - a store main does name and does trust by key. Read-key separation cannot contain a
-writer authorised for the main store; the bound on *that* route is who can reach the
+bound, and calling it so was an overstatement.** The pull-request and mixed write credentials must be
+treated as able to write either store, including `sutura`, until their scope is independently verified
+(see "The write credential" below). Read-key separation cannot contain a writer authorised for the
+main store; the bound on *that* route is who can reach the
 `cachix-push-pr` environment's secret, which is the owner-held control this record already files
 under "What is NOT held by a mechanism". The credential scope was not independently inspected for
 this correction and no poisoning was attempted. This
-amendment is the `xtask` trust rule's counterpart and is enforced by it - see
+amendment's committed key lists are the `xtask` trust rule's counterpart and are enforced by it - see
 `xtask/src/workflows/cache_scope/retired.rs`, which pins both value lists ([`ALLOWED`] / the
 PR-gated pair) so the records and the gate cannot disagree.
 
