@@ -109,7 +109,7 @@ is refused at startup.
 security:
   inbound:
     mode: "direct"
-    resource: "https://sutura.example.com"
+    resource: "https://sutura.example.com/v1/query"
     authorization_server: "https://issuer.example.com" # the `iss` value, exactly
     key_set_file: "/etc/sutura/keys/jwks.json"
     algorithms: ["RS256"]
@@ -168,22 +168,21 @@ What the checks are, in both modes:
 | `scope`                         | Parsed, bounded, and **read** - it decides which of this surface's operations the caller may invoke. See *What a scope grants* below. A per-caller ceiling derived from a scope is still not built                                                                                                                                                                                                                                                                                                                                           |
 
 A refused request in the `direct` mode gets `401` with a `WWW-Authenticate: Bearer
-realm="<your resource identifier>", error="invalid_token"`. A resource identifier with no path names
-the HTTPS origin, so every protected path at that authority also receives
-`resource_metadata="<absolute metadata URL>"`. An identifier with a path receives the parameter only
-on that exact path. RFC 9728 requires clients to discard metadata naming any other resource, so the
-parameter is absent for another authority or a different configured resource path. The challenge
-deliberately does **not** say which check failed: "the signature verified and the audience did not"
-tells a caller which half of a forgery to fix. The log says, in the cause chain, where an operator can
-read it.
+realm="<your resource identifier>", error="invalid_token"`. When the request URL is the exact
+configured resource identifier, the challenge also carries `resource_metadata="<absolute metadata
+URL>"`. RFC 9728 requires clients to discard metadata naming any other resource, so the parameter is
+absent on other paths. The challenge deliberately does **not** say which check failed: "the signature
+verified and the audience did not" tells a caller which half of a forgery to fix. The log says, in the
+cause chain, where an operator can read it.
 
 The metadata URL is public and needs no token. It serves RFC 9728 JSON whose `resource` is the exact
 configured resource identifier and whose one `authorization_servers` entry is the exact configured
 issuer. For `https://sutura.example.com/v1/query`, the route is
 `GET /.well-known/oauth-protected-resource/v1/query`; a resource with no path uses
-`GET /.well-known/oauth-protected-resource`. It is outside `/v1` and capability authorization, uses
-the probe rate limit, and exists only in `direct` mode. Authorization-server metadata remains the
-authorization server's document, not one served here.
+`GET /.well-known/oauth-protected-resource` for direct discovery, but that root document cannot be
+advertised from a child path. It is outside `/v1` and capability authorization, uses the probe rate
+limit, and exists only in `direct` mode. Authorization-server metadata remains the authorization
+server's document, not one served here.
 
 **In `behind-gateway` there is no challenge**, and that is deliberate rather than missing: the caller
 holds no bearer token for this resource, so an instruction to present one is one it cannot follow - and
