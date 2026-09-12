@@ -466,7 +466,17 @@ panic-free.
   rest - because a measurement beside the name of the thing it was measured on is exactly the
   content this check protects, and no file holds a measurement. Measured, that retreat spares TWO
   lines in the whole tree, and both are inside `UNITS`' own doc comment - so it costs no refusal
-  over any prose a person wrote. **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
+  over any prose a person wrote. **A PRINTED FLOAT is not one either, and that retreat was a
+  measured false positive of the check as it merged:** a round-trip artefact has no unit for the
+  rule above to spare it by, and the token reader strips a possessive, so the name of the engine
+  is adjacent in ordinary prose - *rather than duckdb's 0.30000000000000004* was refused as a
+  version of a thing that has never had one. It is keyed on a field WIDER than an `f64` carries
+  significant digits, because such a decimal was printed rather than chosen; the widest field any
+  version in this workspace's lock carries is five digits. **A SHORT decimal beside a pinned name
+  is still refused and that is deliberate** - a rendered `0.3` and a version `0.3` are the same
+  bytes, no text rule separates them, and the remedy is a word between the two or a unit after the
+  figure. Both halves are pinned by a test, so widening either one is a red rather than a hole.
+  **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
   dependency keys, flake inputs, `apps.<name>`, pixi dependency tables, compose image names and
   the `nix/` module basenames, so **a tool named only as a nix CHECK is outside all six** -
   `checks.nextest` is not `apps.nextest`, and nine transcriptions of nextest's version survived
