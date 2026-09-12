@@ -422,7 +422,7 @@ fn the_plans_serialize_with_their_paths_as_text() {
 /// reading `orders.customer_id = orders.id` - one table compared with itself - beneath a `FROM` naming
 /// `analytics-prod.sales.orders` and a `LEFT JOIN` naming `reference-data.crm.orders`, with every
 /// projected column qualified by an identifier that named two tables. That is a plausible number under
-/// a certified metric on any target that binds it to one side; a real `DuckDB` 1.5.5 answers it with
+/// a certified metric on any target that binds it to one side; the pinned `DuckDB` answers it with
 /// `Binder Error: Ambiguous reference to table "orders"`.
 ///
 /// It is asserted at plan CONSTRUCTION and not on a rendered string, because that is where the fix

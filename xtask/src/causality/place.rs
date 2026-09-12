@@ -1,7 +1,7 @@
 //! Where a test file's tests land, as the key a run's output can be matched against.
 //!
 //! A BARE FUNCTION NAME IS NOT A KEY IN THIS TREE, and believing it was is the defect this half
-//! last carried. Measured on nextest 0.9.143 over a synthetic workspace: `test(/(?:^|::)sums/)`
+//! last carried. Measured on the pinned nextest over a synthetic workspace: `test(/(?:^|::)sums/)`
 //! matched six tests in three packages, including a MODULE called `sums` in a package the diff
 //! never touched. So a test is keyed by three things, all of which its FILE settles: the binary or
 //! package it compiles into, the module path the file contributes, and the function name.
@@ -168,7 +168,7 @@ fn relocated(lines: &[&str], at: usize) -> Option<String> {
 
 /// Which test binary a test compiles into - the coarsest half of the key.
 ///
-/// Measured binary-id shapes on nextest 0.9.143: a package's lib unit tests are `<package>`, an
+/// Measured binary-id shapes on the pinned nextest: a package's lib unit tests are `<package>`, an
 /// integration target is `<package>::<target>`, and a bin's unit tests are `<package>::bin/<name>`.
 /// A file under `tests/` at the top level IS a target, so its id is exact. A file under `src/`
 /// could be compiled into the lib's binary or a bin's and its path does not say which, so the
@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn the_filterset_qualifies_a_name_by_the_package_and_the_module_it_sits_in() {
         // THE DEFECT. A bare `test(/(?:^|::)sums(?:::|$)/)` matched six tests in three packages
-        // on nextest 0.9.143 - including a MODULE called `sums` in another package - so a
+        // on the pinned nextest - including a MODULE called `sums` in another package - so a
         // name-collided failure was accepted as this test's red. The package and the file's module
         // path are both in the term, and both come from the file's own path.
         let files = vec![changed(
@@ -587,7 +587,7 @@ mod tests {
         // The comparison side of the same key, and the false green it closes: with the name
         // alone, `pb other::sums` and `pb sums::inner` were both accepted for a scoped `sums`,
         // so a vacuous added test rode a pre-existing failure to `ok - red on base, green on
-        // head`. Reproduced on nextest 0.9.143 before the qualifier went in.
+        // head`. Reproduced on the pinned nextest before the qualifier went in.
         let files = vec![changed("crates/pa/src/lib.rs", 1, &["#[test]", "fn sums() {}"])];
         let read = tree(&[
             ("crates/pa/src/lib.rs", "#[test]\nfn sums() {}\n"),

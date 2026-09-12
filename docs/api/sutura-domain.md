@@ -1231,7 +1231,7 @@ DECLARED order is here and nowhere later, so the refusal names the two spellings
 order the file wrote them. Same shape, and the same argument, as
 `StatementTables::parse`.
 
-**What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
+**What a folded pair costs was measured rather than argued.** The pinned `DuckDB`
 (`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
 `IdentifierCase::InsensitiveAscii`:
 `SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")` returns **1** - the `region`
@@ -5814,7 +5814,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -6544,7 +6544,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -6667,7 +6667,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -7332,7 +7332,7 @@ What happened was this, and it was reproduced rather than reasoned about: a fact
 `analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` rendered
 a `FROM` and a `LEFT JOIN` whose `ON` clause compared `orders.customer_id` with `orders.id` - one
 table with itself - and every projected column was qualified by an identifier that named two
-tables. On a real `DuckDB` 1.5.5 that statement is
+tables. On the pinned `DuckDB` that statement is
 `Binder Error: Ambiguous reference to table "orders"`; a target that binds it to one side instead
 returns a number under a certified metric name, which is the failure class this repository is
 arranged against. **Same-name tables are the normal shape of the estate `docs/adr/0019` exists
@@ -7343,7 +7343,7 @@ exotic.
 
 Distinct aliases are the fix that would keep the question answerable, and they are **not reachable
 through the SQL builder this workspace renders with**, which was measured rather than assumed
-against `polyglot-sql` 0.9.2: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
+against the pinned `polyglot-sql`: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
 could carry an `AS`, but `left_join` and every other join method take a `&str` table name and
 `join_with_kind` is private - so the JOINED side cannot be aliased without hand-building a select
 expression with upwards of thirty fields, which `sutura_sql`'s renderer rules out at its own header

@@ -88,12 +88,14 @@
 #
 # ## Tags
 #
-# Pinned to a minor series, checked against the registries on 2026-08-29 rather than assumed:
-# ClickHouse 26.7 (`26.7-alpine`), Keycloak 26.7. The `DataHub` stack is pinned to the exact patch
-# release the adapter was measured against - `v1.7.0`, which is `docs/adr/0016`'s version - with its
-# three stores at the versions upstream's own quickstart names for that release, read off
+# ClickHouse and Keycloak are pinned to a minor series, checked against the registries on
+# 2026-08-29 rather than assumed. The `DataHub` stack is pinned to the exact patch release the
+# adapter was measured against - the tag `docs/adr/0016` names - with its three stores at the
+# versions upstream's own quickstart names for that release, read off
 # `docker/quickstart/docker-compose.quickstart-profile.yml` at that tag on 2026-09-02 rather than
-# chosen here: `confluentinc/cp-kafka:8.2.2`, `mysql:8.2`, `opensearchproject/opensearch:2.19.3`.
+# chosen here. **Every tag is on its own `image:` line below and written down nowhere else**,
+# including here: a second copy in this comment is one nothing compares, and it has no way to
+# stay true when a line below moves.
 # **`latest` and `quickstart` are both mutable tags this file may not use**, and `DataHub` publishes
 # both - a tier that followed either would change what the adapter is measured against without a
 # diff. A tag is still mutable, so this is a development fixture and not a supply-chain position.

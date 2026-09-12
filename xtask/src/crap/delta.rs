@@ -723,7 +723,7 @@ mod tests {
 
     #[test]
     fn the_join_reproduces_what_the_tool_itself_reported() {
-        // A CAPTURED FRAGMENT of real `cargo crap 0.4.3 --format json --baseline` output for this
+        // A CAPTURED FRAGMENT of real `cargo crap --format json --baseline` output, from the
         // workspace, with the tool's own `status` values kept as the expectation. This is what
         // stops the join from drifting away from the tool whose numbers it pairs up: if a future
         // cargo-crap changes what it calls these, this test says so.

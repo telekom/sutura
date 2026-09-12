@@ -40,7 +40,7 @@ let
   mimallocVersion = "3.5.0";
   mimallocFor = { targetPkgs, optLevel, isMusl }:
     let
-      # ARMv8.3 FLOOR for the aarch64 targets, deliberately. mimalloc 3.5.0 gains from
+      # ARMv8.3 FLOOR for the aarch64 targets, deliberately. The pinned mimalloc gains from
       # `LDAPR` (FEAT_LRCPC, v8.3) for its C11 acquire loads, and the level also brings
       # `FEAT_LSE` (v8.1), so atomics become `cas`/`ldadd` rather than `ldxr`/`stxr`
       # retry loops. Measured on the real translation unit: 58 acquire loads move from
