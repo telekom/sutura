@@ -61,7 +61,7 @@ const STARTUP: Subject = Subject {
     name: "NotFitToServe",
     declared_in: "crates/sutura-config/src/settings/posture.rs",
     allow_file: "devco/startup-refusals-unprovoked-allow",
-    variants: variants(12),
+    variants: variants(14),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

@@ -60,7 +60,9 @@ def main() -> None:
     except OSError as problem:
         fail(f"the deployment token was not readable: {problem}")
     try:
-        document = json.loads(fetch(f"http://127.0.0.1:{sutura_port}/openapi.json", token))
+        document = json.loads(
+            fetch(f"http://127.0.0.1:{sutura_port}/openapi.json", token)
+        )
     except (urllib.error.URLError, OSError) as problem:
         fail(f"the served interface description did not read back: {problem}")
     paths = document.get("paths", {})
@@ -76,7 +78,9 @@ def main() -> None:
     if json.loads(body).get("status") is not True:
         fail("the chat client answered /health without status true")
 
-    print("healthcheck: the sutura server, its two operations and the chat client are all up")
+    print(
+        "healthcheck: the sutura server, its two operations and the chat client are all up"
+    )
 
 
 if __name__ == "__main__":

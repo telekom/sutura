@@ -15,11 +15,11 @@ the tables give the *shape*, the values are yours.
     TLS-interception failures come from. A `407` usually means you are proxying something that has
     a mirror.
 
-| Placeholder | Means |
-| --- | --- |
-| `<host>` | your artifact repository |
-| `<pypi>` `<conda>` `<crates>` `<nix-cache>` `<generic>` | the corresponding remote repo |
-| `<docker-mirror>` | registry mirror, reached as a hostname prefix |
+| Placeholder                                             | Means                                         |
+| ------------------------------------------------------- | --------------------------------------------- |
+| `<host>`                                                | your artifact repository                      |
+| `<pypi>` `<conda>` `<crates>` `<nix-cache>` `<generic>` | the corresponding remote repo                 |
+| `<docker-mirror>`                                       | registry mirror, reached as a hostname prefix |
 
 ## Nix
 
@@ -115,11 +115,11 @@ pixi info -vvv        # every location searched, in priority order
 Highest priority wins, and a project-local `.pixi/config.toml` is merged on top of all of it -
 which is the one file a mirror URL must not go in, because it is inside the repository.
 
-| | Linux | macOS | Windows |
-| --- | --- | --- | --- |
-| Global | `$PIXI_HOME/config.toml`, else `~/.pixi/config.toml` | the same | `%PIXI_HOME%\config.toml`, else `%USERPROFILE%\.pixi\config.toml` |
-| User | `$XDG_CONFIG_HOME/pixi/config.toml`, else `~/.config/pixi/config.toml` | `~/Library/Application Support/pixi/config.toml` | `%APPDATA%\pixi\config.toml` |
-| System | `/etc/pixi/config.toml` | `/etc/pixi/config.toml` | `C:\ProgramData\pixi\config.toml` |
+|        | Linux                                                                  | macOS                                            | Windows                                                           |
+| ------ | ---------------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------- |
+| Global | `$PIXI_HOME/config.toml`, else `~/.pixi/config.toml`                   | the same                                         | `%PIXI_HOME%\config.toml`, else `%USERPROFILE%\.pixi\config.toml` |
+| User   | `$XDG_CONFIG_HOME/pixi/config.toml`, else `~/.config/pixi/config.toml` | `~/Library/Application Support/pixi/config.toml` | `%APPDATA%\pixi\config.toml`                                      |
+| System | `/etc/pixi/config.toml`                                                | `/etc/pixi/config.toml`                          | `C:\ProgramData\pixi\config.toml`                                 |
 
 `--no-config` skips the system and user layers; `--config-file <path>` replaces them with one file.
 Both reproduce a resolve without your machine's settings in it.
@@ -151,7 +151,9 @@ are served from different hosts:
 # ~/.pixi/config.toml
 [mirrors]
 "https://pypi.org/simple" = ["https://<host>/<path>/<pypi>/simple"]
-"https://files.pythonhosted.org/packages" = ["https://<host>/<path>/<pypi>/packages"]
+"https://files.pythonhosted.org/packages" = [
+  "https://<host>/<path>/<pypi>/packages",
+]
 ```
 
 !!! warning "The failure that looks like a hang"
@@ -162,12 +164,12 @@ are served from different hosts:
 If you run plain `pip` or `conda` on the same machine for other work, they read their own files and
 neither is used by this repository:
 
-| Tool | File | Key |
-| --- | --- | --- |
-| pip, Linux | `~/.config/pip/pip.conf` (`$XDG_CONFIG_HOME` honoured) | `index-url` under `[global]` |
-| pip, macOS | `~/Library/Application Support/pip/pip.conf` where that directory exists, else `~/.config/pip/pip.conf` | the same |
-| pip, Windows | `%APPDATA%\pip\pip.ini` | the same |
-| conda | `~/.condarc` | `channel_alias` |
+| Tool         | File                                                                                                    | Key                          |
+| ------------ | ------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| pip, Linux   | `~/.config/pip/pip.conf` (`$XDG_CONFIG_HOME` honoured)                                                  | `index-url` under `[global]` |
+| pip, macOS   | `~/Library/Application Support/pip/pip.conf` where that directory exists, else `~/.config/pip/pip.conf` | the same                     |
+| pip, Windows | `%APPDATA%\pip\pip.ini`                                                                                 | the same                     |
+| conda        | `~/.condarc`                                                                                            | `channel_alias`              |
 
 `~/.pip/pip.conf` is the legacy path and still works; `pip config debug` prints the exact list. In
 `.condarc`, `channel_alias` defaults to anaconda.org, so without it a bare `conda-forge` resolves
@@ -198,12 +200,12 @@ docker build --target dev -t sutura-dev \
 Installing your CA in the OS store is necessary but not sufficient, because several toolchains ship
 their own bundle:
 
-| Tool | Variable |
-| --- | --- |
-| curl, git | `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` |
-| Python, pip | `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` |
-| Node | `NODE_EXTRA_CA_CERTS` |
-| Nix | `NIX_SSL_CERT_FILE` - in the **daemon's** environment for multi-user mode |
+| Tool        | Variable                                                                  |
+| ----------- | ------------------------------------------------------------------------- |
+| curl, git   | `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`                                        |
+| Python, pip | `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`                                     |
+| Node        | `NODE_EXTRA_CA_CERTS`                                                     |
+| Nix         | `NIX_SSL_CERT_FILE` - in the **daemon's** environment for multi-user mode |
 
 ## Proxy, where there is no mirror
 

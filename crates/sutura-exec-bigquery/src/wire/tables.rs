@@ -380,13 +380,17 @@ where
 /// fail identically on every boot. None of the three is fixed by the grant a refusal here names, so
 /// refusing on them costs an operator a startup message pointing at the wrong permission - which is
 /// the limit of this split rather than a case it answers.
-pub(super) fn was_refused<C>(error: &WireError<C>) -> bool
+pub(super) const fn was_refused<C>(error: &WireError<C>) -> bool
 where
     C: core::error::Error + 'static,
 {
     match *error {
-        WireError::Refused { status, ref named, .. } => {
-            (status == 401 || status == 403) && !matches!(named.as_str(), "rateLimitExceeded" | "quotaExceeded")
+        WireError::Refused { status, named, .. } => {
+            (status == 401 || status == 403)
+                && !matches!(
+                    named,
+                    crate::wire::ReasonCode::RateLimitExceeded | crate::wire::ReasonCode::QuotaExceeded
+                )
         }
         WireError::Credential { .. }
         | WireError::Expired { .. }

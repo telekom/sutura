@@ -1,9 +1,13 @@
-//! The router, the settings and the log capture every assertion in this suite is driven through.
+//! The router, the settings, the credentials and the log capture every assertion in this suite is
+//! driven through.
 //!
-//! **Holds no `#[test]` and no assertion**, for `just causality`'s reason - see the `federated`
-//! suite's own fixtures module. It also asserts nothing about what it builds: `settings` takes its
-//! overlay as raw YAML, so a mistyped key is an ABSENT setting rather than a refusal, and only the
-//! parent's assertions say what was actually configured.
+//! **Holds no `#[test]` and no assertion**: every builder returns a value, and what is true of that
+//! value is a sibling module's to assert. It also asserts nothing about what it builds - `settings`
+//! takes its overlay as raw YAML, so a mistyped key is an ABSENT setting rather than a startup
+//! refusal, and only the assertions say what was actually configured.
+//!
+//! Extracted once rather than per module, because two copies of a fixture are two things to keep in
+//! step.
 
 use axum::Router;
 use axum::body::Body;
@@ -48,8 +52,6 @@ where
     crate::testing::serving(pinned, warehouses, crate::testing::broker(), settings, None)
 }
 
-// -------------------------------------------------------------------- health ----
-
 /// One question, and the three things a refused caller must be given.
 ///
 /// Returns the status, the `code` and the `detail`, parsed out of the body rather than matched as a
@@ -76,6 +78,25 @@ pub(super) async fn refusal(app: &Router, question: &str) -> (StatusCode, String
     );
     assert!(!detail.is_empty(), "{code} refused with no sentence");
     (status, code, detail)
+}
+
+/// The metrics credential, distinct from the API token, for the cases that configure one.
+pub(super) const METRICS_TOKEN: &str = "0123456789abcdef0123456789abcdf0";
+
+/// Settings with both credentials and pinned process numbers.
+///
+/// The engine width and the execution bound are pinned rather than left to the machine, because one
+/// of these tests asserts the rendered exposition exactly and a machine-dependent number would make
+/// that snapshot a property of the runner.
+pub(super) fn metrics_settings(environment: Environment) -> Settings {
+    settings(
+        environment,
+        &format!(
+            "security:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"sidecar\"\n  \
+             metrics_token: \"{METRICS_TOKEN}\"\nserver:\n  host: \"0.0.0.0\"\nruntime:\n  \
+             engine_worker_threads: 3\n  max_concurrent_queries: 4\n"
+        ),
+    )
 }
 
 /// Runs one request through `app` with a subscriber over a buffer, and returns what was written.

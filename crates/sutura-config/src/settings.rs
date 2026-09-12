@@ -221,6 +221,11 @@ pub enum SettingsError {
         #[source]
         cause: InvalidAccessToken,
     },
+    #[error("`security.metrics_token` is not usable as a token")]
+    MetricsToken {
+        #[source]
+        cause: InvalidAccessToken,
+    },
     #[error("`security.tls_termination` does not name where TLS is terminated")]
     TlsTermination {
         #[source]
@@ -530,11 +535,6 @@ impl Settings {
     /// about there being *no* credential - and a deployment that verifies every caller's own token has
     /// one, per caller, audience-bound and expiring. So the requirement now reads "some credential",
     /// and the message still names which of the two reasons asked for it.
-    ///
-    /// The second rule is the collision: see [`NotFitToServe::DeploymentTokenSharesTheHeader`]. The
-    /// two rules are here together rather than in two functions because they are one question asked
-    /// twice - what does a request present, and can it present it - and a deployment that got the
-    /// first wrong usually got the second wrong in the same edit.
     fn credential_refusals(&self, off_host: bool) -> Vec<NotFitToServe> {
         let mut refusals = Vec::new();
         let inbound = self.security.inbound();
@@ -556,6 +556,40 @@ impl Settings {
         // in `Authorization` cannot slip past this.
         if self.security.access_token().is_some() && inbound.is_some_and(InboundIdentity::reads_the_authorization_header) {
             refusals.push(NotFitToServe::DeploymentTokenSharesTheHeader);
+        }
+        // The metrics token is a SECOND credential for a DIFFERENT surface, and the separation
+        // `docs/adr/0015` Decision 1 exists for. Three rules, each a silent collapse otherwise.
+        refusals.extend(self.metrics_refusals(off_host));
+        refusals
+    }
+
+    /// Everything wrong with the metrics credential's separation, or none of it.
+    ///
+    /// `docs/adr/0015` Decision 1: the metrics endpoint is gated by its own token, never the
+    /// deployment's, so a scrape cannot interrogate the business. Three startup refusals each
+    /// prevent a silent collapse of that separation.
+    fn metrics_refusals(&self, off_host: bool) -> Vec<NotFitToServe> {
+        let mut refusals = Vec::new();
+        let Some(metrics) = self.security.metrics_token() else {
+            // The metrics endpoint is always mounted on the one listener, so a deployment that is
+            // reachable off-host or is production has an unauthenticated way to read its counters.
+            // The same argument `AccessTokenRequired` makes for the API applies to whatever the
+            // process can read, which for `/metrics` is the deployment's own counters.
+            if off_host || self.environment.is_production() {
+                refusals.push(NotFitToServe::MetricsTokenRequired {
+                    because: if self.environment.is_production() {
+                        "the metrics endpoint is mounted and this is a production deployment"
+                    } else {
+                        "the metrics endpoint is mounted where other hosts can reach it"
+                    },
+                });
+            }
+            return refusals;
+        };
+        // Collision: one token gating both surfaces is the exact privilege escalation the
+        // separation exists to prevent, and nothing at runtime would show it.
+        if self.security.access_token().is_some_and(|api| api.equals(metrics)) {
+            refusals.push(NotFitToServe::MetricsTokenSharesTheApiToken);
         }
         refusals
     }
@@ -667,6 +701,10 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         None | Some("") => None,
         Some(value) => Some(AccessToken::parse(value).map_err(|cause| SettingsError::AccessToken { cause })?),
     };
+    let metrics_token = match raw.security.metrics_token.as_deref() {
+        None | Some("") => None,
+        Some(value) => Some(AccessToken::parse(value).map_err(|cause| SettingsError::MetricsToken { cause })?),
+    };
     let termination = match raw.security.tls_termination.as_deref() {
         None | Some("") => TlsTermination::default(),
         Some(value) => TlsTermination::parse(value).map_err(|cause| SettingsError::TlsTermination { cause })?,
@@ -686,7 +724,7 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         None => None,
         Some(ref written) => Some(crate::settings::inbound::parse_inbound(written)?),
     };
-    Ok(SecuritySettings::new(token, termination, inbound, identity))
+    Ok(SecuritySettings::new(token, termination, inbound, identity, metrics_token))
 }
 
 /// The data systems this deployment declares.

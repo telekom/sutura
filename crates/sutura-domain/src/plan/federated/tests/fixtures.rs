@@ -1,10 +1,9 @@
 //! The builders every assertion in this suite is written against: plans, legs, row sets and the
 //! parsed names they need.
 //!
-//! **Holds no `#[test]` and no assertion - by mechanism, not tidiness.** `just causality` reverts a
-//! changed file to measure it, so a test moved into a new module loses the `mod` declaration that
-//! compiles it and is never measured on base. Moving the HARNESS out costs the gate nothing. Every
-//! builder returns a value; what is true of that value is the parent's to assert.
+//! **Holds no `#[test]` and no assertion:** every builder returns a value, and what is true of that
+//! value is the parent's to assert. Extracted once rather than per module, because two copies of a
+//! fixture are two things to keep in step.
 
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::TIME_BUCKET_LABEL;

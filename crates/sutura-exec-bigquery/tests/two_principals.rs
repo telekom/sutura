@@ -111,7 +111,7 @@ mod tests {
     use sutura_exec_bigquery::BigQueryError;
     use sutura_exec_bigquery::transport::DatasetId;
     use sutura_exec_bigquery::wire::credential::{AccessTokens as _, Credential, CredentialFile};
-    use sutura_exec_bigquery::wire::{CallDeadline, WireAgent, WireError};
+    use sutura_exec_bigquery::wire::{CallDeadline, ReasonCode, WireAgent, WireError};
 
     use crate::support::{Connection, Wired, bounds, named, opened, opened_as, presented};
 
@@ -515,7 +515,7 @@ mod tests {
         match &refused {
             BigQueryError::Endpoint {
                 cause: WireError::Refused { status, named, .. },
-            } if *status == 403 && !matches!(named.as_str(), "rateLimitExceeded" | "quotaExceeded") => {
+            } if *status == 403 && !matches!(named, ReasonCode::RateLimitExceeded | ReasonCode::QuotaExceeded) => {
                 println!("bigquery-two-principals: the deployment's own identity was refused - {status}: {named}");
             }
             BigQueryError::UnmappedType { .. }

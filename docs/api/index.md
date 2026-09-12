@@ -45,7 +45,8 @@ in the crate, and a correction belongs there. Regenerate with:
 just api
 ```
 
-That runs two steps. `cargo rustdoc --output-format json` is nightly-only, because that is an
+That runs two steps. One `cargo doc` over the whole workspace, with rustdoc's
+`--output-format json`, which is nightly-only because that is an
 unstable rustdoc option - not a new pin, but the nightly this repository already keeps for the
 cranelift backend (`devco/rust-toolchain-nightly.toml`). `docs/.tools/rustdoc_to_markdown.py` then
 reads the JSON and writes markdown, using the pixi interpreter and the standard library only.

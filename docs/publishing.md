@@ -29,12 +29,12 @@ gh-pages/
   main/           the development docs, overwritten on every push to main
 ```
 
-| Event | Deploys | Alias |
-| --- | --- | --- |
-| push to `main` | `main/` | none. `latest` stays pinned to the newest release |
-| push of a `v*` tag | `<version>/`, the `v` stripped | `latest` moves onto it, and the root redirect follows |
-| `workflow_dispatch` from `main` | `main/` | none |
-| pull request | nothing | builds with `--strict`, so a broken link or an orphan page fails the PR |
+| Event                           | Deploys                        | Alias                                                                   |
+| ------------------------------- | ------------------------------ | ----------------------------------------------------------------------- |
+| push to `main`                  | `main/`                        | none. `latest` stays pinned to the newest release                       |
+| push of a `v*` tag              | `<version>/`, the `v` stripped | `latest` moves onto it, and the root redirect follows                   |
+| `workflow_dispatch` from `main` | `main/`                        | none                                                                    |
+| pull request                    | nothing                        | builds with `--strict`, so a broken link or an orphan page fails the PR |
 
 Nothing deletes a version directory, and the publish never force-pushes. A concurrent publish makes
 the job fail rather than overwrite: a failed job is recoverable and a deleted version is not.
@@ -98,10 +98,10 @@ measured ratios sit next to each value.
 
 Both image slots are filled by an original mark rather than by any Telekom trademark:
 
-| Slot | File | `mkdocs.yml` key |
-| --- | --- | --- |
-| Header mark | `docs/assets/sutura.svg` | `logo: assets/sutura.svg` |
-| Favicon | `docs/assets/favicon.svg`, plus `favicon.png` | `favicon: assets/favicon.svg` |
+| Slot        | File                                          | `mkdocs.yml` key              |
+| ----------- | --------------------------------------------- | ----------------------------- |
+| Header mark | `docs/assets/sutura.svg`                      | `logo: assets/sutura.svg`     |
+| Favicon     | `docs/assets/favicon.svg`, plus `favicon.png` | `favicon: assets/favicon.svg` |
 
 The mark is a hexagon cut into two congruent halves whose seam never closes: a seam is what
 *sutura* means, the hexagon is the ports-and-adapters shape, and the seam channel reads as an S.

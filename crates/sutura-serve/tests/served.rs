@@ -733,13 +733,21 @@ mod tests {
         let SettingsError::NotFitToServe { ref refusals } = *refused.reason() else {
             panic!("this fixture is meant to be a posture refusal and is {refused:?}");
         };
-        // The WHOLE set, not a `contains`: a second refusal here would mean the process could be
-        // stopping for something other than the undeclared terminator.
-        assert_eq!(refusals.len(), 1, "{refusals:?}");
+        // The WHOLE set, not a `contains`: every refusal in it is pinned by value, so the case cannot
+        // be green because the process stopped for a reason nobody named. The second is the metrics
+        // credential - this deployment is reachable off-host and gates `/metrics` with nothing of its
+        // own, which `docs/adr/0015` Decision 1 makes a refusal at this bind.
+        assert_eq!(refusals.len(), 2, "{refusals:?}");
         let NotFitToServe::TlsTerminationUndeclared { bind, origin } = &refusals[0] else {
             panic!("expected the undeclared-bind refusal, got {refusals:?}");
         };
         assert_eq!(bind, "0.0.0.0:0");
+        assert_eq!(
+            refusals[1],
+            NotFitToServe::MetricsTokenRequired {
+                because: "the metrics endpoint is mounted where other hosts can reach it"
+            }
+        );
         // The bind came from the fixture's own `base.yaml`, so the refusal must name that file -
         // the same one the harness already asserted appears in the log. (The precise equality with
         // that path, through the canonical spelling the `config` crate leaves relative, is asserted
@@ -764,11 +772,19 @@ mod tests {
         let SettingsError::NotFitToServe { ref refusals } = *refused.reason() else {
             panic!("this fixture is meant to be a posture refusal and is {refused:?}");
         };
+        // Both refusals, by value: the API surface has no credential and `/metrics` has none of its
+        // own, and production is where both are required. Pinning the whole set is what keeps this
+        // case from passing because the process stopped for a third, unnamed reason.
         assert_eq!(
             *refusals,
-            vec![NotFitToServe::AccessTokenRequired {
-                because: "this is a production deployment with no inbound identity configured"
-            }]
+            vec![
+                NotFitToServe::AccessTokenRequired {
+                    because: "this is a production deployment with no inbound identity configured"
+                },
+                NotFitToServe::MetricsTokenRequired {
+                    because: "the metrics endpoint is mounted and this is a production deployment"
+                },
+            ]
         );
         said_every_line_of(&told, &refused.reason().to_string());
     }

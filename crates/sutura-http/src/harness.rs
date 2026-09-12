@@ -6,11 +6,6 @@
 //! data system. The peer address is the one thing the real server supplies and this does not -
 //! `crate::testing::request` inserts it, and that pair lives there because four test modules had
 //! grown four copies of it.
-//!
-//! **This file reached the 1000-line cap, and what may leave is the HARNESS - not the assertions:**
-//! `just causality` reverts a changed file to measure it, so a test moved into a new module loses
-//! the `mod` declaration that compiles it and is never measured on base. Submodules reach the
-//! builders through `use super::*`.
 
 use std::sync::Arc;
 
@@ -29,9 +24,13 @@ mod fixtures;
 use fixtures::*;
 
 /// Whether the catalog route honours the prose setting it was started with.
+///
+/// Its own file rather than another section here, and the reason is mechanical: this one is at 1000
+/// lines, which `cargo xtask max-lines` refuses. The helpers it needs are this module's, reached
+/// through `super`.
 mod catalog_prose;
 
-// ------------------------------------------------------------- the token gate ----
+// -------------------------------------------------------------------- health ----
 
 #[tokio::test]
 async fn health_answers_without_a_token_and_says_nothing_about_the_deployment() {
@@ -47,62 +46,27 @@ async fn health_answers_without_a_token_and_says_nothing_about_the_deployment() 
     assert_eq!(body, r#"{"status":"ok"}"#);
 }
 
-#[tokio::test]
-async fn the_versioned_api_needs_the_token_when_one_is_configured() {
-    let app = app(settings(
-        Environment::Development,
-        &format!("security:\n  access_token: \"{TOKEN}\"\n"),
-    ));
+// ------------------------------------------------------------- the token gate ----
+//
+// The three questions about a deployment that configures `security.access_token`. Its own file
+// because this one is at the `max-lines` bound.
 
-    let (status, body) = call(&app, request("GET", "/v1/catalog", None, Body::empty())).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert!(body.contains(r#""code":"unauthorized""#), "{body}");
-
-    let (status, _) = call(
-        &app,
-        request(
-            "GET",
-            "/v1/catalog",
-            Some("wrong-but-long-enough-to-be-a-token"),
-            Body::empty(),
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-
-    let (status, body) = call(&app, request("GET", "/v1/catalog", Some(TOKEN), Body::empty())).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("revenue"), "{body}");
-}
-
-#[tokio::test]
-async fn an_unmatched_path_answers_not_found_without_holding_a_credential() {
-    // **Asserts the CURRENT behaviour, which is not what this file first claimed.** `route_layer`
-    // runs only for a request that matched a route in that subtree, so a path under the version
-    // prefix matching nothing skips the token gate and falls through to the top-level `404`.
-    //
-    // Kept as `404` rather than contorted into a `401`: it discloses only *which paths exist*, and
-    // those are in the published interface description. Every path that resolves to a handler does
-    // hold a credential - the test above asserts it. If that judgement changes, it changes here.
-    let app = app(settings(
-        Environment::Development,
-        &format!("security:\n  access_token: \"{TOKEN}\"\n"),
-    ));
-    let (status, body) = call(&app, request("GET", "/v1/catalog/secret", None, Body::empty())).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    // What matters either way: the response says nothing about the deployment.
-    assert!(body.is_empty(), "{body}");
-}
+#[cfg(test)]
+mod token;
 
 // ------------------------------------------------------------------- queries ----
 
 #[tokio::test]
-async fn a_loopback_development_service_with_no_token_configured_answers_without_one() {
-    // The permissive branch, and the reason it is safe: this configuration is only loadable on a
-    // loopback bind outside production, which `sutura-config` enforces with a startup refusal.
+async fn a_certified_question_is_answered_with_its_provenance() {
     let app = app(settings(Environment::Development, ""));
-    let (status, _) = call(&app, request("GET", "/v1/catalog", None, Body::empty())).await;
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
+    assert!(body.contains(r#""outcome":"answer""#), "{body}");
+    assert!(body.contains(r#""definition_version":"test-1""#), "{body}");
 }
 
 // ------------------------------------------------------- refusals, per status ----
@@ -117,19 +81,6 @@ async fn a_loopback_development_service_with_no_token_configured_answers_without
 // and a non-empty sentence. `wire::refusal` unit-tests the per-variant mapping; what these add is
 // that the status survives the REAL router, which a handler-computed mapping the router flattens
 // to `200` would not.
-
-#[tokio::test]
-async fn a_certified_question_is_answered_with_its_provenance() {
-    let app = app(settings(Environment::Development, ""));
-    let (status, body) = call(
-        &app,
-        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(body.contains(r#""outcome":"answer""#), "{body}");
-    assert!(body.contains(r#""definition_version":"test-1""#), "{body}");
-}
 
 #[tokio::test]
 async fn an_unknown_metric_is_a_404_naming_the_snapshot_that_does_not_define_it() {
@@ -408,8 +359,6 @@ async fn a_body_larger_than_the_configured_bound_is_refused_before_it_is_parsed(
     assert!(body.contains(r#""code":"not_a_question""#), "{body}");
 }
 
-// ------------------------------------------------------------- the limiter ----
-
 #[tokio::test]
 async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() {
     // `tower-http` implements `TimeoutLayer::with_status_code` as `Response::new(B::default())` -
@@ -442,6 +391,8 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
     );
     assert!(body.contains(r#""status":408"#), "{body}");
 }
+
+// ------------------------------------------------------------- the limiter ----
 
 #[tokio::test]
 async fn a_wrong_token_attempt_costs_a_rate_limit_cell() {
@@ -556,8 +507,6 @@ async fn the_disabled_limiter_does_not_limit() {
     }
 }
 
-// ------------------------------------------------------- the documentation ----
-
 #[tokio::test]
 async fn liveness_and_the_api_are_limited_separately() {
     // Two tiers, so a probe hammering liveness cannot exhaust a caller's quota for the API. The
@@ -580,6 +529,8 @@ async fn liveness_and_the_api_are_limited_separately() {
     );
 }
 
+// ------------------------------------------------------- the documentation ----
+
 #[tokio::test]
 async fn the_interface_description_is_served_in_development_and_not_in_production() {
     let development = app(settings(Environment::Development, ""));
@@ -598,24 +549,13 @@ async fn the_interface_description_is_served_in_development_and_not_in_productio
     // plaintext on the pod network). That deployment must load rather than be refused.
     let production = app(settings(
         Environment::Production,
-        &format!("server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"ingress\"\n"),
+        &format!(
+            "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"ingress\"\n  metrics_token: \"0123456789abcdef0123456789abcdf0\"\n"
+        ),
     ));
     let (status, _) = call(&production, request("GET", "/openapi.json", Some(TOKEN), Body::empty())).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
-
-// ------------------------------------------------------------------ the log ----
-//
-// **The defect these were written for.** `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`,
-// which `tower-http` seeds from `DEFAULT_MESSAGE_LEVEL` = `Level::DEBUG`, while `telemetry.filter`
-// defaults to `info`. So the ONE production span was disabled in the shipped default:
-// `JsonStorageLayer` had nothing to attach, every machine-readable line carried an empty span
-// context, and the documentation promised the opposite.
-//
-// **Only testable as bytes:** no return value says "a span existed", and the property is about what
-// a collector receives - so these drive the real router with a subscriber over a buffer and read
-// the buffer. `SUTURA_TEST_LOG=1` also prints it, which makes a failure here readable. See
-// `sutura_runtime::testing::Capture`.
 
 #[tokio::test]
 async fn the_interface_description_is_behind_the_token_when_one_is_configured() {
@@ -635,6 +575,27 @@ async fn the_interface_description_is_behind_the_token_when_one_is_configured() 
         StatusCode::OK
     );
 }
+
+// ------------------------------------------------------------------ the metrics ----
+//
+// The credential, the exact series set, the refusal-versus-fault split, the disclosure exclusions
+// and the scrape-under-load cell. Its own file because this one is at the `max-lines` bound.
+
+#[cfg(test)]
+mod metrics;
+
+// ------------------------------------------------------------------ the log ----
+//
+// **The defect these were written for.** `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`,
+// which `tower-http` seeds from `DEFAULT_MESSAGE_LEVEL` = `Level::DEBUG`, while `telemetry.filter`
+// defaults to `info`. So the ONE production span was disabled in the shipped default:
+// `JsonStorageLayer` had nothing to attach, every machine-readable line carried an empty span
+// context, and the documentation promised the opposite.
+//
+// **Only testable as bytes:** no return value says "a span existed", and the property is about what
+// a collector receives - so these drive the real router with a subscriber over a buffer and read
+// the buffer. `SUTURA_TEST_LOG=1` also prints it, which makes a failure here readable. See
+// `sutura_runtime::testing::Capture`.
 
 #[cfg(test)]
 mod logging;

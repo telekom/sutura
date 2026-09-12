@@ -16,10 +16,10 @@ authority on what may be cited where.
 
 `just demo` builds and starts ONE container holding two supervised processes:
 
-| Process | What it is |
-| --- | --- |
-| `sutura-serve` | The shipped HTTP server, over `examples/single-player` - the same binary a release publishes |
-| The chat client | Open WebUI v0.11.3, pointed at a language model you configure |
+| Process         | What it is                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| `sutura-serve`  | The shipped HTTP server, over `examples/single-player` - the same binary a release publishes |
+| The chat client | Open WebUI v0.11.3, pointed at a language model you configure                                |
 
 The client is registered against the server through Open WebUI's **native OpenAPI connection** -
 `type: openapi`, the server's loopback URL, `path: openapi.json`, a bearer `auth_type`, and
@@ -38,12 +38,12 @@ Three values and one acknowledgement, all from the environment. `demo/start.sh` 
 before it builds or starts anything, and never prints a value: a missing or malformed setting is
 reported by name.
 
-| Variable | Required | What it is |
-| --- | --- | --- |
-| `SUTURA_DEMO_MODEL_ENDPOINT` | yes | An OpenAI-compatible base URL - hosted, or a local server |
-| `SUTURA_DEMO_MODEL` | yes | The model id that endpoint serves |
-| `SUTURA_DEMO_MODEL_API_KEY` | for a hosted endpoint | The key; a model on loopback or `host.docker.internal` needs none |
-| `SUTURA_DEMO_ACKNOWLEDGE` | yes | Your own sentence for why one identity reading one example is correct |
+| Variable                     | Required              | What it is                                                            |
+| ---------------------------- | --------------------- | --------------------------------------------------------------------- |
+| `SUTURA_DEMO_MODEL_ENDPOINT` | yes                   | An OpenAI-compatible base URL - hosted, or a local server             |
+| `SUTURA_DEMO_MODEL`          | yes                   | The model id that endpoint serves                                     |
+| `SUTURA_DEMO_MODEL_API_KEY`  | for a hosted endpoint | The key; a model on loopback or `host.docker.internal` needs none     |
+| `SUTURA_DEMO_ACKNOWLEDGE`    | yes                   | Your own sentence for why one identity reading one example is correct |
 
 **Hosted.** Point the endpoint at your provider and set the key.
 

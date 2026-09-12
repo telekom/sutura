@@ -56,7 +56,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
-
 [dev-dependencies]
 # The committed schema dump. Reviewed as a diff, never typed: a new or widened tool input changes
 # the snapshot and the byte-compare fails until somebody re-accepts it.

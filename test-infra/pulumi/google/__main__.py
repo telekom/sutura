@@ -123,7 +123,9 @@ for _api in ["bigquery.googleapis.com", "iam.googleapis.com"]:
             project=project,
             service=_api,
             disable_on_destroy=False,
-            opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+            opts=pulumi.ResourceOptions(
+                provider=gcp_provider, depends_on=API_BOOTSTRAP
+            ),
         )
     )
 
@@ -140,6 +142,7 @@ def sutura_name(cfg: pulumi.Config, leaf: str) -> str:
     # Trim to stay inside the limit; collisions across two stacks differing only at
     # the tail are avoided by keeping the stack name short.
     return prefix[:30]
+
 
 # --------------------------------------------------------------------------- #
 # (3) Two principals, one table, disjoint rows
@@ -184,7 +187,9 @@ table = gcp.bigquery.Table(
     table_id=table_id,
     schema=schema,
     deletion_protection=False,
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset, *API_BOOTSTRAP]),
+    opts=pulumi.ResourceOptions(
+        provider=gcp_provider, depends_on=[dataset, *API_BOOTSTRAP]
+    ),
 )
 
 # The ROWS, beside the policies that select them, and that placement is a decision rather than
@@ -244,7 +249,9 @@ seed = gcp.bigquery.Job(
     job_id=f"{pulumi.get_stack()}-seed-{hashlib.sha256(_seed_statement.encode()).hexdigest()[:16]}",
     location=region,
     query=gcp.bigquery.JobQueryArgs(query=_seed_statement, use_legacy_sql=False),
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table, *API_BOOTSTRAP]),
+    opts=pulumi.ResourceOptions(
+        provider=gcp_provider, depends_on=[table, *API_BOOTSTRAP]
+    ),
 )
 
 # The isolation: principal A is granted rows where the grouping column equals A's value,
@@ -296,7 +303,9 @@ for tag, sa in (("principal-a", sa_a), ("principal-b", sa_b)):
         dataset_id=dataset.dataset_id,
         role="roles/bigquery.dataViewer",
         member=sa.member,
-        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset, rap_a, rap_b]),
+        opts=pulumi.ResourceOptions(
+            provider=gcp_provider, depends_on=[dataset, rap_a, rap_b]
+        ),
     )
 
 # Keys are the long-lived bearer each CI run uses. Exported as secrets; never

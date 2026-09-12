@@ -3,8 +3,8 @@
 <!-- Short. It should tell a reviewer how to spend attention in five seconds. -->
 
 | Size | Risk | Focus | Evidence |
-| --- | --- | --- | --- |
-|  |  |  |  |
+| ---- | ---- | ----- | -------- |
+|      |      |       |          |
 
 ## What changed?
 
@@ -33,10 +33,10 @@ Generated or mechanical, skip:
 
 <!-- Exact commands and whether they passed. Say what you did NOT run. "Should work" is not a result. -->
 
-| Check | Result |
-| --- | --- |
-| `gates` |  |
-| `ship-check` |  |
+| Check        | Result |
+| ------------ | ------ |
+| `gates`      |        |
+| `ship-check` |        |
 
 ## Test causality
 

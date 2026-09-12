@@ -236,8 +236,13 @@ impl FixturePort for Live {
         let negative = plan(&absent)?;
         match warehouse.execute(Executable::Query(&negative), &presented()) {
             Err(BigQueryError::Endpoint {
-                cause: WireError::Refused { status: 404, named, .. },
-            }) if named == "notFound" => {}
+                cause:
+                    WireError::Refused {
+                        status: 404,
+                        named: sutura_exec_bigquery::wire::ReasonCode::NotFound,
+                        ..
+                    },
+            }) => {}
             _ => return Err(Failed::Negative),
         }
         let after = warehouse

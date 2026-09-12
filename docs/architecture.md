@@ -170,11 +170,11 @@ Three adapters exist. **They are chosen at compile time, in the composition root
 configuration that names one.** If you are looking for a setting to point sutura at a different
 catalogue or a different data system, there is not one yet.
 
-| Port | Adapter | What it is | In the shipped binary? |
-| --- | --- | --- | --- |
-| `SemanticCatalog` | `sutura-catalog-local` | A directory of markdown documents with YAML frontmatter, read off disk | **Yes.** The only catalogue adapter there is |
-| `Warehouse` | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL | **Yes**, and it is what `sutura query` runs |
-| `Warehouse` | `sutura-exec-duckdb` | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down | **No.** A development dependency of `sutura-app` |
+| Port              | Adapter                  | What it is                                                                                            | In the shipped binary?                           |
+| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                | **Yes.** The only catalogue adapter there is     |
+| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL | **Yes**, and it is what `sutura query` runs      |
+| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                       | **No.** A development dependency of `sutura-app` |
 
 So the combination a PUBLISHED binary supports is **local markdown with YAML frontmatter for the
 metadata, and the in-process engine over the CSV or Parquet files in a directory**. `sutura query
@@ -611,13 +611,13 @@ better exercised than anything we will write soon. The acceleration half we cann
 materialized copy is read under whoever refreshed it, so under row-level security it is a cross-user
 leak with a refresh schedule. Spice's front door is also SQL, where ours has no field for it.
 
-| Stage | Decided there | Ours or theirs |
-| --- | --- | --- |
-| Semantic layer | what a metric means | Both, by two routes. A first-party model is authored here and compiled; a rendered statement is authored upstream and taken as given. Wren is the reference shape for the modelling half, and the difference is that a model here may hold no SQL expression |
-| Plan | source, projection, grouping, bounds, parameters | Ours, and the prediction this row used to make came true from the other side. The type is still ours and it moved into `sutura-domain`, because the execution port carries a plan rather than a statement; DataFusion arrived for execution rather than for representation. [DataFusion for local execution](adr/0003-datafusion-for-local-execution.md) |
-| Federation | which subplan its owner runs | Adopt for a SECOND source, once a credential exists per leg. Not needed for the first: a single-source plan is already pushed down whole |
-| Dialect | quoting, placeholders, date arithmetic | Adopt for what we generate, never for the splice. Two things it does not decide: placeholder style, which it renders identically for every target, and quoting, which it applies only when asked. Both are ours |
-| Execution | the connection, and which principal the data system sees | Build, and adopt for the local leg: one adapter per data system, DataFusion where the data is a file on the same machine, and the per-request credential is the part nothing above provides |
+| Stage          | Decided there                                            | Ours or theirs                                                                                                                                                                                                                                                                                                                                           |
+| -------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Semantic layer | what a metric means                                      | Both, by two routes. A first-party model is authored here and compiled; a rendered statement is authored upstream and taken as given. Wren is the reference shape for the modelling half, and the difference is that a model here may hold no SQL expression                                                                                             |
+| Plan           | source, projection, grouping, bounds, parameters         | Ours, and the prediction this row used to make came true from the other side. The type is still ours and it moved into `sutura-domain`, because the execution port carries a plan rather than a statement; DataFusion arrived for execution rather than for representation. [DataFusion for local execution](adr/0003-datafusion-for-local-execution.md) |
+| Federation     | which subplan its owner runs                             | Adopt for a SECOND source, once a credential exists per leg. Not needed for the first: a single-source plan is already pushed down whole                                                                                                                                                                                                                 |
+| Dialect        | quoting, placeholders, date arithmetic                   | Adopt for what we generate, never for the splice. Two things it does not decide: placeholder style, which it renders identically for every target, and quoting, which it applies only when asked. Both are ours                                                                                                                                          |
+| Execution      | the connection, and which principal the data system sees | Build, and adopt for the local leg: one adapter per data system, DataFusion where the data is a file on the same machine, and the per-request credential is the part nothing above provides                                                                                                                                                              |
 
 That last row is why this is a repository rather than a configuration file for one of the others.
 
@@ -627,22 +627,22 @@ Ports live in the domain crate. Adapters live outside it. The domain crate depen
 names what it needs by trait, and the binary decides which implementation is passed in.
 
 ```text
-        agent                        other callers
-          |                                |
-      MCP server                     HTTP / OpenAPI          transport, no logic
-          +----------------+----------------+
-                           |
-                      sutura-app                             the service, generic over ports
-                           |
-                     sutura-domain                           domain types + port traits
-          +----------------+----------------+
-          |                |                |
-   SemanticCatalog     Warehouse     CredentialBroker        ports, inside the hexagon
-          |                |                |
-    YAML in git,      ClickHouse,      the identity          adapters, outside it
-    a metadata        Postgres,          provider
-    catalogue         DuckDB,
-                      DataFusion
+     agent                        other callers
+       |                                |
+   MCP server                     HTTP / OpenAPI          transport, no logic
+       +----------------+----------------+
+                        |
+                   sutura-app                             the service, generic over ports
+                        |
+                  sutura-domain                           domain types + port traits
+       +----------------+----------------+
+       |                |                |
+SemanticCatalog     Warehouse     CredentialBroker        ports, inside the hexagon
+       |                |                |
+ YAML in git,      ClickHouse,      the identity          adapters, outside it
+ a metadata        Postgres,          provider
+ catalogue         DuckDB,
+                   DataFusion
 ```
 
 `cargo xtask check-boundaries` enforces the direction, so the diagram cannot quietly stop being true.
@@ -684,11 +684,11 @@ per-thread cache.
 Measured with one binary and only threading toggled, the single-threaded control is a wash across all
 three. A 48-core run is not:
 
-| Build | 48 threads |
-| --- | --- |
-| glibc | 4.45s |
-| musl, mallocng | 92.16s |
-| musl, mimalloc | 3.83s |
+| Build          | 48 threads |
+| -------------- | ---------- |
+| glibc          | 4.45s      |
+| musl, mallocng | 92.16s     |
+| musl, mimalloc | 3.83s      |
 
 92.16s is slower than musl's own single-core run, which is what one global mutex predicts. Expect
 parity single-threaded and a 4-20x gap for a threaded application.
