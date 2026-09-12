@@ -3356,7 +3356,7 @@ asked - by the time a <code>Metric</code> reaches it the map has collapsed an ex
 DECLARED order is here and nowhere later, so the refusal names the two spellings in the
 order the file wrote them. Same shape, and the same argument, as
 <code>StatementTables::parse</code>.</p>
-<p><strong>What a folded pair costs was measured rather than argued.</strong> <code>DuckDB</code> 1.5.5
+<p><strong>What a folded pair costs was measured rather than argued.</strong> The pinned <code>DuckDB</code>
 (<code>v1.5.5 Variegata d8cdaa33fd</code>), whose <code>sutura_sql::Dialect::identifier_case</code> declares
 <code>IdentifierCase::InsensitiveAscii</code>:
 <code>SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")</code> returns <strong>1</strong> - the <code>region</code>
@@ -6513,7 +6513,7 @@ label in exactly one place.</p>
 <td>measured by hand 2026-09-05, and held from now on by <code>an_internal_label_survives_as_an_alias_at_the_service</code> in <code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>, which the <code>bigquery-acceptance</code> job runs</td>
 </tr>
 <tr>
-<td><code>DuckDB</code> 1.5.5 executes it</td>
+<td>the pinned <code>DuckDB</code> executes it</td>
 <td>a live engine</td>
 <td>measured by hand in review, 2026-09-05: <code>SELECT 1 AS "0_link", 2 AS "0_leaf_0"</code> answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this</td>
 </tr>
@@ -7090,7 +7090,7 @@ label in exactly one place.</p>
 <td>measured by hand 2026-09-05, and held from now on by <code>an_internal_label_survives_as_an_alias_at_the_service</code> in <code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>, which the <code>bigquery-acceptance</code> job runs</td>
 </tr>
 <tr>
-<td><code>DuckDB</code> 1.5.5 executes it</td>
+<td>the pinned <code>DuckDB</code> executes it</td>
 <td>a live engine</td>
 <td>measured by hand in review, 2026-09-05: <code>SELECT 1 AS "0_link", 2 AS "0_leaf_0"</code> answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this</td>
 </tr>
@@ -7211,7 +7211,7 @@ label in exactly one place.</p>
 <td>measured by hand 2026-09-05, and held from now on by <code>an_internal_label_survives_as_an_alias_at_the_service</code> in <code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>, which the <code>bigquery-acceptance</code> job runs</td>
 </tr>
 <tr>
-<td><code>DuckDB</code> 1.5.5 executes it</td>
+<td>the pinned <code>DuckDB</code> executes it</td>
 <td>a live engine</td>
 <td>measured by hand in review, 2026-09-05: <code>SELECT 1 AS "0_link", 2 AS "0_leaf_0"</code> answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this</td>
 </tr>
@@ -7709,7 +7709,7 @@ paths with the same name.</p>
 <code>analytics-prod.sales.orders</code> joined to a dimension table at <code>reference-data.crm.orders</code> rendered
 a <code>FROM</code> and a <code>LEFT JOIN</code> whose <code>ON</code> clause compared <code>orders.customer_id</code> with <code>orders.id</code> - one
 table with itself - and every projected column was qualified by an identifier that named two
-tables. On a real <code>DuckDB</code> 1.5.5 that statement is
+tables. On the pinned <code>DuckDB</code> that statement is
 <code>Binder Error: Ambiguous reference to table "orders"</code>; a target that binds it to one side instead
 returns a number under a certified metric name, which is the failure class this repository is
 arranged against. <strong>Same-name tables are the normal shape of the estate <code>docs/adr/0019</code> exists
@@ -7718,7 +7718,7 @@ exotic.</p>
 <h1 id="why-a-refusal-and-not-distinct-explicit-aliases">Why a refusal, and not distinct explicit aliases<a class="headerlink" href="#why-a-refusal-and-not-distinct-explicit-aliases" title="Permanent link">&para;</a></h1>
 <p>Distinct aliases are the fix that would keep the question answerable, and they are <strong>not reachable
 through the SQL builder this workspace renders with</strong>, which was measured rather than assumed
-against <code>polyglot-sql</code> 0.9.2: <code>SelectBuilder::from_expr</code> takes an expression, so the <code>FROM</code> side
+against the pinned <code>polyglot-sql</code>: <code>SelectBuilder::from_expr</code> takes an expression, so the <code>FROM</code> side
 could carry an <code>AS</code>, but <code>left_join</code> and every other join method take a <code>&amp;str</code> table name and
 <code>join_with_kind</code> is private - so the JOINED side cannot be aliased without hand-building a select
 expression with upwards of thirty fields, which <code>sutura_sql</code>'s renderer rules out at its own header

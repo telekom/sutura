@@ -2713,7 +2713,7 @@ subject, on the port rather than on either transport.</p>
 <p><strong><code>telekom/sutura#339</code>: the admission window was the only bounded wait on this surface.</strong> A
 question that could not get a slot came back inside <code>runtime.admission_timeout_seconds</code>; a
 question that GOT one waited as long as the data system took, with nothing in the picture to end
-it. rmcp 3.1.4 applies no per-request deadline of its own, so there was no other bound to
+it. rmcp applies no per-request deadline of its own, so there was no other bound to
 inherit - measured on the pinned SDK and not read off its documentation.</p>
 <p>So <code>AgentSurface::new</code> takes <code>server.request_timeout_seconds</code> as well, and the one function
 that awaits the port waits under it. When it expires the peer is answered on the fourth
@@ -2747,10 +2747,10 @@ question whose reply deadline fired keeps its slot until the data system answers
 deadline bounds the peer's wait and nothing else. That is deliberate and it is why the sentence
 the peer gets does not say <em>try again</em>: repeating the question would take a second slot while
 the first is still running. Making running work stoppable is #160's subject, on the port.</p>
-<p><strong>Peer cancellation ends this transport's wait and nothing below it.</strong> rmcp 3.1.4 delivers
+<p><strong>Peer cancellation ends this transport's wait and nothing below it.</strong> rmcp delivers
 <code>notifications/cancelled</code> through <code>RequestContext::ct</code>, and <code>ServerHandler::call_tool</code> selects
 on that token while a question is pending. The handler returns before its configured deadline;
-the pinned rmcp then suppresses its response on the wire. The blocking <code>Surface::answer</code>
+rmcp then suppresses its response on the wire. The blocking <code>Surface::answer</code>
 call cannot be aborted, so it keeps running and owns its execution slot until it returns. This
 is <code>telekom/sutura#362</code>; making the data work itself stoppable remains #160, on the port rather
 than on this transport.</p>

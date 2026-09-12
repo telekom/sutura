@@ -2730,7 +2730,7 @@ case-sensitive (checked 2026-08-30). Its TABLE names are case-sensitive by defau
 the asymmetry that makes the collision reachable: a table <code>Orders</code> is a distinct table, and the
 qualifier <code>Orders</code> still resolves to a select-list alias spelled <code>orders</code>.</p>
 <p><strong><code>DuckDb</code> is <code>InsensitiveAscii</code>, and that was MEASURED rather than read.</strong> On the pinned
-<code>DuckDB</code> 1.5.5, a table created as a quoted <code>Orders</code> is bound by a quoted <code>orders</code> qualifier and
+<code>DuckDB</code>, a table created as a quoted <code>Orders</code> is bound by a quoted <code>orders</code> qualifier and
 returns a result - so an identifier is folded when it is RESOLVED, even though the same engine
 keeps two projected aliases differing only in case as two distinct output columns. Declaring
 the coarser of the two behaviours covers both.</p>
