@@ -20,6 +20,9 @@
 //! | an unknown key id | "has a key been ADDED that I have not seen" | [`MIN_REFETCH_INTERVAL`], because the trigger is caller-controlled |
 //! | age | "has a key been REMOVED" | [`MAX_KEY_SET_AGE`], because the trigger is the clock and a caller cannot make it fire faster |
 //!
+//! The second row holds **while the source answers**, and not otherwise - see *the revocation bound
+//! excludes a failing refresh*, below.
+//!
 //! The age trigger fires from two places, deliberately. [`KeySetCache::watch_until_shutdown`] is a
 //! timer - the same shape `crate::tls::Renewal::watch_until_shutdown` already uses, spawned from the
 //! composition root inside the runtime - so revocation latency is bounded *whether or not this
@@ -50,6 +53,46 @@
 //! sleep, which is the same reason `Renewal::poll_once` is public. **A concurrency bound proved by a
 //! sleep being long enough is worse than none**, and this file is the second attempt at this bound.
 //!
+//! # Where the read runs, and the three separate things that bound it
+//!
+//! [`KeySetSource::read`] is synchronous and the parse behind it is CPU work over a foreign
+//! document, and both used to run inline in [`KeySetCache::poll_once`] - on the async worker thread
+//! that was serving requests, reached from the timer as well as from a caller.
+//! `sutura_runtime::spawn_carrying_span` moves both onto the blocking pool. **That is not by itself
+//! a bound**, and the helper's own documentation says why: a started blocking task cannot be
+//! aborted, so a caller that gave up does not stop the read and runtime shutdown waits for it.
+//! Three different things bound three different growths:
+//!
+//! | What could grow | What bounds it | What that does not reach |
+//! | --- | --- | --- |
+//! | the bytes read, and the parse over them | [`MAX_KEY_SET_BYTES`], inside the source | a second implementor's read - the port hands back a `String`, so by then the allocation happened |
+//! | how many looks start | one per window by `Cached::last_attempt`, and none while an [`InFlight`] exists - both decided in the acquisition that reserves | a read whose awaiter left keeps its pool thread until the source answers; nothing installs what it returns |
+//! | how long a caller waits for one | the deployment's own request timeout | nothing here: a second deadline beside a documented one is the defect, not the fix |
+//!
+//! # The revocation bound EXCLUDES a failing refresh, and there is no freshness ceiling
+//!
+//! [`MAX_KEY_SET_AGE`] bounds revocation *while the source answers with a document this deployment
+//! can use*. It does not bound it while refresh is failing: an unreadable source and a rejected
+//! document both leave the previous keys verifying, and [`KeySetCache::reserve`] stamps the
+//! **attempt** - which is what the rate limit needs and says nothing about freshness. So a source
+//! that stays unreadable, or that holds a document this deployment will not adopt, retains the
+//! cached signing keys for as long as it stays that way.
+//!
+//! **What that permits, and what it does not.** It permits continued trust in signing keys an
+//! earlier refresh established. It bypasses nothing else: a token still has to carry a signature one
+//! of those keys verifies, and still has to be inside its own expiry.
+//!
+//! **The measurement is here and there is no ceiling on it.** `Cached::last_success` and
+//! [`KeySetCache::stale_for`] are the instant a look last came back with a usable document, which is
+//! the number a freshness ceiling would have to be compared against - deliberately not the last
+//! attempt. Nothing refuses on it, because refusing is an availability-breaking policy - a sidecar
+//! part-way through rewriting a mounted file would take a deployment's whole authentication down
+//! with it - and no record in this repository has decided that a deployment should degrade that way
+//! rather than keep verifying. So the bound and its limit, in one sentence: **a removed key stops
+//! verifying within [`MAX_KEY_SET_AGE`] plus one read while refresh works, and after no bounded time
+//! while it does not** - the staleness is reported as `stale_for_ms` on every look that could not
+//! confirm the keys, and refused on by nothing.
+//!
 //! # What a key set is read from, and the gap that is named rather than hidden
 //!
 //! [`FileKeySet`] is the only source that ships. **There is no HTTPS fetcher**, and that is stated
@@ -68,7 +111,8 @@
 //! none. What bounds staleness is [`MAX_KEY_SET_AGE`] and nothing the issuer says.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
@@ -76,6 +120,15 @@ use jsonwebtoken::DecodingKey;
 use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, JwkSet};
 use sutura_config::KeyFamily;
 use sutura_runtime::Shutdown;
+
+/// Where a key set comes from, and the bound on the document it hands back.
+///
+/// Private and re-exported, the way `docs/adr/0014`'s own seam runs: this module owns *the
+/// source* and nothing in it reads a clock or holds a lock. It was split off here at the
+/// thousand-line cap rather than being a new public path, so every caller's import is unchanged.
+mod source;
+
+pub use crate::inbound::keys::source::{FileKeySet, KeySetSource, KeySetUnavailable, MAX_KEY_SET_BYTES};
 
 /// The longest key id accepted.
 ///
@@ -102,6 +155,12 @@ pub const MIN_REFETCH_INTERVAL: Duration = Duration::from_secs(30);
 /// only ever wants to be *smaller*, so the cost is what sets it. One minute is one small read per
 /// minute per process, which is the same order as
 /// `crate::middleware::REAP_INTERVAL` and is nothing next to a signature verification.
+///
+/// **What it bounds is the age of a SUCCESSFUL re-read, and the argument a reviewer should have with
+/// it is that one.** A read that fails and a document that is rejected both keep the previous keys
+/// verifying, so while refresh is unavailable this number bounds nothing.
+/// [`KeySetCache::stale_for`] is the measurement of that case; the module documentation is the
+/// argument for why nothing here refuses on it.
 pub const MAX_KEY_SET_AGE: Duration = Duration::from_secs(60);
 
 /// A key identifier, out of a token header or out of a key set.
@@ -353,74 +412,6 @@ fn verifier_for(jwk: &Jwk) -> Result<Verifier, InvalidKeySet> {
     Ok(Verifier { key, family })
 }
 
-/// Where a key set is read from.
-///
-/// One method, so a JWKS endpoint is a second implementor and nothing else in this file moves. See
-/// the module documentation for why the only implementor today reads a file.
-///
-/// **It returns the document's BYTES rather than a parsed key set**, and that is what lets
-/// [`KeySetCache::poll_once`] tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
-/// comparison of parsed keys could not: the library's key type implements no equality, so the
-/// alternative was comparing key *ids*, which would miss a key whose material rotated under the same
-/// id.
-///
-/// **Synchronous, deliberately.** The one implementor reads a small local file, at most once per
-/// [`MAX_KEY_SET_AGE`], and making the trait `async` would either need a boxed future in the
-/// signature or force the file source to pretend. A URL source arrives with a real decision about
-/// where its I/O runs, and that decision belongs in the same change as the client.
-pub trait KeySetSource: Send + Sync + 'static {
-    /// Reads the key set document as it is now.
-    fn read(&self) -> Result<String, KeySetUnavailable>;
-}
-
-/// The source could not be read, or what it returned is not a key set.
-#[derive(Debug, thiserror::Error)]
-pub enum KeySetUnavailable {
-    #[error("the key set at {path} could not be read")]
-    Unreadable {
-        path: PathBuf,
-        #[source]
-        cause: std::io::Error,
-    },
-    #[error("the key set at {path} is not usable")]
-    Invalid {
-        path: PathBuf,
-        #[source]
-        cause: InvalidKeySet,
-    },
-}
-
-/// A key set on the local filesystem.
-#[derive(Debug, Clone)]
-pub struct FileKeySet {
-    path: PathBuf,
-}
-
-impl FileKeySet {
-    /// Names the file. Does not read it: [`Self::read`] is the read, and the composition root reads
-    /// once before the listener opens so an unreadable key set is a refusal to start.
-    #[must_use]
-    pub fn at(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
-    }
-
-    /// The path, for a startup log line.
-    #[inline]
-    #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl KeySetSource for FileKeySet {
-    fn read(&self) -> Result<String, KeySetUnavailable> {
-        std::fs::read_to_string(&self.path).map_err(|cause| KeySetUnavailable::Unreadable {
-            path: self.path.clone(),
-            cause,
-        })
-    }
-}
-
 /// Why a token could not be matched to a verifying key.
 ///
 /// Separate from the token's own refusals because the two are different facts about a deployment: a
@@ -449,14 +440,26 @@ pub enum KeyUnavailable {
 
 /// What one look at the source did.
 ///
-/// The same three outcomes `crate::tls::Renewed` has, and for the same reasons: an unreadable source
-/// is not a change, and a candidate that was examined and rejected is recorded as examined so
-/// identical bytes on the next tick are silent rather than logging a rejection once per interval
-/// forever.
+/// Close to the outcomes `crate::tls::Renewed` has, and for the same reasons: a candidate that was
+/// examined and rejected is recorded as examined, so identical bytes on the next tick are silent
+/// rather than logging a rejection once per interval forever.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refreshed {
-    /// The document is byte-for-byte what is already in use, or it could not be read.
+    /// The document is byte-for-byte the one the last look examined.
+    ///
+    /// **It does not mean the keys in use came from it.** A rejected candidate is recorded as
+    /// examined, so the look after one is `Unchanged` over bytes this deployment refused - which is
+    /// why the freshness stamp is decided by the candidate's own parse and not by this variant. See
+    /// [`Self::Rejected`].
     Unchanged,
+    /// **The source could not be looked at**, or the look did not finish.
+    ///
+    /// A variant of its own rather than folded into [`Self::Unchanged`], which is what it used to
+    /// be - and that fold is half of why the revocation bound excluded a failing refresh. *"The
+    /// source says these are still the keys"* and *"the source said nothing"* are the same fact
+    /// about the keys and opposite facts about freshness; only the first one stamps
+    /// `Cached::last_success`.
+    Unavailable,
     /// A new document parsed, held a key of the pinned family, and is now in use.
     Rotated,
     /// A new document was read and is NOT usable. The previous key set keeps verifying.
@@ -472,6 +475,27 @@ pub enum Refreshed {
     NotDue,
 }
 
+/// The bytes one look returned, and what they parsed to.
+///
+/// The parse travels with the read because both run on the same pool thread - see
+/// [`KeySetCache::look`] - and because [`adopt`] wants the candidate whether or not it adopts it.
+type Looked = Result<(String, Result<KeySet, InvalidKeySet>), LookFailed>;
+
+/// Why one look produced no document at all.
+///
+/// Two reasons and not one, because the second is not the source's fault: a blocking task that did
+/// not finish says nothing about whether the key set is readable, and folding it into
+/// [`KeySetUnavailable`] would have needed a path this cache does not have. Private - what a caller
+/// sees is [`Refreshed::Unavailable`] and a log line.
+#[derive(Debug, thiserror::Error)]
+enum LookFailed {
+    #[error(transparent)]
+    Source(#[from] KeySetUnavailable),
+    /// The pool never handed an answer back - the task panicked, or the runtime is shutting down.
+    #[error("the look at the key set source did not finish")]
+    DidNotFinish(#[source] tokio::task::JoinError),
+}
+
 /// What the cache holds between reads.
 struct Cached {
     keys: KeySet,
@@ -484,6 +508,45 @@ struct Cached {
     /// otherwise mean an outbound call per request, which is the same primitive the forged key id
     /// opens, arriving from the other direction.
     last_attempt: Instant,
+    /// When a look last came back with a document this deployment could use.
+    ///
+    /// **Distinct from [`Self::last_attempt`], and the distinction is the finding.** A reservation
+    /// stamps the attempt *before* the read, so a source failing every time keeps `last_attempt` one
+    /// window old for as long as the process lives while nothing has confirmed the keys since this
+    /// instant. Read through [`KeySetCache::stale_for`], which is the measurement a freshness
+    /// ceiling would need and which `last_attempt` cannot be.
+    last_success: Instant,
+}
+
+/// The one look in flight, held by whoever awaits it and released when that value is dropped.
+///
+/// It exists because the read runs on the blocking pool and can outlast its own window. Without it
+/// a slow source accumulates one detached read per window, and two of them completing out of order
+/// install the OLDER document - [`adopt`] compares against the last bytes examined, so a late arrival
+/// looks like a change. One look at a time makes that ordering unrepresentable rather than checked.
+///
+/// **A value with a `Drop` and not a `bool`, because the `bool` leaked.** The first shape set a
+/// flag in [`KeySetCache::reserve`] and cleared it in [`KeySetCache::record`], and the look between
+/// the two is awaited on the *request* task - [`KeySetCache::key_for`] reaches it with any token
+/// naming an unknown `kid`, under the router's request timeout. A timeout that fired or a client
+/// that disconnected while the source was slow dropped that future between the two, `record` never
+/// ran, and the flag stayed set for the life of the process: no further look, so no rotation and no
+/// revocation, from one disconnect. Now the flag is set in the acquisition that reserves and cleared
+/// by nothing but this drop, so an awaiter that leaves frees the slot on the way out and the next
+/// window may look again.
+///
+/// **The limit, stated because it is the cost of the choice:** this follows the awaiter, not the
+/// read. A read whose awaiter left keeps its pool thread until the source answers, and nothing
+/// installs what it returns - the only path that installs is the awaiter's `record`, which is gone.
+/// So a source that hangs costs one pool thread per abandoned reservation, at most one per window,
+/// and holds refresh for as long as it hangs under an awaiter that stays - the timer's does.
+#[must_use]
+struct InFlight<'cache>(&'cache AtomicBool);
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 /// The key set, cached, with a rate-limited refetch on an unknown key id and an age bound on the
@@ -496,7 +559,10 @@ struct Cached {
 /// is taken to stamp the attempt, released, the document read, and taken again to swap. The stamp
 /// under the first lock is what keeps two concurrent misses from becoming two reads.
 pub struct KeySetCache {
-    source: Box<dyn KeySetSource>,
+    /// `Arc` and not `Box`, for one reason: [`Self::look`] hands the source to the blocking pool,
+    /// which needs an owned `'static` handle. Shared across tasks and immutable once built, which is
+    /// what an `Arc` is for here.
+    source: Arc<dyn KeySetSource>,
     refetch_interval: Duration,
     max_age: Duration,
     /// The family the pinned algorithms need, so a swap cannot adopt a key set that verifies nothing.
@@ -504,6 +570,10 @@ pub struct KeySetCache {
     /// What the pinned algorithms are, for the refusal's message alone.
     pinned: String,
     state: tokio::sync::RwLock<Cached>,
+    /// Whether an [`InFlight`] exists. Beside the lock and not inside it, because the value that
+    /// clears it does so from a `Drop`, which cannot await the lock - and it is only ever set under
+    /// the lock, so a reservation is still decided in one acquisition.
+    reading: AtomicBool,
 }
 
 impl KeySetCache {
@@ -536,6 +606,11 @@ impl KeySetCache {
         max_age: Duration,
         now: Instant,
     ) -> Result<Self, KeySetUnavailable> {
+        // `Box` at the boundary and `Arc` inside, so every caller and every test stays unchanged
+        // while `look` gets the owned handle the blocking pool needs. This read is the boot one and
+        // is deliberately still inline: it happens before the listener opens, so there is no
+        // executor to block, and an unreadable key set is a refusal to start.
+        let source = Arc::<dyn KeySetSource>::from(source);
         let document = source.read()?;
         let keys = parse_for(&document, family, &pinned).map_err(|cause| KeySetUnavailable::Invalid {
             path: PathBuf::from("the configured key set"),
@@ -551,7 +626,11 @@ impl KeySetCache {
                 keys,
                 document,
                 last_attempt: now,
+                // The boot read IS a success, so a deployment that never refreshes again reports a
+                // staleness measured from when it started rather than from nothing.
+                last_success: now,
             }),
+            reading: AtomicBool::new(false),
         })
     }
 
@@ -567,9 +646,11 @@ impl KeySetCache {
     /// not wait. It answers from whatever is cached, which during a rotation may be an
     /// [`KeyUnavailable::UnknownKeyId`] for a key the winner is about to install, or - on the age path -
     /// one more use of a key the winner is about to remove. So revocation is bounded by
-    /// [`MAX_KEY_SET_AGE`] plus the duration of one source read, and a rotation can cost a concurrent
-    /// caller one `401` it can retry. Making it wait instead would put N request tasks behind one file
-    /// read, which is the primitive this whole file is arranged against.
+    /// [`MAX_KEY_SET_AGE`] plus the duration of one source read **while the source keeps answering
+    /// with a usable document, and by nothing while refresh is failing** - see the module
+    /// documentation for what that permits and for why there is no ceiling. A rotation can
+    /// cost a concurrent caller one `401` it can retry. Making it wait instead would put N request
+    /// tasks behind one file read, which is the primitive this whole file is arranged against.
     pub async fn key_for(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable> {
         // The read guard is taken, read from twice, and dropped inside this statement. Written as one
         // expression rather than as a block with early returns because `clippy` flags a lock guard
@@ -622,17 +703,106 @@ impl KeySetCache {
     /// than a trigger's own horizon would neuter that trigger - an age bound of one second under a
     /// thirty-second reservation would never fire. In a shipped deployment the shorter one is
     /// [`MIN_REFETCH_INTERVAL`], because [`MAX_KEY_SET_AGE`] is twice it.
-    async fn reserve(&self, now: Instant) -> bool {
+    ///
+    /// **A look already in flight loses too, whatever the windows say.** The [`InFlight`] this hands
+    /// back is that reservation: its flag is set here, under the same acquisition, because
+    /// [`Self::look`] runs on the blocking pool and can outlast its own window - so the window alone
+    /// stopped bounding how many reads exist. See that type for the ordering hazard it removes, for
+    /// the leak its first shape had, and for what a read whose awaiter left costs.
+    async fn reserve(&self, now: Instant) -> Option<InFlight<'_>> {
         let window = self.refetch_interval.min(self.max_age);
         let mut cached = self.state.write().await;
         if now.saturating_duration_since(cached.last_attempt) < window {
-            return false;
+            return None;
+        }
+        // Set only here and only under the write lock, so two reservers cannot both see it clear;
+        // cleared only by the value's drop. An in-flight look loses BEFORE the stamp below, so a
+        // caller that lost to one has not consumed the window either.
+        if self.reading.swap(true, Ordering::AcqRel) {
+            return None;
         }
         // Stamped here, under the same acquisition as the comparison above, and BEFORE the read: a
         // source that fails, or one that hangs and then fails, has still consumed the window - which is
-        // the same primitive arriving from the other direction.
+        // the same primitive arriving from the other direction. What it is NOT is a record that the
+        // keys are fresh; that is `Cached::last_success`, stamped by `Self::record`.
         cached.last_attempt = now;
-        true
+        drop(cached);
+        Some(InFlight(&self.reading))
+    }
+
+    /// One look at the source, off the executor and outside every lock.
+    ///
+    /// **The first half of this file's finding.** [`KeySetSource::read`] is synchronous by design and
+    /// the parse behind it is CPU work over a foreign document, and both ran inline in an `async fn`,
+    /// so a slow read blocked the worker thread that was serving requests - reached from the timer as
+    /// much as from a caller. `sutura_runtime::spawn_carrying_span` is the one spawn `clippy.toml`
+    /// permits for this, and it carries the request's span onto the pool thread so the lines a look
+    /// emits stay attributable.
+    ///
+    /// **The parse travels with the read** rather than staying behind: it is the only other work in
+    /// a look worth moving, it has to happen on every look anyway - see [`adopt`] - and doing it
+    /// here is what keeps it out of the write lock.
+    ///
+    /// **What this is not**, because the helper's own documentation says so: it neither bounds nor
+    /// cancels. A started blocking task cannot be aborted, so a caller that gave up does not stop
+    /// the read and runtime shutdown waits for it. What bounds the work is [`MAX_KEY_SET_BYTES`],
+    /// and what bounds how many looks start is [`InFlight`].
+    async fn look(&self) -> Looked {
+        let source = Arc::clone(&self.source);
+        let family = self.family;
+        // Cloned because the closure has to be `'static`, and it is a handful of bytes at most once
+        // per window - it exists for a refusal's message alone.
+        let pinned = self.pinned.clone();
+        let looked = sutura_runtime::spawn_carrying_span(move || {
+            let document = source.read()?;
+            let candidate = parse_for(&document, family, &pinned);
+            Ok((document, candidate))
+        })
+        .await;
+        looked.unwrap_or_else(|cause| Err(LookFailed::DidNotFinish(cause)))
+    }
+
+    /// Records what one look did, and says how stale the keys in use now are.
+    ///
+    /// One write-lock acquisition, taken here and released with the return, so nothing awaits or
+    /// expands a `tracing` macro while it is held - which is why [`announce`] is a separate function
+    /// and why this hands the staleness back rather than logging it.
+    ///
+    /// **The reservation ends here, under the lock, after the result is in** - so a reservation
+    /// taken next cannot start a look before this one's document is installed. That is the ordering
+    /// [`InFlight`] exists for; an awaiter that never reaches this line releases it by dropping it.
+    async fn record(&self, now: Instant, looked: Looked, in_flight: InFlight<'_>) -> (Refreshed, Duration) {
+        let mut cached = self.state.write().await;
+        let outcome = match looked {
+            Err(_failed) => Refreshed::Unavailable,
+            Ok((read, candidate)) => {
+                // **The freshness stamp, and the second half of this file's finding.** The source
+                // answered with a document this deployment can use, so the keys in use are as fresh
+                // as the source is - whether or not they changed. Neither a failed read nor a
+                // rejected candidate reaches this line, which is what stops `last_attempt` from
+                // being mistaken for freshness. It is decided by the candidate's own parse rather
+                // than by the outcome, because `Refreshed::Unchanged` is also what a look at bytes
+                // this deployment already rejected returns.
+                if candidate.is_ok() {
+                    cached.last_success = now;
+                }
+                adopt(&mut cached, read, candidate)
+            }
+        };
+        drop(in_flight);
+        (outcome, now.saturating_duration_since(cached.last_success))
+    }
+
+    /// How long since a look at the source last came back with a document this deployment could use.
+    ///
+    /// **A measurement and not a policy**: nothing here refuses on it, and the module documentation
+    /// states the bound and its limit together. It is the number a freshness ceiling
+    /// would be compared against, and it is deliberately not the last *attempt* - a reservation
+    /// stamps the attempt before the read, so a source that has failed every time for an hour
+    /// reports an attempt one window old and a success an hour old.
+    pub async fn stale_for(&self, now: Instant) -> Duration {
+        let cached = self.state.read().await;
+        now.saturating_duration_since(cached.last_success)
     }
 
     /// Looks at the source if a look is due, and swaps the key set if what came back is usable and
@@ -654,26 +824,19 @@ impl KeySetCache {
     /// adopting a broken set would turn a rotation mistake into a total outage, which is the trade
     /// `crate::tls` already makes for the same reason.
     pub async fn poll_once(&self, now: Instant) -> Refreshed {
-        if !self.reserve(now).await {
+        let Some(in_flight) = self.reserve(now).await else {
             return Refreshed::NotDue;
-        }
-        let read = match self.source.read() {
-            Ok(document) => document,
-            Err(cause) => {
-                // Unreadable is deliberately not "changed": a mounted secret being swapped can make a
-                // path briefly absent, and treating that as a rotation would reject on every swap.
-                tracing::warn!(error = %cause, "could not re-read the key set; keeping the keys in use");
-                return Refreshed::Unchanged;
-            }
         };
-        let candidate = parse_for(&read, self.family, &self.pinned);
-        // The guard is taken after the parse and dropped inside this statement, so nothing holds it
-        // across work it does not need held.
-        let outcome = {
-            let mut cached = self.state.write().await;
-            adopt(&mut cached, read, candidate)
-        };
-        announce(outcome);
+        // The read and the parse both happen here, on the blocking pool, with no lock held across
+        // either, and `in_flight` is held across both awaits - a future dropped at either one
+        // releases it. Unreadable is deliberately not "changed": a mounted secret being swapped can
+        // make a path briefly absent, and treating that as a rotation would reject on every swap.
+        let looked = self.look().await;
+        // The cause's text before the value is consumed, and only on the path that has one: an error
+        // type is not a log line, and `announce` is the one place the two meet.
+        let unavailable = looked.as_ref().err().map(ToString::to_string);
+        let (outcome, stale_for) = self.record(now, looked, in_flight).await;
+        announce(outcome, stale_for, unavailable.as_deref());
         outcome
     }
 
@@ -732,14 +895,24 @@ fn adopt(cached: &mut Cached, read: String, candidate: Result<KeySet, InvalidKey
 /// and so the levels are decided in one place: a rotation is `info`, a refused candidate is `error`
 /// because the deployment is now serving keys that disagree with what is on disk, and no change says
 /// nothing at all - a quiet deployment must not emit a line a minute saying so.
-fn announce(outcome: Refreshed) {
+/// The two loud outcomes carry `stale_for` - how long since a look last came back with a usable
+/// document - because that is the number an operator can alert on and the one the module
+/// documentation refuses to turn into a refusal here. **No bound is claimed on either line**, since
+/// under a source that stays this way there is none.
+fn announce(outcome: Refreshed, stale_for: Duration, unavailable: Option<&str>) {
     match outcome {
         // Both silent, and for one reason: a quiet deployment must not emit a line a minute saying
         // that nothing happened. `NotDue` is reached on every request past the age horizon that loses
-        // the reservation, so it is the noisiest of the four and says the least.
+        // the reservation, so it is the noisiest of the five and says the least.
         Refreshed::Unchanged | Refreshed::NotDue => {}
         Refreshed::Rotated => tracing::info!("the key set was re-read and replaced"),
+        Refreshed::Unavailable => tracing::warn!(
+            error = unavailable.unwrap_or("the look did not finish"),
+            stale_for_ms = stale_for.as_millis(),
+            "could not re-read the key set; keeping the keys in use, which nothing has confirmed for that long"
+        ),
         Refreshed::Rejected => tracing::error!(
+            stale_for_ms = stale_for.as_millis(),
             "the key set at the configured path changed and is NOT usable; still verifying with the \
              previous keys. Nothing will rotate until it parses and holds a key of the pinned family"
         ),
