@@ -9,7 +9,9 @@
 
 use std::sync::Arc;
 
+use axum::Router;
 use axum::body::Body;
+use axum::extract::Request;
 use axum::http::StatusCode;
 use sutura_config::Environment;
 use tower::ServiceExt as _;
@@ -618,226 +620,43 @@ fn metrics_settings(environment: Environment) -> Settings {
 #[cfg(test)]
 mod logging;
 
-#[test]
-fn a_request_produces_one_info_span_carrying_the_route_and_a_correlation_id() {
-    // RED before the fix for two independent reasons: the span was `DEBUG`, so at the configured
-    // `info` it did not exist, and `DefaultMakeSpan` names no route and mints no correlation.
-    // Asserted on the bunyan rendering because a collector reads that one, and on the SPAN lines -
-    // `tracing-bunyan-formatter` emits `[request - START]` and `[request - END]` for a span it can
-    // see, so their presence is the span's existence.
-    let app = app(settings(Environment::Development, ""));
-    let (status, body, rendered) = captured(
-        sutura_config::LogFormat::Bunyan,
-        &app,
-        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
+/// Runs one request through `app` with a subscriber over a buffer, and returns what was written.
+///
+/// A `Runtime` built here rather than `#[tokio::test]`, and that is load-bearing:
+/// `tracing::subscriber::with_default` is scoped to the calling thread, and `block_on` drives the
+/// future on the calling thread - so the whole request is inside the scope. An ambient
+/// `#[tokio::test]` runtime would leave the dispatcher and the future on two different threads.
+///
+/// The router is built by the CALLER, outside the scope, so the buffer holds the request's lines and
+/// not the startup announcements. That is what lets the sentinel assertion below be about the whole
+/// buffer.
+fn captured(format: sutura_config::LogFormat, app: &Router, request: Request<Body>) -> (StatusCode, String, String) {
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        // The CONFIGURED default. Using `trace` here would enable the very span whose absence at
+        // `info` is the defect, and the test would pass over the bug.
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        format,
+        true,
     );
-    assert_eq!(status, StatusCode::OK, "{body}");
-
-    let lines = json_lines(&rendered);
-    assert!(!lines.is_empty(), "nothing was logged at all: {rendered}");
-    let span_lines: Vec<&serde_json::Value> = lines
-        .iter()
-        .filter(|line| {
-            line["msg"]
-                .as_str()
-                .is_some_and(|msg| msg.contains("[REQUEST - START]") || msg.contains("[REQUEST - END]"))
-        })
-        .collect();
-    assert!(
-        !span_lines.is_empty(),
-        "no request span reached the log at the configured level: {rendered}"
-    );
-    for line in &span_lines {
-        // `level` 30 is bunyan's `info`. A `DEBUG` span filtered out at `info` is the defect; a
-        // `DEBUG` span that somehow survived would still be the wrong level to promise.
-        assert_eq!(line["level"], 30, "the request span is not at info: {line}");
-        assert_eq!(line["route"], "/v1/query", "the span does not name the route: {line}");
-        assert_eq!(line["method"], "POST", "the span does not name the method: {line}");
-        let correlation = line["correlation"]
-            .as_str()
-            .unwrap_or_else(|| panic!("the span carries no correlation id: {line}"));
-        assert!(
-            is_a_correlation_id(correlation),
-            "the correlation id is not one this surface would read back: {correlation}"
-        );
-    }
-    // And the raw path is NOT what is logged. `/v1/query` happens to be its own route template, so
-    // the assertion that means something is that no line carries a `path` field at all.
-    for line in &lines {
-        assert!(line.get("path").is_none(), "the raw request path reached the log: {line}");
-    }
-
-    // The same design point's other half, the one a caller controls: a path that matched nothing
-    // must NOT appear anywhere in the log. It reaches the catch-all fallback, which the same layer
-    // wraps, so there is still a span and its route is the constant. Otherwise the log's cardinality
-    // is something a caller chooses by probing, and a probed path with a secret in it is a secret in
-    // the log.
-    let (status, _, rendered) = captured(
-        sutura_config::LogFormat::Bunyan,
-        &app,
-        request("GET", "/v1/probing-for-SECRETish-paths", None, Body::empty()),
-    );
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(
-        !rendered.contains("probing-for-SECRETish-paths"),
-        "a path a caller invented reached the log: {rendered}"
-    );
-    assert!(
-        rendered.contains(r#""route":"unmatched""#),
-        "an unmatched request produced no span, or not the constant: {rendered}"
-    );
-    // So the assertion above cannot drift from the constant it is spelling out.
-    assert_eq!(crate::router::UNMATCHED_ROUTE, "unmatched");
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a test runtime builds");
+    let (status, body) = tracing::subscriber::with_default(subscriber, || runtime.block_on(call(app, request)));
+    (status, body, sink.contents())
 }
 
-#[test]
-fn a_body_that_states_its_own_subject_is_not_a_question() {
-    // **The confused deputy, at the wire.** A caller that states its own identity does not have
-    // one, so a body carrying a principal is refused rather than read, and the value must not reach
-    // the log on the way out.
-    //
-    // **A REGRESSION GUARD, GREEN against the unmodified code** - `deny_unknown_fields` on
-    // `QuestionBody` already refused an undeclared key, so it proves nothing about this change and
-    // everything about the next. Like `a_filter_value_never_reaches_the_log`, the property is newly
-    // load-bearing because a chain now exists for a caller to try to state, and the mistake would
-    // be somebody adding the field to the wire type to be helpful.
-    //
-    // The other half - that the sink's chain is the transport's, reachable by no request parameter -
-    // is `crate::surface::tests`' `a_chain_reaches_the_sink_through_no_field_a_caller_supplies`,
-    // there rather than here because the record is written inside the blocking task and a
-    // thread-scoped subscriber cannot see a pool thread's event (`sutura_runtime::testing` records
-    // that; `crates/sutura-runtime/tests/blocking_span.rs` is the integration test that exists
-    // because of it). **So this file can assert what a caller is TOLD, not what was recorded.**
-    const IMPERSONATED: &str = "victim@example.com";
-
-    let app = app(settings(Environment::Development, ""));
-
-    // ONE: a body that tries to name a principal is not a question. `deny_unknown_fields` makes it a
-    // parse error that NAMES the field, so the attempt is visible rather than ignored - and the
-    // domain types carry no `Deserialize`, so even a wire shape accepting the key would have nothing
-    // to turn it into.
-    let claiming = format!(
-        r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"subject":"{IMPERSONATED}"}}"#
-    );
-    let (status, body, rendered) = captured(
-        sutura_config::LogFormat::Bunyan,
-        &app,
-        request("POST", "/v1/query", None, Body::from(claiming)),
-    );
-    assert_eq!(
-        status,
-        StatusCode::BAD_REQUEST,
-        "a body naming a subject was accepted: {body}"
-    );
-    let problem: serde_json::Value = serde_json::from_str(&body).expect("a failure is JSON");
-    let detail = problem["detail"].as_str().unwrap_or_default();
-    assert!(
-        detail.contains("subject"),
-        "the refusal does not name the field that was rejected: {body}"
-    );
-
-    // And the invented value does not reach the log on the way to being refused - the property
-    // `a_filter_value_never_reaches_the_log` pins, applied to the field far worse to echo: an
-    // identifier a record could later be read as attributing a call to. The RESPONSE names the
-    // field, which is the point of `deny_unknown_fields`; the log is where the value must not land.
-    assert!(
-        !rendered.contains(IMPERSONATED),
-        "an identifier the caller invented reached the log: {rendered}"
-    );
-
-    // TWO: the same body without the extra field IS answered, so the assertion above is about the
-    // field rather than about the request being malformed some other way.
-    let (status, body, _) = captured(
-        sutura_config::LogFormat::Bunyan,
-        &app,
-        request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION)),
-    );
-    assert_eq!(status, StatusCode::OK, "{body}");
+/// The lines of a captured buffer that are JSON objects, parsed.
+fn json_lines(rendered: &str) -> Vec<serde_json::Value> {
+    rendered
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .collect()
 }
 
-#[test]
-fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
-    // **The property an operator actually uses:** not "a span exists" but "these three lines are the
-    // same request". RED before the fix twice over - no span at `info` for the handler's events to
-    // sit inside, and no correlation id to tie them with.
-    //
-    // The caller's own header is used, so the assertion is about ONE known value rather than three
-    // unknown ones agreeing - and it pins the ingress case, the reason for reading the header.
-    let app = app(settings(Environment::Development, ""));
-    let mut request = request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION));
-    request
-        .headers_mut()
-        .insert(crate::correlation::HEADER, "Ingress-42_abc".parse().expect("a test header"));
-    let (status, body, rendered) = captured(sutura_config::LogFormat::Bunyan, &app, request);
-    assert_eq!(status, StatusCode::OK, "{body}");
-
-    let lines = json_lines(&rendered);
-    // `answered` was the second line here and is gone from this crate: the per-outcome line became
-    // the audit record `Surface::answer` writes, emitted from the blocking task and so invisible to
-    // the thread-scoped subscriber this helper installs - see
-    // `a_body_that_states_its_own_subject_is_not_a_question`. `finished processing request` is
-    // `tower_http`'s response line, carries the status, and is written on THIS thread, so it makes
-    // the assertion "these lines are the same request" rather than "a line exists".
-    for wanted in ["question received", "finished processing request"] {
-        let line = lines
-            .iter()
-            .find(|line| line["msg"].as_str().is_some_and(|msg| msg.contains(wanted)))
-            .unwrap_or_else(|| panic!("no `{wanted}` line was written: {rendered}"));
-        assert_eq!(
-            line["correlation"], "Ingress-42_abc",
-            "the `{wanted}` line is not attributable to the request: {line}"
-        );
-        // The identifying fields moved onto the span, so they are on EVERY line of the request and
-        // not only on the one that first knew them.
-        assert_eq!(line["metric"], "revenue", "{line}");
-        assert_eq!(line["grain"], "month", "{line}");
-    }
-    // And the span itself, so all three carry it rather than the two events agreeing with each
-    // other and with nothing.
-    assert!(
-        lines
-            .iter()
-            .any(|line| line["msg"].as_str().is_some_and(|msg| msg.contains("[REQUEST - END]"))
-                && line["correlation"] == "Ingress-42_abc"),
-        "the span does not carry the id its events carry: {rendered}"
-    );
-}
-
-#[test]
-fn a_filter_value_never_reaches_the_log() {
-    // **A REGRESSION GUARD, not a bug fix.** Nothing logs filter values today, so this is GREEN
-    // against the unmodified code - it proves nothing about this change and everything about the
-    // next. It is here because the discipline is stated in a comment at one call site and enforced
-    // by nothing, and because moving fields onto a span would break it: a span field is copied onto
-    // every line of the request, so a value put there by mistake leaks further than one on an event.
-    // `sutura_domain::query`'s `a_rejected_filter_value_is_not_echoed_back` covers the refusal TYPE.
-    // **Nothing covered the log.**
-    const SENTINEL: &str = "SENTINEL-MUST-NOT-BE-LOGGED";
-
-    let app = app(settings(Environment::Development, ""));
-    let question = format!(
-        r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
-            "filters":[{{"dimension":"region","value":"{SENTINEL}"}}]}}"#
-    );
-    // Both renderings, because they are two different formatters and only one of them is what a
-    // collector reads. A leak in the other is still a leak.
-    for format in [sutura_config::LogFormat::Bunyan, sutura_config::LogFormat::Pretty] {
-        let (status, body, rendered) = captured(format, &app, request("POST", "/v1/query", None, Body::from(question.clone())));
-        // The value is outside the declared allowlist, so this is the `403` - which is the path
-        // where a value is most likely to be reflected somewhere, and the reason the fixture uses a
-        // refused value rather than an accepted one.
-        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-        assert!(!body.contains(SENTINEL), "the response echoed the value: {body}");
-        assert!(
-            !rendered.contains(SENTINEL),
-            "a filter value reached the {format} log: {rendered}"
-        );
-        // A line about this request is still there, so the assertion above is not passing because
-        // nothing was logged. It was the handler's own `refused` line, replaced by the audit record,
-        // which is written from the blocking task and cannot reach a thread-scoped subscriber.
-        // `tower_http`'s response line carries the status this refusal was given and is written on
-        // this thread, so it is the honest stand-in. Matched by message rather than status field,
-        // because this loop runs both renderings and only one writes fields as JSON.
-        assert!(rendered.contains("finished processing request"), "{rendered}");
-    }
-}
+#[cfg(test)]
+mod logging_tests;

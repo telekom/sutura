@@ -1,5 +1,6 @@
 //! Request logging tests for the assembled HTTP surface.
 
+use super::fixtures::{captured, is_a_correlation_id, json_lines};
 use super::*;
 
 #[test]
@@ -56,10 +57,6 @@ fn a_request_produces_one_info_span_carrying_the_route_and_a_correlation_id() {
         "an unmatched request produced no span, or not the constant: {rendered}"
     );
     assert_eq!(crate::router::UNMATCHED_ROUTE, "unmatched");
-}
-
-fn is_a_correlation_id(raw: &str) -> bool {
-    crate::correlation::CorrelationId::parse(raw).is_ok()
 }
 
 #[test]

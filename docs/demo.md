@@ -121,9 +121,11 @@ Stated here rather than left to a reader, because an overstated control is itsel
   credential, so every question reads the example under the same operating-system identity. Leg 1 -
   the runtime knowing who is asking - is demonstrated elsewhere; leg 2 - a source executing AS them -
   is not built on anything published.
-- **It is not a gate, and not a release artifact.** The demo needs a language model no CI runner has,
-  so `just validate` never touches it, and `demo/Dockerfile` is demo-only packaging around the
-  shipped server binary. A demo that failed a gate would be disabled, and a disabled demo holds
-  nothing.
-- **Development mode disables rate limiting.** It keeps the interface description available for
-  the chat client's OpenAPI connection, and also makes this unsuitable for a shared deployment.
+- **Development mode defaults rate limiting off.** It keeps the interface description available for
+  the chat client's OpenAPI connection. Together with the unauthenticated single-user chat client,
+  that makes loopback binding a boundary of this demo, not a pattern for a shared deployment.
+- **The real walkthrough is not a gate, and this is not a release artifact.** `just validate` runs
+  the hermetic fake-child behavior contract, including authenticated registry and operation-set
+  checks, but it does not build the image or call a real model. `demo/Dockerfile` is demo-only
+  packaging around the shipped server binary. A demo that failed a gate would be disabled, and a
+  disabled demo holds nothing.
