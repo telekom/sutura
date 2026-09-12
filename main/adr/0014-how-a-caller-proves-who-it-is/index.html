@@ -3414,6 +3414,14 @@ with the broker that performs one. What did land from this record's side is the 
 paragraph names: an authorization server is a hard runtime dependency, so its outage is
 <code>503 identity_unavailable</code> - the same status as a dead data system and a different code, which is the
 distinguishability this record asks for, now asserted by a test.</p>
+<p><strong>Corrected: the field is no longer missing, and it arrived the way this paragraph said it would -
+with the broker.</strong> <code>sutura_domain::identity::RequestContext</code> carries the caller's own assertion
+behind a second constructor and an accessor, and the first <code>CredentialBroker</code> that exchanges one
+landed with it (<code>crates/sutura-exec-bigquery/src/sts.rs</code>), its real outbound exchange behind a
+default-off feature so the TLS stack stays a composition root's decision. <strong>What does not change is
+what may be claimed from that.</strong> This record is about leg 1 - establishing who is asking - and
+whether a source executed AS the asking subject is answered per venue in
+<code>docs/where-identity-is-proven.md</code>, which is the only place that may say so, this record included.</p>
 <h3 id="one-transport-and-the-other-left-honest">One transport, and the other left honest<a class="headerlink" href="#one-transport-and-the-other-left-honest" title="Permanent link">&para;</a></h3>
 <p><code>sutura-http</code> is wired. <code>sutura-mcp</code> has its own <code>principal</code> module and it still answers
 <code>Subject::TheDeploymentItself</code>, truthfully: it speaks over standard input and output, where there is

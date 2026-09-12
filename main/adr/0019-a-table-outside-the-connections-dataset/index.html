@@ -2832,6 +2832,16 @@ unsafe, which is why <code>Postgres</code> and <code>ClickHouse</code> are decla
 measured - neither has a server in this repository to ask. What the declaration buys is
 <code>every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes</code>, so a variant folding <em>more</em> than
 ASCII case fails a test instead of quietly making both comparisons too fine.</p>
+<p><strong>Corrected: both now have a server in this repository, so that reason is spent while the
+declarations are unchanged.</strong> <code>nix/postgres-tier.nix</code> provisions Postgres from nixpkgs and
+<code>clickhouse</code> is a default service of the docker dev tier <code>just dev-up</code> brings up;
+<code>sutura_sql::Dialect::identifier_case</code> already carries the Postgres half of this correction.
+<strong>The limit on the other half:</strong> no ClickHouse adapter exists in this workspace -
+<code>compose.services.yaml</code> says so beside the service - so asking that server would mean a client
+rather than this renderer. So
+the two are <strong>not yet</strong> measured rather than unmeasurable. <strong>What that does not change is the
+decision</strong>, for the reason the paragraph above gives: a value declared <code>Sensitive</code> cannot make a
+bundle unsafe, so measuring either one tightens the self-check and moves no comparison.</p>
 <h2 id="decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around">Decision 5 - two tables whose paths end in one name are refused, not aliased around<a class="headerlink" href="#decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around" title="Permanent link">&para;</a></h2>
 <p>Decision 1 says a column is qualified by the <strong>last</strong> part of a path, because <code>FROM a.b.orders</code> gives
 the reference an implicit alias of <code>orders</code> in all four targets. What Decision 1 did not say is what

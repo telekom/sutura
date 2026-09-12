@@ -2943,6 +2943,8 @@ log; <code>catalog_version</code> plus <code>definition_version</code> is what a
 <p><strong>Verified: there is no engine memory pool.</strong> No <code>RuntimeEnv</code> is constructed anywhere in the workspace,
 so DataFusion installs its unbounded pool. <code>SessionContext::new()</code> and <code>new_with_config</code> are the two
 construction sites and neither sets one.</p>
+<p><strong>Both of those absences are corrected further down this section, and the word <em>Verified</em> above is
+why the pointer is here rather than only there:</strong> a reader who stops at it does not go looking.</p>
 <p>So a gauge reading <code>0</code> would be a lie an operator builds an alert on. <strong>Register the series only when a
 pool is configured: absent, not zero.</strong></p>
 <p>What has to exist first is <code>feat/query-bounds</code>: a byte newtype for the ceiling, a <code>RuntimeEnvBuilder</code>
