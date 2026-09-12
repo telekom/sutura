@@ -25,7 +25,8 @@ mod importer;
 
 use std::path::Path;
 
-use bytes::{BufMut as _, Bytes, BytesMut};
+use bytes::Bytes;
+use bytes::{BufMut as _, BytesMut};
 use futures_util::SinkExt as _;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
@@ -66,9 +67,6 @@ pub enum PostgresError {
         #[source]
         cause: tokio_postgres::Error,
     },
-    /// A `NUMERIC` wider than this build can carry exactly. Refused, not rounded.
-    #[error("column {column} came back as a number wider than this build can carry exactly")]
-    NumericNotCarryable { column: String },
     /// A column came back as a type this adapter does not map. An error, not a stringified value.
     #[error("column {column} came back as {postgres_type}, which this adapter does not map")]
     UnsupportedType { column: String, postgres_type: &'static str },
@@ -125,6 +123,13 @@ pub enum PostgresError {
     InvalidColumnName {
         #[source]
         cause: sutura_domain::model::InvalidIdentifier,
+    },
+    /// The shared conformance fixture schema could not be inferred.
+    #[cfg(feature = "fixtures")]
+    #[error("the fixture CSV schema could not be inferred")]
+    FixtureSchema {
+        #[source]
+        cause: sutura_domain::warehouse::csv::InferenceError,
     },
     /// A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
     #[error("the schema name {schema} is not a single word character")]
@@ -287,6 +292,23 @@ impl PostgresWarehouse {
             cause,
         })?;
         let schema = importer::infer_schema(&text).map_err(|cause| PostgresError::InvalidColumnName { cause })?;
+        self.load_schema(table, path, &schema)
+    }
+
+    /// Exposes a conformance fixture with the same exact types as the other adapter bindings.
+    ///
+    /// Available only with the default-off `fixtures` feature.
+    #[cfg(feature = "fixtures")]
+    pub fn load_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError> {
+        let text = std::fs::read_to_string(path).map_err(|cause| PostgresError::FixtureRead {
+            path: path.display().to_string(),
+            cause,
+        })?;
+        let schema = importer::infer_fixture_schema(&text).map_err(|cause| PostgresError::FixtureSchema { cause })?;
+        self.load_schema(table, path, &schema)
+    }
+
+    fn load_schema(&self, table: &TableName, path: &Path, schema: &importer::Schema) -> Result<(), PostgresError> {
         let create = schema.create_statement(table);
         let copy_statement = schema.copy_statement(table);
         let body = schema.body().to_owned();
@@ -374,10 +396,8 @@ impl PostgresWarehouse {
     /// The `DuckDB` half maps the same logical figure its own way; `tests/differential.rs` holds the
     /// two to an arm-for-arm agreement.
     ///
-    /// `NUMERIC` is decoded exactly (never through an `f64`): an integral value maps to
-    /// [`Value::Integer`] (a `sum`), a fractional one to [`Value::Text`] (an exact total stays exact,
-    /// matching the other two adapters). See [`numeric_cell`] for the one limit - an integer-column
-    /// `AVG`.
+    /// `NUMERIC` is decoded exactly (never through an `f64`): a scale-zero value that fits `i64`
+    /// maps to [`Value::Integer`], while a fractional or wider one maps to exact [`Value::Text`].
     fn cell(label: &str, column_type: &Type, row: &Row, index: usize) -> Result<Value, PostgresError> {
         let unsupported = |postgres_type: &'static str| PostgresError::UnsupportedType {
             column: String::from(label),
@@ -580,8 +600,8 @@ fn execute_err_mapped(cause: tokio_postgres::Error) -> PostgresError {
 /// `tokio-postgres` 0.7 ships NO `FromSql` for `NUMERIC` (the type OID exists, a Rust type does
 /// not), and `sum(int8)` / `AVG` over an integer column return exactly `NUMERIC`. So this is a
 /// hand-rolled decoder of the documented binary format - the same decision as [`PgDate`]: the raw
-/// bytes are all the driver gives. It is kept EXACT (there is no `f64` on the value), for the reason
-/// the other two adapters keep a decimal exact by rendering it as text.
+/// bytes are all the driver gives. It is kept EXACT (there is no `f64` on the value), then mapped
+/// through the same shared decimal boundary as the other adapters.
 ///
 /// A non-finite value (`NaN`, `±Infinity`) is carried by its sign word alone
 /// ([`PgNumeric::is_not_finite`]) so the caller refuses it at the same place every other non-finite
@@ -620,26 +640,7 @@ impl<'a> FromSql<'a> for PgNumeric {
     }
 }
 
-/// Maps a decoded `NUMERIC` to a domain cell, exactly.
-///
-/// An integral `NUMERIC` (a `sum`) maps to [`Value::Integer`]; a fractional one (the type
-/// `sutura-exec-duckdb` and `sutura-exec-bigquery` both render as [`Value::Text`]) maps to
-/// [`Value::Text`], so an exact total stays exact. The value decides, because Postgres reports the
-/// width as `NUMERIC` either way.
-///
-/// Limit: Postgres's `AVG` over an INTEGER column returns a fractional `NUMERIC` and so takes the
-/// text branch, where the engine reaches a float. The fix is in `sutura-sql`, which casts a
-/// Postgres `AVG` to `DOUBLE` (`generate::avg_for_postgres`).
-///
-/// **The sentence that used to end this paragraph was stale, and it is corrected rather than
-/// deleted because the wrong version is the trap.** It read *no metric in the corpus averages an
-/// integer column today, so the differential can't see it*. Both halves are now false, and both
-/// were measured on 2026-09-06 by deleting that cast: `sutura-app::differential
-/// tests::postgres::it_agrees_with_the_engine_on_every_question` reddens on
-/// `mean-subscription-mrr-june` - *one side answered a row 1 time(s) and the other 0* - and so does
-/// `conformance::postgres::the_rows_are_the_reference_rows` on the packs' own `mean-by-day`. So the
-/// cast is held by two suites, and the class of comment worth distrusting is one that says another
-/// test cannot see something.
+/// Maps a decoded `NUMERIC` exactly: a fitting integer is numeric; every other finite value is text.
 fn numeric_cell(value: &PgNumeric, label: &str) -> Result<Value, PostgresError> {
     if value.is_not_finite() {
         return Err(PostgresError::NotFinite {
@@ -649,15 +650,8 @@ fn numeric_cell(value: &PgNumeric, label: &str) -> Result<Value, PostgresError> 
     }
     let text = render_numeric(value);
     if value.dscale == 0 {
-        // An exact integer, refused (not rounded) if it does not fit an i64.
-        text.parse::<i64>()
-            .map(Value::Integer)
-            .map_err(|_err| PostgresError::NumericNotCarryable {
-                column: String::from(label),
-            })
+        Ok(text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer))
     } else {
-        // A fraction, kept as its exact decimal text - the shape the other two adapters give a
-        // Decimal, so an exact total stays exact.
         Ok(Value::Text(text))
     }
 }
@@ -708,26 +702,23 @@ fn integer_part(digits: &[u16], weight: i16) -> String {
 
 /// The fractional part of a `NUMERIC`, to exactly `dscale` decimal digits.
 fn fraction_part(digits: &[u16], weight: i16, dscale: u16) -> String {
-    // The fraction starts at the first base-10000 group past the integer part: index `weight+1`.
+    // Fractional group zero is 10^-4. Its source digit is `weight+1`; a negative index is an
+    // omitted zero group before the first stored digit, not permission to start at digit zero.
     let base = i32::from(weight) + 1;
-    let start = if base <= 0 {
-        0
-    } else {
-        usize::try_from(base).unwrap_or(usize::MAX)
-    };
     let mut out = String::new();
     let mut gathered: u16 = 0;
-    let mut index = start;
+    let mut group_index: i32 = 0;
     while gathered < dscale {
-        let group: Vec<char> = digits
-            .get(index)
+        let source_index = usize::try_from(base + group_index).ok();
+        let group: Vec<char> = source_index
+            .and_then(|index| digits.get(index))
             .map_or_else(|| vec!['0', '0', '0', '0'], |digit| format!("{digit:04}").chars().collect());
         let need = usize::from(dscale - gathered);
         for c in group.iter().take(need) {
             out.push(*c);
         }
         gathered = gathered.saturating_add(u16::try_from(need.min(4)).unwrap_or(0));
-        index += 1;
+        group_index += 1;
     }
     out
 }
@@ -881,7 +872,7 @@ mod tests {
     }
 
     #[test]
-    fn an_integral_numeric_is_an_integer_cell() {
+    fn an_integral_numeric_that_fits_is_an_integer_cell() {
         // 300 as NUMERIC(,0): one base-10000 digit, weight 0.
         assert_eq!(
             numeric_cell(&decode(&[300], 0, 0x0000, 0), "total").unwrap(),
@@ -895,22 +886,26 @@ mod tests {
     }
 
     #[test]
-    fn a_fractional_numeric_renders_exactly_as_text() {
+    fn a_fractional_numeric_is_exact_text() {
         // 100.5 = 100·10000^0 + 5000·10000^-1, declared scale 1.
         assert_eq!(
             numeric_cell(&decode(&[100, 5000], 0, 0x0000, 1), "mean").unwrap(),
             Value::Text(String::from("100.5"))
         );
-        // 0.5 = 5000·10000^-1: the leading base-10000 group over-reserves four digit places, but the
-        // declared scale of one is what the renderer uses, so it is "0.5" and not "0.5000".
+        // The declared scale renders 5000·10000^-1 as 0.5, not 0.5000.
         assert_eq!(
             numeric_cell(&decode(&[5000], -1, 0x0000, 1), "mean").unwrap(),
             Value::Text(String::from("0.5"))
         );
-        // A declared trailing zero survives: 100.00 at scale 2.
+        // The wire's declared scale is preserved exactly.
         assert_eq!(
             numeric_cell(&decode(&[100], 0, 0x0000, 2), "mean").unwrap(),
             Value::Text(String::from("100.00"))
+        );
+        // The absent 10^-4 group implied by weight -2 is still part of the value.
+        assert_eq!(
+            numeric_cell(&decode(&[1000], -2, 0x0000, 5), "mean").unwrap(),
+            Value::Text(String::from("0.00001"))
         );
     }
 
@@ -939,13 +934,12 @@ mod tests {
     }
 
     #[test]
-    fn an_integer_wider_than_i64_is_refused_not_rounded() {
-        // 1·10000^5 = 10^20, far beyond i64.
-        let wide = decode(&[1], 5, 0x0000, 0);
-        assert!(matches!(
-            numeric_cell(&wide, "total"),
-            Err(PostgresError::NumericNotCarryable { .. })
-        ));
+    fn a_numeric_wider_than_i64_stays_exact_text() {
+        // 10^20 is beyond i64 and must not be rounded or refused.
+        assert_eq!(
+            numeric_cell(&decode(&[1], 5, 0x0000, 0), "total").unwrap(),
+            Value::Text(String::from("100000000000000000000"))
+        );
     }
 
     #[test]

@@ -178,7 +178,7 @@ pub fn a_tier_is_required(forced: Option<&str>) -> bool {
 /// `false`, silently, with `cargo check --all-features` exit 0. That is this branch's own hole
 /// reopened one adapter later and inside the venue this crate says is closed - a fixture answering
 /// `Absent(Cloud)` without asking anything, in `checks.nextest`, which sets the variable. Measured
-/// with the refusal absent: `21 tests run: 21 passed`, the only tell printed lines nobody diffs.
+/// with the refusal absent: every test passed, and the only tell was printed lines nobody diffs.
 ///
 /// With the `match` a new variant does not compile until somebody writes its arm, so the fail-open
 /// direction cannot be chosen by not looking. **No test asserts that and none can** - a compile
@@ -205,7 +205,7 @@ pub(crate) fn refuse_a_declared_absence(adapter: &str, what: &str, missing: &Mis
     // **The refusal that makes a DECLARED absence cost something.** [`Fixture`] is a value a
     // binding fills in and this crate cannot see a socket, so a fixture that answered `Absent`
     // without looking would take its whole tier quiet and green - measured, with the tier UP and
-    // this variable set, before this existed: 21 passed, and the only tell was seven printed lines.
+    // this variable set before this existed: everything passed, and the only tell was printed lines.
     // What closes it is the one fact a venue does publish: only the thing that provisioned a tier
     // sets `REQUIRE_TIER`, so where it is set an absent tier is impossible and a fixture claiming
     // one is the defect. An honest fixture never reaches here in that venue anyway -

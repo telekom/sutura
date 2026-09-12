@@ -32,8 +32,8 @@ mod conformance {
     ///
     /// The ceiling is a gibibyte, which is `sutura_config::WorkingSetCeiling::DEFAULT_BYTES` -
     /// written as a literal rather than read from that crate, because a conformance binding must not
-    /// give this adapter a dependency on the settings tree to obtain one number. The corpus is seven
-    /// rows, so no case in it comes near the bound; the bound's own assertions live in the adapter's
+    /// give this adapter a dependency on the settings tree to obtain one number. The corpus is tiny,
+    /// so no case in it comes near the bound; the bound's own assertions live in the adapter's
     /// `pool.rs`.
     /// **`Fixture::standing` unconditionally**, for the reason the sibling adapter's fixture gives:
     /// this engine is in-process, so there is no venue in which it cannot stand up.
@@ -42,7 +42,7 @@ mod conformance {
         let engine = DataFusionWarehouse::new(corpus::source(), corpus::posture(), WorkingSet::of_bytes(ceiling))
             .expect("an in-process engine starts");
         engine
-            .attach_csv(&corpus::table(), &corpus::on_disk())
+            .attach_fixture_csv(&corpus::table(), &corpus::on_disk())
             .expect("the engine attaches the conformance corpus");
         Fixture::standing(engine)
     }

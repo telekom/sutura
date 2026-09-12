@@ -284,6 +284,43 @@ fn a_grouped_sum_comes_back_labelled_and_ordered_the_way_the_plan_says() {
 }
 
 #[test]
+#[cfg(feature = "fixtures")]
+fn a_large_decimal_fixture_total_stays_exact() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/datafusion-decimal-total");
+    drop(std::fs::remove_dir_all(&dir));
+    std::fs::create_dir_all(&dir).expect("the fixture directory is writable");
+    let path = dir.join("orders.csv");
+    std::fs::write(
+        &path,
+        "order_date,region,amount\n\
+         2026-06-05,north,9000000000000000000000000000000000000\n\
+         2026-06-20,north,9000000000000000000000000000000000000\n",
+    )
+    .expect("the fixture is writable");
+    let adapter = DataFusionWarehouse::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        crate::test_posture(),
+        roomy(),
+    )
+    .expect("a current-thread runtime builds");
+    adapter.attach_fixture_csv(&orders(), &path).expect("the fixture attaches");
+
+    let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
+    let result = adapter
+        .execute(Executable::Query(&query), &crate::test_leg())
+        .expect("the plan runs");
+    assert_eq!(
+        result.rows(),
+        [vec![
+            Value::Text(String::from("north")),
+            Value::Text(String::from("2026-06-01")),
+            Value::Text(String::from("18000000000000000000000000000000000000")),
+        ]]
+    );
+    drop(std::fs::remove_dir_all(dir));
+}
+
+#[test]
 fn a_ratio_whose_zero_denominator_yields_null_answers_null_rather_than_failing() {
     // Two bugs at once. Integer division would answer 3 for 7 over 2, and dividing by a zero
     // denominator is a hard "Divide by zero" in this engine rather than the null that SQL's

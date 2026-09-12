@@ -32,13 +32,8 @@
 //! # The fixture path is shared wider than this crate, and `telekom/sutura#405` is that
 //!
 //! This is the first fixture that loads `corpus::on_disk()` into a **server**, and it reads that
-//! file seven times per binding - once per behaviour plus the census. The path is
-//! `<temp_dir>/sutura-conformance/<table>.csv`, which carries no worktree and no digest, so
-//! another checkout of this repository running `just test` is a second writer of it. If one lands
-//! between this fixture's `on_disk()` and Postgres reading it, the cell fails as a content fault
-//! naming the case and this adapter while the run that caused it is green. **Not fixed here** -
-//! `crates/sutura-conformance/src/corpus.rs` is a fixture every binding shares and this file is
-//! about one adapter - and #405 is where the per-worktree path lands.
+//! file once per behaviour plus the census. The path is under this worktree's state directory, so
+//! another checkout cannot overwrite the fixture between discovery and Postgres reading it.
 //!
 //! # What this file does not establish
 //!
@@ -91,7 +86,7 @@ mod conformance {
         let warehouse = PostgresWarehouse::connect_in_schema(corpus::source(), corpus::posture(), &config, &schema)
             .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
         warehouse
-            .load_csv(&corpus::table(), &corpus::on_disk())
+            .load_fixture_csv(&corpus::table(), &corpus::on_disk())
             .unwrap_or_else(|e| panic!("postgres could not load the conformance corpus: {e}"));
         Fixture::standing(warehouse)
     }
