@@ -70,7 +70,8 @@ impl ProtectedResource {
     /// Whether the request can use this document under RFC 9728 section 3.3.
     ///
     /// An origin-form request carries its authority in `Host`; an absolute-form request carries it in
-    /// the URI. The configured identifier supplies the `https` scheme when origin form omits it.
+    /// the URI. The configured identifier supplies the `https` scheme when origin form omits it. An
+    /// identifier with no path names the whole origin; one with a path describes only that exact path.
     pub(crate) fn describes(&self, uri: &Uri, headers: &HeaderMap) -> bool {
         let authority = uri.authority().map(axum::http::uri::Authority::as_str).or_else(|| {
             let value = headers.get(axum::http::header::HOST)?;
@@ -80,7 +81,7 @@ impl ProtectedResource {
             && self
                 .resource_path
                 .as_deref()
-                .is_some_and(|resource_path| uri.path_and_query().is_some_and(|path| path.as_str() == resource_path))
+                .is_none_or(|resource_path| uri.path_and_query().is_some_and(|path| path.as_str() == resource_path))
             && uri.scheme().is_none_or(|scheme| *scheme == axum::http::uri::Scheme::HTTPS)
     }
 

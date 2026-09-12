@@ -156,6 +156,48 @@ async fn an_unauthenticated_client_reads_direct_metadata_and_the_challenge_point
 }
 
 #[tokio::test]
+async fn a_root_resource_is_advertised_on_each_protected_path_of_its_authority() {
+    use tower::ServiceExt as _;
+
+    let issuer = an_issuer();
+    let app = app_verifying(&issuer);
+    let expected = concat!(
+        "Bearer realm=\"https://sutura.example.com\", error=\"invalid_token\", ",
+        "resource_metadata=\"https://sutura.example.com/.well-known/oauth-protected-resource\"",
+    );
+
+    for (method, path) in [("GET", "/v1/catalog"), ("POST", "/v1/query")] {
+        let mut request = request(method, path, None, axum::body::Body::empty());
+        request.headers_mut().insert(
+            axum::http::header::HOST,
+            axum::http::HeaderValue::from_static("sutura.example.com"),
+        );
+        let response = app.clone().oneshot(request).await.expect("the router answers");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(axum::http::header::WWW_AUTHENTICATE),
+            Some(&axum::http::HeaderValue::from_static(expected)),
+            "the root resource must describe {path}",
+        );
+    }
+
+    let mut request = request("GET", "/v1/catalog", None, axum::body::Body::empty());
+    request.headers_mut().insert(
+        axum::http::header::HOST,
+        axum::http::HeaderValue::from_static("other.example.com"),
+    );
+    let response = app.oneshot(request).await.expect("the router answers");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        response.headers().get(axum::http::header::WWW_AUTHENTICATE),
+        Some(&axum::http::HeaderValue::from_static(
+            "Bearer realm=\"https://sutura.example.com\", error=\"invalid_token\"",
+        )),
+        "a different authority must not receive this resource's metadata URL",
+    );
+}
+
+#[tokio::test]
 async fn a_challenge_does_not_point_at_metadata_for_a_different_resource() {
     let resource = "https://sutura.example.com/v1/query";
     let issuer = MockIssuer::generating(crate::testing::ISSUER, resource, crate::testing::KID)
