@@ -19,6 +19,12 @@ members = [
   # real HTTP reader awaits the read-path-cost measurement against a provisioned instance.
   "crates/sutura-catalog-datahub",
   "crates/sutura-catalog-local",
+  # THE NARROWEST metadata connector, and the one that needs no service: a dictionary read from an
+  # RDBMS. It provides structure, prose and the join columns a foreign key records, and declares no
+  # measure, no grain, no definitional filter, no value allowlist and no anchor - `docs/adr/0011`
+  # specifies it and `github.com/telekom/sutura#151` is the issue. Like `sutura-catalog-datahub` it
+  # is a DECLARING source, measured against its own declaration rather than the golden oracle.
+  "crates/sutura-catalog-rdbms",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
   # plan because the `Warehouse` port carries one, so the generator is reachable from SQL adapters
@@ -84,6 +90,7 @@ repository = "https://github.com/telekom/sutura"
 sutura-domain = { path = "crates/sutura-domain" }
 sutura-catalog-local = { path = "crates/sutura-catalog-local" }
 sutura-catalog-datahub = { path = "crates/sutura-catalog-datahub" }
+sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }

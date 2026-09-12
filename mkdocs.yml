@@ -186,6 +186,7 @@ nav:
   - Reference:
       - Architecture: architecture.md
       - Where each identity claim is proven: where-identity-is-proven.md
+      - An RDBMS dictionary as a metadata source: rdbms-catalog-guidance.md
       - Decisions:
           - First-party semantic models: adr/0001-first-party-semantic-models.md
           - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
@@ -220,6 +221,7 @@ nav:
           - sutura-domain: api/sutura-domain.md
           - sutura-catalog-local: api/sutura-catalog-local.md
           - sutura-catalog-datahub: api/sutura-catalog-datahub.md
+          - sutura-catalog-rdbms: api/sutura-catalog-rdbms.md
           - sutura-semantic: api/sutura-semantic.md
           - sutura-sql: api/sutura-sql.md
           - sutura-exec-datafusion: api/sutura-exec-datafusion.md
