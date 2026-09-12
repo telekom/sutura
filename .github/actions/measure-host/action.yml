@@ -65,8 +65,20 @@ runs:
         # The measured command's failure must NOT skip the report: a build that died is exactly
         # when its utilisation is worth reading. Its status is carried to the end of the step so
         # the step still fails, after reporting, rather than instead of it.
+        #
+        # `bash -c` AND NOT `eval`, BECAUSE THE LEFT OPERAND OF `||` SUPPRESSES `errexit` FOR
+        # EVERYTHING INSIDE IT (#639 slice I). Under `eval`, a body's own `set -eu` was INERT: the
+        # body ran in this shell, as the left operand, so a failing command mid-body neither
+        # stopped it nor was reported - only the LAST command's status reached `status`. Measured:
+        # a body of `set -eu; false; echo LAST_COMMAND_OK` printed the echo and reported 0. A
+        # separate `bash -c` makes the body its own shell, so its `set -eu` is live and its exit
+        # status is the one carried out. It also means a body's `exit 0` ends the BODY rather than
+        # this step, which is what lets a stage with no selected root still reach its report below.
+        #
+        # Harmless on the bodies this wrapped when it was written, and not harmless now: it wraps
+        # two VERDICT steps and three staged graphs, the most complex bodies it has carried.
         status=0
-        eval "$MEASURE_RUN" || status=$?
+        bash -c "$MEASURE_RUN" || status=$?
 
         kill "$SAMPLER" 2>/dev/null || true
         wait "$SAMPLER" 2>/dev/null || true
