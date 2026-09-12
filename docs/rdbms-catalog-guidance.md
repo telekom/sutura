@@ -5,22 +5,28 @@ description: What a database dictionary can contribute as metadata, what it cann
 
 # An RDBMS dictionary as a metadata source
 
-This implements the dictionary half of issue #151 and
-`docs/adr/0011-pluggable-by-declaration.md`'s RDBMS row: a metadata source that reads a database's
-own dictionary - `information_schema` plus whatever table comments a human wrote - and declares
-**structure and prose** and nothing else. It is the narrowest
+> **Implementation status:** the crate currently converts dictionary records and is tested only
+> through the fake `FixtureReader`. There is no production dictionary reader or database client,
+> and no composition root links or serves this catalog. Operators cannot configure or use it in a
+> shipped binary yet.
+
+The crate implements the conversion half of issue #151 and
+`docs/adr/0011-pluggable-by-declaration.md`'s RDBMS row. It is intended for a metadata source that
+reads a database's own dictionary - `information_schema` plus whatever table comments a human wrote
+- and declares **structure and prose** and nothing else. It is the narrowest
 declaration this repository makes, and it exists because a database with DDL and comments and no
 semantic layer is where every adoption starts. [A raw SQL tool](adr/0013-a-raw-sql-tool-off-by-default.md)
 is the ramp that deployment's story continues; this page is the catalog half of it.
 
-This page describes the adapter that exists. The runtime prompt does not consume connector-specific
-text from this page. It derives the same guidance from the pinned bundle: non-empty physical
-structure, a `Structure` declaration, and zero metrics.
+This page describes the converter's contract and the intended boundary of a future production
+reader. The runtime prompt does not consume connector-specific text from this page. It derives the
+same guidance from a pinned bundle: non-empty physical structure, a `Structure` declaration, and
+zero metrics.
 
 ## What this source is, and what it is not
 
 A dictionary is mainly DDL and comments: the tables, the columns, their constraints, and prose written
-against them. The connector that reads it provides exactly that, and the declaration says so
+against them. The converter accepts exactly that, and the declaration says so
 explicitly:
 
 - **Structure** - the tables and their columns.
@@ -35,9 +41,9 @@ therefore loads, pins and validates with **zero metrics**, and answers no certif
 own. That is not a limitation the deployment is missing; it is the honest statement about what a
 physical schema, by itself, knows.
 
-The dictionary is filtered by the identity used to read it: database dictionaries expose only the
-objects visible to that identity. `load()` has no request identity, and this adapter does not build
-impersonation at the source.
+A future production reader will see only the objects the database exposes to its configured
+identity. `load()` has no request identity, and this converter does not build impersonation at the
+source.
 
 A foreign key is the one apparent exception and it is worth saying exactly why it is not one. A
 relationship arrives with its endpoints, but **no declared cardinality** - the dictionary vouches for
@@ -46,9 +52,9 @@ itself license a dimension. That is `a_foreign_key_licenses_no_dimension_without
 
 ## Promoting a number into one
 
-This is the ramp, and it is the reason the "answers no certified question" sentence is not a dead end.
-A deployment that runs a physical schema today can make a number certified without leaving this quiet
-starting point:
+This is the intended ramp, and it is the reason the "answers no certified question" sentence is not
+a dead end. Once a production reader and composition exist, a deployment can make a number certified
+from this quiet starting point:
 
 - Someone authors a **semantic layer** - a metric over a model the dictionary already reads. Combining
   that declaration with this adapter is outside the current implementation.
@@ -85,7 +91,7 @@ this page follows the same boundary by keeping two claims out of the adapter con
 - It does not prescribe a database configuration. A database's DDL, constraints and comments are
   whatever they already are, and nothing here turns a particular configuration into a precondition.
   Every choice named on this page is an option with a payoff.
-- It does not make metrics, comments or a raw tool prerequisites. The source is usable without them:
-  it loads a bundle whose declaration is exactly the empty-of-metric truth.
+- It does not make metrics, comments or a raw tool prerequisites for conversion. A dictionary
+  without them converts to a bundle whose declaration is exactly the empty-of-metric truth.
 
 Options name their payoff without becoming preconditions.

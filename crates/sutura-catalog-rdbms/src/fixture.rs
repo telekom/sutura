@@ -13,7 +13,13 @@
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
-use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table};
+use crate::{
+    Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table, TableAddress,
+};
+
+fn public(table: &str) -> TableAddress {
+    TableAddress::in_schema("public".to_owned(), table.to_owned())
+}
 
 /// The fake [`DictionaryReader`] that serves the recorded corpus.
 #[derive(Debug, Clone)]
@@ -32,6 +38,7 @@ pub fn corpus() -> Dictionary {
         vec![
             Table::new(
                 "orders".to_owned(),
+                public("orders"),
                 vec![
                     "order_id".to_owned(),
                     "customer_id".to_owned(),
@@ -42,6 +49,7 @@ pub fn corpus() -> Dictionary {
             ),
             Table::new(
                 "customers".to_owned(),
+                public("customers"),
                 vec!["customer_id".to_owned(), "segment".to_owned()],
                 Some("Customer reference data.".to_owned()),
             ),
@@ -49,9 +57,9 @@ pub fn corpus() -> Dictionary {
         vec![
             Relationship::new(
                 Some("orders_customer_fk".to_owned()),
-                "orders".to_owned(),
+                public("orders"),
                 "customer_id".to_owned(),
-                "customers".to_owned(),
+                public("customers"),
                 "customer_id".to_owned(),
             )
             .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),

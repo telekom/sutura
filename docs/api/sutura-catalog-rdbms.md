@@ -110,7 +110,12 @@ a reader back to all of them.
 
 - `Read` - The reader could not fetch the dictionary.
 - `NoVisibleTables` - The reader returned no table, so this bundle cannot honour its required `Structure` claim.
-- `ModelName` - A table's name did not parse as a model name.
+- `ModelName` - A table's semantic name did not parse as a model name.
+- `CatalogName` - A table's catalog did not parse as the top part of a qualified table name.
+- `SchemaName` - A table's schema did not parse as the middle part of a qualified table name.
+- `TableName` - A physical table's own name did not parse.
+- `DuplicateTable` - Two semantic models named the same physical table.
+- `UnknownRelationshipTable` - A foreign key named a physical table absent from the dictionary.
 - `ColumnName` - A column's name did not parse.
 - `RelationshipName` - A foreign key's name did not parse.
 - `Description` - A table description did not pass the authored-prose rule.
@@ -146,15 +151,68 @@ Opens a catalog over a dictionary reader.
 
 `Clone`, `Debug`, `SemanticCatalog`
 
+## `struct TableAddress`
+
+```rust
+pub struct TableAddress
+```
+
+A table's physical address as a dictionary reports it.
+
+A schema is required because it is the first part that distinguishes same-named tables in one
+database. The catalog is optional because not every target renders a three-part table path.
+
+### Methods
+
+```rust
+pub fn catalog(&self) -> Option<&str>
+```
+
+The catalog above the schema, when the dictionary reports one for generated statements.
+
+```rust
+pub const fn in_schema(schema: String, table: String) -> Self
+```
+
+A table in a schema of the connected catalog.
+
+```rust
+pub const fn new(catalog: Option<String>, schema: String, table: String) -> Self
+```
+
+A physical table address, split into the dictionary fields that own its identity.
+
+```rust
+pub fn schema(&self) -> &str
+```
+
+The schema immediately above the table.
+
+```rust
+pub fn table(&self) -> &str
+```
+
+The table's own name.
+
+### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
 ## `struct Table`
 
 ```rust
 pub struct Table
 ```
 
-One physical table the dictionary names, and the prose written against it.
+One semantic model, the physical table it selects, and the prose written against it.
 
 ### Methods
+
+```rust
+pub const fn address(&self) -> &TableAddress
+```
+
+The physical table address, as the dictionary spells each part.
 
 ```rust
 pub fn columns(&self) -> &[String]
@@ -169,16 +227,16 @@ pub fn description(&self) -> Option<&str>
 The table's comment, if a human wrote one.
 
 ```rust
-pub fn name(&self) -> &str
+pub fn model(&self) -> &str
 ```
 
-The table's name, as the dictionary spells it.
+The semantic model name assigned to this table.
 
 ```rust
-pub const fn new(name: String, columns: Vec<String>, description: Option<String>) -> Self
+pub const fn new(model: String, address: TableAddress, columns: Vec<String>, description: Option<String>) -> Self
 ```
 
-A physical table.
+A semantic model over a physical table.
 
 ### Implements
 
@@ -254,7 +312,7 @@ pub fn name(&self) -> Option<&str>
 The foreign key's name, if the dictionary named it.
 
 ```rust
-pub const fn new(name: Option<String>, origin_table: String, origin_column: String, target_table: String, target_column: String) -> Self
+pub const fn new(name: Option<String>, origin_table: TableAddress, origin_column: String, target_table: TableAddress, target_column: String) -> Self
 ```
 
 A relationship's endpoints, without uniqueness evidence.
@@ -268,7 +326,7 @@ pub fn origin_column(&self) -> &str
 The column the foreign key starts from.
 
 ```rust
-pub fn origin_table(&self) -> &str
+pub const fn origin_table(&self) -> &TableAddress
 ```
 
 The table the foreign key starts from.
@@ -280,7 +338,7 @@ pub fn target_column(&self) -> &str
 The column the foreign key points to.
 
 ```rust
-pub fn target_table(&self) -> &str
+pub const fn target_table(&self) -> &TableAddress
 ```
 
 The table the foreign key points to.

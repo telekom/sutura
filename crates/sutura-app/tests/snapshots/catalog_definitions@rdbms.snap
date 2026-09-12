@@ -6,7 +6,7 @@ models:
   customers:
     name: customers
     source: local
-    table: customers
+    table: public.customers
     columns:
       - customer_id
       - segment
@@ -14,7 +14,7 @@ models:
   orders:
     name: orders
     source: local
-    table: orders
+    table: public.orders
     columns:
       - amount_cents
       - customer_id
@@ -22,8 +22,8 @@ models:
       - status
     description: Orders placed by customers. One row per order.
 relationships:
-  orders_customer_fk:
-    name: orders_customer_fk
+  orders_customer_fk__0877fc1bfb1427b4:
+    name: orders_customer_fk__0877fc1bfb1427b4
     origin_model: orders
     origin_column: customer_id
     target_model: customers

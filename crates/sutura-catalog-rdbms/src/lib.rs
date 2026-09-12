@@ -71,18 +71,26 @@
 
 pub mod fixture;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{Definitions, Description, Model, Relationship as DomainRelationship};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
-use sutura_domain::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
+use sutura_domain::model::{
+    ColumnName, DatasetName, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName, TableName,
+    TableQualifier,
+};
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
 
 /// The two halves of a bundle, read and checked but not yet pinned.
 type Content = (Definitions, Knowledge);
+/// One parsed physical address and the semantic model built over it.
+type ConvertedModel = (QualifiedTable, Model);
+
+/// Leaves room for `__` and a 16-character fingerprint under the 63-character name limit.
+const MAX_RELATIONSHIP_PREFIX_LEN: usize = 45;
 
 /// Where a dictionary's records come from.
 ///
@@ -111,13 +119,43 @@ pub enum RdbmsError {
     /// The reader returned no table, so this bundle cannot honour its required `Structure` claim.
     #[error("the dictionary contains no visible table")]
     NoVisibleTables,
-    /// A table's name did not parse as a model name.
-    #[error("table {table} is not a usable model name: {cause}")]
+    /// A table's semantic name did not parse as a model name.
+    #[error("model {model} for table {table} is not a usable model name: {cause}")]
     ModelName {
+        table: String,
+        model: String,
+        #[source]
+        cause: sutura_domain::model::InvalidIdentifier,
+    },
+    /// A table's catalog did not parse as the top part of a qualified table name.
+    #[error("catalog {catalog} of table {table} is not usable: {cause}")]
+    CatalogName {
+        table: String,
+        catalog: String,
+        #[source]
+        cause: sutura_domain::model::InvalidIdentifier,
+    },
+    /// A table's schema did not parse as the middle part of a qualified table name.
+    #[error("schema {schema} of table {table} is not usable: {cause}")]
+    SchemaName {
+        table: String,
+        schema: String,
+        #[source]
+        cause: sutura_domain::model::InvalidIdentifier,
+    },
+    /// A physical table's own name did not parse.
+    #[error("physical table {table} is not usable: {cause}")]
+    TableName {
         table: String,
         #[source]
         cause: sutura_domain::model::InvalidIdentifier,
     },
+    /// Two semantic models named the same physical table.
+    #[error("physical table {table} is declared twice")]
+    DuplicateTable { table: String },
+    /// A foreign key named a physical table absent from the dictionary.
+    #[error("foreign key endpoint {table} is not a table in the dictionary")]
+    UnknownRelationshipTable { table: String },
     /// A column's name did not parse.
     #[error("column {column} on table {table} is not a usable column name: {cause}")]
     ColumnName {
@@ -184,12 +222,19 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             return Err(RdbmsError::NoVisibleTables);
         }
         let mut models = Vec::with_capacity(dictionary.tables.len());
+        let mut models_by_table = BTreeMap::new();
         for table in &dictionary.tables {
-            models.push(self.convert_model(table)?);
+            let (physical_table, model) = self.convert_model(table)?;
+            if models_by_table.insert(physical_table.clone(), model.name().clone()).is_some() {
+                return Err(RdbmsError::DuplicateTable {
+                    table: physical_table.to_string(),
+                });
+            }
+            models.push(model);
         }
         let mut relationships = Vec::with_capacity(dictionary.relationships.len());
         for relationship in &dictionary.relationships {
-            relationships.push(Self::convert_relationship(relationship)?);
+            relationships.push(Self::convert_relationship(relationship, &models_by_table)?);
         }
 
         let definitions =
@@ -198,13 +243,11 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
     }
 
     /// A table record into a [`Model`].
-    fn convert_model(&self, table: &Table) -> Result<Model, RdbmsError> {
-        let name = ModelName::parse(&table.name).map_err(|cause| RdbmsError::ModelName {
-            table: table.name.clone(),
-            cause,
-        })?;
-        let table_name = TableName::parse(&table.name).map_err(|cause| RdbmsError::ModelName {
-            table: table.name.clone(),
+    fn convert_model(&self, table: &Table) -> Result<ConvertedModel, RdbmsError> {
+        let physical_table = Self::convert_table_address(table.address())?;
+        let name = ModelName::parse(table.model()).map_err(|cause| RdbmsError::ModelName {
+            table: physical_table.to_string(),
+            model: table.model().to_owned(),
             cause,
         })?;
         let columns = table
@@ -212,7 +255,7 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             .iter()
             .map(|column| {
                 ColumnName::parse(column).map_err(|cause| RdbmsError::ColumnName {
-                    table: table.name.clone(),
+                    table: physical_table.to_string(),
                     column: column.clone(),
                     cause,
                 })
@@ -222,13 +265,38 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             .description()
             .map(|raw| {
                 Description::parse(raw).map_err(|cause| RdbmsError::Description {
-                    table: table.name.clone(),
+                    table: physical_table.to_string(),
                     cause,
                 })
             })
             .transpose()?
             .unwrap_or_default();
-        Ok(Model::new(name, self.name.clone(), table_name, columns, description))
+        let model = Model::new(name, self.name.clone(), physical_table.clone(), columns, description);
+        Ok((physical_table, model))
+    }
+
+    fn convert_table_address(address: &TableAddress) -> Result<QualifiedTable, RdbmsError> {
+        let rendered = address.to_string();
+        let table = TableName::parse(address.table()).map_err(|cause| RdbmsError::TableName {
+            table: rendered.clone(),
+            cause,
+        })?;
+        let schema = DatasetName::parse(address.schema()).map_err(|cause| RdbmsError::SchemaName {
+            table: rendered.clone(),
+            schema: address.schema().to_owned(),
+            cause,
+        })?;
+        let qualifier = if let Some(catalog) = address.catalog() {
+            let catalog = ProjectName::parse(catalog).map_err(|cause| RdbmsError::CatalogName {
+                table: rendered,
+                catalog: catalog.to_owned(),
+                cause,
+            })?;
+            TableQualifier::in_project(catalog, schema)
+        } else {
+            TableQualifier::in_dataset(schema)
+        };
+        Ok(QualifiedTable::new(Some(qualifier), table))
     }
 
     /// A foreign key into a [`Relationship`].
@@ -237,51 +305,47 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
     /// this maps the join to [`JoinType::ManyToOne`]. Membership in a composite constraint does not
     /// qualify. The adapter still declares no `Cardinality` capability: the dictionary carries no
     /// metric for a dimension to reach through the relationship.
-    fn convert_relationship(relationship: &Relationship) -> Result<DomainRelationship, RdbmsError> {
+    fn convert_relationship(
+        relationship: &Relationship,
+        models_by_table: &BTreeMap<QualifiedTable, ModelName>,
+    ) -> Result<DomainRelationship, RdbmsError> {
         if relationship.target_uniqueness.is_none() {
             return Err(RdbmsError::TargetUniquenessUnknown {
-                table: relationship.target_table().to_owned(),
+                table: relationship.target_table().to_string(),
                 column: relationship.target_column().to_owned(),
             });
         }
-        let name = if let Some(raw) = relationship.name() {
-            RelationshipName::parse(raw).map_err(|cause| RdbmsError::RelationshipName {
-                relationship: raw.to_owned(),
-                cause,
-            })?
-        } else {
-            // Postgres names every constraint, but a reader may not have read the name. Derive a
-            // deterministic one from the endpoints so the bundle is repeatable.
-            let derived = format!(
-                "{}__{}__to__{}__{}",
-                relationship.origin_table(),
-                relationship.origin_column(),
-                relationship.target_table(),
-                relationship.target_column()
-            );
-            RelationshipName::parse(&derived).map_err(|cause| RdbmsError::RelationshipName {
-                relationship: derived,
-                cause,
-            })?
-        };
-        let origin_model = ModelName::parse(relationship.origin_table()).map_err(|cause| RdbmsError::ModelName {
-            table: relationship.origin_table().to_owned(),
-            cause,
-        })?;
+        let origin_table = Self::convert_table_address(relationship.origin_table())?;
+        let target_table = Self::convert_table_address(relationship.target_table())?;
+        let origin_model = models_by_table
+            .get(&origin_table)
+            .cloned()
+            .ok_or_else(|| RdbmsError::UnknownRelationshipTable {
+                table: origin_table.to_string(),
+            })?;
+        let target_model = models_by_table
+            .get(&target_table)
+            .cloned()
+            .ok_or_else(|| RdbmsError::UnknownRelationshipTable {
+                table: target_table.to_string(),
+            })?;
         let origin_column = ColumnName::parse(relationship.origin_column()).map_err(|cause| RdbmsError::ColumnName {
-            table: relationship.origin_table().to_owned(),
+            table: origin_table.to_string(),
             column: relationship.origin_column().to_owned(),
             cause,
         })?;
-        let target_model = ModelName::parse(relationship.target_table()).map_err(|cause| RdbmsError::ModelName {
-            table: relationship.target_table().to_owned(),
-            cause,
-        })?;
         let target_column = ColumnName::parse(relationship.target_column()).map_err(|cause| RdbmsError::ColumnName {
-            table: relationship.target_table().to_owned(),
+            table: target_table.to_string(),
             column: relationship.target_column().to_owned(),
             cause,
         })?;
+        let name = Self::relationship_name(
+            relationship.name(),
+            &origin_table,
+            &origin_column,
+            &target_table,
+            &target_column,
+        )?;
         Ok(DomainRelationship::new(
             name,
             origin_model,
@@ -291,6 +355,58 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             JoinType::ManyToOne,
         ))
     }
+
+    fn relationship_name(
+        constraint: Option<&str>,
+        origin_table: &QualifiedTable,
+        origin_column: &ColumnName,
+        target_table: &QualifiedTable,
+        target_column: &ColumnName,
+    ) -> Result<RelationshipName, RdbmsError> {
+        let mut prefix = if let Some(raw) = constraint {
+            RelationshipName::parse(raw)
+                .map_err(|cause| RdbmsError::RelationshipName {
+                    relationship: raw.to_owned(),
+                    cause,
+                })?
+                .to_string()
+        } else {
+            format!("{}_{}_fk", origin_table.name(), target_table.name())
+        };
+        let origin_table = origin_table.to_string();
+        let target_table = target_table.to_string();
+        let fingerprint = stable_fingerprint([
+            constraint.unwrap_or(""),
+            origin_table.as_str(),
+            origin_column.as_str(),
+            target_table.as_str(),
+            target_column.as_str(),
+        ]);
+        prefix.truncate(prefix.len().min(MAX_RELATIONSHIP_PREFIX_LEN));
+        let namespaced = format!("{prefix}__{fingerprint:016x}");
+        RelationshipName::parse(&namespaced).map_err(|cause| RdbmsError::RelationshipName {
+            relationship: namespaced,
+            cause,
+        })
+    }
+}
+
+/// A deterministic, non-cryptographic fingerprint for a relationship's canonical identity.
+///
+/// The `0xff` separator cannot occur in UTF-8, so adjacent fields remain unambiguous. A collision
+/// remains a duplicate relationship and is refused by [`Definitions::assemble`]; it can never
+/// replace an existing one.
+fn stable_fingerprint<'a>(parts: impl IntoIterator<Item = &'a str>) -> u64 {
+    const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut fingerprint = OFFSET_BASIS;
+    for part in parts {
+        for byte in part.bytes().chain(core::iter::once(0xff)) {
+            fingerprint ^= u64::from(byte);
+            fingerprint = fingerprint.wrapping_mul(PRIME);
+        }
+    }
+    fingerprint
 }
 
 impl<R> SemanticCatalog for RdbmsCatalog<R>
@@ -342,28 +458,86 @@ where
     }
 }
 
-/// One physical table the dictionary names, and the prose written against it.
+/// A table's physical address as a dictionary reports it.
+///
+/// A schema is required because it is the first part that distinguishes same-named tables in one
+/// database. The catalog is optional because not every target renders a three-part table path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableAddress {
+    catalog: Option<String>,
+    schema: String,
+    table: String,
+}
+
+impl TableAddress {
+    /// A physical table address, split into the dictionary fields that own its identity.
+    pub const fn new(catalog: Option<String>, schema: String, table: String) -> Self {
+        Self { catalog, schema, table }
+    }
+
+    /// A table in a schema of the connected catalog.
+    pub const fn in_schema(schema: String, table: String) -> Self {
+        Self::new(None, schema, table)
+    }
+
+    /// The catalog above the schema, when the dictionary reports one for generated statements.
+    #[inline]
+    pub fn catalog(&self) -> Option<&str> {
+        self.catalog.as_deref()
+    }
+
+    /// The schema immediately above the table.
+    #[inline]
+    pub fn schema(&self) -> &str {
+        &self.schema
+    }
+
+    /// The table's own name.
+    #[inline]
+    pub fn table(&self) -> &str {
+        &self.table
+    }
+}
+
+impl core::fmt::Display for TableAddress {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if let Some(catalog) = self.catalog() {
+            write!(f, "{catalog}.")?;
+        }
+        write!(f, "{}.{}", self.schema, self.table)
+    }
+}
+
+/// One semantic model, the physical table it selects, and the prose written against it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Table {
-    name: String,
+    model: String,
+    address: TableAddress,
     columns: Vec<String>,
     description: Option<String>,
 }
 
 impl Table {
-    /// A physical table.
-    pub const fn new(name: String, columns: Vec<String>, description: Option<String>) -> Self {
+    /// A semantic model over a physical table.
+    pub const fn new(model: String, address: TableAddress, columns: Vec<String>, description: Option<String>) -> Self {
         Self {
-            name,
+            model,
+            address,
             columns,
             description,
         }
     }
 
-    /// The table's name, as the dictionary spells it.
+    /// The semantic model name assigned to this table.
     #[inline]
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// The physical table address, as the dictionary spells each part.
+    #[inline]
+    pub const fn address(&self) -> &TableAddress {
+        &self.address
     }
 
     /// The columns the table exposes.
@@ -422,9 +596,9 @@ pub enum SingleColumnTargetUniqueness {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Relationship {
     name: Option<String>,
-    origin_table: String,
+    origin_table: TableAddress,
     origin_column: String,
-    target_table: String,
+    target_table: TableAddress,
     target_column: String,
     target_uniqueness: Option<SingleColumnTargetUniqueness>,
 }
@@ -435,9 +609,9 @@ impl Relationship {
     /// Loading refuses this value until [`Self::with_target_uniqueness`] records the target key.
     pub const fn new(
         name: Option<String>,
-        origin_table: String,
+        origin_table: TableAddress,
         origin_column: String,
-        target_table: String,
+        target_table: TableAddress,
         target_column: String,
     ) -> Self {
         Self {
@@ -465,7 +639,7 @@ impl Relationship {
 
     /// The table the foreign key starts from.
     #[inline]
-    pub fn origin_table(&self) -> &str {
+    pub const fn origin_table(&self) -> &TableAddress {
         &self.origin_table
     }
 
@@ -477,7 +651,7 @@ impl Relationship {
 
     /// The table the foreign key points to.
     #[inline]
-    pub fn target_table(&self) -> &str {
+    pub const fn target_table(&self) -> &TableAddress {
         &self.target_table
     }
 

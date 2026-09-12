@@ -2,12 +2,14 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::InvalidDescription;
 use sutura_domain::knowledge::KnowledgeCapabilities;
-use sutura_domain::model::{Grain, JoinType, MetricName, SourceName};
+use sutura_domain::model::{Grain, JoinType, MetricName, ModelName, SourceName};
 use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 use sutura_domain::query::{Query, RefusalReason};
 
 use crate::fixture::FixtureReader;
-use crate::{Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table};
+use crate::{
+    Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table, TableAddress,
+};
 
 fn name() -> SourceName {
     SourceName::parse("local").expect("a test name is a name")
@@ -19,6 +21,34 @@ fn version() -> DefinitionVersion {
 
 fn over() -> RdbmsCatalog<FixtureReader> {
     crate::fixture::over_fixture_source(name(), version())
+}
+
+fn address(schema: &str, table: &str) -> TableAddress {
+    TableAddress::in_schema(schema.to_owned(), table.to_owned())
+}
+
+fn public(table: &str) -> TableAddress {
+    address("public", table)
+}
+
+fn table(model: &str, columns: Vec<String>, description: Option<String>) -> Table {
+    Table::new(model.to_owned(), public(model), columns, description)
+}
+
+fn foreign_key(
+    name: Option<&str>,
+    origin_table: &str,
+    origin_column: &str,
+    target_table: &str,
+    target_column: &str,
+) -> Relationship {
+    Relationship::new(
+        name.map(str::to_owned),
+        public(origin_table),
+        origin_column.to_owned(),
+        public(target_table),
+        target_column.to_owned(),
+    )
 }
 
 /// A question about a metric the bundle does not define.
@@ -124,20 +154,16 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
     // A dictionary with the FK and no comments at all: Descriptions absent, lawfully.
     let fk_only = SparseReader(Dictionary::new(
         vec![
-            Table::new(
-                "orders".to_owned(),
-                vec!["order_id".to_owned(), "customer_id".to_owned()],
-                None,
-            ),
-            Table::new("customers".to_owned(), vec!["customer_id".to_owned()], None),
+            table("orders", vec!["order_id".to_owned(), "customer_id".to_owned()], None),
+            table("customers", vec!["customer_id".to_owned()], None),
         ],
         vec![
-            Relationship::new(
-                Some("orders_customer_fk".to_owned()),
-                "orders".to_owned(),
-                "customer_id".to_owned(),
-                "customers".to_owned(),
-                "customer_id".to_owned(),
+            foreign_key(
+                Some("orders_customer_fk"),
+                "orders",
+                "customer_id",
+                "customers",
+                "customer_id",
             )
             .with_target_uniqueness(SingleColumnTargetUniqueness::UniqueConstraint),
         ],
@@ -158,11 +184,7 @@ fn a_sparse_dictionary_does_not_overclaim_its_declaration() {
 
     // The twin: comments but no foreign key - Relationships absent, lawfully.
     let prose_only = SparseReader(Dictionary::new(
-        vec![Table::new(
-            "orders".to_owned(),
-            vec!["order_id".to_owned()],
-            Some("Orders.".to_owned()),
-        )],
+        vec![table("orders", vec!["order_id".to_owned()], Some("Orders.".to_owned()))],
         Vec::new(),
     ));
     let pinned = RdbmsCatalog::new(name(), version(), prose_only)
@@ -194,39 +216,37 @@ fn an_empty_dictionary_refuses_instead_of_overclaiming_structure() {
     assert!(matches!(refused, RdbmsError::NoVisibleTables), "{refused:?}");
 }
 
-/// A derived relationship-name error retains the exact name that failed to parse.
+/// An unnamed relationship gets a bounded, deterministic name even when its endpoints are long.
 ///
-/// Every endpoint below is a legal identifier on its own. Their deterministic compound is longer
-/// than the identifier limit, so blaming only the target table sends an operator to a value that is
-/// valid and did not fail.
+/// The readable prefix is truncated before a stable endpoint fingerprint is appended. That keeps
+/// the domain's 63-character limit without silently truncating away the part that distinguishes two
+/// foreign keys.
 #[test]
-fn a_derived_relationship_name_error_names_the_attempted_compound() {
+fn an_unnamed_relationship_with_long_endpoints_gets_a_bounded_deterministic_name() {
     let origin_table = "orders_for_enterprise_accounts";
     let origin_column = "enterprise_customer_identifier";
     let target_table = "enterprise_customer_accounts";
     let target_column = "canonical_customer_identifier";
-    let attempted = format!("{origin_table}__{origin_column}__to__{target_table}__{target_column}");
     let reader = SparseReader(Dictionary::new(
-        vec![Table::new(origin_table.to_owned(), vec![origin_column.to_owned()], None)],
         vec![
-            Relationship::new(
-                None,
-                origin_table.to_owned(),
-                origin_column.to_owned(),
-                target_table.to_owned(),
-                target_column.to_owned(),
-            )
-            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
+            table(origin_table, vec![origin_column.to_owned()], None),
+            table(target_table, vec![target_column.to_owned()], None),
+        ],
+        vec![
+            foreign_key(None, origin_table, origin_column, target_table, target_column)
+                .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
         ],
     ));
 
-    let refused = RdbmsCatalog::new(name(), version(), reader)
+    let catalog = RdbmsCatalog::new(name(), version(), reader);
+    let first = catalog
         .load()
-        .expect_err("the over-limit derived relationship name must refuse");
-    match refused {
-        RdbmsError::RelationshipName { relationship, .. } => assert_eq!(relationship, attempted),
-        other => panic!("the derived name must refuse as `RelationshipName`: {other:?}"),
-    }
+        .expect("long endpoints still produce a valid relationship name");
+    let second = catalog.load().expect("the same dictionary loads again");
+    let first_name = first.definitions().relationships().keys().next().expect("one relationship");
+    let second_name = second.definitions().relationships().keys().next().expect("one relationship");
+    assert!(first_name.as_str().len() <= 63);
+    assert_eq!(first_name, second_name);
 }
 
 /// A relationship is accepted only when the reader supplies single-column unique-target evidence.
@@ -248,21 +268,21 @@ fn a_relationship_requires_single_column_target_uniqueness_evidence() {
 
     let relationship_without_evidence = SparseReader(Dictionary::new(
         vec![
-            Table::new("orders".to_owned(), vec!["customer_id".to_owned()], None),
-            Table::new("customers".to_owned(), vec!["customer_id".to_owned()], None),
+            table("orders", vec!["customer_id".to_owned()], None),
+            table("customers", vec!["customer_id".to_owned()], None),
         ],
-        vec![Relationship::new(
-            Some("orders_customer_fk".to_owned()),
-            "orders".to_owned(),
-            "customer_id".to_owned(),
-            "customers".to_owned(),
-            "customer_id".to_owned(),
+        vec![foreign_key(
+            Some("orders_customer_fk"),
+            "orders",
+            "customer_id",
+            "customers",
+            "customer_id",
         )],
     ));
     assert!(matches!(
         RdbmsCatalog::new(name(), version(), relationship_without_evidence).load(),
         Err(RdbmsError::TargetUniquenessUnknown { table, column })
-            if table == "customers" && column == "customer_id"
+            if table == "public.customers" && column == "customer_id"
     ));
 }
 
@@ -289,8 +309,8 @@ impl DictionaryReader for SparseReader {
 #[test]
 fn a_table_comment_carrying_a_control_character_refuses_the_load() {
     let crlf = SparseReader(Dictionary::new(
-        vec![Table::new(
-            "orders".to_owned(),
+        vec![table(
+            "orders",
             vec!["order_id".to_owned()],
             Some("Orders placed by customers.\r\nOne row per order.".to_owned()),
         )],
@@ -301,7 +321,10 @@ fn a_table_comment_carrying_a_control_character_refuses_the_load() {
         .expect_err("a control character the renderer would drop is not a loadable description");
     match refused {
         RdbmsError::Description { table, cause } => {
-            assert_eq!(table, "orders", "the refusal names the table a reader has to go back to");
+            assert_eq!(
+                table, "public.orders",
+                "the refusal names the table a reader has to go back to"
+            );
             assert_eq!(cause, InvalidDescription::ControlCharacter { code: 0x0D });
         }
         other => panic!("a description the renderer would alter must refuse as `Description`: {other:?}"),
@@ -338,4 +361,151 @@ fn a_reader_failure_is_surfaced_by_the_load() {
         matches!(refused, RdbmsError::Read(_)),
         "the reader's own failure must reach the caller unchanged: {refused:?}"
     );
+}
+
+/// Schema qualification is part of the physical table identity, while each table still has a
+/// distinct semantic model identity.
+///
+/// Without the two identities, a dictionary reader either drops the schema and makes both rows one
+/// `orders` model or passes the qualified spelling as a model name and the identifier parser refuses
+/// the dot. Either answer loses which physical table a generated `FROM` must select.
+#[test]
+fn schema_qualified_tables_keep_distinct_model_and_physical_identities() {
+    let two_schemas = SparseReader(Dictionary::new(
+        vec![
+            Table::new(
+                "sales_orders".to_owned(),
+                address("sales", "orders"),
+                vec!["order_id".to_owned()],
+                None,
+            ),
+            Table::new(
+                "support_orders".to_owned(),
+                address("support", "orders"),
+                vec!["order_id".to_owned()],
+                None,
+            ),
+        ],
+        Vec::new(),
+    ));
+
+    let pinned = RdbmsCatalog::new(name(), version(), two_schemas)
+        .load()
+        .expect("two schema-qualified tables with one bare name are distinct models");
+    let models = pinned.definitions().models();
+    assert_eq!(models.len(), 2);
+    let model_names: std::collections::BTreeSet<&str> = models.keys().map(ModelName::as_str).collect();
+    assert_eq!(model_names, ["sales_orders", "support_orders"].into_iter().collect());
+    let physical_tables: std::collections::BTreeSet<String> = models.values().map(|model| model.table().to_string()).collect();
+    assert_eq!(
+        physical_tables,
+        [String::from("sales.orders"), String::from("support.orders")]
+            .into_iter()
+            .collect()
+    );
+}
+
+/// A constraint name is local to its table and cannot be used as the bundle-wide relationship key.
+///
+/// Two schemas may each define `orders_customer_fk`. The qualified endpoints distinguish those
+/// constraints, so both relationships must survive assembly under different domain names.
+#[test]
+fn repeated_constraint_names_are_namespaced_by_their_endpoints() {
+    let repeated_name = SparseReader(Dictionary::new(
+        vec![
+            Table::new(
+                "sales_orders".to_owned(),
+                address("sales", "orders"),
+                vec!["customer_id".to_owned()],
+                None,
+            ),
+            Table::new(
+                "sales_customers".to_owned(),
+                address("sales", "customers"),
+                vec!["customer_id".to_owned()],
+                None,
+            ),
+            Table::new(
+                "support_orders".to_owned(),
+                address("support", "orders"),
+                vec!["customer_id".to_owned()],
+                None,
+            ),
+            Table::new(
+                "support_customers".to_owned(),
+                address("support", "customers"),
+                vec!["customer_id".to_owned()],
+                None,
+            ),
+        ],
+        vec![
+            Relationship::new(
+                Some("orders_customer_fk".to_owned()),
+                address("sales", "orders"),
+                "customer_id".to_owned(),
+                address("sales", "customers"),
+                "customer_id".to_owned(),
+            )
+            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
+            Relationship::new(
+                Some("orders_customer_fk".to_owned()),
+                address("support", "orders"),
+                "customer_id".to_owned(),
+                address("support", "customers"),
+                "customer_id".to_owned(),
+            )
+            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
+        ],
+    ));
+
+    let pinned = RdbmsCatalog::new(name(), version(), repeated_name)
+        .load()
+        .expect("qualified endpoints namespace repeated constraint names");
+    let relationships = pinned.definitions().relationships();
+    assert_eq!(relationships.len(), 2);
+    let names: std::collections::BTreeSet<_> = relationships
+        .values()
+        .map(sutura_domain::catalog::Relationship::name)
+        .collect();
+    assert_eq!(names.len(), 2);
+}
+
+/// A physical address identifies one model; a second model cannot silently replace the first.
+#[test]
+fn duplicate_physical_table_addresses_are_refused() {
+    let duplicate = SparseReader(Dictionary::new(
+        vec![
+            Table::new("orders".to_owned(), public("orders"), vec!["order_id".to_owned()], None),
+            Table::new("orders_alias".to_owned(), public("orders"), vec!["order_id".to_owned()], None),
+        ],
+        Vec::new(),
+    ));
+
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), duplicate).load(),
+        Err(RdbmsError::DuplicateTable { table }) if table == "public.orders"
+    ));
+}
+
+/// A relationship endpoint is resolved by physical identity, never guessed from a bare table name.
+#[test]
+fn a_relationship_to_an_unknown_physical_table_is_refused() {
+    let unknown = SparseReader(Dictionary::new(
+        vec![table("orders", vec!["customer_id".to_owned()], None)],
+        vec![
+            foreign_key(
+                Some("orders_customer_fk"),
+                "orders",
+                "customer_id",
+                "customers",
+                "customer_id",
+            )
+            .with_target_uniqueness(SingleColumnTargetUniqueness::PrimaryKey),
+        ],
+    ));
+
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), unknown).load(),
+        Err(RdbmsError::UnknownRelationshipTable { table }) if table == "public.customers"
+    ));
 }
