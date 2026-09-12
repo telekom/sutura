@@ -205,6 +205,31 @@ repos:
         pass_filenames: false
         require_serial: true
 
+      # Markdown, YAML and TOML through dprint; Python through ruff, formatter and linter both.
+      #
+      # ONE SCRIPT, which `just lint-text`, `just fmt`, `just validate` and
+      # `.github/workflows/format.yml` also call - so a finding a developer sees is one CI sees.
+      # That is the property `nix/lint-workflows.sh` exists for, and the reason the invocation is
+      # not written twice.
+      #
+      # COMMIT STAGE. `cargo xtask check-hook-tiers` reserves `pre-push` for the two whole-tree
+      # security scans and nothing else, and a check too slow for a commit belongs in no local
+      # hook at all - this is neither: it compiles nothing and reads the tracked text files.
+      #
+      # Through nix, the ONLY pin for both tools - the version decides what a formatter reports,
+      # so a second pin would be a second verdict and `cargo xtask check-pins` fails if either
+      # name reappears in pixi.toml. Skipped with a notice where nix is absent, like `shellcheck`
+      # and `zizmor`; the script itself owns that tiering, not this entry.
+      #
+      # `files:` covers the four extensions plus the three files that decide the verdict without
+      # being one of them - the config, the script, and the plugin pin.
+      - id: format-text
+        name: markdown/yaml/toml (dprint), python (ruff)
+        entry: bash nix/format-text.sh check
+        language: system
+        files: (\.(md|ya?ml|toml|py)|^(dprint\.json|nix/format-text\.sh|nix/dprint\.nix))$
+        pass_filenames: false
+
       # --- on push: SECURITY ONLY -------------------------------------------
       # The whole tree, not just the diff. The commit-stage scan above is staged-only, so a
       # finding in a file committed long ago reaches CI unseen - which is exactly what happened.

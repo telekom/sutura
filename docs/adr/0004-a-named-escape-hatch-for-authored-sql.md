@@ -91,10 +91,10 @@ naming the metric, the dialect and the position, which is the failure mode this 
 
 `Computation` has two variants and a metric says which in a word:
 
-| Variant | On disk | Who produces it |
-| --- | --- | --- |
-| `Computation::Measure` | `measure:` | Every provider. The ordinary case, and the default path |
-| `Computation::AuthoredSql` | `authored_sql:` | Only a provider whose catalog carries SQL per metric |
+| Variant                    | On disk         | Who produces it                                         |
+| -------------------------- | --------------- | ------------------------------------------------------- |
+| `Computation::Measure`     | `measure:`      | Every provider. The ordinary case, and the default path |
+| `Computation::AuthoredSql` | `authored_sql:` | Only a provider whose catalog carries SQL per metric    |
 
 The shape matters as much as the capability. There is no `expression:` key on a measure, no
 `Option<String>` beside one, and no arrangement in which "this metric is free-text SQL" is invisible
@@ -133,7 +133,7 @@ category test would move with the Unicode table under a dependency bump, which f
 refusal is a set that changes with no diff.
 
 **A dialect word is not trimmed.** `DialectTag::parse` used to trim, which made `duckdb` and
-` duckdb ` the same tag - and `BTreeMap`'s deserialize keeps the LAST value for a repeated key, so
+`duckdb` the same tag - and `BTreeMap`'s deserialize keeps the LAST value for a repeated key, so
 `{"duckdb": A, " duckdb ": B}` silently discarded `A` and certified `B`, with the digest taken over
 the survivor. That is the outcome `Computation::assemble` refuses when a metric writes `measure`
 beside `authored_sql`, arrived at without anybody writing two keys on purpose. Surrounding whitespace
@@ -295,15 +295,16 @@ under a millisecond.
 **No bound is written for it, and that is the decision rather than an omission.** Bounding *slow*
 needs a complexity or work measure and none is available here. Length is refuted, decisively: the
 75-byte fragment above costs 14 s, while `SUM(CASE WHEN status = 'active' THEN mrr_eur ELSE 0 END)`
+
 - the metric this hatch exists for - is 56 characters, so any length cap that refuses the exploit
-refuses the metric. And `MAX_FRAGMENT_LEN`'s own 1024 characters hold about 340 `IF~` pairs, which
-on the measured doubling is not a wait anybody outlives - arithmetic on a measured curve, and not a
-run. The parser's own `ComplexityGuardOptions` sit far above these inputs -
-`max_tokens` at 1,000,000, `max_ast_depth` and `max_parenthesis_depth` at 512,
-`max_function_call_depth` at 64 - and none counts work per token; `MAX_DEPTH` is asked once the parse
-has already paid. A wall-clock budget is the mechanism that would fit, and the pinned parser offers
-no cancellation point for one: a watchdog could observe the deadline and could not reclaim the
-thread, and under `panic = "abort"` there is nothing to unwind.
+  refuses the metric. And `MAX_FRAGMENT_LEN`'s own 1024 characters hold about 340 `IF~` pairs, which
+  on the measured doubling is not a wait anybody outlives - arithmetic on a measured curve, and not a
+  run. The parser's own `ComplexityGuardOptions` sit far above these inputs -
+  `max_tokens` at 1,000,000, `max_ast_depth` and `max_parenthesis_depth` at 512,
+  `max_function_call_depth` at 64 - and none counts work per token; `MAX_DEPTH` is asked once the parse
+  has already paid. A wall-clock budget is the mechanism that would fit, and the pinned parser offers
+  no cancellation point for one: a watchdog could observe the deadline and could not reclaim the
+  thread, and under `panic = "abort"` there is nothing to unwind.
 
 **The obvious candidate, and why it is left on the table rather than taken.** This guard already
 holds the token stream, `IF` is not one of the names `Construct::UnknownFunction` allows, and the
@@ -391,11 +392,11 @@ check either way.
 Four constructs are refused at catalog-validation time. **Nothing upstream errors on any of them**,
 which is the whole reason the list exists.
 
-| Refused | Why |
-| --- | --- |
-| `FILTER (WHERE ..)` | `aggregate_filter_supported` is set `false` by six dialects and is **never read anywhere in the dialect layer**. FILTER is emitted unconditionally for every target, including the six that cannot run it |
-| `COUNT(DISTINCT a, b)` | Gated by `multi_arg_distinct`. `DuckDB` to `DuckDB` rewrites it into `COUNT(DISTINCT CASE WHEN a IS NULL THEN NULL WHEN b IS NULL THEN NULL ELSE (a, b) END)` while `ClickHouse` leaves it alone, so identity is not identity and the same fragment counts different things per target |
-| Any date or time function | Truncation is the generator's, from the question's `Grain`, so no metric needs one - and `generator.rs`'s `generate_date_trunc` special-cases only TSQL/Fabric and ClickHouse, so a fourth dialect's argument order is a live defect waiting for that dialect to be compiled. It is a `generate`-level defect, so avoiding `transpile` does not fix it |
+| Refused                       | Why                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FILTER (WHERE ..)`           | `aggregate_filter_supported` is set `false` by six dialects and is **never read anywhere in the dialect layer**. FILTER is emitted unconditionally for every target, including the six that cannot run it                                                                                                                                                                                                                                     |
+| `COUNT(DISTINCT a, b)`        | Gated by `multi_arg_distinct`. `DuckDB` to `DuckDB` rewrites it into `COUNT(DISTINCT CASE WHEN a IS NULL THEN NULL WHEN b IS NULL THEN NULL ELSE (a, b) END)` while `ClickHouse` leaves it alone, so identity is not identity and the same fragment counts different things per target                                                                                                                                                        |
+| Any date or time function     | Truncation is the generator's, from the question's `Grain`, so no metric needs one - and `generator.rs`'s `generate_date_trunc` special-cases only TSQL/Fabric and ClickHouse, so a fourth dialect's argument order is a live defect waiting for that dialect to be compiled. It is a `generate`-level defect, so avoiding `transpile` does not fix it                                                                                        |
 | A bare `/` between aggregates | `DuckDB` to Postgres inserts `CAST(.. AS DOUBLE PRECISION)`, `DuckDB` to `BigQuery` does not, and Postgres to anything is left alone. **The transpiler changes the NUMBER depending on which dialect is declared as the source.** An explicit `NULLIF` suppresses the rewrite, which is why the divisor must be one - and it makes the zero-denominator behaviour explicit, which is what `ZeroDenominator` records for the closed vocabulary |
 
 Plus `x IS TRUE`, already recorded as not portable in
@@ -532,7 +533,7 @@ projection and no `FROM`, and taking `expressions[0]` **throws the `WHERE` away*
 then be certified as `SUM(x)`, silently, over a predicate its author wrote and nobody removed on
 purpose. Confirmed for `WHERE`, `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY`, `LIMIT`, `WINDOW` and a
 leading `DISTINCT`: each parses, each is dropped. Closed by rendering the whole wrapper statement and
-the projection alone and requiring them to differ by exactly `SELECT ` - a check on the *rendering*
+the projection alone and requiring them to differ by exactly `SELECT` - a check on the *rendering*
 rather than on a list of `Select` fields, so it holds for a clause nobody thought of.
 
 A comment is refused too, and it is the mildest of the three: `SUM(x) -- note` is re-emitted as

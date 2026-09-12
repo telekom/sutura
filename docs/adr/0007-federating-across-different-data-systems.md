@@ -131,10 +131,10 @@ cannot express, which is the next-to-last section of the decision below.
 
 Recorded because the shape above is chosen to fit it, not to be exhaustive or scheduled.
 
-| Side | Now | Intended |
-| --- | --- | --- |
+| Side     | Now                                                     | Intended                                                                                                                     |
+| -------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Metadata | a directory of markdown documents with YAML frontmatter | a second markdown/YAML convention, Datahub, OpenMetadata, a catalog held in an RDBMS carrying prompt instructions, BPMN, RDF |
-| Data | DuckDB files and local CSV/Parquet through the engine | DuckDB, Postgres, BigQuery, Oracle |
+| Data     | DuckDB files and local CSV/Parquet through the engine   | DuckDB, Postgres, BigQuery, Oracle                                                                                           |
 
 Both sides are ports that already exist, and neither list changes the tool surface. A metadata
 provider is a `SemanticCatalog`; a data system is a `Warehouse`. Track 2 changes how many
@@ -189,13 +189,13 @@ That last one is the whole cost, and it is not small. Rendered through the same 
 makes - `Dialect::get(t).generator_config()`, `always_quote_identifiers = true` - the statement shape
 from `recurring-revenue-by-region__sql@postgres.snap` came back like this:
 
-| Target | Quoting | Time bucket | Row cap | Placeholder |
-| --- | --- | --- | --- | --- |
-| DuckDB | `"x"` correct | `DATE_TRUNC('month', c)` correct | `LIMIT` correct | `?` correct |
-| Postgres | `"x"` correct | correct | correct | `$1` correct, ours |
-| ClickHouse | `"x"` correct | `dateTrunc(...)` correct | correct | `?` correct |
-| **BigQuery** | `` `x` `` correct | `DATE_TRUNC('month', c)` - **wrong argument order and a quoted part** | `LIMIT` correct | `?` correct |
-| **Oracle** | `"x"` correct | `DATE_TRUNC(...)` - **no such function** | `LIMIT` - **no such clause** | `?` / `$1` - **neither** |
+| Target       | Quoting           | Time bucket                                                           | Row cap                      | Placeholder              |
+| ------------ | ----------------- | --------------------------------------------------------------------- | ---------------------------- | ------------------------ |
+| DuckDB       | `"x"` correct     | `DATE_TRUNC('month', c)` correct                                      | `LIMIT` correct              | `?` correct              |
+| Postgres     | `"x"` correct     | correct                                                               | correct                      | `$1` correct, ours       |
+| ClickHouse   | `"x"` correct     | `dateTrunc(...)` correct                                              | correct                      | `?` correct              |
+| **BigQuery** | `` `x` `` correct | `DATE_TRUNC('month', c)` - **wrong argument order and a quoted part** | `LIMIT` correct              | `?` correct              |
+| **Oracle**   | `"x"` correct     | `DATE_TRUNC(...)` - **no such function**                              | `LIMIT` - **no such clause** | `?` / `$1` - **neither** |
 
 The BigQuery row is a defect **this repository already predicted, in code, from the other side.**
 `crates/sutura-sql/src/expression/refusal.rs:115-118` gives the reason `DATE_TRUNC` is a refused
@@ -217,11 +217,11 @@ The reason none of this can be delegated to the dialect layer's configuration is
 fields are not reliably read. Three are now known, and this repository found two of them
 independently before this record:
 
-| Field | Set by | Read by |
-| --- | --- | --- |
-| `parameter_token` | per dialect | **nothing.** Recorded at `crates/sutura-sql/src/dialect.rs:8-11`, which is why `PlaceholderStyle` exists |
-| `aggregate_filter_supported` | six dialects set it false | **nothing.** Recorded at `crates/sutura-sql/src/expression/refusal.rs:122-125` |
-| `limit_fetch_style`, with a `FetchFirst` variant documented for Oracle | four dialects | **nothing.** Zero read sites in the generator - verified by grep, and verified by setting it and watching the output not change |
+| Field                                                                  | Set by                    | Read by                                                                                                                         |
+| ---------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `parameter_token`                                                      | per dialect               | **nothing.** Recorded at `crates/sutura-sql/src/dialect.rs:8-11`, which is why `PlaceholderStyle` exists                        |
+| `aggregate_filter_supported`                                           | six dialects set it false | **nothing.** Recorded at `crates/sutura-sql/src/expression/refusal.rs:122-125`                                                  |
+| `limit_fetch_style`, with a `FetchFirst` variant documented for Oracle | four dialects             | **nothing.** Zero read sites in the generator - verified by grep, and verified by setting it and watching the output not change |
 
 And the semantic rewrites that *would* fix Oracle exist and are unreachable. `dialects/oracle.rs:298`
 maps `DATE_TRUNC` to Oracle's `TRUNC`. That mapping lives in `transform_function`, reached from
@@ -334,11 +334,11 @@ label; and `max_rows` is set to `MAX_ROWS` by the constructor, which takes no pa
 then **exactly one** measure expression; groups by the keys and the bucket; and always emits
 `LIMIT plan.row_limit()`.
 
-| Shape | What it is | Can today's `QueryPlan` say it? |
-| --- | --- | --- |
-| **Aggregate fact leg** | grouped by the bucket, the local keys and every remote join key, projecting one column per PUSHED term | **No.** A ratio must not be divided per leg and a decomposed `Avg` is a sum beside a count, so a leg projects a LIST of terms. `measure` is one `PlanMeasure` and `measure_label` is one label. `measure_expression` renders `Ratio` as a division with a `NULLIF`, which is exactly the thing 0009's Decision 2 forbids per leg |
-| **Distinct-key fact leg** | the same grouping plus the distinct key itself, with **no aggregate over that column** | **No.** There is no `PlanMeasure` that means "nothing", and adding one would put an absent case on the closed measure vocabulary - the shape AGENTS.md's row about `Option<String>` on `Measure` exists to keep out |
-| **Dimension lookup leg** | the join key and the needed columns, distinct, off the dimension table | **No.** A dimension table has no time column and no measure, and `bucket` and `measure` are both required |
+| Shape                     | What it is                                                                                             | Can today's `QueryPlan` say it?                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Aggregate fact leg**    | grouped by the bucket, the local keys and every remote join key, projecting one column per PUSHED term | **No.** A ratio must not be divided per leg and a decomposed `Avg` is a sum beside a count, so a leg projects a LIST of terms. `measure` is one `PlanMeasure` and `measure_label` is one label. `measure_expression` renders `Ratio` as a division with a `NULLIF`, which is exactly the thing 0009's Decision 2 forbids per leg |
+| **Distinct-key fact leg** | the same grouping plus the distinct key itself, with **no aggregate over that column**                 | **No.** There is no `PlanMeasure` that means "nothing", and adding one would put an absent case on the closed measure vocabulary - the shape AGENTS.md's row about `Option<String>` on `Measure` exists to keep out                                                                                                              |
+| **Dimension lookup leg**  | the join key and the needed columns, distinct, off the dimension table                                 | **No.** A dimension table has no time column and no measure, and `bucket` and `measure` are both required                                                                                                                                                                                                                        |
 
 And one row that is not a shape but fails the same way for all three: **no leg carries an answer-shaped
 row cap.** 0009's Decision 3 retires it, and `QueryPlan::new` has no parameter that could omit it.
@@ -353,10 +353,10 @@ variants.**
 two legal shapes and the illegal combinations - a measure with no bucket, a range on a table with no
 time column - should not be constructible at all.
 
-| Variant | Fields | Reads |
-| --- | --- | --- |
-| `Fact` | `source`, `metric`, `table`, `joins` (same-source hops only), `bucket`, `keys`, `terms`, `filters`, `params`, `range` | the metric's own model |
-| `Lookup` | `source`, `table`, `keys`, `filters`, `params` - no bucket, no terms, no range | one remote dimension model |
+| Variant  | Fields                                                                                                                | Reads                      |
+| -------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `Fact`   | `source`, `metric`, `table`, `joins` (same-source hops only), `bucket`, `keys`, `terms`, `filters`, `params`, `range` | the metric's own model     |
+| `Lookup` | `source`, `table`, `keys`, `filters`, `params` - no bucket, no terms, no range                                        | one remote dimension model |
 
 **Two variants and not three, and the factoring is the decision rather than a preference.** There are
 three SHAPES and two axes to split them along, and only one of the two splits is worth a variant:
@@ -528,11 +528,11 @@ itself before handing rows back. `feat/query-bounds` owes a measurement of the t
 The count bound is five. **The size bound has one number and it is not per leg, and saying so is
 better than implying there is one.**
 
-| Leg | Rows it returns | Bounded by |
-| --- | --- | --- |
-| `Fact`, with terms only | the distinct (bucket x local keys x remote join keys) tuples in the range | the **remote join key's** cardinality, which is the cardinality driver: `revenue by region` over 50,000 customers and 12 months is up to 600,000 rows of a key, a month and a sum |
-| `Fact`, carrying a distinct key | the above, times the distinct key | the FACT table's own grain. `active subscriptions by region` carries (month, customer key, subscription key) - one row per subscription per month in the range. Over five million subscription-months that is five million rows of three narrow columns, roughly 120 MB before any framing |
-| `Lookup` | the distinct keys and columns surviving its own filters | the dimension table's cardinality |
+| Leg                             | Rows it returns                                                           | Bounded by                                                                                                                                                                                                                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Fact`, with terms only         | the distinct (bucket x local keys x remote join keys) tuples in the range | the **remote join key's** cardinality, which is the cardinality driver: `revenue by region` over 50,000 customers and 12 months is up to 600,000 rows of a key, a month and a sum                                                                                                          |
+| `Fact`, carrying a distinct key | the above, times the distinct key                                         | the FACT table's own grain. `active subscriptions by region` carries (month, customer key, subscription key) - one row per subscription per month in the range. Over five million subscription-months that is five million rows of three narrow columns, roughly 120 MB before any framing |
+| `Lookup`                        | the distinct keys and columns surviving its own filters                   | the dimension table's cardinality                                                                                                                                                                                                                                                          |
 
 **There is no per-leg number, deliberately, and 0009's Decision 3 is why:** a count of rows per leg
 protects nothing that is scarce, because it cannot tell 50,000 rows of two integers from 50,000 rows of
@@ -553,15 +553,15 @@ combine has to aggregate again. Whether that is correct depends entirely on the 
 `Aggregate` is the six-variant closed enum at `crates/sutura-domain/src/model.rs:190-197`, and the
 third column is what each one costs a leg:
 
-| `Aggregate` | How it travels | What the leg carries |
-| --- | --- | --- |
-| `Sum` | descends as written, `SUM` above | one term column |
-| `Count` | descends as written, `SUM` above - note the function is not the same one | one term column |
-| `Min` | descends as written, `MIN` above | one term column |
-| `Max` | descends as written, `MAX` above | one term column |
-| `Avg` | **descends decomposed:** a `SUM` and a `COUNT` per leg, divided once above. `AVG` of `AVG`s is wrong | **two** term columns |
-| `CountDistinct` | **does not descend at all.** Two join keys can share a subscription, so adding two exact distinct counts over-counts, and no re-aggregating function repairs it. The exact answer is the distinct KEYS in the leg and the count above | **zero** term columns and **one** grouping column |
-| `CountIf`, the other `PlanTerm` | descends as written, `SUM` above | one term column |
+| `Aggregate`                     | How it travels                                                                                                                                                                                                                        | What the leg carries                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `Sum`                           | descends as written, `SUM` above                                                                                                                                                                                                      | one term column                                   |
+| `Count`                         | descends as written, `SUM` above - note the function is not the same one                                                                                                                                                              | one term column                                   |
+| `Min`                           | descends as written, `MIN` above                                                                                                                                                                                                      | one term column                                   |
+| `Max`                           | descends as written, `MAX` above                                                                                                                                                                                                      | one term column                                   |
+| `Avg`                           | **descends decomposed:** a `SUM` and a `COUNT` per leg, divided once above. `AVG` of `AVG`s is wrong                                                                                                                                  | **two** term columns                              |
+| `CountDistinct`                 | **does not descend at all.** Two join keys can share a subscription, so adding two exact distinct counts over-counts, and no re-aggregating function repairs it. The exact answer is the distinct KEYS in the leg and the count above | **zero** term columns and **one** grouping column |
+| `CountIf`, the other `PlanTerm` | descends as written, `SUM` above                                                                                                                                                                                                      | one term column                                   |
 
 **That third column is why `Aggregate::combine_with() -> Option<Aggregate>` is the wrong signature, and
 an earlier version of this record's ordered plan named it.** `Option<Aggregate>` has two outcomes and
@@ -573,14 +573,14 @@ compile error a new aggregate produces is *you have not said which of the three 
 Counted over `examples/single-player/catalog/metrics/`, which is both the quickstart and the test
 corpus:
 
-| Descends whole | Must be pulled up |
-| --- | --- |
-| `recurring_revenue` (sum) | `active_subscriptions` (count_distinct) |
-| `voice_minutes` (sum) | `subscription_base` (count_distinct) |
-| `subscriptions_churned` (count_if) | `mean_subscription_mrr` (avg - decomposed, so the cheap kind) |
-| `subscription_months_billed` (count) | `churn_rate` (ratio, denominator count_distinct) |
-| `revenue_per_churned_subscription` (ratio: sum / count_if) | `data_per_subscription` (ratio, denominator count_distinct) |
-| | `revenue_per_customer` (ratio, denominator count_distinct) |
+| Descends whole                                             | Must be pulled up                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------- |
+| `recurring_revenue` (sum)                                  | `active_subscriptions` (count_distinct)                       |
+| `voice_minutes` (sum)                                      | `subscription_base` (count_distinct)                          |
+| `subscriptions_churned` (count_if)                         | `mean_subscription_mrr` (avg - decomposed, so the cheap kind) |
+| `subscription_months_billed` (count)                       | `churn_rate` (ratio, denominator count_distinct)              |
+| `revenue_per_churned_subscription` (ratio: sum / count_if) | `data_per_subscription` (ratio, denominator count_distinct)   |
+|                                                            | `revenue_per_customer` (ratio, denominator count_distinct)    |
 
 **Six of eleven, and five of the six turn on `count_distinct` alone** - which is, after `sum`, the
 most-used aggregate in the corpus. Three of those six declare `region` and `segment`, which are exactly
@@ -745,17 +745,18 @@ name; and `answer` refusing when the plan's source is not the warehouse's.
 **The fourth column names the branch that moves each one, and no longer a step number.** An earlier
 version of this table indexed into an ordered list further down this page, which made this record a
 second owner of a step number while `docs/implementation-plan.md` was the first
-- the exact shape the *one owner per artefact* rule exists to prevent. The plan owns the numbering;
-this record names branches.
 
-| # | Assumption | Track 1 | Attach | Track 2 |
-| --- | --- | --- | --- | --- |
-| 1 | startup refusal, >1 source | untouched | untouched | **retired in `feat/source-registry`**, where more than one source becomes configurable and each declares its posture. The test is owed first, in `test/startup-source-refusals` |
-| 2 | `ENGINE_SOURCE` constant | **its wrong-name branch is what a second dialect meets**; the constant itself stays | untouched | **retired in `feat/source-registry`**, with the same test owed first |
-| 3 | one warehouse per service | untouched | untouched | **replaced by a keyed set, in `feat/source-registry`** |
-| 4 | plan-stage `PlanSpansTwoSources` | untouched | untouched | **re-keyed to identity, and it is the LAST thing to move** - after `feat/credential-port`, because a principal type has to exist for it to key on |
-| 5 | plan has one `source` | untouched | untouched | **stays. Permanently** |
-| 6 | `answer`'s source comparison | untouched | untouched | **becomes per-leg, in `feat/two-source-execution`** |
+- the exact shape the *one owner per artefact* rule exists to prevent. The plan owns the numbering;
+  this record names branches.
+
+| # | Assumption                       | Track 1                                                                             | Attach    | Track 2                                                                                                                                                                         |
+| - | -------------------------------- | ----------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 | startup refusal, >1 source       | untouched                                                                           | untouched | **retired in `feat/source-registry`**, where more than one source becomes configurable and each declares its posture. The test is owed first, in `test/startup-source-refusals` |
+| 2 | `ENGINE_SOURCE` constant         | **its wrong-name branch is what a second dialect meets**; the constant itself stays | untouched | **retired in `feat/source-registry`**, with the same test owed first                                                                                                            |
+| 3 | one warehouse per service        | untouched                                                                           | untouched | **replaced by a keyed set, in `feat/source-registry`**                                                                                                                          |
+| 4 | plan-stage `PlanSpansTwoSources` | untouched                                                                           | untouched | **re-keyed to identity, and it is the LAST thing to move** - after `feat/credential-port`, because a principal type has to exist for it to key on                               |
+| 5 | plan has one `source`            | untouched                                                                           | untouched | **stays. Permanently**                                                                                                                                                          |
+| 6 | `answer`'s source comparison     | untouched                                                                           | untouched | **becomes per-leg, in `feat/two-source-execution`**                                                                                                                             |
 
 The attach column is why that route is tactical: moving zero assumptions is what makes it cheap and
 what makes its networked continuation the refused shape. The checks an honest federation has to relax
@@ -872,22 +873,22 @@ governance boundary is crossed that nothing in this system models.
 
 ## What does not change
 
-| Guarantee | Still held by |
-| --- | --- |
-| No SQL, table, predicate or row-id on the tool surface | Unchanged, and there is nothing to widen: a federated question is the same question. Every source is derived from the pinned bundle, and `Query`'s five `deny_unknown_fields` fields carry no source |
-| Refusal is a result, not an error | Unchanged, and **narrower than this row used to claim.** It said a measure that cannot be combined refuses; 0009's Decision 2 pulls it up instead, so that is not a refusal and no variant may be added for it. What DOES refuse, each as a `RefusalReason` inside `ToolOutcome`: a cross-source join key that is a float, a query over the working-set ceiling, a query over the deadline, and a leg whose data system failed. **Ownership splits, and this row used to get it wrong:** the float join key is the SPLITTER's refusal and belongs to `feat/two-source-execution`; `feat/query-bounds` owes provoking tests for the working-set ceiling and the deadline, which is two rather than three, and its own section lists no join-key test because it should not |
-| No value from a question reaches the statement as text | Unchanged, per leg. It is the specific thing the declined unparser route could not offer |
-| The executed SQL is owned by `sutura-sql` | Unchanged, and this is the point of the decision: every statement that runs anywhere is one this repository rendered and pinned |
-| We never translate SQL, and the one thing we parse is parsed at load | Unchanged, and it is what Oracle costs: the per-dialect rewrites live behind `transpile`, which stays uncompiled |
-| A definitional filter is always applied | Unchanged. `required_filters` compile into the leg that owns the fact table, marked `PredicateOrigin::Definition` |
-| A join cannot silently change a measure | Unchanged and **now load-bearing in a new way.** The `OneToMany` refusal is what stands between a cross-source join and a wrong sum, on a declaration nothing compares against the data - and across sources neither side can see the other's key distribution. The reconciliation test needs a fixture whose unmatched key sits on the far side |
-| A catalog edit cannot change what executes | Unchanged. The digest covers every model's `source`, so moving a model to a second system already moves it |
-| A plan cannot silently span two sources | Unchanged, per leg, and this is the row the attach continuation would have left true and meaningless |
-| A result that hit the row cap is refused, not truncated | Held for the ANSWER, unchanged in value and moved in location: the combine applies `MAX_ROWS + 1` to the combined result and `answer` still returns `ResultTooLarge` above it. **This row used to say the cap gains a second number, a per-leg cap, and that both are asserted. Withdrawn:** 0009's Decision 3 retires the per-leg row cap outright, because a row count cannot tell 50,000 narrow rows from 50,000 wide ones, and a leg is bounded in BYTES by the working-set ceiling instead. So there is one row cap and it is the answer's; the leg's bound is a different bound counting a different thing, and *The leg SIZE bound* above states what it does and does not reach |
-| No result cache | Unchanged. The combine buffers legs for one question; nothing is keyed and nothing is reused, and reuse across questions is what would make it a cache - at which point it is keyed on subject first or not at all |
-| No panic path reachable from input | Unchanged, and the combine is where to watch it: an arithmetic re-aggregation is where the overflow lints earn their keep |
-| The domain acquires no framework dependency | Unchanged. Nothing in this decision adds a dependency to the domain, and a dialect feature adds no dependency anywhere |
-| Every query runs as the calling principal | **Still not held**, and now with a named consequence rather than a placeholder |
+| Guarantee                                                            | Still held by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No SQL, table, predicate or row-id on the tool surface               | Unchanged, and there is nothing to widen: a federated question is the same question. Every source is derived from the pinned bundle, and `Query`'s five `deny_unknown_fields` fields carry no source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Refusal is a result, not an error                                    | Unchanged, and **narrower than this row used to claim.** It said a measure that cannot be combined refuses; 0009's Decision 2 pulls it up instead, so that is not a refusal and no variant may be added for it. What DOES refuse, each as a `RefusalReason` inside `ToolOutcome`: a cross-source join key that is a float, a query over the working-set ceiling, a query over the deadline, and a leg whose data system failed. **Ownership splits, and this row used to get it wrong:** the float join key is the SPLITTER's refusal and belongs to `feat/two-source-execution`; `feat/query-bounds` owes provoking tests for the working-set ceiling and the deadline, which is two rather than three, and its own section lists no join-key test because it should not |
+| No value from a question reaches the statement as text               | Unchanged, per leg. It is the specific thing the declined unparser route could not offer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| The executed SQL is owned by `sutura-sql`                            | Unchanged, and this is the point of the decision: every statement that runs anywhere is one this repository rendered and pinned                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| We never translate SQL, and the one thing we parse is parsed at load | Unchanged, and it is what Oracle costs: the per-dialect rewrites live behind `transpile`, which stays uncompiled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| A definitional filter is always applied                              | Unchanged. `required_filters` compile into the leg that owns the fact table, marked `PredicateOrigin::Definition`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| A join cannot silently change a measure                              | Unchanged and **now load-bearing in a new way.** The `OneToMany` refusal is what stands between a cross-source join and a wrong sum, on a declaration nothing compares against the data - and across sources neither side can see the other's key distribution. The reconciliation test needs a fixture whose unmatched key sits on the far side                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| A catalog edit cannot change what executes                           | Unchanged. The digest covers every model's `source`, so moving a model to a second system already moves it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| A plan cannot silently span two sources                              | Unchanged, per leg, and this is the row the attach continuation would have left true and meaningless                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| A result that hit the row cap is refused, not truncated              | Held for the ANSWER, unchanged in value and moved in location: the combine applies `MAX_ROWS + 1` to the combined result and `answer` still returns `ResultTooLarge` above it. **This row used to say the cap gains a second number, a per-leg cap, and that both are asserted. Withdrawn:** 0009's Decision 3 retires the per-leg row cap outright, because a row count cannot tell 50,000 narrow rows from 50,000 wide ones, and a leg is bounded in BYTES by the working-set ceiling instead. So there is one row cap and it is the answer's; the leg's bound is a different bound counting a different thing, and *The leg SIZE bound* above states what it does and does not reach                                                                                   |
+| No result cache                                                      | Unchanged. The combine buffers legs for one question; nothing is keyed and nothing is reused, and reuse across questions is what would make it a cache - at which point it is keyed on subject first or not at all                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| No panic path reachable from input                                   | Unchanged, and the combine is where to watch it: an arithmetic re-aggregation is where the overflow lints earn their keep                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| The domain acquires no framework dependency                          | Unchanged. Nothing in this decision adds a dependency to the domain, and a dialect feature adds no dependency anywhere                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Every query runs as the calling principal                            | **Still not held**, and now with a named consequence rather than a placeholder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Consequences
 
@@ -942,11 +943,12 @@ governance boundary is crossed that nothing in this system models.
 ## What is explicitly not decided
 
 **Two entries that used to be here are decided and are gone from this list rather than struck through**
+
 - whether the per-leg row cap is the answer's cap or a larger one, and whether `Avg` is rewritten or
-refused. 0009's Decisions 2 and 3 answer both: the per-leg row cap is retired in favour of a working
-set in bytes, and `Avg` travels as a sum and a count divided once above. Both answers are argued where
-they now belong, in *The finding that decides the cost* and *The leg SIZE bound*, so this list carries
-what is genuinely open and nothing that is closed.
+  refused. 0009's Decisions 2 and 3 answer both: the per-leg row cap is retired in favour of a working
+  set in bytes, and `Avg` travels as a sum and a count divided once above. Both answers are argued where
+  they now belong, in *The finding that decides the cost* and *The leg SIZE bound*, so this list carries
+  what is genuinely open and nothing that is closed.
 
 - **The transport, in the concrete.** Flight SQL is adopted as the direction and not built. Whether
   its prepared-statement binding carries our parameters is unverified and is the first thing to check.

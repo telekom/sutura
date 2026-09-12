@@ -6,7 +6,6 @@
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=lld", "-Z", "next-solver=coherence"]
 
-
 # ARMv8.3-A FLOOR for the two aarch64 targets. `flake.nix` compiles the allocator's C with
 # `-march=armv8.3-a`; these are the Rust half of that agreement, so both compilers target the
 # same floor: `+lse` (v8.1) for `cas`/`ldadd` atomics instead of `ldxr`/`stxr` retry loops, and

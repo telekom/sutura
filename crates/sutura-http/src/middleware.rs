@@ -42,17 +42,19 @@
 //! worse than neither.
 
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
 use governor::middleware::StateInformationMiddleware;
 use sutura_config::Quota;
+use sutura_runtime::metrics::Label;
 use tower_governor::GovernorLayer;
 use tower_governor::governor::{GovernorConfig, GovernorConfigBuilder};
 
 use crate::client_address::ClientAddress;
+use crate::metrics::Metrics;
 use crate::problem::Failure;
 use crate::state::ServiceState;
 
@@ -67,22 +69,23 @@ const BEARER: &str = "Bearer";
 /// `StateInformationMiddleware` in it is not incidental: it is what makes the layer emit the
 /// remaining-quota headers, and it is part of the type because that choice is made at construction.
 pub type RateLimit = GovernorLayer<ClientAddress, StateInformationMiddleware, axum::body::Body>;
+type BuiltTier = Result<(RateLimit, LimiterHandle), LimiterNotBuilt>;
 
 /// The configuration one tier is built from, and the keyed state that lives inside it.
 type TierConfig = GovernorConfig<ClientAddress, StateInformationMiddleware>;
 
-/// One tier the sweeper is watching: which tier it is, and a non-owning view of its keyed state.
+/// One tier the sweeper is watching: which tier it is, a non-owning view of its keyed state, and
+/// the metrics handles to report its bucket count into.
 ///
-/// A named alias because the pair is over the complexity threshold in `clippy.toml`, and naming it
-/// says what the pairing is for: the name is only ever used in a log line, and the `Weak` is what
-/// makes the sweeper stop when the router it was sweeping for is gone.
-type WatchedTier = (&'static str, Weak<TierConfig>);
-
-/// A built limiter tier: the layer a router installs, and the handle a sweep needs.
-///
-/// A named alias for the same reason - and it names the invariant the tuple exists for, which is
-/// that the two halves are produced together. See [`layer`].
-type BuiltTier = Result<(RateLimit, LimiterHandle), LimiterNotBuilt>;
+/// A named struct because the `Weak` is what makes the sweeper stop when the router it was
+/// sweeping for is gone, and the [`Metrics`] clone shares the transport's atomics without keeping
+/// the router alive - it holds counters, not the router. The bucket gauge is reported here because
+/// this is the one place the keyed store's size is already read.
+struct WatchedTier {
+    tier: Label,
+    config: Weak<TierConfig>,
+    metrics: Metrics,
+}
 
 /// How often the keyed state is swept.
 ///
@@ -100,7 +103,7 @@ pub const REAP_INTERVAL: Duration = Duration::from_secs(60);
 /// distinct key for the life of the process.
 #[derive(Debug, Clone)]
 pub struct LimiterHandle {
-    tier: &'static str,
+    tier: Label,
     config: Arc<TierConfig>,
 }
 
@@ -109,7 +112,7 @@ impl LimiterHandle {
     #[inline]
     #[must_use]
     pub const fn tier(&self) -> &'static str {
-        self.tier
+        self.tier.as_str()
     }
 
     /// How many keys the store is holding.
@@ -128,7 +131,7 @@ impl LimiterHandle {
     /// Dropping such a key changes no decision: a caller whose bucket was reaped gets a fresh
     /// bucket, and a fresh bucket is exactly what the reaped state said they had.
     pub fn reap(&self) {
-        shed_idle_buckets(self.tier, &self.config);
+        shed_idle_buckets(self.tier.as_str(), &self.config);
     }
 
     /// A non-owning view, for the sweeper.
@@ -153,11 +156,18 @@ impl LimiterHandle {
 /// Returns an error rather than carrying on without a sweeper: a process that cannot start a
 /// housekeeping thread is a process whose keyed store grows without bound, and that should be a
 /// refusal to start rather than a line in a log.
-pub fn spawn_reaper(handles: &[LimiterHandle], interval: Duration) -> Result<(), std::io::Error> {
+pub fn spawn_reaper(metrics: &Metrics, handles: &[LimiterHandle], interval: Duration) -> Result<(), std::io::Error> {
     if handles.is_empty() {
         return Ok(());
     }
-    let watched: Vec<WatchedTier> = handles.iter().map(|h| (h.tier, h.watch())).collect();
+    let watched: Vec<WatchedTier> = handles
+        .iter()
+        .map(|h| WatchedTier {
+            tier: h.tier,
+            config: h.watch(),
+            metrics: metrics.clone(),
+        })
+        .collect();
     let thread = std::thread::Builder::new()
         .name(String::from("sutura-limiter-reaper"))
         .spawn(move || sweep_until_dropped(&watched, interval))?;
@@ -189,15 +199,46 @@ fn sweep_until_dropped(watched: &[WatchedTier], interval: Duration) {
 /// The count is the stop condition and nothing else: zero means every router that installed one of
 /// these layers has been dropped, so there is nothing left for the thread to do.
 fn sweep_once(watched: &[WatchedTier]) -> usize {
+    let mut public = None;
+    let mut general = None;
+    let mut metrics = None;
     let mut live = 0_usize;
-    for &(tier, ref weak) in watched {
+    for entry in watched {
         // The upgrade failing is the ordinary end of a tier, not an error: the router that held the
         // layer was dropped.
-        let Some(config) = weak.upgrade() else { continue };
+        let Some(config) = entry.config.upgrade() else { continue };
         live = live.saturating_add(1);
-        shed_idle_buckets(tier, &config);
+        shed_idle_buckets(entry.tier.as_str(), &config);
+        // Sample after reaping so the published value describes the retained store rather than the
+        // stale pre-reap size for another interval. More than one surface can have the same tier;
+        // collect first because a labeled gauge has one value and the later store must not overwrite
+        // the earlier store's live keys.
+        let count = config.limiter().len();
+        match entry.tier {
+            crate::metrics::PUBLIC_TIER => add_bucket_count(&mut public, count),
+            crate::metrics::GENERAL_TIER => add_bucket_count(&mut general, count),
+            crate::metrics::METRICS_TIER => add_bucket_count(&mut metrics, count),
+            _ => {}
+        }
+    }
+    // Every watched entry shares the same metrics atomics, so one update per label publishes the
+    // aggregate across all stores carrying that label.
+    if let Some(entry) = watched.first() {
+        if let Some(count) = public {
+            entry.metrics.limiter_buckets(crate::metrics::PUBLIC_TIER, count);
+        }
+        if let Some(count) = general {
+            entry.metrics.limiter_buckets(crate::metrics::GENERAL_TIER, count);
+        }
+        if let Some(count) = metrics {
+            entry.metrics.limiter_buckets(crate::metrics::METRICS_TIER, count);
+        }
     }
     live
+}
+
+fn add_bucket_count(total: &mut Option<usize>, count: usize) {
+    *total = Some(total.unwrap_or_default().saturating_add(count));
 }
 
 /// Drops one tier's keys whose state is indistinguishable from a fresh one, and gives the memory
@@ -223,24 +264,17 @@ fn shed_idle_buckets(tier: &'static str, config: &TierConfig) {
 /// RESOLVES to a handler; a path under the prefix matching no route skips it and falls through to
 /// the top-level `404`, which `crate::router` states along with why that is acceptable.
 pub async fn require_token(State(state): State<ServiceState>, request: Request, next: Next) -> Response {
-    let Some(expected) = state.settings().security().access_token() else {
-        // No token configured. Reachable only on a loopback bind outside production; the startup
-        // refusals in `sutura-config` are what make that true.
-        return next.run(request).await;
-    };
-    let presented = request
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        // RFC 9110 §11.1 makes an authentication scheme name case-insensitive, so `bearer abc`
-        // is a bearer token and a byte-for-byte `strip_prefix` refused it as if nothing were
-        // presented - the same shape the inbound leg already fixed in `gate.rs`.
-        .and_then(|value| value.split_once(' '))
-        .and_then(|(scheme, credential)| scheme.eq_ignore_ascii_case(BEARER).then_some(credential));
+    let expected = state.settings().security().access_token();
+    let presented = presented_token(&request);
     // `unwrap_or_default` and then compare, rather than returning early on an absent header: the
     // comparison is constant-time, and skipping it when the header is missing would make "no
     // header" measurably faster than "wrong token". The empty string cannot match a token, because
     // a token has a minimum length.
+    let Some(expected) = expected else {
+        // No token configured. Reachable only on a loopback bind outside production; the startup
+        // refusals in `sutura-config` are what make that true.
+        return next.run(request).await;
+    };
     if expected.matches_in_constant_time(presented.unwrap_or_default()) {
         return next.run(request).await;
     }
@@ -249,6 +283,66 @@ pub async fn require_token(State(state): State<ServiceState>, request: Request, 
         "rejected a request with no valid bearer token"
     );
     Failure::Unauthorized.into_response()
+}
+
+/// Requires the metrics token, which is a DIFFERENT credential from the API token.
+///
+/// `docs/adr/0015` Decision 1: a holder of the API token can ask any question the catalog
+/// certifies and a scrape needs none of that, so `/metrics` is gated by its own
+/// `security.metrics_token`. This mirrors [`require_token`]'s shape - the presented bearer is
+/// compared through the same `AccessToken::matches_in_constant_time`, reused rather than copied -
+/// and a `401` here is the same three-shape answer a wrong API token gets.
+pub async fn require_metrics_token(State(state): State<ServiceState>, request: Request, next: Next) -> Response {
+    let Some(expected) = state.settings().security().metrics_token() else {
+        // No metrics token. Reachable only when `Settings::refusals` permits it, which is a
+        // loopback bind outside production - the same posture `require_token` relies on for the
+        // API token.
+        return next.run(request).await;
+    };
+    let presented = presented_token(&request);
+    if expected.matches_in_constant_time(presented.unwrap_or_default()) {
+        return next.run(request).await;
+    }
+    tracing::warn!(
+        presented = presented.is_some(),
+        "rejected a scrape with no valid metrics token"
+    );
+    Failure::Unauthorized.into_response()
+}
+
+/// The bearer credential a request presented, if it did.
+///
+/// NULL-less: an absent header and a header with no bearer scheme both read as `None`. RFC 9110
+/// §11.1 makes the scheme name case-insensitive, so `bearer abc` and `Bearer abc` are the same.
+fn presented_token(request: &Request) -> Option<&str> {
+    let value = request.headers().get(AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, credential) = value.split_once(' ')?;
+    scheme.eq_ignore_ascii_case(BEARER).then_some(credential)
+}
+
+/// Records surface-wide response observations and every matched question completion.
+///
+/// This layer sits outside authentication, authorization, rate limiting, timeout handling,
+/// extraction and the handler. Every failure response declares a typed outcome, which lets this
+/// one boundary count an unauthorized response from any credential gate. On the question route a
+/// missing declaration is an operational defect and is counted as `internal` rather than
+/// disappearing.
+pub async fn record_response(State(metrics): State<Metrics>, request: Request, next: Next) -> Response {
+    let is_question = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .and_then(|path| crate::capability::capability_of(request.method(), path.as_str()))
+        == Some(sutura_app::Capability::AskMetric);
+    let started = is_question.then(Instant::now);
+    let mut response = next.run(request).await;
+    let outcome = response.extensions_mut().remove::<crate::metrics::QuestionOutcome>();
+    if outcome.is_some_and(crate::metrics::QuestionOutcome::is_unauthorized) {
+        metrics.unauthorized();
+    }
+    if let Some(started) = started {
+        metrics.completed_question(outcome, started.elapsed());
+    }
+    response
 }
 
 /// A configured quota did not produce a limiter.
@@ -266,13 +360,22 @@ pub struct LimiterNotBuilt {
 }
 
 /// The tier for what an unauthenticated caller can reach.
-pub fn probe_rate_limit_layer(quota: Quota, key: ClientAddress) -> BuiltTier {
-    layer(quota, "public", key)
+pub fn probe_rate_limit_layer(metrics: &Metrics, quota: Quota, key: ClientAddress) -> BuiltTier {
+    layer(metrics, quota, crate::metrics::PUBLIC_TIER, key)
 }
 
 /// The tier for the versioned API.
-pub fn api_rate_limit_layer(quota: Quota, key: ClientAddress) -> BuiltTier {
-    layer(quota, "general", key)
+pub fn api_rate_limit_layer(metrics: &Metrics, quota: Quota, key: ClientAddress) -> BuiltTier {
+    layer(metrics, quota, crate::metrics::GENERAL_TIER, key)
+}
+
+/// The tier for `/metrics`, a scrape about once a second - the `docs/adr/0015` tier, deliberately
+/// distinct from the API's and the probe's so one surface's burst cannot exhaust another's.
+///
+/// It reuses the probe quota's numbers, because a scrape is not a thing an operator needs to tune
+/// separately - the probe burst is already the tightest here.
+pub fn metrics_rate_limit_layer(metrics: &Metrics, quota: Quota, key: ClientAddress) -> BuiltTier {
+    layer(metrics, quota, crate::metrics::METRICS_TIER, key)
 }
 
 /// A limiter that limits nothing.
@@ -295,7 +398,7 @@ pub const fn disabled_rate_limit_layer() -> tower::layer::util::Identity {
 /// **Both halves, always.** The `Arc` is what the layer holds and what a sweep needs, so returning
 /// only the layer is how the store came to grow for the life of the process: there was nothing left
 /// to call `retain_recent` on.
-fn layer(quota: Quota, tier: &'static str, key: ClientAddress) -> BuiltTier {
+fn layer(metrics: &Metrics, quota: Quota, tier: Label, key: ClientAddress) -> BuiltTier {
     let config = GovernorConfigBuilder::default()
         // Per nanosecond rather than `per_second`, so a sustained rate below one request per second
         // is expressible. `NonZeroU32` is why this division cannot be by zero.
@@ -306,9 +409,9 @@ fn layer(quota: Quota, tier: &'static str, key: ClientAddress) -> BuiltTier {
         .use_headers()
         .key_extractor(key)
         .finish()
-        .ok_or(LimiterNotBuilt { tier })?;
+        .ok_or(LimiterNotBuilt { tier: tier.as_str() })?;
     tracing::info!(
-        tier,
+        tier = tier.as_str(),
         per_second = quota.per_second().get(),
         burst = quota.burst().get(),
         "rate limiter built"
@@ -320,8 +423,13 @@ fn layer(quota: Quota, tier: &'static str, key: ClientAddress) -> BuiltTier {
     };
     // The error handler is where a refused request becomes the same failure body as everything
     // else, rather than the limiter's own default response - so a client parsing one failure shape
-    // parses them all.
-    let layer = GovernorLayer::new(config).error_handler(|_error| Failure::RateLimited.into_response());
+    // parses them all. It also records the refusal on the transport's rate-limit counters, keyed by
+    // this tier, because a refused request is an observation and this is the one place it happens.
+    let metrics = metrics.clone();
+    let layer = GovernorLayer::new(config).error_handler(move |_error| {
+        metrics.rate_limited(tier);
+        Failure::RateLimited.into_response()
+    });
     Ok((layer, handle))
 }
 
@@ -384,6 +492,16 @@ mod tests {
         ClientAddress::new(ClientAddressSource::Peer, Arc::new(TrustedProxies::default()))
     }
 
+    /// A transport metrics handle over a throwaway builder, for limiter-layer tests that do not
+    /// render it. The builder's registry is built and dropped here so the handles share real
+    /// atomics, which is all these tests assert on.
+    fn test_metrics() -> crate::metrics::Metrics {
+        let mut builder = sutura_runtime::metrics::RegistryBuilder::default();
+        let metrics = crate::metrics::Metrics::install(&mut builder);
+        drop(builder.build());
+        metrics
+    }
+
     /// One address per index, so a test can create as many distinct buckets as it likes.
     ///
     /// A `u8` index rather than a wider one reduced modulo 250: the workspace bans remainder
@@ -403,7 +521,7 @@ mod tests {
         // A fast tier on purpose: `retain_recent` drops a key whose state is indistinguishable from
         // fresh, which for a one-nanosecond replenishment period is true a moment after the
         // request. A production tier sheds the same keys on the same rule, later.
-        let (_layer, handle) = api_rate_limit_layer(quota(u32::MAX), peer_keyed()).expect("a tier builds");
+        let (_layer, handle) = api_rate_limit_layer(&test_metrics(), quota(u32::MAX), peer_keyed()).expect("a tier builds");
         assert_eq!(handle.tracked(), 0, "a fresh tier holds nothing");
 
         for index in 0_u8..64 {
@@ -424,13 +542,13 @@ mod tests {
         // The half the assertion above cannot make: that something actually calls `reap` in a
         // running process. `spawn_reaper` is what `crate::router` starts, and a store that is only
         // swept when a test remembers to is the state this whole change is about.
-        let (_layer, handle) = api_rate_limit_layer(quota(u32::MAX), peer_keyed()).expect("a tier builds");
+        let (_layer, handle) = api_rate_limit_layer(&test_metrics(), quota(u32::MAX), peer_keyed()).expect("a tier builds");
         for index in 0_u8..32 {
             let _outcome = handle.config.limiter().check_key(&caller(index));
         }
         assert!(handle.tracked() > 1);
 
-        spawn_reaper(core::slice::from_ref(&handle), Duration::from_millis(5)).expect("the sweeper starts");
+        spawn_reaper(&test_metrics(), core::slice::from_ref(&handle), Duration::from_millis(5)).expect("the sweeper starts");
         // Polled rather than slept-then-asserted: the assertion is "this happens", and a fixed
         // sleep either makes the test slow or makes it flaky on a loaded machine.
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -445,9 +563,9 @@ mod tests {
         // Why the sweeper holds `Weak` and not `Arc`. Without this the test suite would accumulate
         // one live thread per assembled router, and a long-lived process that rebuilt its router
         // would accumulate one per rebuild.
-        let (layer, handle) = api_rate_limit_layer(quota(10), peer_keyed()).expect("a tier builds");
+        let (layer, handle) = api_rate_limit_layer(&test_metrics(), quota(10), peer_keyed()).expect("a tier builds");
         let watch = handle.watch();
-        spawn_reaper(core::slice::from_ref(&handle), Duration::from_millis(5)).expect("the sweeper starts");
+        spawn_reaper(&test_metrics(), core::slice::from_ref(&handle), Duration::from_millis(5)).expect("the sweeper starts");
         drop(layer);
         drop(handle);
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -461,10 +579,46 @@ mod tests {
     }
 
     #[test]
+    fn same_label_limiter_stores_are_aggregated_in_the_bucket_gauge() {
+        let mut builder = sutura_runtime::metrics::RegistryBuilder::default();
+        let metrics = crate::metrics::Metrics::install(&mut builder);
+        let registry = builder.build();
+        let key = peer_keyed();
+        let (_first_layer, first) =
+            super::probe_rate_limit_layer(&metrics, quota(1), key.clone()).expect("the first tier builds");
+        let (_second_layer, second) = super::probe_rate_limit_layer(&metrics, quota(1), key).expect("the second tier builds");
+
+        let _first = first.config.limiter().check_key(&caller(1));
+        let _second_a = second.config.limiter().check_key(&caller(2));
+        let _second_b = second.config.limiter().check_key(&caller(3));
+        assert_eq!(first.tracked(), 1);
+        assert_eq!(second.tracked(), 2);
+
+        let watched = [
+            super::WatchedTier {
+                tier: crate::metrics::PUBLIC_TIER,
+                config: first.watch(),
+                metrics: metrics.clone(),
+            },
+            super::WatchedTier {
+                tier: crate::metrics::PUBLIC_TIER,
+                config: second.watch(),
+                metrics,
+            },
+        ];
+        assert_eq!(super::sweep_once(&watched), 2);
+        let rendered = registry.render();
+        assert!(
+            rendered.contains("sutura_rate_limit_buckets{tier=\"public\"} 3"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
     fn a_sweeper_with_nothing_to_sweep_starts_no_thread() {
         // The disabled-limiter path: there are no tiers, so there is nothing to sweep and no thread
         // to leave running.
-        spawn_reaper(&[], Duration::from_millis(5)).expect("no tiers is not a failure");
+        spawn_reaper(&test_metrics(), &[], Duration::from_millis(5)).expect("no tiers is not a failure");
     }
 
     #[test]

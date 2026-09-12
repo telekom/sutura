@@ -1,12 +1,8 @@
-# The task list, for humans and agents.
+# The task list, for humans and agents. One name per job, so docs cite `just <task>` rather than a
+# command line that drifts; recipes stay thin - the work lives in xtask, devenv or the flake.
 #
-# One name per job, so documentation cites `just <task>` instead of a command line that drifts
-# from the one people run. Recipes are thin on purpose: the work lives in xtask, devenv or the
-# flake, and this file only names it.
-#
-# CI does NOT use these. It runs the flake outputs directly, because a runner has nix and
-# nothing else - no just, no devenv. That is the one place a command is written out twice, and
-# `cargo xtask check-guidance` is what stops the two from disagreeing.
+# CI does NOT use these: a runner has nix and nothing else. That is the one place a command is
+# written twice, and `cargo xtask check-guidance` stops the two disagreeing.
 
 # Show the tasks. `just` with no argument lands here.
 default:
@@ -20,47 +16,40 @@ stack := env_var_or_default("SUTURA_PULUMI_STACK", "dev")
 # Defaults to `bq-test` (the acceptance environment); override with BQ_TEST_ENV.
 bq_test_env := env_var_or_default("BQ_TEST_ENV", "bq-test")
 
-# It exists because the alternative is a README section people skip, and the failure mode is
-# silent - an uninstalled hook does not complain, it just never runs. `prek install` is the
-# important line: without it every gate in this file is advisory.
+# `prek install` is the important line: an uninstalled hook does not complain, it never runs, so
+# without it every gate in this file is advisory.
 
 # Everything a fresh clone needs. Idempotent: run it again any time.
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "== git hooks"
-    # `core.hooksPath` first, and this is not hypothetical: this repo had it pointing at a
-    # `.githooks/` directory that was later deleted, so git looked for hooks in a directory
-    # that did not exist AND `prek install` wrote to `.git/hooks` where git was not looking.
-    # Every "runs in the hooks" claim in AGENTS.md was false, silently, for the whole session.
+    # `core.hooksPath` first: this repo had it pointing at a deleted `.githooks/` while `prek install`
+    # wrote to `.git/hooks`, so every "runs in the hooks" claim was silently false for a whole session.
     hooks_path="$(git config --local --get core.hooksPath || true)"
     if [ -n "$hooks_path" ] && [ ! -d "$hooks_path" ]; then
       echo "   core.hooksPath points at missing '$hooks_path' - unsetting it"
       git config --local --unset core.hooksPath
     fi
-    # All three stages: the commit-msg hook is separate from pre-commit, and pre-push carries
-    # the whole-tree gates. Missing one means that stage silently never runs.
+    # All three stages: commit-msg is separate from pre-commit, and pre-push carries whole-tree gates.
     pixi run --frozen hooks-install
     echo "== pixi env (the hook runner and the maintenance interpreter)"
     pixi install --frozen
     echo "== building the dev CLI and the gates"
-    # Warms the target directory so the first hook run is not a cold compile, and fails here
-    # rather than inside a git hook if something is wrong.
+    # Warms the target dir so the first hook run is not a cold compile, and fails here, not in a hook.
     cargo build -q -p xtask -p sutura-dev
     echo "== checking the environment"
     cargo run -q -p sutura-dev -- doctor
     echo
     echo 'Ready. just lists the tasks; just gates is what CI runs.'
 
+# Both locks in one task: no tool is pinned in both places, and `check-pins` keeps that true.
 # Bump the pinned inputs.
-# Both locks in one task and nothing needs generating: no tool is pinned in both places -
-# `cargo xtask check-pins` is what keeps that true - so there is no table to fall out of step.
 update:
     #!/usr/bin/env bash
     set -euo pipefail
     nix flake update
-    # Needs network. pixi holds only the hook runner and the interpreter, neither of which
-    # can change what a gate concludes, so this is a routine bump rather than a gate change.
+    # Needs network. pixi holds only the hook runner and interpreter - neither changes a verdict.
     pixi update
     cargo update --workspace
     echo
@@ -68,55 +57,35 @@ update:
 
 # ---------------------------------------------------------------- inner loop ---
 
+# ECHOES, NOT A GATE CALL. Cargo's `Finished dev profile` says nothing about scope, so a green run
+# here once read as a green tree and a branch with an unclosed delimiter was pushed on it. Measured:
+# this loop is 0.17s warm and `cargo run -p xtask` adds 0.49s. `check-scope` reads this recipe.
 # Fast check of the domain crate only. Should stay sub-second.
-#
-# IT SAYS SO ON THE WAY OUT, and that is the whole point of the three echo lines. Cargo's own
-# `Finished dev profile ... in 0.10s` says nothing about scope, so a green run here read as a green
-# tree - and a branch whose `sutura-config` had an unclosed delimiter was pushed on the strength of
-# it, with `just lint` finding it one step later. The narrowness is deliberate and AGENTS.md pins
-# it; what was missing was the sentence, not the coverage.
-#
-# ECHO RATHER THAN A GATE CALL, on a measurement: this loop is 0.17s warm here and
-# `cargo run -q -p xtask -- <anything>` is another 0.49s even fully built, which would triple the
-# thing whose whole value is being instant. `cargo xtask check-scope` is what keeps the sentence
-# honest instead - it reads this recipe, fails if a package named after `-p` is missing from the
-# output, and fails if the task cited below stops existing or stops covering the workspace. So the
-# claim cannot drift from the command above it without failing `just hygiene`.
 check:
     cargo check -p sutura-domain --no-default-features
     @echo 'check: compiled sutura-domain only, default features off - NOT a workspace check.'
     @echo '  `just check-changed` compiles the packages your working tree actually changes.'
     @echo '  `just lint` is the workspace gate, and `just test` runs the suite.'
 
+# On the shell's nightly toolchain like every gate and like CI, so a finding here is CI's finding.
 # Format Rust, and normalise line endings and whitespace.
-#
-# On the shell's nightly toolchain, like every gate here and like CI: there is no stable/nightly
-# split anymore, so a format finding a developer sees is one CI sees too.
 fmt:
     #!/usr/bin/env bash
     set -euo pipefail
-    # `xtask fmt` and NOT `cargo fmt --all`. `--all` reaches path dependencies that are not
-    # workspace members, which means it rewrites the vendored allocator - the one thing vendoring
-    # must never do. xtask/src/fmt.rs derives the member list and explains it at length.
+    # `xtask fmt` and NOT `cargo fmt --all`: `--all` reaches path dependencies that are not workspace
+    # members, so it would rewrite the vendored allocator - the one thing vendoring must never do.
     cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
+    # The non-Rust text - dprint for markdown/YAML/TOML, ruff for Python. `just lint-text` checks it.
+    bash nix/format-text.sh fmt
 
+# No tests here - `just test` owns the suite. The three commands are the exact scalars of the
+# `rust-fmt`, `rust-clippy` and `structural gates` hooks, so a green run is what a commit sees.
 # Lint everything: the three checks the commit hooks gate on, run directly.
-#
-# No tests here - `just test` owns the suite, and a developer should not pay for
-# `cargo nextest` + doctests on every lint.
-#
-# The three commands are the exact scalars of the `rust-fmt`, `rust-clippy` and
-# `structural gates` pre-commit hooks, so a green `just lint` is what a commit's
-# fast checks see - `rust-fmt` and `rust-clippy` run the same lines CI does (one
-# format pass, one `-D warnings` clippy), and `hygiene` is, by `Kind::Hygiene`,
-# the same structural gate list the hook owns.
 lint:
     #!/usr/bin/env bash
     set -euo pipefail
-    # `xtask fmt --check` and NOT `cargo fmt --all`: `--all` reaches path dependencies that are
-    # not workspace members, which means it rewrites the vendored allocator - the one thing
-    # vendoring must never do. This is the check half; `just fmt` replaces it with the fixing half.
+    # The `--check` half of `just fmt`'s argument above: never `cargo fmt --all`.
     cargo run -q -p xtask -- fmt --check
     # `--all-features` is load-bearing: crates declare features and make deps optional, so an
     # entry point missing the flag lints nothing behind them.
@@ -130,11 +99,8 @@ lint:
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Bring up the SAME nixpkgs Postgres `checks.nextest` runs in the sandbox, so the postgres
-    # corpus and differential cells RUN here rather than skip. Through `nix/with-tier.sh` rather
-    # than a `start` plus an unconditional `stop` trap, which is what this recipe had and what tore
-    # down a tier a developer had started by hand - see that file.
-    # shellcheck source=nix/with-tier.sh
+    # The SAME nixpkgs Postgres `checks.nextest` uses, so the postgres cells RUN here rather than skip.
+    # Through `nix/with-tier.sh`, which tears down only what it started.
     source nix/with-tier.sh
     # `SUTURA_DEV_REQUIRE_TIER` is exported by `sutura_tier_up` when a tier is up, rather than
     # asserted on this line - see that file: two statements about one fact can disagree.
@@ -142,12 +108,9 @@ test:
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
-# The served deployment, asked a question: `crates/sutura-serve/tests/served.rs` writes a settings
-# file over `examples/single-player`, starts the composed binary on a kernel-chosen port and asks it.
-#
-# It IS a gate - `checks.nextest` runs it, because a files-backed source needs no network and no
-# credential - so this recipe is a way to run that one target while working on it rather than a
-# second tier. Unlike `just bigquery-acceptance`, nothing here is `#[ignore]`d.
+# THE FOUR E2E TARGETS BELOW are all gates: `checks.nextest` runs each, because files, a loopback
+# port and a pipe need no network and no credential. Each exists to run its one target while working
+# on it, not as a second tier, and unlike `just bigquery-acceptance` nothing in them is `#[ignore]`d.
 
 # Run the end-to-end suite against the composed serve binary.
 serve-e2e:
@@ -157,14 +120,7 @@ serve-e2e:
     echo "serve-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-serve --all-features
 
-# The agent surface, spawned: `crates/sutura-cli/tests/mcp.rs` starts `sutura mcp` over
-# `examples/single-player` and speaks the Model Context Protocol on the process's own pipes.
-#
-# The sibling of `just serve-e2e` one transport over: that one drives the HTTP composition through a
-# loopback listener, this one drives the agent composition through the process's own pipes. Also a
-# gate - `checks.nextest` runs it, because a pipe needs no network, no port and no credential - so
-# this recipe runs that one target while working on it rather than being a second tier. Unlike
-# `just bigquery-acceptance`, nothing here is `#[ignore]`d.
+# The agent surface: `crates/sutura-cli/tests/mcp.rs` speaks MCP over the spawned process's pipes.
 
 # Run the end-to-end suite against the composed agent surface.
 mcp-e2e:
@@ -174,15 +130,8 @@ mcp-e2e:
     echo "mcp-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
-# The PAGES, run: `crates/sutura-cli/tests/documented.rs` reads every invocation of this binary
-# `docs/getting-started.md` and `examples/single-player/README.md` print, runs it from a clone's
-# working directory, and holds every refusal block and provenance line they print as output against
-# the command in the fence above it.
-#
-# It exists because the pages drifted: both printed a `Debug` dump `render_refusal` had replaced, so
-# the first page a reader is sent to showed output no build had produced. Also a gate -
-# `checks.nextest` runs it, because the example needs no network and no credential. A published page
-# has to be able to cite the task rather than a raw `cargo` line, which is what this recipe is for.
+# The PAGES, run: `documented.rs` runs every invocation `docs/getting-started.md` and the example
+# README print and holds their refusal and provenance output. It exists because both pages drifted.
 
 # Run the suite that runs every command the documentation prints.
 documented:
@@ -192,17 +141,9 @@ documented:
     echo "documented: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
-# The DECLARED source, asked a question: `crates/sutura-cli/tests/declared_source.rs` copies the
-# example catalog with `source: warehouse` in place of `source: local`, writes a `sources.warehouse`
-# entry over the example's own data, and spawns `sutura query` with `SUTURA_CONFIG_DIR` pointing at
-# it.
-#
-# **The one venue that exercises the door `github.com/telekom/sutura#121` is about.** Every case in
-# `crates/sutura-cli/src/sources.rs` builds its registry through an overlay, so
-# `environment_from_process`, `config_dir_from_process` and the `<dir>/base.yaml` layering are
-# reached by nothing else - and `std::env::set_var` is `unsafe` in this edition, so a spawned child is
-# what a test can decide the environment of. The same argument `just serve-e2e` makes for its own
-# binary. Also a gate: `checks.nextest` runs it, because files need no network and no credential.
+# The DECLARED source: `declared_source.rs` spawns `sutura query` with `SUTURA_CONFIG_DIR` at a
+# catalog using `source: warehouse`. The one venue reaching `environment_from_process`,
+# `config_dir_from_process` and `<dir>/base.yaml` - `set_var` is `unsafe`, so a child is needed.
 
 # Run the end-to-end suite against a source the deployment declared.
 declared-source:
@@ -212,67 +153,30 @@ declared-source:
     echo "declared-source: run \`just test\` for the whole workspace's suite; this target is part of it."
     cargo nextest run -p sutura-cli --all-features
 
-# `*paths`, not `+paths`, and the no-argument form is the one a PERSON uses: with nothing to go on
-# the gate reads the working tree itself, so `just check-changed` answers "does what I have touched
-# compile" without anybody having to type a path list. The commit hook keeps passing filenames.
-#
-# It used to be `+paths`, which made the useful form unreachable from here and left
-# `cargo xtask check-changed` printing `no Rust files changed` on a dirty tree - a green line about
-# a diff nobody had read. See the doc comment on `run_check_changed`.
+# `*paths`, not `+paths`: with nothing to go on the gate reads the working tree, so the no-argument
+# form answers "does what I touched compile". The commit hook keeps passing filenames.
 
+# The same invocation the `rust-check-changed` hook and CI use - hooks.rs executes this body.
 # cargo check, narrowed to the packages that changed. No paths reads the working tree.
-#
-# Runs on the shell's nightly toolchain, the same invocation the `rust-check-changed` hook entry
-# and CI use - hooks.rs executes this body, so recipe and hook cannot diverge.
 check-changed *paths:
     #!/usr/bin/env bash
     set -euo pipefail
     cargo run -q -p xtask -- check-changed {{ paths }}
 
+# It is `ci` plus the two app-backed checks, and deliberately the nix path: a nix check builds its
+# own GIT-DERIVED copy of the tree, so it is the only thing that catches a file the build needs and
+# that copy lacks. `include_str!("defaults.yaml")` passed every dev-shell check and failed CI.
 # THE gate. Run this before saying a change is done; nothing else counts as verified.
-#
-# It is `ci` plus the two app-backed checks, and it is deliberately the nix path rather than the
-# dev shell. The difference is not speed: a nix check builds its own GIT-DERIVED copy of the tree,
-# so it is the only thing that catches a file the build needs and that copy does not have - an
-# untracked one, most often. `gates` reads the real tree and cannot see that class of bug at all:
-# `include_str!("defaults.yaml")` passed every dev-shell check and failed CI, and a new module left
-# untracked does the same. See AGENTS.md on why the source FILTER is not what catches it.
 validate:
     #!/usr/bin/env bash
     set -euo pipefail
-    # THE SITE BUILD, first, and in TWO steps because two different things can go wrong here and
-    # only one of them is a finding about this tree.
-    #
-    # It is not a nix check, and cannot be: the docs toolchain is Python, pixi is the one resolver
-    # for Python here, and a nix sandbox has no network to materialise a pixi environment. Solving
-    # mkdocs-material a second time under `python3.withPackages` is what this tree already tried,
-    # in flake.nix - mike could not import pymdownx from the mkdocs it subprocessed, two resolvers
-    # and one interpreter - so this invokes the ISOLATED docs env rather than widening the linters'.
-    #
-    # WHY A PIXI STEP IS ALLOWED IN THE ONE RECIPE THAT COUNTS AS VERIFIED. Not because it cannot
-    # fail for an environment reason - it can, measured: `.pixi/` absent, an empty package cache
-    # and no network gives `failed to fetch ncurses-...conda ... Connection refused`. It is
-    # allowed because `nix run .#deny` four lines down ALREADY fails offline - measured on this
-    # branch with every proxy pointed at a closed port, `failed to fetch advisory database
-    # https://github.com/RustSec/advisory-db ... Failed to connect to github.com:443`, exit 1. So
-    # this step adds no network requirement the recipe did not already have.
-    #
-    # COST, as a range rather than one machine's number: ~2s wall once the env exists (measured
-    # 4.0s and 2.0s on two runs, of which mkdocs is ~2.7s), and tens of seconds to materialise it
-    # (23s and 51s measured, both with a warm package cache; a cold cache downloads the env and
-    # needs a network). So the steady-state tax is seconds and the first run is the expensive one.
-    #
-    # SEPARATED, because ordering it first would otherwise mean a machine that cannot materialise
-    # the env gets NO signal from this recipe at all, where before it got the nix checks and the
-    # secret sweep. So: materialise, and if that fails say so in
-    # one line, run everything else, and fail at the END. A page that cannot RENDER still aborts
-    # immediately, which is the whole point of running it first.
-    #
-    # What it catches that nothing else here does: `mkdocs build --strict` renders every page, and
-    # a page can be CORRECTLY GENERATED and still not render. `check-api-docs` byte-compares the
-    # committed pages against a fresh generation, and a generator that emits an unrenderable link
-    # consistently passes that byte-compare - which is how github.com/telekom/sutura#352 shipped a
-    # page that aborted the site build with every local gate green.
+    # THE SITE BUILD, first and in TWO steps, because two things can go wrong and only one is a finding
+    # about this tree. It cannot be a nix check: the docs toolchain is Python, pixi is the one resolver
+    # for it, and a nix sandbox has no network to materialise the env. A pixi step is allowed in the
+    # recipe that counts as verified because `nix run .#deny` below ALREADY fails offline (measured), so
+    # it adds no network requirement. Cost: ~2s warm, 23-51s to materialise. Separated so a machine that
+    # cannot materialise it still gets the nix checks and the sweep, and fails at the END. What it alone
+    # catches: a page can be correctly generated and still not render - #352 shipped one, gates green.
     site=ok
     if pixi install --frozen -e docs; then
         just docs
@@ -283,6 +187,11 @@ validate:
         printf '  Continuing, and this run will NOT be green.\n\n'
     fi
     just ci
+    # Here rather than inside `just ci`: `ci` is the nix checks and this is not one - the candidate set
+    # is `git ls-files` and the sandbox's copy carries no `.git`. `tasks.rs` also EXECUTES the `ci` body
+    # against a fake nix with an empty PATH, so a line there that shells out breaks another fixture.
+    printf '\n=== format-text ===\n'
+    bash nix/format-text.sh check
     just secrets
     nix run .#deny
     if [ "$site" != ok ]; then
@@ -292,25 +201,18 @@ validate:
     fi
     printf '\nvalidate: ok - the site build, the nix checks, the secret sweep and the supply chain\n'
 
-# What CI runs, through nix, without entering the dev shell. Prefer `just validate`, which adds
-# the two checks that need network and therefore cannot be nix checks.
-#
-# A failed check ends this invocation. An automatic offline retry also retries failed tests,
-# so a later pass can hide the failure. Network failures also leave this invocation red;
-# diagnose the failure before explicitly rerunning the task.
+# A failed check ends this invocation. An automatic offline retry would also retry failed tests, so
+# a later pass could hide the failure - diagnose before rerunning.
+# What CI runs, through nix, without entering the dev shell. Prefer `just validate`.
 ci:
     #!/usr/bin/env bash
     set -euo pipefail
-    # The system is READ rather than written down. `.#checks.x86_64-linux.*` on an aarch64-darwin
-    # host fails "platform mismatch" before it runs anything, and a gate that cannot run on the
-    # machine of the person who has to run it is a gate that gets skipped. Set SUTURA_NIX_SYSTEM to
-    # force one - a linux builder, or reproducing what a CI log shows.
+    # The system is READ, not written down: `.#checks.x86_64-linux.*` on darwin fails before running
+    # anything, and a gate that cannot run on the machine of the person who runs it gets skipped.
     system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
     printf 'checks for %s\n' "$system"
-    # api-docs IS in this list, and the omission was not harmless: the committed API pages are
-    # byte-compared and no test covers them, so four stale-page incidents were invisible locally
-    # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
-    # along - but this loop names its checks, so a name left out is a check nobody ran.
+    # api-docs IS in this list: the committed pages are byte-compared and no test covers them, so four
+    # stale-page incidents were invisible locally while this task was called THE gate.
     for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
@@ -323,9 +225,7 @@ perf:
 
 # ---------------------------------------------------------------- the gates ---
 
-# One line, because xtask owns the list (`Kind::Hygiene` in its task table). It used to be
-# transcribed here, twice in devenv.nix, in flake.nix and as eight hooks - and the order
-# differed in three of them. `check-guidance` catches a renamed gate, never a forgotten one.
+# One line, because xtask owns the list (`Kind::Hygiene`). `check-guidance` catches a renamed gate.
 
 # The cheap structural gates. Seconds, not minutes.
 hygiene:
@@ -337,10 +237,8 @@ hygiene:
 gates: hygiene
     #!/usr/bin/env bash
     set -euo pipefail
-    # The tier, for the reason `just test` gives - and this recipe did NOT have it, which is why
-    # `just gates` failed the two postgres cells on any machine where nothing else had started a
-    # server. It claims to be what CI runs, and CI's `checks.nextest` provisions one.
-    # shellcheck source=nix/with-tier.sh
+    # The tier, for the reason `just test` gives - without it this failed the two postgres cells on any
+    # machine where nothing else had started a server, while claiming to be what CI runs.
     source nix/with-tier.sh
     sutura_tier_up
     cargo run -q -p xtask -- fmt --check
@@ -348,22 +246,15 @@ gates: hygiene
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
-    # The DERIVING half of the attribution gate. Here rather than in `hygiene` because it runs
-    # `cargo metadata`, which needs a resolvable registry the nix sandbox has not got - the same
-    # reason `check-api-docs` is not a hygiene gate. The document is generated and NOT committed, so
-    # there is nothing to byte-compare: this generates one and refuses an incomplete result. The
-    # sweep's `check-attribution-owner` is the offline half, and it holds the ABSENCE of a committed
-    # copy - which is the property that keeps a dependency bump from being red on arrival.
+    # The DERIVING half of the attribution gate, here because it runs `cargo metadata`, which needs a
+    # registry the nix sandbox has not got. The document is generated and NOT committed, so there is
+    # nothing to byte-compare; `check-attribution-owner` holds the ABSENCE of a committed copy.
     cargo run -q -p xtask -- check-attribution
-    # The DEFAULT-feature lane, and it is here for the line above's reason: it shells out to cargo.
-    # Every other compiling gate in this repo passes `--all-features`, and `nix/shipped.nix`
-    # publishes cargo's default set - so a `#[cfg(feature = ...)]` compiled only with the feature on
-    # can be a hard error in exactly the configuration a release builds. That shipped once.
+    # The DEFAULT-feature lane, here for the line above's reason. Every other compiling gate passes
+    # `--all-features` while `nix/shipped.nix` publishes cargo's default set. That shipped once.
     cargo run -q -p xtask -- check-default-features
-    # And the lane's tests, which the line above only COMPILES: `cargo check` and `cargo clippy`
-    # both stop at metadata, so every `#[cfg(not(feature = ...))]` test in the tree was compiled
-    # here and executed by nothing - each venue that runs a test passes --all-features, where that
-    # cfg is false. Two such tests were in that state when this landed.
+    # And the lane's TESTS, which the line above only compiles: every `#[cfg(not(feature))]` test was
+    # compiled here and executed by nothing. Two were in that state when this landed.
     cargo run -q -p xtask -- check-default-feature-tests
     bash nix/run-gate.sh crap
 
@@ -371,15 +262,9 @@ gates: hygiene
 ship-check:
     devenv shell ship-check
 
-# Exactly what `nix build .#checks.x86_64-linux.crap` runs, reached the cheap way. Through
-# `nix/run-gate.sh`: local tools when the dev shell is active, then the pinned Nix route when not.
-#
-# Coverage instrumentation is LLVM-specific, so the shell's bare cargo defaults to the LLVM
-# backend and `-C instrument-coverage` works; cranelift stays opt-in. `cargo xtask crap`
-# re-establishes it anyway rather than trusting this line.
-#
-# Every run leaves `target/crap/baseline.json` behind, which is what `just crap-delta` below
-# compares. Scope, cost and the two halves of the ratchet are all in docs/crap.md.
+# Through `nix/run-gate.sh`: local tools when the dev shell is active, the pinned Nix route when not.
+# Every run leaves `target/crap/baseline.json`, which `just crap-delta` compares. Scope, cost and
+# both halves of the ratchet are in docs/crap.md.
 
 # The CRAP score: complexity weighted by the tests that cover it. Scoped to sutura-domain.
 crap:
@@ -387,22 +272,10 @@ crap:
     set -euo pipefail
     bash nix/run-gate.sh crap
 
-# Did the CHANGE make anything worse? The other half of the CRAP gate.
-#
-# TWO FILES, NO COVERAGE RUN. Both sides are baselines an earlier `just crap` wrote, so this is
-# file reading and costs nothing. Locally that means: run `just crap` on the base commit, copy
-# `target/crap/baseline.json` somewhere, come back to the branch, run `just crap` again, then
-# point this at the two files.
-#
-# CI does not do it that way and does not need to. There the base's baseline was computed when
-# the base commit was built and has been sitting in the `crap-baseline` artifact since; the
-# workflow resolves the artifact for the pull request's exact merge base, and when no such
-# artifact exists it warns and skips rather than comparing against a baseline from a different
-# commit. See docs/crap.md and .github/workflows/ci.yml.
-#
-# NO `gh run download` HERE, deliberately. A recipe that fetched a baseline would need the
-# GitHub CLI, an authenticated token and network, and would then silently disagree with CI about
-# which commit the baseline came from. Two paths in, no guessing.
+# TWO FILES, NO COVERAGE RUN - both sides are baselines an earlier `just crap` wrote, so this is file
+# reading. CI resolves the base's baseline from the `crap-baseline` artifact for the pull request's
+# exact merge base, and warns and skips when none exists. No `gh run download` here deliberately:
+# that would need a token and a network, and could then disagree with CI about the commit.
 
 # `just crap-delta <base-baseline.json> [head-baseline.json]`
 crap-delta base head="target/crap/baseline.json":
@@ -412,36 +285,24 @@ crap-delta base head="target/crap/baseline.json":
 classify base="origin/main":
     cargo run -q -p xtask -- classify --since {{ base }}
 
+# RUNS THE SUITE twice, on the shell's nightly toolchain (LLVM by default), which is what CI gates
+# on. AGENTS.md's rule for clippy - never conclude a branch is red from a bare `cargo` line -
+# applies to any gate that runs the compiler, and this recipe is what makes it hold here.
 # Red-before-green for changed tests. `just causality origin/main`
-#
-# RUNS THE SUITE - twice - on the shell's nightly toolchain (LLVM backend by default, cranelift
-# opt-in), which is what CI gates on. It used to need stable because a panic-hook test in
-# `sutura-runtime` misbehaved under cranelift; with the shell's cargo defaulting to LLVM that
-# difference is gone and there is no stable/nightly split to inherit anymore.
-#
-# The rule `AGENTS.md` states for `clippy` - never conclude a branch is red from a bare `cargo` line -
-# applies to any gate that runs the compiler, and this recipe is now what makes it hold here.
 causality base="origin/main":
     #!/usr/bin/env bash
     set -euo pipefail
-    # The SAME tier `test` provisions, for the same reason and it was missing here: this gate's
-    # first step is *are the tests green on HEAD*, and the postgres corpus and differential cells
-    # are fail-closed - so without the tier the gate fails its own precondition and reports nothing
-    # about the change. Measured on a real run before this pair was added. Through
-    # `nix/with-tier.sh`, so a gate that takes minutes does not stop a server it did not start.
-    # shellcheck source=nix/with-tier.sh
+    # The SAME tier `test` provisions, and it was missing: this gate's first step is *are the tests green
+    # on HEAD*, and the postgres cells are fail-closed, so it failed its own precondition.
     source nix/with-tier.sh
     sutura_tier_up
     cargo run -q -p xtask -- test-causality --since {{ base }}
 
 # ---------------------------------------------------------------- artifacts ---
 
+# BOTH, because both are published: before #111 this built one binary and so did the release, which
+# is why nothing a release published could serve a question. `nix/shipped.nix` is the list.
 # The release binaries: the command-line tool and the server.
-#
-# BOTH, because both are published. Before `github.com/telekom/sutura#111` this recipe built one
-# binary and so did the release, which is why nothing a release published could serve a question.
-# `nix/shipped.nix` is the list; a recipe that builds a subset of it is a recipe that says a green
-# local run means the release will build.
 build:
     nix build .#sutura
     nix build .#sutura-serve
@@ -451,12 +312,9 @@ image:
     nix build .#oci
     nix build .#oci-serve
 
-# Cross-build every shipped artifact: two binaries at four triples.
-#
 # All four triples, not the two glibc ones: the musl targets are statically linked and swap in
-# mimalloc, so they are a genuinely different build - a cross target has its own deps derivation
-# and its own C compile. A recipe that skipped them would let a developer pass `build-all` locally
-# and still break the release.
+# mimalloc, so they are a genuinely different build with their own deps derivation and C compile.
+# Cross-build every shipped artifact: two binaries at four triples.
 build-all:
     nix build .#sutura-x86_64-unknown-linux-gnu
     nix build .#sutura-aarch64-unknown-linux-gnu
@@ -467,17 +325,11 @@ build-all:
     nix build .#sutura-serve-x86_64-unknown-linux-musl
     nix build .#sutura-serve-aarch64-unknown-linux-musl
 
+# Two checks, different questions. `one-binary` reads each shipped package's `bin/` and its runtime
+# closure: one executable, named what the entrypoint expects, no toolchain baked in.
+# `shipped-features` reads `cargo auditable` out of each native binary. NOT in `just ci`: these
+# build release-profile artifacts, so minutes rather than seconds.
 # What a release asserts about the artifacts it publishes, without publishing anything.
-#
-# Two checks and they answer different questions. `one-binary` reads each shipped package's `bin/`
-# and its runtime closure: one executable, named what the image entrypoint expects, and no
-# toolchain baked in. `shipped-features` reads the `cargo auditable` section out of each native
-# binary and asserts the feature set `nix/shipped.nix` declares - `axum` present in the server,
-# `ring` and `ureq` absent from both.
-#
-# NOT in `just ci`, deliberately, and the same reason `one-binary` never was: these build the
-# release-profile artifacts, so they are minutes rather than seconds. The tag-triggered release
-# workflow runs them before publishing.
 shipped:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -487,14 +339,9 @@ shipped:
         nix build ".#checks.$system.$check" -L
     done
 
-# Through nix: git-cliff's version is part of what it produces, so nix is its only pin and
-# `cargo xtask check-pins` fails if it reappears in pixi.toml. Docs go through pixi because
-# that toolchain is Python; a tool whose output is the verdict goes through nix.
-#
-# No argument rewrites CHANGELOG.md with the unreleased section current - the same render
-# version-bump.yml commits on every push to main. With a tag it renders that section AS the
-# release instead, which is what the release commit carries and what release.yml puts in the
-# GitHub Release body. Neither form tags anything or pushes anything.
+# Through nix: git-cliff's version is part of what it produces, so nix is its only pin. No argument
+# rewrites CHANGELOG.md with the unreleased section current; with a tag it renders that section AS
+# the release. Neither form tags anything or pushes anything.
 
 # Render CHANGELOG.md as CI does. `just changelog v0.2.0` renders it as that release.
 changelog tag="":
@@ -509,12 +356,9 @@ changelog tag="":
 
 # --------------------------------------------------------------------- docs ---
 
+# Through pixi's ISOLATED `docs` env: the toolchain is Python and pixi is the one resolver for it.
+# It lived in flake.nix as `python3.withPackages` first, where mike could not import pymdownx.
 # Render the site to site/.
-#
-# Through pixi's ISOLATED `docs` environment: the docs toolchain is Python, and pixi is the one
-# resolver for Python here. It lived in flake.nix as a `python3.withPackages` first, where mike
-# could not import pymdownx from the mkdocs it subprocessed - two resolvers, one interpreter.
-# The env is isolated so mkdocs-material's dependency tree cannot perturb the linters' solve.
 docs:
     pixi run --frozen -e docs docs
 
@@ -531,71 +375,52 @@ docs-deploy version="local":
 docs-list:
     pixi run --frozen -e docs docs-list
 
-# Nightly on purpose: `--output-format json` is an unstable rustdoc option, and the dev shell's
-# bare `cargo` IS the nightly pin now - every gate runs on it, so none needs a stable override and
-# the old stable-toolchain indirection no longer exists to wrap this one away from.
-#
-# `pixi run --frozen python` is the DEFAULT pixi environment, not the `docs` one: the renderer is
-# a plain stdlib script, and the docs environment exists to keep mkdocs-material's dependency
-# tree away from everything else. It takes an output directory as an optional last argument and
-# defaults to `docs/api`.
+# Nightly on purpose: `--output-format json` is an unstable rustdoc option, and the dev shell's bare
+# cargo IS the nightly pin. The renderer runs in the DEFAULT pixi env, not `docs` - it is a plain
+# stdlib script - and defaults to `docs/api`.
 
 # Regenerate the committed API reference pages from rustdoc JSON. Through nix, so it needs no
 # dev shell: it called a bare `cargo` and a bare `pixi` and only worked where one was active.
 api:
     nix run .#api-docs
 
-# Shellcheck the shell inside every local composite action. `actionlint` CANNOT READ a composite
-# action - measured against 1.7.12, it parses `action.yml` as a workflow and rejects it - and the
-# shellcheck pass in CI globs `*.sh`, which a `run:` block is not. So the release path's own signing
-# sequence was shell nothing had ever linted. `nix/lint-action-shell.sh` is the sequence, shared with
-# `nix/lint-workflows.sh` so a local run and CI cannot check different things.
+# `actionlint` CANNOT READ a composite action - measured against 1.7.12 - and CI's shellcheck pass
+# globs `*.sh`, which a `run:` block is not, so the release path's signing sequence was never linted.
+# Shellcheck the shell inside every local composite action.
 lint-actions:
     bash nix/lint-action-shell.sh
 
-# Every static check that reads a workflow, an action or a shell script: zizmor, actionlint,
-# shellcheck over the tree, and the composite-action pass above. What `ci.yml` runs, reached the
-# cheap way - it used to be inline there and had no local caller at all.
+# What `ci.yml` runs, reached the cheap way.
+# Every static check that reads a workflow, an action or a shell script.
 lint-workflows:
     bash nix/lint-workflows.sh
 
-# The shell the line above cannot reach: the script bodies inside `devenv.nix`. They are Nix
-# strings, so the `*.sh` glob, zizmor and the composite-action reader all filter them out - and
-# `xtask/src/hook_coverage.rs` carries that as a surface with an EMPTY hook set, which is what
-# makes `just ship-check` run this recipe when a diff touches the file.
-#
-# What it asserts is the EMISSION rather than a spelling: `devenv.nix`'s `linted` wraps each body
-# in `writeShellApplication`, and this reads the resulting derivation's `checkPhase` out of the
-# store and requires `bash -n` plus a store-path shellcheck in it. `checkPhase = "true";` in that
-# wrapper removes both from every body, and it left every other gate in this repository green -
-# `github.com/telekom/sutura#402`. `cargo xtask check-devenv-shell`, inside `hygiene`, is the
-# structural half and the one CI runs.
-#
-# THROUGH `devenv shell`, because the store path is interpolated by nix at the call site: a
-# justfile cannot name one, and a hand-written path would be a gate over a path rather than over
-# this tree's wrapper.
+# The same script the `format-text` hook, `just fmt`, `just validate` and `format.yml` call - a
+# sequence with more than one caller, written more than once, is how the callers come to differ.
+# Markdown, YAML and TOML formatted; Python formatted AND linted.
+lint-text:
+    bash nix/format-text.sh check
+
+# The shell `just lint-workflows` cannot reach: the bodies inside `devenv.nix` are Nix strings, so
+# the `*.sh` glob, zizmor and the action reader filter them out - `hook_coverage.rs` carries that as
+# a surface with an EMPTY hook set. It asserts the EMISSION: `checkPhase = "true";` in that wrapper
+# removed bash -n and shellcheck from every body and left every other gate green (#402).
+# Lint the shell script bodies inside devenv.nix.
 devenv-linter:
     devenv shell devenv-linter
 
-# Write the attribution document from `cargo metadata` - every third-party crate this workspace
-# resolves and the licence it declares, which is the statement a distributor hands on.
-#
-# **It is NOT committed, and that is the point.** A committed copy fell behind `Cargo.lock` on every
-# dependency bump, and since Dependabot cannot regenerate it, every bot bump was red on arrival.
-# `cargo xtask check-attribution-owner` refuses a committed copy; `.github/workflows/release.yml`
-# generates the released asset from the tagged tree. So this writes under `/target`, which
-# `.gitignore` already excludes, and exists for a human who wants to read the current list.
-#
-# Through a bare `cargo` rather than nix, because `cargo metadata` is the tool and it needs the
-# workspace's own resolver, not a pinned binary.
+# **NOT committed, and that is the point.** A committed copy fell behind `Cargo.lock` on every bump,
+# and Dependabot cannot regenerate it, so every bot bump was red on arrival. Writes under `/target`;
+# `check-attribution-owner` refuses a committed copy and release.yml generates the released asset.
+# Write the attribution document: every third-party crate and the licence it declares.
 attribution:
     #!/usr/bin/env bash
     set -euo pipefail
     cargo run -q -p xtask -- attribution
 
-# Is every file's licence answerable by a tool? `checks.reuse` is what CI runs and is the
-# authority; this reaches the same pin the cheap way, against the REAL tree rather than the
-# git-derived copy - so it also sees a file you have not staged yet, which the check cannot.
+# `checks.reuse` is the authority; this hits the same pin against the REAL tree, so it also sees a
+# file you have not staged yet, which the check cannot.
+# Is every file's licence answerable by a tool?
 licences:
     nix run .#reuse -- lint
 
@@ -615,10 +440,8 @@ fuzz-smoke:
 secrets:
     betterleaks dir . --config devco/gitleaks.toml --redact --verbose
 
+# Through nix, the only pin: these tools report findings, so their version is part of the verdict.
 # Static analysis of the workflows.
-#
-# Through nix, the only pin for it. These three tools report findings, so their version is
-# part of the verdict - `cargo xtask check-pins` fails if any of them reappears in pixi.toml.
 zizmor:
     nix run .#zizmor -- .github/workflows
 
@@ -626,21 +449,17 @@ zizmor:
 zizmor-pedantic:
     nix run .#zizmor -- --persona pedantic .github/workflows
 
-# A GLOB, not a list. It was two files here and one in ci.yml, under a comment in that file
-# claiming "every shell script we ship... the glob is the list" - true of neither.
-# `nix/run-gate.sh` was in neither, and that file decides whether the tests, the secret sweep,
-# the supply-chain gate and the CRAP score run at all: a `set -eu` slip there turns four gates
-# into silent no-ops. The pre-commit `shellcheck` hook covers the same set from the staged side.
+# A GLOB, not a list: it was two files here and one in ci.yml under a comment claiming "the glob is
+# the list", true of neither - and `nix/run-gate.sh`, which decides whether four gates run, was in
+# neither of them.
 
 # Lint the workflows and every shell script we ship.
 lint-ci:
     #!/usr/bin/env bash
     set -euo pipefail
     nix run .#actionlint
-    # `-x` follows `source` directives, which is how a sourced-only file gets judged too - and
-    # without it a script that sources another fails SC1091 even with a `# shellcheck source=`
-    # directive, which is what the flag exists to honour.
-    # `find`, not a `**` glob: this recipe runs under `sh` on some hosts, where globstar is off.
+    # `-x` follows `source` directives, so a sourced-only file is judged too. `find`, not a `**` glob:
+    # this recipe runs under `sh` on some hosts, where globstar is off.
     mapfile -t scripts < <(find . -name '*.sh' -not -path './.git/*' -not -path './target/*' \
       -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.pixi/*' \
       -not -path './site/*' -not -path './vendor/*' | sort)
@@ -650,13 +469,10 @@ lint-ci:
     test "${#scripts[@]}" -gt 0
     nix run .#shellcheck -- -x "${scripts[@]}"
 
+# It exists because `docs.yml`'s verify job skips the 15m45s `hygiene` build for a docs-only pull
+# request, and a citation of a task that does not exist is the one property that skip cannot defer.
+# Same script CI runs, and the task list comes from `just --summary` rather than from a copy.
 # The cheap, text-only half of the citation gate. Seconds, and no compiler.
-#
-# It exists because `docs.yml`'s verify job skips the 15m45s `hygiene` build for a pull request
-# that changes only markdown under `docs/`, and a citation of a task that does not exist was the
-# one property that skip could not defer: deferring it to the `main` push blocks the publish
-# instead of the merge. Same script CI runs, same two authorities - this recipe's own name
-# included, since the list comes from `just --summary` rather than from a copy.
 citations:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -674,55 +490,34 @@ skills-relock:
 hooks *args:
     pixi run --frozen prek run {{ args }}
 
-# Through pixi's ISOLATED `gcloud` environment, which holds a task and no packages: the Google
-# Cloud CLI is reached as a pinned container rather than as a conda dependency, because
-# conda-forge has no `win-64` build of it and this workspace declares that platform. pixi.toml
-# carries the argument and the two variables a developer can set.
-#
-# It is INTERACTIVE - `docker run -it` - so it needs a real terminal and cannot be part of any
-# gate. Nothing is written into this repository: both logins land in the developer's own gcloud
-# configuration directory, where a native `gcloud`, `bq` or a client library already looks.
+# Through pixi's ISOLATED `gcloud` env, which holds a task and no packages: the CLI is reached as a
+# pinned container because conda-forge has no `win-64` build and this workspace declares it.
+# INTERACTIVE (`docker run -it`), so no gate can use it. Nothing is written into this repository.
 
 # Authenticate against Google Cloud, for the BigQuery work. Both logins, in a container.
 gcloud-login:
     pixi run --frozen -e gcloud gl
 
 # ------------------------------------------------------------------ test-infra ---
-# The Pulumi test infrastructure under `test-infra/`. `infra-` prefix keeps these out of
-# the way of the Rust surface's tasks; everything runs through pixi (the `infra` env
-# owns Python + pulumi + pulumi-gcp, the `gcloud` env owns the login), so there is no
-# venv and no requirements.txt to keep in step - pixi owns the interpreter and everything
-# in it, the same reasoning the `docs` env uses.
+# The Pulumi test infrastructure under `test-infra/`. The `infra-` prefix keeps these out of the way
+# of the Rust surface's tasks; everything runs through pixi, so there is no venv to keep in step.
 
-# Authenticate against Google Cloud for the Pulumi provider. Maps to pixi's `gl` task,
-# which runs BOTH gcloud logins in one container into ~/.config/gcloud:
-#   * `gcloud auth login` - the CLI's OWN credentials (credentials.db);
-#   * `gcloud auth application-default login` - ADC, what client libraries (the Pulumi
-#     provider, Google SDKs) read from ~/.config/gcloud/application_default_credentials.json.
-# `< -e gcloud` is required because pixi declares `gl` in the `gcloud` FEATURE's tasks, not
-# in the default environment. Interactive (`-it`); not in any gate; nothing is written into
-# this repository. This is the same task as `gcloud-login` above.
+# Maps to pixi's `gl` task, which runs BOTH gcloud logins into ~/.config/gcloud: the CLI's own
+# credentials, and ADC, which client libraries read. `-e gcloud` is required because pixi declares
+# `gl` in that FEATURE's tasks. The same task as `gcloud-login` above.
+# Authenticate against Google Cloud for the Pulumi provider.
 infra-gl:
     pixi run --frozen -e gcloud gl
 
+# The pixi task carries its own `cwd`, so no `cd` is needed and it is correct from any directory.
+# The state backend is a PROJECT-LOCAL file and the passphrase comes from PULUMI_CONFIG_PASSPHRASE.
+# The stack is configured FROM THE ENVIRONMENT FIRST (config-from-env.sh, refusing on anything
+# missing) and the SAME stack name is passed to pulumi - no reliance on an "active" selection.
 # `pulumi preview` over the `test-infra/pulumi/google` stack, through the `infra` pixi env.
-# The pixi task carries its own `cwd` (see pixi.toml), so no `cd` is needed here and the task
-# is correct from any directory. Extra flags (e.g. `--stack dev`) flow through as appended args.
-#
-# The state backend is a PROJECT-LOCAL file (`PULUMI_BACKEND_URL=file://.../test-infra/pulumi/google`,
-# into which pulumi writes a gitignored `.pulumi/`)
-# and the stack-secrets passphrase comes from `PULUMI_CONFIG_PASSPHRASE` (set in the machine's
-# `~/.config/sutura/env.sh` locally; a secret in CI).
-# The stack is configured FROM THE ENVIRONMENT FIRST (config-from-env.sh maps SUTURA_GOOGLE_* onto
-# the SUTURA_PULUMI_STACK stack, refusing on anything missing), and the SAME stack name is passed to
-# pulumi - no reliance on an "active" selection, which a fresh shell does not have. The stack name
-# defaults to `dev` and is overridden by SUTURA_PULUMI_STACK (the machine env sets it to the
-# developer's own). Nothing here reaches pulumi cloud, and nothing is committed.
 infra-preview *flags:
     test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
-    # The infra run identity is the developer's gcloud ADC (their own elevated account), NOT the
-    # limited BigQuery SA key that env.sh points the acceptance legs at. GOOGLE_ADC overrides the
-    # default ADC path. just runs each line in a fresh shell, so the identity is set per command.
+    # The developer's gcloud ADC (their own elevated account), NOT the limited BigQuery SA key the
+    # acceptance legs use. just runs each line in a fresh shell, so the identity is set per command.
     PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
     PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra preview --stack "{{stack}}" {{flags}}
 
@@ -733,28 +528,24 @@ infra-up *flags:
     PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
     PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra up --stack "{{stack}}" {{flags}}
 
-# `pulumi destroy` - tear down the Google test infra this stack created, so a redeployment starts
-# clean. Same local-file backend and developer-ADC identity as infra-up, but NO config-from-env.sh:
-# destroying reads the existing state and needs none of the SUTURA_* values. GCP APIs stay ENABLED
-# (the Service resources set disable_on_destroy=False), deliberately - GCP refuses to disable some
-# APIs that still hold resources, and re-enabling is slower than leaving it. Run `just infra-preview`
-# and then `just infra-up` to re-create afterwards.
+# Same local-file backend and developer-ADC identity as infra-up, but NO config-from-env.sh:
+# destroying reads the existing state. GCP APIs stay ENABLED deliberately (disable_on_destroy=False)
+# - GCP refuses to disable some that still hold resources, and re-enabling is slower.
+# `pulumi destroy` - tear down the Google test infra this stack created.
 infra-down:
     test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
     PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra destroy --stack "{{stack}}" --yes
 
-# Re-export the fresh `up` outputs into the {{bq_test_env}} GitHub environment's secrets/vars, so
-# CI's acceptance key + resource names follow the stack without hand-editing. Run after an
-# `infra-up` (especially one following an `infra-down`, which rotates every key). Reads the local
-# `.pulumi/` state (no GCP credential needed) and pushes via `gh`, which must be authenticated.
+# Run after an `infra-up` (especially one following `infra-down`, which rotates every key). Reads
+# the local `.pulumi/` state and pushes via `gh`, which must be authenticated.
+# Re-export the fresh `up` outputs into the {{bq_test_env}} GitHub environment.
 infra-set:
     test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
     STACK="{{stack}}" BQ_TEST_ENV="{{bq_test_env}}" PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/sync-bq-test-env.sh
 
-# Live BigQuery acceptance is outside `just validate`: nix checks have no network. CI runs it in `bq-test` for pushes and same-repository PRs, not forks without secrets.
-# The ignored acceptance/corpus cells run by binary selection; missing inputs fail. Separate principal, exchange and cross-resource venues are excluded by binary.
-# The dataset is shared with CI. Per-run table suffixes isolate fixture reads and drops; 24-hour expiration bounds cancelled-run leftovers. Printed names identify the run.
-# Run `just gcloud-login` first and supply the test headers' environment inputs. Keep resource values in the invoking environment, never in this repository.
+# Live BigQuery acceptance is outside `just validate`: nix checks have no network. CI runs it in
+# `bq-test` for pushes and same-repository PRs, not forks without secrets. The dataset is shared
+# with CI; per-run table suffixes isolate reads and drops, and a 24-hour expiration bounds leftovers.
 
 # Run the live BigQuery acceptance suite against the configured project.
 bigquery-acceptance:
@@ -792,17 +583,12 @@ bigquery-cross-project:
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
       -E 'binary(cross_resource) and test(join_across_projects_)'
 
-# The two-principal cell: one statement, two principals, two row sets. `docs/adr/0017`'s eighth
-# amendment and issue #123.
-#
-# **Its own task rather than a third leg above, and the reason is a developer's.** It needs five
-# values and two key documents the other two legs do not, so a single task demanding all of them
-# would make the legs somebody CAN run unreachable. The filter is on the BINARY and not on a test
-# list, so both tasks still reach every `#[ignore]`d test in their own target without a count here.
-#
-# **What a green run here does NOT mean** is the first thing `tests/two_principals.rs` says: the two
-# principals are service accounts whose keys this leg holds, so it is leg 2's source half and not
-# leg 2. `docs/where-identity-is-proven.md` is the map.
+# **Its own task rather than a third leg above, for a developer's reason:** it needs five values and
+# two key documents the other legs do not, so one task demanding all of them would make the legs
+# somebody CAN run unreachable. **What a green run does NOT mean** is the first thing
+# `tests/two_principals.rs` says: both principals are service accounts whose keys this leg holds, so
+# it is leg 2's source half and not leg 2. `docs/where-identity-is-proven.md` is the map.
+# Run the two-principal BigQuery cell against the configured row-access-policied dataset.
 
 # Run the two-principal BigQuery cell against the configured row-access-policied dataset.
 bigquery-two-principals:
@@ -813,13 +599,10 @@ bigquery-two-principals:
     echo "bigquery-two-principals: CI runs it through \`nix run .#bigquery-two-principals\`, in the bq-test job."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(two_principals)'
 
-# Run the exchanged-identity cell: one workload identity, exchanged per subject, against SESSION_USER().
-#
 # The only BigQuery leg that holds no principal's key - which is what separates impersonation from
-# credential selection, and the whole reason it is a cell of its own. NO WORKFLOW INVOKES IT: two of
-# the five values it is pointed at are not in the `bq-test` environment, and
-# `crates/sutura-exec-bigquery/tests/exchanged_identity.rs` carries why they cannot be derived from
-# the CI workload identity with the exchange this adapter ships. **It has never run.**
+# credential selection. NO WORKFLOW INVOKES IT: two of the five values it needs are not in the
+# `bq-test` environment. **It has never run.**
+# Run the exchanged-identity cell: one workload identity, exchanged per subject.
 bigquery-exchanged-identity:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -842,18 +625,11 @@ worktree branch:
 worktrees:
     cargo run -q -p sutura-dev -- worktree list
 
+# Dry run is the default, because a cleanup task that deletes on a bare invocation is one nobody runs
+# twice. `git branch --merged` cannot see a squash-merged branch at all, so what decides instead is
+# patch-id equivalence, a merged pull request whose recorded head is this tip, and an age bound.
+# `--delete` applies the plan; there is no flag that overrides a refusal.
 # What has landed and could go: local branches, and the worktrees holding them. DELETES NOTHING.
-#
-# Dry run is the default, because a cleanup task that deletes on a bare invocation is one nobody
-# runs twice. `git branch --merged` is deliberately not the mechanism: it cannot see a
-# squash-merged branch at all, because the branch's commits are not ancestors of the commit
-# carrying their content - so where everything is squash-merged its answer is useless. What decides
-# instead is patch-id equivalence against the default branch, a merged pull request whose recorded
-# head is still this branch's tip, and an optional age bound. A reason is printed for every branch,
-# kept ones included, and anything undetermined keeps the branch.
-#
-# `just clean-branches --delete` applies the plan. The other flags are `--unused-days <n>`,
-# `--fetch` and `--repo <path>`; there is none that overrides a refusal.
 clean-branches *args:
     cargo run -q -p xtask -- clean-branches {{ args }}
 
@@ -861,103 +637,63 @@ clean-branches *args:
 doctor:
     cargo run -q -p sutura-dev -- doctor
 
-# The identity provider's nix-native tier, by hand: `just keycloak-tier start|stop|status`.
-#
-# NOT a step anybody has to remember before committing, and that is deliberate - no gate needs it.
-# `checks.keycloak-tier` provisions and tears down its own instance in the sandbox, which is where
-# the property that no human is needed is actually held. This task is for looking at a real issuer:
-# `start` writes the port into `.sutura-dev/endpoints.json` and the realm, client and two subjects
-# into `.sutura-dev/keycloak-realm.json`, both generated per start and removed by `stop`.
-#
+# NOT a step anybody has to remember before committing - no gate needs it. `checks.keycloak-tier`
+# provisions and tears down its own instance in the sandbox, which is where that property is held.
 # Through `nix run` rather than a dev-shell package, so a contributor who never touches identity
-# does not fetch a JVM and a 186 MB server on `nix develop`. See `apps.keycloak-tier` in flake.nix.
+# does not fetch a JVM and a 186 MB server on `nix develop`.
+# The identity provider's nix-native tier, by hand: `just keycloak-tier start|stop|status`.
 keycloak-tier *args:
     nix run .#keycloak-tier -- {{ args }}
 
+# `credentials` prints the three `export` lines the adapter needs and refuses if nothing is
+# provisioned (#455): `FixtureCredential::from_env` has no fallback. `just test` evaluates them
+# through `nix/with-tier.sh`. NOT a step before committing, and a tier started here survives a suite
+# run. Straight to the script rather than `nix run`: it is in the dev shell already, which is where
+# `nix/with-tier.sh` looks, and `checks.nextest` runs the same one from the same file.
 # The Postgres tier, by hand: `just postgres-tier start|stop|status|credentials`.
-#
-# `credentials` prints the three `export` lines the adapter needs and refuses if nothing here is
-# provisioned - `github.com/telekom/sutura#455`: `FixtureCredential::from_env` has no fallback, so
-# the provisioner is what says how to log in. `just test` evaluates them for you through
-# `nix/with-tier.sh`; type it yourself only to point a bare `cargo nextest` at a tier you started
-# here.
-#
-# The same shape as `just keycloak-tier` and it exists for the same reason: a remedy that names the
-# venue for a missing service has to name a task a reader can type, and `nix/postgres-tier.nix` had
-# none - so `sutura_dev::provisioned` cited `just test` for every nix-native tier, which provisions
-# THIS one and no other. See that module; the correspondence is held by its recipe scan.
-#
-# NOT a step before committing. `just test` brings the tier up through `nix/with-tier.sh` and tears
-# down only what it started, so a tier started here survives a suite run - which is what makes the
-# remedy's second line (`just dev-endpoint postgres`) true afterwards.
-#
-# Straight to the script rather than through `nix run`: it is in the dev shell already, which is
-# where `nix/with-tier.sh` looks for it. `checks.nextest` runs the same one from the same file.
 postgres-tier *args:
     sutura-postgres-tier {{ args }}
 
 # ------------------------------------------------------- the compose tier ---
 #
-# One independent service instance per worktree, provisioned through xtask rather than through the
-# shipped binary: docker orchestration inside a release artifact is test scaffolding delivered to
-# users, and xtask is never packaged.
-#
-# NOT a nix check, and it cannot be one - the sandbox has no network and no docker socket. So these
-# are just tasks and a CI job over nix-built artifacts.
-#
-# A missing docker SKIPS here and FAILS in CI. Both directions come from one flag: export
-# SUTURA_DEV_REQUIRE_TIER=1 to get the CI direction on this machine, or =0 to get this one there.
-# (`just test` provisions Postgres from nix itself, so Postgres is not a dev-up service - see
-# nix/postgres-tier.nix.)
+# One service instance per worktree, through xtask rather than the shipped binary: docker
+# orchestration inside a release artifact is test scaffolding delivered to users, and xtask is never
+# packaged. NOT a nix check and cannot be one - the sandbox has no network and no docker socket.
+# A missing docker SKIPS here and FAILS in CI; SUTURA_DEV_REQUIRE_TIER picks the direction.
 
 # This worktree's services, on ports docker allocates, with a discovery file a harness reads.
 dev-up:
     cargo run -q -p xtask -- dev-up
 
-# The same, plus the identity provider. Off by default because nothing here can use one yet:
-# `CredentialBroker` does not exist. It is no longer the slowest thing in this tier - the DataHub
-# stack below is - but that was never the argument for the profile. The reasoning lives beside the
-# service in compose.services.yaml.
+# Off by default because nothing here can use one yet: `CredentialBroker` does not exist. The
+# reasoning lives beside the service in compose.services.yaml.
+# The same, plus the identity provider.
 dev-up-identity:
     cargo run -q -p xtask -- dev-up --with identity
 
-# The same, plus the DataHub metadata platform: five containers, of which one - `datahub`, its GMS -
-# is the endpoint the discovery file carries. Off by default because it COSTS: three JVMs and a
-# migration job that creates the topics, the schema and the indices before GMS will start. This is
-# what `crates/sutura-catalog-datahub` is read against when a test wants a real instance rather than
-# the recorded fixture; the reasoning lives beside the stack in compose.services.yaml.
+# Five containers, of which one - `datahub`, its GMS - is the endpoint the discovery file carries.
+# Off by default because it COSTS: three JVMs and a migration job that creates the topics, the
+# schema and the indices before GMS will start. The reasoning lives in compose.services.yaml.
+# The same, plus the DataHub metadata platform.
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
-# The demo profile, built and started but not supervised.
-#
-# The sibling of `dev-up-identity` and `dev-up-datahub` above, and it exists for the reason they do:
-# a service behind a profile is brought up by the task named after that profile, and the tier's own
+# The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
+# service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived
-# image, and that (plus the model configuration the container refuses to start without) lives in
-# `demo/start.sh`, so one owner shapes the validation and the build rather than two that can drift.
-#
-# `just demo` is the walkthrough: it prints the URL, supervises, and removes everything on exit.
+# image, which lives in `demo/start.sh` so one owner shapes the build and the validation.
+# The demo profile, built and started but not supervised. `just demo` is the walkthrough.
 dev-up-demo:
     bash demo/start.sh --up-only
 
+# A named task rather than a cell in the default suite, and the venue is the whole reason: `just
+# test` sets `SUTURA_DEV_REQUIRE_TIER=1`, the DataHub profile costs three JVMs and a migration job,
+# and the nix sandbox has no docker socket at all. `.sutura-dev/endpoints.json` has two writers and
+# both halves of the clobbering are gone (#317) - each merges per ENTRY and leaves keys it did not
+# write. THE LIMIT ON THAT REPAIR: nothing compares the two writers' shapes, so they agree by review
+# and a THIRD writer would be held by neither. It brings the profile up first, because asking for
+# the fail-closed direction against a tier nobody started is a confusing way to spell an error.
 # The provisioned DataHub, asked whether it can carry the deployment-defined metric document.
-#
-# A named task rather than a cell in the default suite, and NOT because a network is missing - the
-# `bigquery-acceptance` shape for a different reason. `.sutura-dev/endpoints.json` has two writers
-# and BOTH HALVES OF THE CLOBBERING ARE NOW GONE (#317): every nix-native tier merges its own
-# service through `nix/tier-endpoints.nix`, and `xtask dev-up` goes through
-# `sutura_dev::discovery::publish`, which merges per ENTRY and leaves every key it did not write -
-# so neither provisioner's `start` erases the other's address, and a `dev-down` withdraws only what
-# it published. What keeps this task out of the default suite is the venue alone: `just test` sets
-# `SUTURA_DEV_REQUIRE_TIER=1`, the DataHub profile costs three JVMs and a migration job, and the
-# nix sandbox has no docker socket at all. The reasoning lives in
-# `crates/sutura-catalog-datahub/tests/provisioned.rs`, whose header carries the same account. The
-# limit on the repair: nothing compares the two writers' shapes, so they agree by review and a
-# THIRD writer would be held by neither.
-#
-# It brings the profile up first, because a task that asked for the fail-closed direction against a
-# tier nobody started would just be a confusing way to spell an error.
 datahub-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -974,9 +710,8 @@ datahub-acceptance:
 dev-endpoints:
     cargo run -q -p xtask -- dev-endpoints
 
-# One service's host:port, on stdout and nothing else, so a shell can substitute it:
-# `PORT="${$(just dev-endpoint clickhouse)##*:}"`. Anyone following `examples/` uses this instead
-# of learning what a scope or an ephemeral port is. `just dev-endpoints` is the readable table.
+# One service's host:port on stdout and nothing else, so a shell can substitute it: `PORT="${$(just
+# dev-endpoint clickhouse)##*:}"`. `just dev-endpoints` is the readable table.
 @dev-endpoint service:
     cargo run -q -p xtask -- dev-endpoint {{ service }}
 
@@ -988,12 +723,9 @@ dev-down:
 dev-down-dry:
     cargo run -q -p xtask -- dev-down --dry-run
 
-# The local chat demo: the sutura server and a chat client over `examples/single-player`, from a
-# clean checkout, with the browser URL read out of the discovery file rather than written down.
-#
 # NOT a gate, deliberately - the plan's own rule and #595's: a demo that fails a gate gets disabled,
-# and a disabled demo holds nothing. It needs a language model, which no gate has. The
-# configuration, the acknowledgement, the image build and the supervision are in `demo/start.sh`;
-# this recipe is only the name. `docs/demo.md` is the walkthrough.
+# and a disabled demo holds nothing. It needs a language model, which no gate has. The configuration,
+# image build and supervision are in `demo/start.sh`; `docs/demo.md` is the walkthrough.
+# The local chat demo: the sutura server and a chat client over `examples/single-player`.
 demo:
     bash demo/start.sh

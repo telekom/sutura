@@ -147,7 +147,7 @@ impl Failure {
     }
 
     /// The stable machine-readable code. What a client branches on.
-    const fn code(&self) -> &'static str {
+    pub(crate) const fn code(&self) -> &'static str {
         match *self {
             Self::Unauthorized => "unauthorized",
             Self::InsufficientScope { .. } => "insufficient_scope",
@@ -228,12 +228,15 @@ impl IntoResponse for Failure {
     /// promise that the next request will be answered, and a header that is sometimes a guess is
     /// worse than one that is sometimes absent.
     fn into_response(self) -> Response {
+        let outcome = crate::metrics::QuestionOutcome::failed(&self);
         let status = self.status();
         let body = axum::Json(self.body());
-        match self.retry_after() {
+        let mut response = match self.retry_after() {
             Some(seconds) => (status, [(axum::http::header::RETRY_AFTER, seconds.to_string())], body).into_response(),
             None => (status, body).into_response(),
-        }
+        };
+        response.extensions_mut().insert(outcome);
+        response
     }
 }
 

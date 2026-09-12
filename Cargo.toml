@@ -156,15 +156,7 @@ serde_norway = "0.9"
 #     silently and would read as enforcement while doing nothing. Translating between dialects is a
 #     parse followed by a re-emit, it does not reliably repair the differences that matter, and
 #     not compiling it is a stronger statement than not calling it.
-polyglot-sql = { version = "0.9.2", default-features = false, features = [
-  "generate",
-  "builder",
-  "stacker",
-  "dialect-duckdb",
-  "dialect-postgresql",
-  "dialect-clickhouse",
-  "dialect-bigquery",
-] }
+polyglot-sql = { version = "0.9.2", default-features = false, features = ["generate", "builder", "stacker", "dialect-duckdb", "dialect-postgresql", "dialect-clickhouse", "dialect-bigquery"] }
 
 # The local and single-file data system. WITHOUT `bundled`: that feature compiles DuckDB's C++
 # from source, which in the Nix build sandbox is minutes and gigabytes per derivation. We link
@@ -566,9 +558,9 @@ unsafe_code = "forbid"
 broken_intra_doc_links = "forbid"
 
 [workspace.lints.clippy]
-all         = { level = "deny", priority = -3 }
-nursery     = { level = "deny", priority = -3 }
-cargo       = { level = "deny", priority = -3 }
+all = { level = "deny", priority = -3 }
+nursery = { level = "deny", priority = -3 }
+cargo = { level = "deny", priority = -3 }
 # One exception to `cargo`, and it is not about our code. `negative_feature_names` fires on
 # `no_thp`, a feature of the VENDORED `libmimalloc-sys` - upstream's name, which we will not
 # rename because a local edit there is a divergence to maintain and `build.rs` reads it. The
@@ -576,7 +568,7 @@ cargo       = { level = "deny", priority = -3 }
 # reported against every one of our crates and cannot be scoped to the vendored package.
 # Nothing of ours has a negative feature name; if that changes, this line is what hides it.
 negative_feature_names = "allow"
-pedantic    = { level = "warn", priority = -2 }
+pedantic = { level = "warn", priority = -2 }
 # `restriction` is not a category of bugs - it is a menu of bans, most of which are wrong
 # for most codebases. It is enabled anyway, at the lowest priority, because the handful
 # that matter here (`str_to_string`, `exit`, `dbg_macro`, `todo`, `unimplemented`,
@@ -589,22 +581,22 @@ restriction = { level = "warn", priority = -1 }
 # Panics reachable from caller input are availability bugs, not robustness niceties.
 # `clippy.toml` exempts test code so asserts stay readable. Listed explicitly at default
 # priority so they stay `deny` regardless of what the categories above do.
-unwrap_used      = "deny"
-expect_used      = "deny"
-panic            = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
 indexing_slicing = "deny"
 # Silently dropping a Result is the bug class this project cares about most.
 let_underscore_must_use = "deny"
 
 # --- cargo category overrides ----------------------------------------------
-cargo_common_metadata   = "allow" # internal binaries; nothing is published to a registry
+cargo_common_metadata = "allow" # internal binaries; nothing is published to a registry
 multiple_crate_versions = "allow" # transitive, outside our control
 
 # --- pedantic overrides ----------------------------------------------------
 module_name_repetitions = "allow" # `domain::DomainError` reads better than the alternative
-missing_errors_doc      = "allow" # the error type IS the documentation (typed, exhaustive)
-missing_panics_doc      = "allow" # panics are denied above, so the section is vacuous
-must_use_candidate      = "allow" # noisy on newtype accessors
+missing_errors_doc = "allow" # the error type IS the documentation (typed, exhaustive)
+missing_panics_doc = "allow" # panics are denied above, so the section is vacuous
+must_use_candidate = "allow" # noisy on newtype accessors
 
 # --- restriction: the meta-lint that fires for enabling the category -------
 blanket_clippy_restriction_lints = "allow"
@@ -612,20 +604,20 @@ blanket_clippy_restriction_lints = "allow"
 # --- restriction: contradictory pairs, so style stays a choice -------------
 # Each pair bans the opposite of the other. Allowing both sides is the only coherent
 # position; picking one would be a style edict enforced by a lint nobody agreed to.
-mod_module_files            = "allow"
-self_named_module_files     = "allow"
-separated_literal_suffix    = "allow"
-unseparated_literal_suffix  = "allow"
-semicolon_inside_block      = "allow"
-semicolon_outside_block     = "allow"
-pub_with_shorthand          = "allow"
-pub_without_shorthand       = "allow"
+mod_module_files = "allow"
+self_named_module_files = "allow"
+separated_literal_suffix = "allow"
+unseparated_literal_suffix = "allow"
+semicolon_inside_block = "allow"
+semicolon_outside_block = "allow"
+pub_with_shorthand = "allow"
+pub_without_shorthand = "allow"
 # `redundant_pub_crate` and `unreachable_pub` are the same contradiction: inside a private
 # module both `pub` and `pub(crate)` have identical effective visibility, so one lint asks
 # for `pub` and the other asks for `pub(crate)`. `unreachable_pub` is DENIED above, because
 # it is what stops an unused item from being kept alive by a `pub` that reaches nowhere.
 # This is the side that loses.
-redundant_pub_crate         = "allow"
+redundant_pub_crate = "allow"
 # `rest_pattern_accessible_field` is a restriction lint NEW on the pinned nightly, and it fires on
 # `..` in a struct pattern whenever the remaining fields are accessible, demanding each be written
 # as `field: _`. The always-on default lint `unneeded_field_pattern` (kept at its workspace deny)
@@ -636,50 +628,50 @@ redundant_pub_crate         = "allow"
 rest_pattern_accessible_field = "allow"
 
 # --- restriction: fights idiomatic Rust ------------------------------------
-implicit_return          = "allow" # tail expressions are the language, not an omission
-question_mark_used       = "allow" # `?` is the error-handling story this repo uses
-min_ident_chars          = "allow" # `f` for a Formatter is clearer than a paraphrase
+implicit_return = "allow" # tail expressions are the language, not an omission
+question_mark_used = "allow" # `?` is the error-handling story this repo uses
+min_ident_chars = "allow" # `f` for a Formatter is clearer than a paraphrase
 single_char_lifetime_names = "allow"
-shadow_reuse             = "allow" # `let raw = raw.into();` is a narrowing, not a bug
-shadow_same              = "allow"
-shadow_unrelated         = "allow"
-single_call_fn           = "allow" # a named helper is documentation; inlining it is not
-else_if_without_else     = "allow"
-pattern_type_mismatch    = "allow"
-ref_patterns             = "allow"
-wildcard_enum_match_arm  = "allow"
-impl_trait_in_params     = "allow" # `impl Into<String>` at a constructor is the API
-pub_use                  = "allow"
-inline_modules           = "allow" # `mod tests` belongs next to what it tests
-absolute_paths           = "allow" # `std::fs::read_to_string` beats a `use` for one call
+shadow_reuse = "allow" # `let raw = raw.into();` is a narrowing, not a bug
+shadow_same = "allow"
+shadow_unrelated = "allow"
+single_call_fn = "allow" # a named helper is documentation; inlining it is not
+else_if_without_else = "allow"
+pattern_type_mismatch = "allow"
+ref_patterns = "allow"
+wildcard_enum_match_arm = "allow"
+impl_trait_in_params = "allow" # `impl Into<String>` at a constructor is the API
+pub_use = "allow"
+inline_modules = "allow" # `mod tests` belongs next to what it tests
+absolute_paths = "allow" # `std::fs::read_to_string` beats a `use` for one call
 arbitrary_source_item_ordering = "allow" # alphabetical order destroys meaningful grouping
 
 # --- restriction: documentation and API shape not useful in a binary -------
 missing_docs_in_private_items = "allow"
 missing_inline_in_public_items = "allow"
-missing_trait_methods         = "allow"
-partial_pub_fields            = "allow"
+missing_trait_methods = "allow"
+partial_pub_fields = "allow"
 field_scoped_visibility_modifiers = "allow"
-error_impl_error              = "allow"
+error_impl_error = "allow"
 # Nothing here is a published library, so `#[non_exhaustive]` buys no compatibility
 # guarantee and costs a match arm at every use site.
 exhaustive_structs = "allow"
-exhaustive_enums   = "allow"
+exhaustive_enums = "allow"
 
 # --- restriction: numeric strictness that is ~all noise -------------------
 arithmetic_side_effects = "allow" # `panic = "abort"` plus debug overflow checks cover this
 default_numeric_fallback = "allow"
-as_conversions           = "allow"
+as_conversions = "allow"
 
 # --- restriction: only meaningful for no_std crates -----------------------
-std_instead_of_core   = "allow"
-std_instead_of_alloc  = "allow"
+std_instead_of_core = "allow"
+std_instead_of_alloc = "allow"
 alloc_instead_of_core = "allow"
 
 # --- restriction: this repo ships a CLI ------------------------------------
 print_stdout = "allow" # the binary's output and every gate's verdict go to stdout
 print_stderr = "allow" # a failing gate explains itself on stderr
-use_debug    = "allow" # `{:?}` of a redacted type is the assertion, not a slip
+use_debug = "allow" # `{:?}` of a redacted type is the assertion, not a slip
 
 # --- restriction: misc ----------------------------------------------------
 # `assert_eq!` prints both values on failure, so a message would restate the expression.

@@ -34,92 +34,92 @@ inputs:
 runs:
   using: composite
   steps:
-  # DOES THE BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release path uses
-  # read it back out?
-  #
-  # `nix/auditable.nix` builds every shipped binary with `cargo auditable`, and `release.yml`
-  # depends on `syft` reading that section: the SBOM it publishes is a crate inventory only
-  # if this works. That dependency is the reason this check is HERE rather than only there.
-  # At release time the same failure is a red tag - after four cross builds and two manifest
-  # lists have been paid for - and the branch that broke it would already have merged.
-  #
-  # TWO TOOLS, because they answer two different questions and only the second one is what
-  # the release path needs:
-  #
-  #   * `rust-audit-info` proves the SECTION IS THERE. It is the reference reader, it is
-  #     format-agnostic, and if it fails the build stopped embedding.
-  #   * `syft` proves the section is there AND that the release path's reader can parse it.
-  #     `syft` goes through `go-rustaudit`, which finds the data by looking for a section
-  #     named `.dep-v0`, and that is an ELF-shaped question - these four targets are the
-  #     ELF ones that ship.
-  #
-  # **COUNT OCCURRENCES, NEVER LINES, and this is the whole reason to read the next paragraph
-  # before editing any number here.** `grep -c` counts matching LINES, and both of these tools
-  # write JSON on ONE line - so `grep -c '"name":'` returns 1 for a document naming 241
-  # packages and 1 for a document naming none. The first version of this step used it, and the
-  # measurement it produced was not merely useless, it was actively misleading: it read as
-  # "syft cannot parse this binary" and a whole false conclusion about Mach-O section naming
-  # was written up on the strength of it. `grep -o ... | wc -l` is the fix, and it is the
-  # reason this step counts what it counts below.
-  #
-  # THE THING COUNTED IS PER FORMAT, deliberately, rather than a shared key. `"name":` appears
-  # in a tool block, in properties and in metadata as well as in a component, so it is a proxy
-  # rather than a count. CycloneDX gives every component a `"bom-ref"` and SPDX gives every
-  # package an `"SPDXID"`; those are the actual inventories, so a case on the format is worth
-  # two lines. `rust-audit-info` emits `{"packages":[{"name":...}]}` and nothing else, so
-  # there `"name":` IS the count.
-  #
-  # A FLOOR of 100 rather than a fixed number, for the reason
-  # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number: the exact
-  # number moves with every dependency bump, and what is being checked is
-  # the difference between a list of crates and no list at all. MEASURED on 2026-08-31 for the
-  # native build: `rust-audit-info` 263 packages, syft 241 `bom-ref` and 242 `SPDXID` - so the
-  # floor sits an order of magnitude below the real value and well above the three files an
-  # image without the section inventories.
-  - name: The dependency list is embedded, and readable
-    shell: bash
-    env:
-      TARGET: ${{ inputs.target }}
-      BINARIES: ${{ inputs.binaries }}
-      RESULT_PREFIX: ${{ inputs.result-prefix }}
-    run: |
-      set -eu
-      # An EMPTY set is zero iterations and exit 0, so this step would report a readable
-      # dependency list having read no binary at all - the shape the floor above exists to stop,
-      # one level up. `set -u` covers UNSET only, and the value arrives as an expression.
-      test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would inspect no binary"; exit 1; }
-      for bin in $BINARIES; do
-        embedded="${RESULT_PREFIX}${bin}/bin/${bin}"
+    # DOES THE BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release path uses
+    # read it back out?
+    #
+    # `nix/auditable.nix` builds every shipped binary with `cargo auditable`, and `release.yml`
+    # depends on `syft` reading that section: the SBOM it publishes is a crate inventory only
+    # if this works. That dependency is the reason this check is HERE rather than only there.
+    # At release time the same failure is a red tag - after four cross builds and two manifest
+    # lists have been paid for - and the branch that broke it would already have merged.
+    #
+    # TWO TOOLS, because they answer two different questions and only the second one is what
+    # the release path needs:
+    #
+    #   * `rust-audit-info` proves the SECTION IS THERE. It is the reference reader, it is
+    #     format-agnostic, and if it fails the build stopped embedding.
+    #   * `syft` proves the section is there AND that the release path's reader can parse it.
+    #     `syft` goes through `go-rustaudit`, which finds the data by looking for a section
+    #     named `.dep-v0`, and that is an ELF-shaped question - these four targets are the
+    #     ELF ones that ship.
+    #
+    # **COUNT OCCURRENCES, NEVER LINES, and this is the whole reason to read the next paragraph
+    # before editing any number here.** `grep -c` counts matching LINES, and both of these tools
+    # write JSON on ONE line - so `grep -c '"name":'` returns 1 for a document naming 241
+    # packages and 1 for a document naming none. The first version of this step used it, and the
+    # measurement it produced was not merely useless, it was actively misleading: it read as
+    # "syft cannot parse this binary" and a whole false conclusion about Mach-O section naming
+    # was written up on the strength of it. `grep -o ... | wc -l` is the fix, and it is the
+    # reason this step counts what it counts below.
+    #
+    # THE THING COUNTED IS PER FORMAT, deliberately, rather than a shared key. `"name":` appears
+    # in a tool block, in properties and in metadata as well as in a component, so it is a proxy
+    # rather than a count. CycloneDX gives every component a `"bom-ref"` and SPDX gives every
+    # package an `"SPDXID"`; those are the actual inventories, so a case on the format is worth
+    # two lines. `rust-audit-info` emits `{"packages":[{"name":...}]}` and nothing else, so
+    # there `"name":` IS the count.
+    #
+    # A FLOOR of 100 rather than a fixed number, for the reason
+    # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number: the exact
+    # number moves with every dependency bump, and what is being checked is
+    # the difference between a list of crates and no list at all. MEASURED on 2026-08-31 for the
+    # native build: `rust-audit-info` 263 packages, syft 241 `bom-ref` and 242 `SPDXID` - so the
+    # floor sits an order of magnitude below the real value and well above the three files an
+    # image without the section inventories.
+    - name: The dependency list is embedded, and readable
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        BINARIES: ${{ inputs.binaries }}
+        RESULT_PREFIX: ${{ inputs.result-prefix }}
+      run: |
+        set -eu
+        # An EMPTY set is zero iterations and exit 0, so this step would report a readable
+        # dependency list having read no binary at all - the shape the floor above exists to stop,
+        # one level up. `set -u` covers UNSET only, and the value arrives as an expression.
+        test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would inspect no binary"; exit 1; }
+        for bin in $BINARIES; do
+          embedded="${RESULT_PREFIX}${bin}/bin/${bin}"
 
-        # The reference reader first: if this fails, nothing downstream is worth checking.
-        # `grep -o ... | wc -l`, never `grep -c` - see the note above.
-        nix run .#rust-audit-info -- "$embedded" > audit-info.json
-        crates="$(grep -o '"name":' audit-info.json | wc -l)"
-        printf '%s: rust-audit-info read %s crate(s)\n' "${TARGET} ${bin}" "$crates"
-        if [ "${crates:-0}" -lt 100 ]; then
-          echo "::error::${TARGET} ${bin}: rust-audit-info read ${crates} crate(s) from the binary, expected at least 100 - the cargo auditable section is missing, so nix/auditable.nix is not doing anything"
-          exit 1
-        fi
-
-        # And the reader the release path actually uses, against the same bytes, in both the
-        # formats the release publishes - so a format syft renders differently cannot pass here
-        # and fail there.
-        nix run .#syft -- scan "file:${embedded}" \
-          -o "cyclonedx-json=binary.cdx.json" \
-          -o "spdx-json=binary.spdx.json"
-        components="$(grep -o '"bom-ref"' binary.cdx.json | wc -l)"
-        packages="$(grep -o '"SPDXID"' binary.spdx.json | wc -l)"
-        printf '%s: syft found %s CycloneDX component(s), %s SPDX id(s)\n' "${TARGET} ${bin}" "$components" "$packages"
-        if [ "${components:-0}" -lt 100 ] || [ "${packages:-0}" -lt 100 ]; then
-          echo "::error::${TARGET} ${bin}: syft found ${components} CycloneDX component(s) and ${packages} SPDX id(s), expected at least 100 of each - the section is present (rust-audit-info read ${crates}) but syft did not turn it into an inventory, so release.yml would publish an SBOM of the image's files instead of the crates"
-          exit 1
-        fi
-        # By name, in both formats. The floor above would pass on a document listing a hundred of
-        # the wrong things; this is the crate the binary cannot ship without.
-        for sbom in binary.cdx.json binary.spdx.json; do
-          if ! grep -q '"datafusion"' "$sbom"; then
-            echo "::error::${TARGET} ${bin}: ${sbom} does not name datafusion, which this binary links"
+          # The reference reader first: if this fails, nothing downstream is worth checking.
+          # `grep -o ... | wc -l`, never `grep -c` - see the note above.
+          nix run .#rust-audit-info -- "$embedded" > audit-info.json
+          crates="$(grep -o '"name":' audit-info.json | wc -l)"
+          printf '%s: rust-audit-info read %s crate(s)\n' "${TARGET} ${bin}" "$crates"
+          if [ "${crates:-0}" -lt 100 ]; then
+            echo "::error::${TARGET} ${bin}: rust-audit-info read ${crates} crate(s) from the binary, expected at least 100 - the cargo auditable section is missing, so nix/auditable.nix is not doing anything"
             exit 1
           fi
+
+          # And the reader the release path actually uses, against the same bytes, in both the
+          # formats the release publishes - so a format syft renders differently cannot pass here
+          # and fail there.
+          nix run .#syft -- scan "file:${embedded}" \
+            -o "cyclonedx-json=binary.cdx.json" \
+            -o "spdx-json=binary.spdx.json"
+          components="$(grep -o '"bom-ref"' binary.cdx.json | wc -l)"
+          packages="$(grep -o '"SPDXID"' binary.spdx.json | wc -l)"
+          printf '%s: syft found %s CycloneDX component(s), %s SPDX id(s)\n' "${TARGET} ${bin}" "$components" "$packages"
+          if [ "${components:-0}" -lt 100 ] || [ "${packages:-0}" -lt 100 ]; then
+            echo "::error::${TARGET} ${bin}: syft found ${components} CycloneDX component(s) and ${packages} SPDX id(s), expected at least 100 of each - the section is present (rust-audit-info read ${crates}) but syft did not turn it into an inventory, so release.yml would publish an SBOM of the image's files instead of the crates"
+            exit 1
+          fi
+          # By name, in both formats. The floor above would pass on a document listing a hundred of
+          # the wrong things; this is the crate the binary cannot ship without.
+          for sbom in binary.cdx.json binary.spdx.json; do
+            if ! grep -q '"datafusion"' "$sbom"; then
+              echo "::error::${TARGET} ${bin}: ${sbom} does not name datafusion, which this binary links"
+              exit 1
+            fi
+          done
         done
-      done

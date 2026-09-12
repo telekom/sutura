@@ -206,6 +206,37 @@ const FORBIDDEN: &[Forbidden] = &[
         only: &[],
         except: &[],
     },
+    // `docs/adr/0016` decision 7's two never-write sentences, one row each. The decision states
+    // them as a rule for every narrow connector's guidance, and until these rows nothing measured
+    // it: the phrases appeared only in the two pages that QUOTE them in order to forbid them, so
+    // the rule was held by recall on whoever wrote the next connector page. That is the case this
+    // table exists for, and two rows are the cheapest mechanism it has.
+    //
+    // LIMIT, because an overstated gate is worse than none: `stale_phrases` matches per LINE, so
+    // either sentence wrapped across two lines escapes both rows, and so does any paraphrase -
+    // the same ratchet-not-proof limit this module's header already records for every row here.
+    Forbidden {
+        needle: "Configure your",
+        instead: "what a deployment MAY do and what each choice buys it",
+        why: "`docs/adr/0016` decision 7: a narrow connector's guidance does not get to tell a \
+              deployment how to configure a system it owns. Every choice is an option with a \
+              payoff, and none of them is a precondition for the source to load and the prompt to \
+              be true",
+        only: &[],
+        except: &[],
+    },
+    Forbidden {
+        needle: "not usable without",
+        instead: "the empty state, named as the supported configuration it is",
+        why: "`docs/adr/0016` decision 7, and this half is not a matter of register - it is FALSE. \
+              A narrow source loads with zero metrics, zero comments and no raw tool, and pins a \
+              bundle whose declaration is exactly that truth. Writing the sentence would make a \
+              complete state read as a broken one",
+        only: &[],
+        // The two pages that QUOTE the sentence in order to forbid it. Without them the detector
+        // reports its own reasoning, the way `cargo fmt --all` above needs its two exemptions.
+        except: &["docs/adr/0016-what-datahub-can-carry.md", "docs/implementation-plan.md"],
+    },
 ];
 
 // A DEVENV SCRIPT BODY IS NOT HELD HERE ANY MORE, and the deletion is the fix rather than a
