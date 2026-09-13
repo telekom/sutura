@@ -4210,7 +4210,11 @@ reconcile them. The plan owns the numbering and the dependency graph. What is be
   correction above. What may NOT happen is that the stack stops at this branch: a <code>LegPlan</code> nothing
   renders and a <code>generate_leg</code> nothing calls is the <em>Built And Not Wired</em> shape, and AGENTS.md has a
   section named after that mistake. The branch after it is not optional.</li>
-<li><strong><code>feat/two-source-execution</code> - the execution half, with two DuckDB files as its first instance.</strong>
+</ul>
+<p><strong>Corrected: the section moved out of <code>AGENTS.md</code>.</strong> The register is now
+  <code>.agents/skills/sutura/query-surface/SKILL.md</code>'s <em>Built and not wired</em>, cited by ADR 0016 at the
+  new location. The shape this bullet warns against is unchanged.
+- <strong><code>feat/two-source-execution</code> - the execution half, with two DuckDB files as its first instance.</strong>
   The splitter in <code>sutura-semantic</code>, keyed on the relationship graph rather than on <code>SourceName</code>; the
   <code>Executable</code> enum on the port and the mechanical diff at every implementor and fake; the combiner
   port and its DataFusion implementor above the <code>Warehouse</code> port; assumption 6 becoming per-leg. Where
@@ -4218,12 +4222,11 @@ reconcile them. The plan owns the numbering and the dependency graph. What is be
   <code>differential.rs</code> gets its new shape. Evidence: rows equal to the single-source corpus, each leg's
   statement snapshotted, the filtered-remote-dimension-over-an-orphan-key case correct, and an exact
   <code>CountDistinct</code> across sources correct - <strong>not "correct or refused"</strong>, because Decision 2 chose the
-  keys.</li>
-<li><strong><code>feat/credential-port</code>, and only then the plan-stage refusal.</strong> Assumption 4, re-keyed from <em>a plan
+  keys.
+- <strong><code>feat/credential-port</code>, and only then the plan-stage refusal.</strong> Assumption 4, re-keyed from <em>a plan
   spanning two sources</em> to <em>a plan spanning two identities</em>, which is the property that was always
   meant. It cannot be written before a principal type exists, and moving it first is the diff that
-  produces a wrong number. <strong>The plan's table has no row for this re-key</strong> and needs one.</li>
-</ul>
+  produces a wrong number. <strong>The plan's table has no row for this re-key</strong> and needs one.</p>
 <p>Track 1 - <code>feat/postgres-adapter</code> and, after it, BigQuery and Oracle - runs beside all of this and
 blocks none of it: a dialect feature, a corrected bucket function, a row-limit clause, a golden family,
 and a transport decision. Where it sits in the plan's dependency graph is the plan's decision, and this

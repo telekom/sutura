@@ -2763,6 +2763,9 @@
 <p>Status: accepted. It adds an execution adapter and changes what the execution port carries. It
 supersedes nothing: the dialect layer keeps the job of rendering SQL for a remote data system, and
 federation is still later rather than now.</p>
+<p><strong>Corrected: federation is no longer later.</strong> <a href="../0007-federating-across-different-data-systems/">Federating across different data systems</a>
+landed - <code>LegPlan</code>, <code>answer_federated</code> and the two-source split all ship. What this record decided
+about the local path and the dialect layer is unchanged; only the "still later" clause is spent.</p>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
 <p>The local path is the one a person is on the first time they try this: a file on the same machine, no
 server, no login. <a href="../0001-first-party-semantic-models/">The first-party models decision</a> is why that
@@ -2887,6 +2890,11 @@ is refused rather than run partly as somebody else.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Corrected: the row's closing clause is spent.</strong> <code>CredentialBroker</code> now exists -
+<code>crates/sutura-domain/src/identity/credential.rs</code> declares the trait, and <code>sutura-config</code>'s
+<code>StaticCredentialBroker</code> is one implementor. The row's actual claim - that this path's local file
+has no login and so nobody else to be - is unchanged; only the closing clause naming the trait's
+absence no longer holds.</p>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>The local path stops being where dialect bugs are found, and that is a loss as well as a gain.</strong>

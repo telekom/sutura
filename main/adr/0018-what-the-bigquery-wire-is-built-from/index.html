@@ -3214,6 +3214,15 @@ second narrow port for the credential.</strong></p>
    subject or its credential context through one of those three interfaces, and deciding which is
    part of that change.</strong> Nothing here is a step towards it, which the <em>Consequences</em> section below
    also states.</p>
+<p><strong>Corrected: both the constant and the "reads it only to call <code>deliverable</code>" clause are stale.</strong>
+   <code>IMPERSONATION</code> is <code>ImpersonationCapability::PerSubjectCredential</code> now, and <code>BigQueryWarehouse</code>
+   does more with a presented subject than call <code>deliverable</code> - <code>subject_bearer</code> extracts a
+   <code>SubjectToken</code>'s material and rides it as the job's bearer. The three-signature argument about
+   <em>this port</em> is otherwise unaffected: nothing here lets an implementation select a credential FOR
+   the subject or tell two concurrent subjects apart, which is a property of <code>AccessTokens::bearer</code>'s
+   signature rather than of the constant. What carries the leg's subject through per-leg execution is
+   <code>crates/sutura-exec-bigquery/src/sts.rs</code>'s <code>WorkloadIdentityBroker</code>, composed in <code>sutura-serve</code>
+   (#284) - wired in serve, not proven live.</p>
 <h3 id="which-shipped-artifact-links-what-per-target">Which shipped artifact links what, per target<a class="headerlink" href="#which-shipped-artifact-links-what-per-target" title="Permanent link">&para;</a></h3>
 <p><strong>The answer today is: none of them link either half of this crate</strong>, and that is checkable rather
 than asserted.</p>
@@ -3440,6 +3449,16 @@ has grown twice since, and nothing here derives it.</p>
 everybody who asks. So what is established is <em>accepted, and correct for that identity</em>.
 <code>BigQueryWarehouse::IMPERSONATION</code> still reads <code>NoPlaceForASubject</code>, and nothing here is a step towards
 per-subject execution.</p>
+<p><strong>Corrected: the constant moved, and this section did not follow it.</strong> <code>IMPERSONATION</code> is
+<code>ImpersonationCapability::PerSubjectCredential</code> now. A leg presenting <code>Presented::SubjectToken</code> has
+somewhere to go: the token rides as the job's bearer - <code>Presented::SubjectPrincipal</code> is still refused
+(<code>BigQueryError::NoPrincipalSwitch</code>), since this adapter has no connection-level principal switch to
+give it. <strong>What this section's premise still gets right:</strong> the corpus leg tested here runs on the
+service-account credential, so a green run says nothing about the per-subject path. What that path
+needs is built, not unbuilt: <code>crates/sutura-exec-bigquery/src/sts.rs</code>'s <code>WorkloadIdentityBroker</code>
+mints the per-leg credential and <code>sutura-serve</code>'s <code>bigquery</code> composition attaches it (#284). The
+limit is narrower - wired in serve, not proven live: no exchanged token has ever run against a real
+STS (<code>.agents/skills/sutura/identity/SKILL.md</code>, <code>docs/where-identity-is-proven.md</code>).</p>
 <h3 id="the-service-account-flow-and-what-it-cost">The service-account flow, and what it cost<a class="headerlink" href="#the-service-account-flow-and-what-it-cost" title="Permanent link">&para;</a></h3>
 <p><code>0017</code>'s fixture decision named a developer's own login, and CI can only hold a key - so the credential
 module reads <strong>both</strong> kinds, as a closed two-variant shape rather than a struct of <code>Option</code>s: a document
@@ -3544,18 +3563,26 @@ remove the property the test would be checking around.</p>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>sutura-exec-bigquery</code> stays in AGENTS.md's <em>Built And Not Wired</em> section, one line further along.
-  Nothing in it may be cited as an invariant.</li>
+  Nothing in it may be cited as an invariant.
+  <strong>Corrected: the section is <code>.agents/skills/sutura/query-surface/SKILL.md</code>'s <em>Built and not
+  wired</em> now</strong> - <code>AGENTS.md</code> carries no such section. Nothing named there may be cited as an
+  invariant either.</li>
 <li>The <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/mod.rs</code> still gains <strong>no</strong> entry.
   That registry's rule is that an entry is something somebody could deploy, and a cell that has never
   executed reads as coverage. It gains one in the change that pastes a green acceptance run.</li>
 <li><code>sutura-serve</code> still refuses <code>kind: bigquery</code> by name, and correctly: it links no <code>BigQuery</code>
   adapter. Un-refusing it is a composition change that also has to answer where the deployment's
   credential comes from, and the only source built today reads a developer's own login.</li>
-<li><strong><code>just validate</code> does not cover the acceptance leg and cannot.</strong> The nix check sandbox has no
+</ul>
+<p><strong>Corrected: <code>sutura-serve</code> links the adapter now</strong>, behind the default-off <code>bigquery</code> feature -
+  <code>crates/sutura-serve/src/main.rs</code>'s <code>OpenedSources::BigQuery</code> and <code>BigQuerySource</code> type alias to
+  <code>sutura_exec_bigquery::BigQueryWarehouse</code>. A default build (the feature off) still links none of
+  it, which is the sense in which "refuses <code>kind: bigquery</code> by name" survives.
+- <strong><code>just validate</code> does not cover the acceptance leg and cannot.</strong> The nix check sandbox has no
   network, this repository is public so a workflow secret is unavailable to a fork's pull request,
   and a gate that fails for an environment reason gets disabled. The acceptance evidence for this
-  dialect lives in a developer's terminal and nowhere else.</li>
-<li><strong>A future <code>just update</code> that moves <code>ureq</code> past what <code>libduckdb-sys</code> resolves would turn the +0 into
+  dialect lives in a developer's terminal and nowhere else.
+- <strong>A future <code>just update</code> that moves <code>ureq</code> past what <code>libduckdb-sys</code> resolves would turn the +0 into
   a real number, and that is now a gate rather than this sentence.</strong> <code>cargo xtask
   check-shared-client</code> reads <code>Cargo.lock</code> and fails on two things: more than one <code>ureq</code> version, and
   <code>libduckdb-sys</code> no longer depending on <code>ureq</code> - the second being the PREMISE of the measurement,
@@ -3565,8 +3592,7 @@ remove the property the test would be checking around.</p>
   <em>same version, same features</em> - needs <code>cargo metadata</code>'s resolve graph rather than the lock, which
   is a process invocation and a JSON parser in a crate with one dependency. That absence is written
   in the gate's own header, because a gate that reads as if it covered something it does not is the
-  failure this repository names as its canonical example.</li>
-</ul>
+  failure this repository names as its canonical example.</p>
 <h2 id="amendment-2026-09-02-a-second-call-at-the-socket-and-it-is-not-a-job">Amendment, 2026-09-02: a second call at the socket, and it is not a job<a class="headerlink" href="#amendment-2026-09-02-a-second-call-at-the-socket-and-it-is-not-a-job" title="Permanent link">&para;</a></h2>
 <p><em>What is built</em> above enumerates the wire as <code>submit</code> / <code>validate</code> / <code>run</code> - three names over one
 endpoint, <code>jobs.query</code>. Issue #120 added a fourth call and it is a different KIND of call, so this

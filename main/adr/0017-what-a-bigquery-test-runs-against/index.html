@@ -3474,6 +3474,10 @@ complete, and <strong>the rows are NOT compared against the engine's</strong> an
 everybody who asks - so this establishes <em>accepted, and correct for that identity</em>, and says nothing
 whatever about per-subject execution. <code>BigQueryWarehouse::IMPERSONATION</code> still reads
 <code>NoPlaceForASubject</code>.</p>
+<p><strong>Corrected: the constant moved and this sentence did not.</strong> <code>IMPERSONATION</code> is
+<code>ImpersonationCapability::PerSubjectCredential</code> now, so a source declared <code>impersonation-at-source</code>
+can be opened here; what remains true of this paragraph is that the run it describes still used the
+service-account credential, so it establishes nothing about the per-subject path.</p>
 <h3 id="one-finding-the-live-run-produced-that-no-local-check-could-have">One finding the live run produced that no local check could have<a class="headerlink" href="#one-finding-the-live-run-produced-that-no-local-check-could-have" title="Permanent link">&para;</a></h3>
 <p>The first submission came back <code>400 invalidQuery</code>: <em>"Cannot access field day on a value with type
 INT64"</em>. The cause was in the FIXTURE rather than the generator - the plan's metric label was the same
@@ -3527,6 +3531,9 @@ one thing every version of this page, and <code>AGENTS.md</code>'s <em>Built And
 <em>no composition root links the crate, and <code>sutura-serve</code> refuses <code>kind: bigquery</code> by name.</em> Both
 sentences are now false, and this records what replaced them so a reader does not have to infer it
 from a diff.</p>
+<p><strong>Corrected: <code>AGENTS.md</code>'s register is the one that moved, not this page's finding.</strong> The section is
+now <code>.agents/skills/sutura/query-surface/SKILL.md</code>'s <em>Built and not wired</em>; the two sentences this
+amendment already retired stay retired.</p>
 <h3 id="what-is-wired">What is wired<a class="headerlink" href="#what-is-wired" title="Permanent link">&para;</a></h3>
 <p><code>sutura-serve</code> opens a <code>kind: bigquery</code> source. <code>open_engine</code> holds the exhaustive match over
 <code>sutura_config::SourceKind</code> - it MOVED there from <code>build_engine</code>, because a kind whose answer is a
@@ -3596,6 +3603,14 @@ execution arriving. And the corpus-wide leg this page specifies - #78's importer
 pointed at a dataset - was still not built when this amendment was written. <strong>It is now</strong>, and the
 third amendment below is its record; this sentence is left as the pointer rather than deleted,
 because a reader arriving at an amendment wants to know which of its limits a later one spent.</p>
+<p><strong>Corrected: the premise moved and the consequence with it.</strong> <code>IMPERSONATION</code> is
+<code>ImpersonationCapability::PerSubjectCredential</code> now, so an <code>impersonation-at-source</code> declaration
+against this adapter is no longer refused by the posture cross-check alone - <code>deliverable_by</code>
+accepts it. The broker is built too: <code>crates/sutura-exec-bigquery/src/sts.rs</code>'s
+<code>WorkloadIdentityBroker</code> performs the exchange, and <code>sutura-serve</code>'s <code>bigquery</code> composition
+attaches it (#284). What gates per-subject execution is narrower than "nothing composes it" -
+wired in serve, not proven live: no exchanged token has ever run against a real STS
+(<code>.agents/skills/sutura/identity/SKILL.md</code>, <code>docs/where-identity-is-proven.md</code>).</p>
 <h2 id="third-amendment-2026-08-31-the-corpus-leg-is-built-and-two-of-the-four-bullets-are-answered">Third amendment, 2026-08-31: the corpus leg is built, and two of the four bullets are answered<a class="headerlink" href="#third-amendment-2026-08-31-the-corpus-leg-is-built-and-two-of-the-four-bullets-are-answered" title="Permanent link">&para;</a></h2>
 <p><strong>Status of the amendment: accepted.</strong> The first amendment above ended with a sentence that has stopped
 being true, and it named itself as the thing to watch:</p>
@@ -3766,7 +3781,10 @@ rather than anything this repository can carry.</p>
 <ul>
 <li><strong>Identity is untouched.</strong> A service-account key and an application-default login are each one
   identity for everybody who asks. <code>BigQueryWarehouse::IMPERSONATION</code> still reads
-  <code>NoPlaceForASubject</code>, so a green here is <em>accepted, and correct for that identity</em>.</li>
+  <code>NoPlaceForASubject</code>, so a green here is <em>accepted, and correct for that identity</em>.
+  <strong>Corrected: <code>IMPERSONATION</code> is <code>PerSubjectCredential</code> now</strong> - this leg's own credential is still
+  one identity for everybody who asks, so the sentence's conclusion about THIS run survives; its
+  premise about the constant does not.</li>
 <li><strong>The <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/mod.rs</code> still gains no entry</strong>, and
   the <em>Consequences</em> below still hold on that point: a cell in that registry runs inside <code>just test</code>,
   and this cannot, because the nix sandbox has no network. The corpus leg is a second <code>#[ignore]</code>d

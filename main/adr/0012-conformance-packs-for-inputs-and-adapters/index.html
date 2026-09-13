@@ -2783,6 +2783,14 @@
 
 <h1 id="conformance-packs-for-inputs-and-adapters">Conformance packs for inputs and adapters<a class="headerlink" href="#conformance-packs-for-inputs-and-adapters" title="Permanent link">&para;</a></h1>
 <p>Status: <strong>accepted as the shape. None of it is built.</strong></p>
+<p><strong>Corrected: most of it is built now.</strong> <code>crates/sutura-conformance</code> exists as the dev-only packs
+crate this record specifies; <code>execute_packs!</code> binds it to three data systems
+(<code>sutura-exec-duckdb</code>, <code>sutura-exec-postgres</code>, <code>sutura-exec-datafusion</code> - the engine); compile packs
+run behind the harness crate's default-off <code>compile</code> feature; and <code>cargo xtask
+check-conformance-bindings</code> (<code>xtask/src/conformance.rs</code>) is the gate the <em>Consequences</em> section
+below asks for, holding the registry and the macro invocation in step. What is still unbuilt, per
+the record's own later corrections further down: a per-pack timing aggregate, <code>cargo-insta</code>'s
+unreferenced-snapshot check, and a data adapter beyond the three bound today.</p>
 <p>The requirement is that every metadata input and every data adapter conforms to the <strong>same tests and
 functions</strong>, so a new connector proves itself by registering and declaring rather than by anyone
 editing a test. This record is the construction.</p>
