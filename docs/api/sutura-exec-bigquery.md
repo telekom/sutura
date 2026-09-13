@@ -976,9 +976,11 @@ A dry run's own byte estimate, when it priced one - `None` is `docs/adr/0030`'s 
 never a defaulted zero.
 
 **A named alias rather than `Option<EstimatedBytes>` written out at every return type**, because
-composed with a `Result` it crossed this workspace's tightened `clippy::type-complexity`
-threshold at the two call sites that return it. Naming it is also more honest than shortening it
-would be: the type IS an option, and a caller matching on it should see that.
+this exact shape - wrapped in a `Result` - is the return type of `JobTransport::validate` and
+every one of its implementors, fake and real; a name spares each of those sites the `Option` and
+says what the value MEANS at the read site, which the bare composed type would not. It does not
+cross this workspace's `clippy::type-complexity` threshold - it is well under it - so the alias
+earns its place on readability alone, not on a lint that does not fire either way.
 
 ## Module `wire`
 
