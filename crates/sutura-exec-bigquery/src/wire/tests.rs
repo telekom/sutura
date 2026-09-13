@@ -330,6 +330,16 @@ fn a_dry_run_that_processes_bytes_reports_the_estimate_it_read() {
 }
 
 #[test]
+fn a_dry_run_priced_at_zero_reports_a_real_zero_not_an_absence() {
+    // The wire's own half of `EstimatedBytes`'s claim that zero is a real answer: `"0"` on the wire
+    // is `Some(EstimatedBytes::parse(0))`, not `None` - the two are read apart here, not only
+    // asserted apart on the domain type in `warehouse/estimate.rs`.
+    let parsed = answer(r#"{"jobComplete": true, "totalBytesProcessed": "0"}"#);
+    let read = estimated_bytes::<CannotFail>(&parsed).expect("a numeric estimate parses");
+    assert_eq!(read, Some(EstimatedBytes::parse(0)));
+}
+
+#[test]
 fn a_dry_run_with_no_priced_field_reports_the_honest_absence() {
     // `None` here means "the endpoint did not price this", never zero and never a refusal - the same
     // distinction `PreFlight::NotAsked` draws one level up, held one level in.

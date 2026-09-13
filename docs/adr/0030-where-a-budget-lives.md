@@ -14,7 +14,9 @@ durations) bounds bytes or time already answered, not money not yet spent.
 
 ## Context
 
-The pieces this decision assembles already exist and none of them talk to each other:
+The pieces this decision assembles already exist and none of them talk to each other, stated here at
+the time of this record (`main` before #662 - `PreFlight` gains the field this section says it lacks
+in the PR this ADR ships beside):
 
 - **`Warehouse::dry_run`** returns `PreFlight`, asked before `execute` spends anything.
   `PreFlight::Accepted` carries no field - `crates/sutura-domain/src/warehouse.rs` - so an adapter
@@ -63,7 +65,12 @@ tooling can be fixed, the counter still refuses at the same ceiling either way, 
 actor chain travels with the refusal and the audit record instead of disappearing - *whose* retry
 spent the budget is answerable after the fact even though the counter did not key on it in advance.
 A subject who cannot see or govern their own agents is exposed to this cost; a subject is never
-exposed to another subject's agents, because the key is still per-subject.
+exposed to another subject's agents, because the key is still per-subject. **That per-subject
+isolation is itself conditional on `security.inbound` being configured:** on a deployment that
+declares none, `PrincipalChain::attribution()`'s subject is `Subject::TheDeploymentItself` for every
+caller (`crates/sutura-http/src/principal.rs`), so the per-subject key collapses to one shared key and
+the budget this record designs becomes, on that shape, a deployment-wide budget in per-subject
+clothing - one caller's runaway refuses everyone.
 
 **Where the actor chain goes instead.** Not into the key, and not discarded: `PR2`'s refusal shape
 and whatever audit record already carries `PrincipalChain` (`crates/sutura-domain/src/audit.rs`
@@ -80,8 +87,14 @@ spend to refuse, which is the question `attribution()` exists to make answerable
 ## Where the counter lives: per-replica for the first version, stated as such
 
 **Decision: the first counter is in-process, one per replica, keyed by the subject from
-`attribution()`, reset on restart.** No new dependency, no new failure mode, and it ships with the
-estimate rather than behind a store decision.
+`attribution()`, windowed - it resets on a fixed period as well as on restart, never only on
+restart.** No new dependency, no new failure mode, and it ships with the estimate rather than behind
+a store decision. Windowed rather than a lifetime cap is decided here, not deferred to
+`feat/budget-refusal`, because *What a spent budget produces* below argues a `429` from the
+self-healing property a window gives and a lifetime cap does not have: a cap that only clears on
+restart makes the refusal permanent until a redeploy, which is #139's own complaint about a `429`
+inviting a retry that will also fail - so the counter shape and the refusal's status are one decision,
+made together here rather than the status assuming a shape nothing had picked yet.
 
 **Alternative declined, for now: a shared store across replicas.** This is the strictly better
 control - #139's own premise is that per-pod counters are not a budget - and it is declined here
@@ -104,8 +117,9 @@ beside this record as an operator note for BigQuery deployments, not instead of 
 
 **The cost of the pick, stated where the claim is:** a deployment with N replicas gets N times the
 configured ceiling before every replica has independently refused, and a counter resets on every
-restart or rolling deploy. This is not the budget #139 asks for; it is the smallest piece of it that
-adds nothing to reason about failing, and the settings key it reads MUST say so in its own
+restart or rolling deploy, in addition to its own window. This is not the budget #139 asks for; it is
+the smallest piece of it that adds nothing to reason about failing, and the settings key it reads
+MUST say so in its own
 description rather than name itself `budget` unqualified - `per_replica_spend_ceiling`, not
 `spend_budget`, so a deployment that reads its own configuration cannot mistake the limit for the
 goal.
@@ -137,11 +151,27 @@ budget refusal is not that - narrowing does not help (the question already fits 
 range), and repeating **does**, once the window resets. A shared variant with two different retry
 semantics behind one status is the kind of finding `docs/adr/0005` was written to stop.
 
-**Not decided here: the variant's exact fields**, because they follow from whichever counter shape
-`feat/budget-refusal` builds - a window's reset instant is only nameable if the counter is windowed
-rather than a lifetime cap, and that is the same decision the counter section above declined to make
-early. The refusal's status and its category - self-healing, not narrowable - are decided; its
-payload is not.
+**Not decided here: the variant's exact fields.** The counter is windowed, decided above, so a
+`Retry-After` naming the window's reset is possible; the field carrying it, and whatever else the
+variant names, follow from `feat/budget-refusal`'s own implementation. The refusal's status and its
+category - self-healing, not narrowable - are decided; its exact payload is not.
+
+**This decision amends `docs/adr/0005-a-refusal-carries-a-status.md` before the code exists to amend
+it with.** That record's Context section states *"the two \[statuses retried by convention, `429`
+and `408`\] and no refusal maps to either"* (0005, Context), and
+`crates/sutura-http/src/wire/refusal.rs`'s own header comment repeats it; both become false the day
+`feat/budget-refusal` lands a `RefusalReason` at `429`. Recorded here, ahead of that PR, in the same
+spirit 0005 already amends itself in place for a landed row (0008's `CredentialUnavailable`) - `0005`
+gets its own amendment paragraph and status-table row, and `refusal.rs`'s header comment its own
+edit, in the commit that lands the variant, not this one.
+
+**`429` is already spent on this surface, by a different key.** `Failure::RateLimited`
+(`crates/sutura-http/src/problem.rs`) is `429` today, keyed on the caller's address by the rate
+limiter - "you personally asked too often" about a connection, not a subject. A budget refusal keyed
+on `attribution()`'s subject would share the status and differ in `code`, the same shape `problem.rs`
+already uses for `Unavailable`/`IdentityUnavailable`/`AtCapacity` sharing `503`: two keys, address and
+subject, behind one status, told apart by the reader that matters - the client branching on `code`.
+Stated here so the shared status is a decision rather than a collision noticed later.
 
 ## What "spend" means per data system
 
@@ -210,6 +240,10 @@ except the one call site with a real number to put there
   allowance the subject needed for their own next direct question. The actor chain travels with the
   refusal and the audit record so the spend is diagnosable after the fact, but the counter itself
   cannot tell the subject's own asking apart from an agent's on the way to the ceiling.
+- **On a deployment with no `security.inbound`, the per-subject key is a deployment-wide key.**
+  Every caller's `attribution()` names `Subject::TheDeploymentItself`, so the isolation *The key*
+  section claims between subjects holds only once leg 1 is configured; on the shape that ships
+  before it, this budget is one shared allowance and any caller's runaway refuses every other.
 - **The estimate is a plan-time number and not a promise.** `PreFlight::Accepted` already carries this
   limit for acceptance - *"the data system's opinion at pre-flight time and not a guarantee about
   execute"* - and an estimate inherits it: what a job is actually billed for can differ from

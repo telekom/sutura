@@ -19,6 +19,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::{ColumnName, Grain, MetricName, QualifiedTable, TableName};
 use sutura_domain::plan::{Executable, PlanBindings, PlanBucket, PlanColumn, ResultLabel};
 use sutura_domain::source::ImpersonationCapability;
+use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{PreFlight, Value, Warehouse};
 
@@ -357,14 +358,23 @@ fn a_dry_run_really_asks_the_endpoint_before_it_says_accepted() {
     // `PreFlight::Accepted` is a claim that the data system looked, and the port's own `NotAsked`
     // default exists so an adapter cannot make that claim without asking. This one can: a dry run at
     // this endpoint validates the query without using slots and without being charged.
-    let warehouse = open(Recording::empty(), shared_posture());
+    //
+    // The fake is told to answer with a fixed estimate, so this asserts the CARRY - that the number
+    // the transport returns from `validate` is the number that reaches `PreFlight::Accepted`, and not
+    // only that the endpoint was asked. A transport that discarded what it decoded and a `dry_run`
+    // that hardcoded `None` regardless of the answer would both still pass a test that only checked
+    // `validated`; this fixture value is what tells them apart.
+    let warehouse = open(Recording::empty().estimating(2048), shared_posture());
     let plan = plan();
     let answered = warehouse
         .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()))
         .expect("the fake validates");
-    // The fake never simulates an estimate, so this asserts the field the fake actually carries -
-    // whether the endpoint was really asked - and not the number, which `wire/tests.rs` covers.
-    assert_eq!(answered, PreFlight::Accepted { estimated_bytes: None });
+    assert_eq!(
+        answered,
+        PreFlight::Accepted {
+            estimated_bytes: Some(EstimatedBytes::parse(2048))
+        }
+    );
     assert_eq!(*warehouse.transport.validated.borrow(), 1);
 }
 

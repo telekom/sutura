@@ -102,9 +102,9 @@ struct Dataset<'job> {
 /// **No `deny_unknown_fields`, and that is the deliberate exception to a rule this repository applies
 /// to every shape it owns.** The rule is about documents *this repository defines*, where an
 /// undeclared field is an author's mistake worth naming. This document is defined by the service:
-/// it already carries `kind`, `jobReference`, `cacheHit`, `totalBytesProcessed` and more that
-/// nothing here reads, and it will carry more later. Refusing an answer the day it grows a field
-/// would be a gate that fails on a correct input.
+/// it already carries `kind`, `jobReference`, `cacheHit` and more that nothing here reads, and it
+/// will carry more later. Refusing an answer the day it grows a field would be a gate that fails on
+/// a correct input.
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct QueryAnswer {
