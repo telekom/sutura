@@ -218,6 +218,10 @@ pub(crate) struct RawGovernance {
     /// refuses further questions until the window resets. Absent means no ceiling: this replica
     /// counts nothing and refuses nothing on this account, which is today's behaviour.
     ///
+    /// **Counts only spend an adapter priced at pre-flight - today `BigQuery` - and refuses
+    /// nothing for an adapter that did not price its dry run.** Writing this key does not meter
+    /// every declared source; it meters what the dry run itself was able to estimate.
+    ///
     /// A nested object rather than two sibling keys, so the pair is declared together or not at
     /// all - there is no state where only one of `bytes` and `window_seconds` is configured for
     /// `Settings::parse` to have an opinion about.

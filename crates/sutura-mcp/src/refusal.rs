@@ -175,16 +175,18 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              budget for one answer. Retrying it unchanged will be refused again: narrow the \
              period, ask for fewer dimensions, or add a filter."
         ),
-        // Written for an agent, and the one refusal here that DOES self-heal: unlike every other
-        // arm above, waiting is a real remedy and not a false promise. `docs/adr/0030` is the
-        // record. The sentence says how long, so an agent can decide to wait rather than guessing
-        // that a retry now would succeed.
+        // Written for an agent, and USUALLY the one refusal here that self-heals: unlike every
+        // other arm above, waiting is usually a real remedy. `docs/adr/0030` is the record. The one
+        // exception is stated too: a question whose own estimate is over the ceiling by itself is
+        // refused every window, and only narrowing helps there.
         RefusalReason::BudgetExhausted { reset_after_seconds } => format!(
             "the person you are acting for has spent this deployment's per-replica byte ceiling \
-             for the current window. Asking again right now will be refused again; it becomes \
-             answerable in {reset_after_seconds} seconds, when the window resets. Narrowing the \
-             question does not help - the ceiling is about how much has already been spent, not \
-             about this question's shape."
+             for the current window. Asking again right now will be refused again; it usually \
+             becomes answerable in {reset_after_seconds} seconds, when the window resets, and \
+             narrowing does not usually help - the ceiling is about how much has already been \
+             spent, not about this question's shape. If it is refused again immediately in a fresh \
+             window, this question's own estimate is over the ceiling by itself: waiting will never \
+             help that case, and narrowing the question is the only remedy."
         ),
     };
     (code, detail)

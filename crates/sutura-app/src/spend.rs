@@ -53,8 +53,12 @@ struct Window {
 }
 
 /// What one charge against the ledger decided.
+///
+/// `pub(crate)`, not `pub`: nothing outside this crate calls [`SpendLedger::charge`] (only
+/// `crate::charge_subject` and `crate::federated::answer_federated`'s own sum do), so exporting
+/// this widened `docs/api/sutura-app.md` for nobody.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Charge {
+pub(crate) enum Charge {
     /// Under the ceiling, or no ceiling is configured at all.
     Admitted,
     /// Spending this would put the subject over the ceiling for the window still open.
@@ -114,7 +118,7 @@ impl SpendLedger {
                   into one chained expression does not borrow-check - E0716, temporary dropped while \
                   still borrowed"
     )]
-    pub fn charge(&self, subject: &Subject, estimated_bytes: u64, now: Instant) -> Charge {
+    pub(crate) fn charge(&self, subject: &Subject, estimated_bytes: u64, now: Instant) -> Charge {
         let Some(budget) = self.budget else {
             return Charge::Admitted;
         };

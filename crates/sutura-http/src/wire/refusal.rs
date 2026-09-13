@@ -354,9 +354,10 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             format!(
                 "this replica's per-subject spend ceiling is exhausted for the current window; \
                  asking again now returns this same refusal. It resets in {reset_after_seconds} \
-                 seconds, and the same question asked again after that is answered, not refused - \
-                 narrowing it does not help, because the ceiling is about spend already made rather \
-                 than about this question's shape"
+                 seconds, after which the same question is usually answered rather than refused - \
+                 unless this question's own estimate is itself over the ceiling, in which case it \
+                 is refused every window and narrowing it is the only remedy, because the ceiling \
+                 is otherwise about spend already made rather than about this question's shape"
             ),
         ),
     };

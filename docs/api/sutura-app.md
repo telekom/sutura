@@ -115,7 +115,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline) -> Answering<W, B>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline, ledger: &SpendLedger) -> Answering<W, B>
 ```
 
 Answers one question, or says why it will not.
@@ -226,6 +226,58 @@ The data systems this process opened.
 Keyed by each adapter's own `Warehouse::source` rather than by a name the caller passes
 alongside it, so the key and the adapter cannot disagree about which source this is - the same
 reason `PinnedDefinitions::pin` computes its digest from the definitions it stores.
+
+## `use BootIdentity`
+
+The process's own static root identity, under which boot-time trust runs.
+
+The deployment's own word for who it is - `Subject::TheDeploymentItself` in the domain - and the
+identity `verify_anchor` and the shared-service-user legs run as. A marker rather than a
+credential, and deliberately a unit: there is one deployment, one value, and no way to confuse
+it with a caller. `BootRoot` holds exactly one of these, and nothing on the request path can
+mint one.
+
+## `use BootRoot`
+
+The single root of trust boot holds: the validated bundle and nothing a request needs.
+
+## A caller's assertion cannot make it in
+
+The constructor's second argument is the deployment's OWN identity, so a `RequestContext` is a
+compile error wherever a `BootRoot` is being built - the root cannot be handed, or repurposed
+to answer as, a caller.
+
+```compile_fail
+use sutura_app::{BootIdentity, BootRoot};
+use sutura_domain::identity::RequestContext;
+use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
+use sutura_domain::warehouse::Warehouse;
+
+// No parameter takes a caller's assertion: the second argument is the root's own identity.
+fn _boot<W: Warehouse>(
+    pinned: PinnedDefinitions,
+    context: RequestContext,
+    warehouses: &sutura_app::Warehouses<W>,
+) -> Result<BootRoot, NotValidated> {
+    BootRoot::validate(pinned, context, warehouses)
+}
+```
+
+The twin, with the root's only other argument:
+
+```
+use sutura_app::{BootIdentity, BootRoot};
+use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
+use sutura_domain::warehouse::Warehouse;
+
+fn _boot<W: Warehouse>(
+    pinned: PinnedDefinitions,
+    identity: BootIdentity,
+    warehouses: &sutura_app::Warehouses<W>,
+) -> Result<BootRoot, NotValidated> {
+    BootRoot::validate(pinned, identity, warehouses)
+}
+```
 
 ## `use Capability`
 
@@ -384,6 +436,24 @@ catalog declares a relationship and attaches no data to it, so a block moved bel
 fails there first, on `declared_keys::hold`'s own refusal, rather than on this one. Nothing
 separates the placement from `verify_anchors` alone, and no fixture's fake counts an anchor
 or a declared key that was never touched.
+
+## `use SpendBudget`
+
+A byte ceiling and the window it resets on, already validated.
+
+A plain pair rather than a re-export of `sutura_config::SpendBudget`: this crate depends on
+nothing outside `sutura-domain`, `sutura-semantic` and `thiserror` - see this crate's own module
+documentation - and a composition root reads the validated ceiling and window out of its
+settings and hands the two primitives here, the same shape `working_set_bytes: u64` already
+uses for `RuntimeSettings::working_set`.
+
+## `use SpendLedger`
+
+The counter: one instance per process, consulted by every question this replica answers.
+
+**`&self`, not `&mut self`** - one ledger is shared by every request without a lock in this
+type's own signature, the same shape `sutura_domain::audit::AuditSink::record` uses for the same
+reason. The mutable state is inside a `Mutex` guarding the per-subject map.
 
 ## `type_alias Answering`
 
@@ -613,6 +683,12 @@ heterogeneous set is an architecture decision rather than a change here.
 answer mints once, for every source its plan reads, and `sutura_domain::warehouse::Warehouse`
 has no signature that runs without the result - so a service with no broker is not a service
 that answers as the process, it is a service that does not compile.
+**It also holds the spend ledger, unbounded unless a composition root opts in.** `Self::start`
+and `Self::start_composed` build one with `SpendLedger::no_budget` - today's behaviour, before
+this counter existed - and `Self::with_spend_ledger` is how a root that read a configured
+ceiling out of its settings replaces it. Not a constructor argument, unlike every other field
+here: those are what a service cannot exist without, and an unbounded ledger is a real, working
+default rather than an omission this type should refuse to start without.
 
 #### Methods
 
@@ -642,6 +718,18 @@ validates is the bundle this serves" true for N sources rather than for one.
 
 `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
 startup failure is reported from wherever the composition root happens to be.
+
+```rust
+pub fn with_spend_ledger(self, spend_ledger: SpendLedger) -> Self
+```
+
+Replaces the spend ledger, for a composition root that read a configured per-replica
+ceiling out of its settings.
+
+A setter rather than a constructor argument, so every existing caller of `Self::start` and
+`Self::start_composed` - most of which configure no ceiling at all - keeps its original
+argument list. `docs/adr/0030` is the record; `governance.per_replica_spend_ceiling` absent
+is the state every one of those callers is already in.
 
 #### Implements
 
@@ -771,27 +859,24 @@ pub enum Tool
 
 One operation a transport exposes.
 
-Three variants: the certified surface's own two operations, and `docs/adr/0013`'s raw tool -
-`Surface::run_sql`. The raw tool is not in `Tool::ALL`:
-unlike `Catalog` and `Query`, no transport mounts it unconditionally, so a composition root adds
-`Tool::RunSql` to the list it passes only when `tools.run_sql.enabled` is true for the deployment
-it is rendering for. It is a list rather than a constant because the point is that a caller
-passes the subset it actually mounts: `Tool::ALL` is what a transport serving the whole certified
-surface passes, and a deployment that mounts only one passes only that one.
+Two variants: the certified surface's own operations, and the prompt's name for each.
+`Surface` gained a third method - `run_sql`, `docs/adr/0013`'s tool -
+and this enum deliberately did not grow with it: prompt framing for the raw tool is its own
+record, not a consequence of this one, so `Tool::ALL` still names only what the certified prompt
+talks about. It is a list rather than a constant because the point is that a caller passes the
+subset it actually mounts: `Tool::ALL` is what a transport serving the whole certified surface
+passes, and a deployment that mounts only one passes only that one.
 
-**Two certified entries make this cheap insurance rather than a large win, and it is worth saying
-so.** The property it buys is narrow: the rendered workflow cannot instruct an agent to call an
-operation that is not there. With two operations that is one branch. It is here because the
-branch costs a match arm and the alternative - a hand-written workflow that is right until the
-day a deployment stops mounting the listing - costs a debugging session. `RunSql` reuses the same
-mechanism for the opposite direction: an agent is told about the raw tool only where it can
-actually be called.
+**Two entries make this cheap insurance rather than a large win, and it is worth saying so.** The
+property it buys is narrow: the rendered workflow cannot instruct an agent to call an operation
+that is not there. With two operations that is one branch. It is here because the branch costs a
+match arm and the alternative - a hand-written workflow that is right until the day a deployment
+stops mounting the listing - costs a debugging session.
 
 #### Variants
 
 - `Catalog` - Reading what this deployment defines. `GET /v1/catalog`, `sutura catalog`, and whatever an MCP transport would call it. `Surface::definitions`.
 - `Query` - Asking one certified question. `Surface::answer`.
-- `RunSql` - Running one literal, ungoverned SQL statement - `docs/adr/0013`'s tool, off by default. `Surface::run_sql`. Present here only when a deployment turned it on; see this type's own documentation for why it is not in `Tool::ALL`.
 
 #### Methods
 
@@ -810,14 +895,6 @@ pub const fn summary(self) -> &'static str
 ```
 
 What it does, in one line, for the operations list.
-
-`RunSql`'s wording is `docs/adr/0022`'s framing for this tool, restated for an agent rather
-than an operator: ungoverned, runs under the deployment's own role rather than the asking
-subject's, and its result carries none of the provenance a `query` answer carries. It never
-calls the raw tool's own result "certified" in any form, including a negated one - the word
-belongs to the certified path alone, and
-`tests::run_sql::the_run_sql_summary_names_the_ungoverned_boundary_and_never_calls_it_certified`
-holds the sentence to that.
 
 #### Implements
 
@@ -1509,8 +1586,8 @@ notion of what a scope is.
 Asking every open data system whether it holds the tables the bundle names.
 
 **The decision sequence, once, for every composition root that has one** - and it is here rather
-than copied into each because review measured the copy: each helper underneath was
-byte-identical between `sutura-serve` and `sutura-cli`, and none of them contains a word an
+than copied into each because review measured the copy: the two helpers underneath were
+byte-identical between `sutura-serve` and `sutura-cli`, and neither of them contains a word an
 operator reads. `models_by_table` is a pure query over `PinnedDefinitions`, which is a
 `sutura-domain` type, and `AbsentBehind`'s rendering is a list of names rather than a sentence.
 
@@ -1566,24 +1643,6 @@ root that composed the adapter is the one that can flatten it.
 - `Refused` - The data system refused to be asked: this identity may not list it.
 - `Unverified` - The data system could not be asked, for a reason that is not a refusal.
 
-#### Methods
-
-```rust
-pub fn boot_policy(self) -> BootPolicy<E>
-```
-
-Splits this verdict the one way both composition roots split it.
-
-Exhaustive over `Verdict`, so a variant added to the port's answer is a compile error
-here - at the one place that has to decide which side of the boot policy it falls on -
-rather than a silently-served outcome in whichever root forgot it.
-
-# Errors
-
-The four outcomes this deployment does not start on: a refused listing, a table the data
-system does not hold, an unreadable inventory, and an inventory that did not account for
-itself.
-
 #### Implements
 
 `Debug`
@@ -1631,69 +1690,6 @@ The absent tables and the models behind each, for a root that renders its own sh
 
 `Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
 
-### `enum Refusal`
-
-```rust
-pub enum Refusal<E>
-```
-
-The boot policy over one `Verdict`: this deployment refuses, or it carries on and says so.
-
-**The partition is the thing that was held by recall in two composition roots.** Each root
-matched all seven verdicts and decided per arm which ones return an error, and the two agreed
-only because someone kept them agreeing - so a source whose outcome one root refused and the
-other served was a two-file edit away. Stating it once makes the two roots' boot behaviour the
-same fact rather than the same intention.
-
-**`Err` for a refusal here, and that is not the query path's rule inverted.** A governance
-refusal lives inside the `Ok` where a CALLER could mistake it for a hiccup and retry; this is
-boot, the outcome is that the process does not start, and both roots already answered `Err` for
-exactly these four outcomes, carrying a rendered sentence. What changed is that the four are now
-a type rather than prose a caller would have had to parse.
-
-**The limit, stated with the claim.** This is a type saying which outcomes refuse. It does not
-confine a root to asking: `Verdict` is still public, because *what the data system answered*
-and *what this deployment does about it* are two questions, and the port's own answer is what an
-adapter's suite asserts on. A future root that matches `Verdict` directly and re-decides the
-split is what review has to catch; no type here stops it.
-
-Which outcome belongs on which side is `Verdict`'s own documentation, and changing it is
-`telekom/sutura#141`'s decision rather than a call site's.
-
-#### Variants
-
-- `Refused` - The data system refused to be listed: this identity may not ask.
-- `Absent` - Asked, answered, and these tables are not there - with the models that named them.
-- `UnreadableInventory` - An unreadable inventory established neither presence nor absence for these tables.
-- `Unaccounted` - The answer did not account for every table the data system said it holds.
-
-#### Implements
-
-`Debug`
-
-### `enum Notice`
-
-```rust
-pub enum Notice<E>
-```
-
-The boot policy's other side: this deployment serves, and a root says what was established.
-
-**Every one of these is a line a root emits, including the two clean ones.** `NotReported` is
-the outcome meaning *nothing verified this*, so a root that printed nothing for it would make it
-indistinguishable from a data system that really looked - which is why silence is not one of the
-shapes here.
-
-#### Variants
-
-- `Present` - Asked, and every table is there. Carries how many, for a line that says so.
-- `NotReported` - The adapter did not report - `TablesPresent::NotAsked`, the port's default.
-- `Unverified` - The data system could not be asked, for a reason that is not a refusal.
-
-#### Implements
-
-`Debug`
-
 ### `struct Asked`
 
 ```rust
@@ -1730,46 +1726,6 @@ What it answered.
 
 `Debug`
 
-### `struct TablesChanged`
-
-```rust
-pub struct TablesChanged
-```
-
-The bundle being served names tables that are not the ones attached behind it.
-
-**A type rather than the `String` both roots built**, and the two sets rather than a rendered
-sentence: a caller that wants to act on which tables moved can read them, and the sentence is
-`Display` for the roots that only want to print it. Both roots printed the SAME
-sentence - measured byte-identical - so it is not wording that belongs to a transport, and it
-moved with the comparison instead of being copied a third time.
-
-Non-empty by construction: `refuse_unattached` is the only constructor and returns `Ok` when
-both sets are empty, so a mismatch that names nothing is unrepresentable rather than checked.
-
-**The limit, stated with the claim.** What this compares is TABLE NAMES between two loads of one
-catalog directory. It does not establish that a table which is attached holds the columns a
-model names, and it says nothing about a data system a root never attached anything for - the
-pre-flight above is that half, for the sources that can answer it.
-
-#### Methods
-
-```rust
-pub const fn extra(&self) -> &BTreeSet<TableName>
-```
-
-Tables attached for a model the bundle being served no longer names.
-
-```rust
-pub const fn missing(&self) -> &BTreeSet<TableName>
-```
-
-Tables the bundle being served names with no table attached behind them.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
 ### `fn ask`
 
 ```rust
@@ -1794,51 +1750,80 @@ printed would not be assertable.
 The order is the registry's, which is the source name's - so two roots asking the same question
 report it in the same order, and a test can name the answer it expects rather than search for it.
 
-### `fn served_tables`
+## Module `spend`
+
+The per-replica spend counter: in-process, windowed, keyed by the asking subject.
+
+`docs/adr/0030-where-a-budget-lives.md` decides every shape here; this module is the mechanism.
+Three decisions worth restating because a reader of the code alone could miss them:
+
+**Fixed windows, not sliding ones.** A subject's spend resets to zero the first time this
+ledger is consulted after the window has elapsed, rather than decaying continuously. Simpler to
+reason about - "how much has this subject spent since their window started" needs one `Instant`
+and one running total, not a queue of timestamped charges to prune - and the cost a sliding
+window would avoid (a subject who spends right at a boundary can spend up to twice the ceiling
+across the seam) is not a cost `docs/adr/0030` asked this record to close: the record's own
+scope is a per-replica counter that resets on restart in addition to its own window, so a seam
+effect inside one window is not the precision this shape is buying.
+
+**Keyed on `Subject`, never the whole `PrincipalChain`.**
+An agent acting for a subject spends that subject's own budget - see the ADR for the argument and
+its cost.
+
+**`None` configured is unlimited, not zero.** `SpendLedger::no_budget` is what every deployment
+ran before this existed, and it is a real state a caller may still choose rather than a value
+nothing constructs.
+
+### `struct SpendBudget`
 
 ```rust
-pub fn served_tables(served: &sutura_domain::pinned::PinnedDefinitions) -> std::collections::BTreeSet<sutura_domain::model::TableName>
+pub struct SpendBudget
 ```
 
-Every table the bundle's models sit behind, whichever data system holds it.
+A byte ceiling and the window it resets on, already validated.
 
-A pure query over a `sutura-domain` type, here rather than in each composition root for
-`models_by_table`'s reason: it names nothing an operator reads. Both roots compared the result
-against what their engine attached, from a body that was byte-identical in the two of them.
+A plain pair rather than a re-export of `sutura_config::SpendBudget`: this crate depends on
+nothing outside `sutura-domain`, `sutura-semantic` and `thiserror` - see this crate's own module
+documentation - and a composition root reads the validated ceiling and window out of its
+settings and hands the two primitives here, the same shape `working_set_bytes: u64` already
+uses for `RuntimeSettings::working_set`.
 
-### `fn refuse_unattached`
+#### Methods
 
 ```rust
-pub fn refuse_unattached(serving: &std::collections::BTreeSet<sutura_domain::model::TableName>, attached: &std::collections::BTreeSet<sutura_domain::model::TableName>) -> Result<(), TablesChanged>
+pub const fn new(ceiling_bytes: u64, window: Duration) -> Self
 ```
 
-The tables the bundle being served names, against the tables the engine actually holds.
+#### Implements
 
-**One home for a comparison both composition roots made from byte-identical bodies.** The two
-sets come from two `load()` calls on the same catalog directory; a model added between them is
-refused here rather than served with no table behind it, which would fail the first question
-against it at query time.
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
-Two sets rather than a bundle and an engine, so the comparison is unit-testable without a digest,
-a knowledge declaration or a data system - `served_tables` is the other half and is one map
-over a public accessor.
+### `struct SpendLedger`
 
-Both directions are refused, and the second is not pedantry: a table attached for a model the
-served bundle no longer names means the catalog directory changed between two loads seconds
-apart, and whatever else moved with it is the part nobody has looked at.
+```rust
+pub struct SpendLedger
+```
 
-# Errors
+The counter: one instance per process, consulted by every question this replica answers.
 
-Either set holding a table the other does not, as a `TablesChanged` carrying both differences.
+**`&self`, not `&mut self`** - one ledger is shared by every request without a lock in this
+type's own signature, the same shape `sutura_domain::audit::AuditSink::record` uses for the same
+reason. The mutable state is inside a `Mutex` guarding the per-subject map.
 
-### `type_alias BootPolicy`
+#### Methods
 
-The two sides of the boot policy: a notice this deployment serves with, or a refusal it stops on.
+```rust
+pub fn new(budget: Option<SpendBudget>) -> Self
+```
 
-A named alias because `clippy::type_complexity` refuses the bare `Result` at this arity, and the
-name is the better half of that trade rather than a suppression: the split IS the decision, so a
-signature that says *boot policy* reads as the thing being returned and not as two halves a
-caller has to recombine. It stays a `Result` so `?` in a composition root keeps working.
+A ledger bounded by `budget`, or unbounded if `None`.
+
+```rust
+pub fn no_budget() -> Self
+```
+
+No ceiling configured. Every question is admitted and nothing is counted - `docs/adr/0030`'s
+"absent means no budget, which is today's behaviour" read back as a constructor.
 
 ## Module `raw`
 

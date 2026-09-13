@@ -214,16 +214,21 @@ const DEADLINE_EXCEEDED: Guide = Guide {
              not a passing condition, so this is not an outage to wait out.",
 };
 
-// The one guide that says wait rather than narrow, and it is deliberately the only one that does:
-// every other entry either has a change that helps or has none at all, and this is the one refusal
-// where the SAME question, unmodified, becomes answerable once the window resets - `docs/adr/0030`.
+// Usually the one guide that says wait rather than narrow - every other entry either has a change
+// that helps or has none at all, and most of the time this is the one refusal where the SAME
+// question, unmodified, becomes answerable once the window resets (`docs/adr/0030`). The one
+// exception the remedy below states: a question whose OWN estimate already exceeds the ceiling is
+// refused every window, forever, and waiting is the false remedy there - narrowing is the true one.
 const BUDGET_EXHAUSTED: Guide = Guide {
     reason: "budget_exhausted",
     meaning: "the person you are acting for has spent this deployment's per-replica byte ceiling \
               for the current window",
-    remedy: "Do not narrow the question - the ceiling is about how much has already been spent, \
-             not about this question's shape, so a narrower one is refused the same way. Wait for \
-             the window named in the refusal to reset, then ask exactly the same question again.",
+    remedy: "Usually, do not narrow the question: the ceiling is about how much has already been \
+             spent, not about this question's shape, so wait for the window named in the refusal \
+             to reset and ask exactly the same question again. If the SAME question is refused \
+             again immediately after a fresh window starts, its own estimate is over the ceiling \
+             by itself - waiting will never help that case, and narrowing the question is the only \
+             remedy.",
 };
 
 /// Every refusal a caller can be given, in the order the prompt lists them.

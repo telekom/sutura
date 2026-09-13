@@ -1,6 +1,8 @@
 //! `sutura_app::answer` wired to a REAL, configured `SpendLedger` - split out of `super` (`tests.rs`)
 //! for that file's own `max-lines` cap, and because the local `answer` wrapper there is pinned to
-//! `SpendLedger::no_budget()` for every other test - so these call `crate::answer` directly.
+//! `SpendLedger::no_budget()` for every other test - so most of these call `crate::answer` directly.
+//! The last cell calls `crate::charge_subject` directly instead, to pin an exact offset into the
+//! ledger's window - `answer` reads `Instant::now()` itself and cannot be handed one.
 //! `use super::*` reaches every fixture this file needs: `bundle`, `source`, `shared`,
 //! `asked_by_a_person`, `test_deadline`, `metric`, `june`, `certified`.
 
@@ -174,5 +176,27 @@ fn an_agent_acting_for_a_subject_spends_that_subjects_own_budget() {
             }
         ),
         "the subject's own direct question is refused by what the agent already spent on their behalf"
+    );
+}
+
+#[test]
+fn a_refusal_in_the_last_half_second_of_a_window_rounds_up_to_one_second() {
+    // `crates/sutura-http/src/wire.rs` documents `Retry-After: 0` as "a promise the next request
+    // will be answered" - `Duration::as_secs` floors, so a refusal with 0.5s left in its window
+    // must round UP to 1, not down to 0, or that promise is broken for anyone refused in the
+    // window's last fraction.
+    let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, std::time::Duration::from_secs(60))));
+    let context = asked_by_a_person();
+    let now = std::time::Instant::now();
+    assert_eq!(
+        crate::charge_subject(&ledger, &context, 1_000, now),
+        None,
+        "the first charge admits and refuses nothing"
+    );
+    let fifty_nine_point_five_seconds_in = now + std::time::Duration::from_millis(59_500);
+    assert_eq!(
+        crate::charge_subject(&ledger, &context, 1, fifty_nine_point_five_seconds_in),
+        Some(RefusalReason::BudgetExhausted { reset_after_seconds: 1 }),
+        "0.5 seconds left in the window rounds UP to 1, not down to 0"
     );
 }

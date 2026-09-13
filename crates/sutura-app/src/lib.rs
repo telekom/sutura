@@ -110,7 +110,8 @@ mod proof;
 
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
-pub use crate::spend::{Charge, SpendBudget, SpendLedger};
+use crate::spend::Charge;
+pub use crate::spend::{SpendBudget, SpendLedger};
 
 /// Why the service could not produce an outcome.
 ///
@@ -675,14 +676,42 @@ pub(crate) const fn deadline_exceeded(deadline: Deadline) -> RefusalReason {
 pub mod raw;
 pub use raw::{AnsweredRaw, RunSqlError, RunningRaw, run_sql};
 
+/// Charges `bytes` against `context`'s own subject, and turns a refusal into the domain's own
+/// `RefusalReason`.
+///
+/// **The one place [`Attribution`] collapses to a ledger key and a [`Charge`] becomes a
+/// [`RefusalReason`]**, shared by [`budget_exhausted`] (the mono path) and
+/// `federated::answer_federated`'s summed charge - two call sites minting the same key and the
+/// same rounding two different ways is exactly how mutation #2 in `#684`'s review survived.
+/// `docs/adr/0030` decides the key: the subject `PrincipalChain::attribution()` names, never the
+/// acting chain, so an agent's charge lands on the human it acted for.
+///
+/// **`reset_after` rounds UP to whole seconds**, not down: `Duration::as_secs` floors, so a refusal
+/// in the last fraction of a window would otherwise mint `reset_after_seconds: 0` - `Retry-After:
+/// 0`, which `crates/sutura-http/src/wire.rs` documents as "a promise the next request will be
+/// answered". Flooring breaks that promise for anyone refused inside the final second.
+///
+/// `now` is a parameter rather than read inside, for the reason [`SpendLedger::charge`] already
+/// takes one: a test can pin the ledger at an exact offset into its window (this function's own
+/// suite does, at 59.5s of a 60s window) without sleeping.
+pub(crate) fn charge_subject(ledger: &SpendLedger, context: &RequestContext, bytes: u64, now: Instant) -> Option<RefusalReason> {
+    let subject = match context.chain().attribution() {
+        Attribution::BareSubject { subject } | Attribution::ActingFor { subject, .. } => subject,
+    };
+    match ledger.charge(subject, bytes, now) {
+        Charge::Admitted => None,
+        Charge::Refused { reset_after } => Some(RefusalReason::BudgetExhausted {
+            reset_after_seconds: reset_after.as_secs() + u64::from(reset_after.subsec_nanos() != 0),
+        }),
+    }
+}
+
 /// The refusal for a spent per-replica byte ceiling, if this dry run's own price puts `context`'s
 /// subject over it.
 ///
 /// `None` for every case that is not a refusal: no ceiling configured, an adapter that did not
 /// price (`PreFlight::NotAsked`), one that priced and could not (`Accepted { estimated_bytes: None
-/// }`), or a priced dry run the ledger still admits. `docs/adr/0030` decides the key - the subject
-/// `PrincipalChain::attribution()` names, never the acting chain - and the shape; this function is
-/// shared by `answer` and `federated::answer_federated` so both consult the ledger the same way.
+/// }`), or a priced dry run the ledger still admits.
 pub(crate) fn budget_exhausted(ledger: &SpendLedger, context: &RequestContext, preflight: PreFlight) -> Option<RefusalReason> {
     let PreFlight::Accepted {
         estimated_bytes: Some(estimated_bytes),
@@ -690,15 +719,7 @@ pub(crate) fn budget_exhausted(ledger: &SpendLedger, context: &RequestContext, p
     else {
         return None;
     };
-    let subject = match context.chain().attribution() {
-        Attribution::BareSubject { subject } | Attribution::ActingFor { subject, .. } => subject,
-    };
-    match ledger.charge(subject, estimated_bytes.bytes(), Instant::now()) {
-        Charge::Admitted => None,
-        Charge::Refused { reset_after } => Some(RefusalReason::BudgetExhausted {
-            reset_after_seconds: reset_after.as_secs(),
-        }),
-    }
+    charge_subject(ledger, context, estimated_bytes.bytes(), Instant::now())
 }
 
 /// Re-executes every declared anchor and reports what each produced.
