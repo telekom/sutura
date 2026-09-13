@@ -489,13 +489,17 @@ jobs:
       #
       #   * `Secrets` is now EARLIER, ahead of the gated `Format` - see its own comment. That one
       #     was a real hole and is closed.
-      #   * `Supply chain`, `The attribution document generates completely` and `Workflow static
-      #     analysis` are back in their original position after `Clippy`, and the word for what
-      #     put them above it is not "draft". #642 HOISTED THEM INTO STAGE 1 AND MERGED, so for
-      #     the time that stood on `main` a `cargo-deny` advisory or an `actionlint` finding
-      #     pre-empted `Structural gates` and `Clippy` - the 38-gate structural sweep and the
-      #     workspace lint - on every pull request in this repository. Nothing could do that
-      #     before #642. This is the revert, not a draft being tidied up before it shipped.
+      #   * `Supply chain` and `Workflow static analysis` are back in their original position
+      #     after `Clippy`, and the word for what put them above it is not "draft". #642 HOISTED
+      #     THESE TWO INTO STAGE 1 AND MERGED, so for the time that stood on `main` a `cargo-deny`
+      #     advisory or an `actionlint` finding pre-empted `Structural gates` and `Clippy` - the
+      #     38-gate structural sweep and the workspace lint - on every pull request in this
+      #     repository. Nothing could do that before #642. This is the revert for these two, not
+      #     a draft being tidied up before it shipped. `The attribution document generates
+      #     completely` was NOT hoisted by #642 - on `main` at #667 (70d5665f) it already sat
+      #     after `Clippy`, in stage 2 - so it only moved here because it sits between the other
+      #     two in the file; the paragraph above about the cost of a later position does not
+      #     apply to it.
       #   * `Structural gates` DOES now report after `Format`, and this is a TRADE TAKEN
       #     DELIBERATELY rather than something forced. `hygiene` takes `inheritedArtifacts
       #     ciArtifacts` while `fmt` needs none, so hygiene cannot precede the closure - but
@@ -597,6 +601,11 @@ jobs:
       # `Structural gates` ordering below was not: a red branch cannot merge either way, so nothing
       # was ever exposed by the old order. A scan that calls itself authoritative should not be
       # skippable by an unrelated formatting error. Two seconds, measured.
+      #
+      # THE LIMIT `always()` DOES NOT COVER: the whole `ci` job carries its own `if:` above, the
+      # `chore(release):` skip - so on that one commit this step does not run either, `always()`
+      # or not. That gap is accepted deliberately (see the job-level comment) and is not something
+      # this step's condition closes.
       - name: Secrets
         if: ${{ always() }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
@@ -665,6 +674,14 @@ jobs:
       # covers, including the one gap none of them reached: the shell inside a composite action,
       # which `actionlint` cannot read at all. It also records the line-cap measurement that
       # decided WHEN to split, which is a fact about the trunk and not about this file here.
+      #
+      # THE `run_all` GATE ON THIS STEP'S OWN REACHABILITY STAYS, A DECISION AND NOT AN OVERSIGHT:
+      # `Secrets` earned `always()` because a committed credential is already disclosed by the
+      # time any gate runs, so there is nothing later to defer to. A workflow-lint finding is not
+      # that - it is MERGE-BLOCKING like `Structural gates`, so a run this step skips is one a red
+      # elsewhere in the same PR still stops from merging, and a green PR that skipped it gets
+      # caught the next time a workflow file changes. The "already disclosed" argument stops at
+      # credentials; it does not extend here.
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'
         run: bash nix/lint-workflows.sh

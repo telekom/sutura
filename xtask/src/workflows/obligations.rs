@@ -43,7 +43,10 @@
 //! [`REQUIRED`] and nothing wider. It cannot see position, so it does not know whether a step
 //! moved, and it does not require any OTHER step to stay reachable - adding one is an edit here.
 //! Nor does it verify that `always()` behaves as measured; that is GitHub's semantics, observed
-//! over the runs above and not reproduced by this repository.
+//! over the runs above and not reproduced by this repository. Nor does it see the `ci` job's own
+//! `if:`, which skips the whole job - `Secrets` included - on a `chore(release):` commit; that
+//! exemption is accepted deliberately at the job level and this rule has no view of it either
+//! way.
 
 use std::path::Path;
 
