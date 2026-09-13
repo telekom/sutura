@@ -3,11 +3,11 @@
 //! Its own module because these are the value vocabulary every adapter maps into, and none of them
 //! knows about a plan, a credential or a row. **What it does NOT hold:
 //! [`ParamValue`](crate::warehouse::ParamValue), which travels the other way** - a value bound to a
-//! on the way OUT - and which the port module keeps beside the reason it exists.
+//! statement on the way OUT - and which the port module keeps beside the reason it exists.
 //!
 //! `pub mod` so rustdoc documents these types rather than emitting a re-export stub, which is what
 //! [`crate::warehouse::preflight`] records happening to a private module with only a `pub use`. The
-//! beside the declaration keeps the `sutura_domain::warehouse::` path its importers already use.
+//! re-export beside the declaration keeps the `sutura_domain::warehouse::` path its importers already use.
 
 /// Why a floating-point cell was refused.
 ///
