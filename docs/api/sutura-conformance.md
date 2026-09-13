@@ -119,6 +119,10 @@ by the compiler at one end and by `census` at the other.
 - `PreFlight` - A pre-flight that accepted the plan is followed by an answer.
 - `Leg` - A leg is executed, or refused, as the adapter's declaration says.
 
+  One behaviour and two directions rather than two behaviours: exactly one of them applies to
+  any adapter, and which one is decided by `EXECUTES_LEGS`. The direction is in the emitted
+  test's NAME, which is where a reviewer reads it.
+
 ### Methods
 
 ```rust
@@ -166,6 +170,10 @@ behaviour that can be declined.
 ### Variants
 
 - `OffersNoPreFlight` - `dry_run` answered `NotAsked` for every case, so nothing was checked before the rows were read.
+
+  The port's own default, and the honest answer for an adapter where checking costs what
+  running costs. Nothing about the check has been established, which is why this is a
+  declination and not a pass.
 
 ### Implements
 
@@ -264,6 +272,9 @@ a corpus of many says which one.
 - `AcceptedThenDidNotAnswer` - The pre-flight accepted the plan and the execution then failed.
 - `ALegWasAnswered` - An adapter that declares it does not execute a leg executed one.
 - `EmptyCorpus` - The corpus has no cases, so nothing could be asked.
+
+  Reachable only from a pack that needs a case to establish the adapter is live. `census`
+  fails on the same condition for every other behaviour.
 
 ### Implements
 

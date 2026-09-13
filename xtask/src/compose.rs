@@ -41,9 +41,15 @@
 
 mod docker;
 mod health;
+/// The status query, whose own module for the reason `file` below has one: this file is near its
+/// line budget, and "what does this worktree hold" is a separable concern from acting on it.
+mod held;
 mod lock;
 mod teardown;
 mod tier;
+
+/// `dev-clear`, named here so the task table reads `compose::run_clear` like every other row.
+pub(crate) use held::run as run_clear;
 
 /// Gates that read the compose file's TEXT rather than exercise the functions here. Their own
 /// module because they are a separable concern and this one is near its line budget.

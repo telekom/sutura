@@ -180,7 +180,7 @@ impl SemanticCatalog for FixedCatalog {
     /// Everything, and for a pass-through that is the accurate answer rather than the convenient one:
     /// this adapter hands back whatever bundle it was constructed with, so there is no kind it could
     /// not carry. Nothing checks it, because a fake is not registered in the conformance matrix -
-    /// `crates/sutura-app/tests/adapters/mod.rs` says why.
+    /// `crates/sutura-app/tests/adapters/adapters.rs` says why.
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::everything()
     }

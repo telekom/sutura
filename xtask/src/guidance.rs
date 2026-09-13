@@ -54,6 +54,10 @@ use std::path::Path;
 use crate::Verdict;
 use crate::repo;
 
+// `github.com/telekom/sutura#638`, and a module for the reason every other split below gives:
+// `max-lines` caps a file at 1000 and cannot exempt anything under `xtask/`, so the widened
+// citation rule got room of its own rather than growing this file past it.
+mod citations;
 // MECHANICAL SPLIT, and nothing moved across it changed. `max-lines` caps a file at 1000 and
 // cannot exempt anything under `xtask/`, and the two tables below grow by ENTRY - one claim is
 // about twenty lines - so the file that holds them is the one that has to have room. The
@@ -90,6 +94,7 @@ mod pages;
 mod versions;
 
 use absences::{Reading, absence_problems};
+use citations::dead_paths;
 use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches, remedy_problems};
 use constants::constant_problems;
 use hosts::{HOSTED, host_mismatches};
@@ -332,35 +337,6 @@ fn bad_task_references(root: &Path, files: &[String]) -> Vec<String> {
                         ));
                     }
                     rest = tail;
-                }
-            }
-        }
-    }
-    problems
-}
-
-/// A path in backticks that looks like a repo path must exist.
-///
-/// Only `.agents/...` paths, because those are the ones a router or a doc sends an agent to,
-/// and a dead route is the failure this catches. Broadening it to every backticked path would
-/// flag illustrative examples.
-fn dead_paths(root: &Path, files: &[String]) -> Vec<String> {
-    let mut problems = Vec::new();
-    for rel in files {
-        if !has_ext(rel, &["md"]) {
-            continue;
-        }
-        let Some(text) = repo::read_subject(root, rel, &mut problems) else {
-            continue;
-        };
-        for (i, line) in text.lines().enumerate() {
-            for piece in line.split('`').skip(1).step_by(2) {
-                let candidate = piece.trim();
-                if !candidate.starts_with(".agents/") || candidate.contains(['*', ' ', '<']) {
-                    continue;
-                }
-                if !root.join(candidate).exists() {
-                    problems.push(format!("{rel}:{}: `{candidate}` does not exist", i + 1));
                 }
             }
         }

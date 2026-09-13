@@ -480,6 +480,9 @@ How a bind parameter is written.
 - `Question` - `?`, positional by order of appearance. `DuckDB`, `ClickHouse` and `BigQuery`.
 - `Numbered` - `$1`, `$2`, numbered from one. Postgres.
 
+  The numbering is why this is not cosmetic: a statement with three `?` sent to Postgres is a
+  syntax error, and one with `$1` repeated is a different query.
+
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
@@ -500,6 +503,20 @@ tested against.
 
 - `Double` - `"name"`. `DuckDB`, Postgres and `ClickHouse`.
 - `Backtick` - `` `name` ``. `BigQuery`.
+
+  **The asymmetry that makes this worth a type, and this is the wrong-NUMBER risk on this
+  dialect.** For the other three a double quote is an identifier quote and a backtick is a
+  syntax error, so a mistake is loud. In `GoogleSQL` a double quote delimits a STRING, so
+  `SELECT "amount"` is not a column reference at all - it selects the constant text `amount`,
+  and the target's own lexical reference leans on this when it writes
+  `WHERE date_col = "2014-09-27"` as a string coerced to a date. A statement quoted the wrong
+  way can therefore be accepted and answer about different values.
+
+  What limits the blast radius today is that the mistake is caught in CI for a different reason:
+  a qualified column makes `"orders"."month"` a literal followed by a dot, which the target's
+  parser rejects - so the golden suite's parse check does bite. That is luck about the shape we
+  generate rather than a guarantee about the quote character, which is why it is written down
+  beside the type rather than trusted.
 
 #### Methods
 
@@ -547,7 +564,13 @@ and one of them - `WEEK(<WEEKDAY>)` - is not expressible as a string at all.
 #### Variants
 
 - `GrainFirstAsLiteral` - `DATE_TRUNC('month', <date>)` - the grain first, as a single-quoted string literal.
+
+  `DuckDB`, Postgres and `ClickHouse`. The layer rewrites the function name for `ClickHouse`
+  itself, which is a difference we do delegate.
 - `DateFirstAsKeyword` - `DATE_TRUNC(<date>, MONTH)` - the date first, the grain a bare keyword.
+
+  `BigQuery`. Both halves differ from the shape above, and neither half is optional: the
+  argument order and the grain's form are separately load-bearing.
 
 #### Implements
 
@@ -778,6 +801,9 @@ read this file.
 - `Query` - A `SELECT`, a subquery, a set operation.
 - `TableReference` - A named table.
 - `SchemaStatement` - A schema or data statement inside an expression.
+
+  **The one construct here no fragment reaches**, and `super::dialect_layer_refusal` carries
+  the measurement and the argument for keeping the guard.
 - `Star` - `*`, either as a node or as `COUNT(*)`'s flag.
 - `BindParameter` - `?` or `$1`.
 - `Opaque` - A node the generator emits with no handling at all.
@@ -832,6 +858,14 @@ a habit from writing `SELECT` lists. "Not one expression" would send all three t
 - `CarriedAlias` - An `AS name`.
 - `CarriedClause` - Any other clause on the wrapper's `SELECT`, which taking the projection would DISCARD.
 
+  The one that needed measuring rather than reasoning. `SELECT 1 WHERE true` is legal in the
+  authoring dialect with no `FROM` at all, so `SUM(x) WHERE secret = 1` parses as one statement
+  with one projection and no `FROM` - it passes every other guard here - and taking
+  `expressions[0]` throws the `WHERE` away. The metric would then be certified as `SUM(x)`,
+  silently, over a predicate its author wrote and nobody removed on purpose. The same holds for
+  `GROUP BY`, `HAVING`, `QUALIFY`, `ORDER BY`, `LIMIT`, `WINDOW` and a leading `DISTINCT`, all
+  confirmed to parse and all confirmed to be dropped.
+
 ##### Methods
 
 ```rust
@@ -878,20 +912,96 @@ splitting a message on `", "`, which is a contract nothing checks and a format e
 ##### Variants
 
 - `UnknownDialect` - A dialect word that is not one this build renders for. Refused rather than ignored: a `postgresql:` beside a `portable:` would otherwise be a variant that is silently never chosen, and the author would never learn that Postgres got the portable fragment.
+
+  `{:?}` on the word rather than `{}`, and it is the only variant that does: a tag differing
+  from a real one by a trailing space is the mistake this refusal is most often about, and
+  unquoted it reads as though the name were right.
 - `NoFragment` - No exact fragment and no `portable` one. The refusal wren's importer does not have.
 - `Unparsable`
 - `NotOneExpression`
 - `Unrenderable` - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a `Shape`, because a `Shape` carries no cause and this one has one worth keeping.
+
+  **No fragment produces this.** `Generator::generate` has exactly two failure paths in the
+  features this build compiles: the AST complexity guard, and `UnsupportedLevel::Raise` or
+  `Immediate`. The guard's limits are a million nodes and a depth of 512 or more, and
+  `super::parse` refuses anything past `MAX_DEPTH` - thirty-two - before it renders, over a
+  fragment `sutura_domain` has already capped at 1024 characters; none of the three dialect
+  configurations sets the level above `Warn`. The third path, a template re-parse inside the
+  `DuckDB` dialect, is behind the `transpile` feature and is not compiled. Measured as well as
+  argued: 300 fragments over the whole allowlist, in every argument shape this crate accepts,
+  produced none of it.
 - `Refused`
 - `NonAscii` - A character the pinned dialect layer's generator cannot survive.
+
+  **The dialect layer panics, it does not refuse.** Measured with the fuzz harness: the
+  pinned `polyglot-sql` generator byte-slices a string without respecting character
+  boundaries, so any fragment carrying a multi-byte UTF-8 character - `é`, a full-width
+  identifier, or the replacement character `\u{fffd}` a lossy decode produces - reaches a
+  `&s[..]` cut through that byte and panics with *"start byte index N is not a char
+  boundary"*. There is no third-party error to map: it aborts, which under
+  `panic = "abort"` is the process dying. So this crate refuses non-ASCII text before it is
+  handed over, and the bound is the chunk this build renders for: the aggregation subset and
+  its identifiers are ASCII by construction, and a Unicode string literal is refused rather
+  than trusted to a generator that slices it by byte. If a future pin fixes the slicing, the
+  bound can widen; stated as a limit now because this is a control over what the dependency
+  can carry, not a judgement that authored SQL is ASCII.
 - `UnclosedParenthesis` - A parenthesis the fragment opens and never closes.
+
+  **The pinned dialect layer's parser does not error on this - it does not return.** Found by
+  the `sql_expression` fuzz target and reduced to six characters, `a.:S1(`: `.:` is a JSON-cast
+  operator, so an unknown word after it is read as a custom data type, and the argument loop in
+  `Parser::parse_data_type` breaks only on `check(TokenType::RParen)`. That answers `false` at
+  the end of the token stream, and `advance()` past the end returns the last token WITHOUT
+  moving the cursor - so the loop cannot terminate, and every turn of it does
+  `*last = format!("{} {}", last, token.text)`.
+
+  One upstream defect, two report shapes: it reads as a **timeout** while that string is being
+  copied and as an **out-of-memory** once the string is large. There is no third-party error to
+  map and nothing to catch either - under `panic = "abort"` unbounded work on a fragment is the
+  process not coming back, which on the query surface is a denial of service rather than a slow
+  load. So what is refused is the enabling condition every such loop needs, a parenthesis with
+  no closer, and it is refused before the text is handed over.
+
+  `column` is 1-based **in the author's own fragment**: the bound reads the fragment's own
+  tokens rather than the wrapped statement's, so unlike `Self::Unparsable` there is no
+  wrapper offset to subtract. See `super::unclosed_parenthesis` for why the question is asked
+  of the TOKENS and not of the text. **The defect is upstream and this does not fix it** - it
+  is a control over what the dependency can be handed, not a judgement that an author cannot
+  count brackets.
 - `UnknownColumn`
 - `UnknownFunction` - A called function that is not one of the names a measure may call.
+
+  Its own variant rather than a bare `Self::Refused`, because this is the one refusal whose
+  value is a *pair*: the allowed set, which `Construct::UnknownFunction` carries, and the name
+  that is not in it. A fragment may hold a dozen calls, and telling an author that one of them
+  is unlisted without saying which sends them to read this file.
 - `TooDeep` - A fragment nesting deeper than the checks can walk. See the guard in `super::parse`, in the parent module.
 - `NotQualified` - A column the qualification rewrite did not reach. See `super::require_qualified`, in the parent module.
 - `Qualify` - The qualification rewrite failed.
+
+  **No fragment produces this, and the reason is exhaustive rather than empirical.**
+  `traversal::transform_map` returns an error from two places: the closure, and three
+  `Error::Internal` checks inside the dialect layer's own explicit-stack transformer - a result
+  stack underflow, a child-restoration mismatch, and a final stack size that is not one. The
+  closure `super::qualify` passes is two arms and both return `Ok`, so every remaining path is
+  that transformer breaking its own invariant. The plumbing stays fallible because absorbing it
+  would mean substituting something for a tree that did not rewrite, which is a measure that is
+  not the one the catalog declares.
 - `Render` - The target's generator refused the tree.
+
+  **No fragment produces this**, for the reason `Self::Unrenderable` sets out - the two are
+  the same call with a different generator configuration, and `Unrenderable` runs first over
+  the same tree.
 - `RenderedDoesNotParse` - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.
+
+  **No fragment has been found that produces this, and unlike the three above it is not ruled
+  out by construction.** It fires when one dialect's generator emits text that the same
+  dialect's parser rejects, which is a round-trip defect in the dialect layer rather than
+  anything a catalog controls - and this variant is the net for it, which is why it is a check
+  at load and not a test. What was tried: 300 fragments over the whole allowlist in every
+  argument shape this crate accepts, rendered and re-parsed for all three targets. None failed.
+  A test could only assert it by shipping a hostile dialect, so what is asserted instead is the
+  wiring - the fields, and that the parser's own error survives as the source.
 
 ##### Implements
 
@@ -967,8 +1077,32 @@ differently. A plan that will not render is a bug here or upstream.
 
 - `Render`
 - `UnquotableAlias` - The builder produced something that is not an alias, so its identifier could not be quoted.
+
+  Reported rather than ignored: silently emitting an unquoted alias is how a metric named
+  `order` becomes a syntax error at the data system instead of an error here.
 - `QualificationUnsupported` - A table path deeper than the target resolves.
+
+  **Not a refusal, and the boundary is worth being precise about.** A caller cannot cause one:
+  there is no field on a question that names a table, so what produced this is a catalog document
+  naming `project.dataset.table` for a data system with nowhere to put the project - which is
+  upstream of here, exactly as this enum's own header says.
+
+  **An error and not a silently-dropped qualifier**, which is the whole reason it exists: the
+  dialect layer renders three parts for any target, so dropping the part that does not fit would
+  read the table of that name in whatever the connection defaults to and return a plausible
+  number under a certified metric. That is the failure issue #83 reports, moved rather than
+  fixed.
+
+  The path travels as text because that is the only thing a message can show, and it is safe to
+  show: every part of it is a parsed name, so it carries no quote character and no value from any
+  question.
 - `NoPredicate` - A plan that carries no predicate at all.
+
+  Unreachable: a plan always carries the two bounds of its `TimeRange`, which cannot be
+  unbounded. Its own variant rather than a sentinel string inside another one, because the
+  variant is what a caller matches on - and worded exactly as `sutura_exec_datafusion`'s
+  `NoPredicate`, so the SQL path and the engine name one condition identically rather than
+  describing it twice.
 
 #### Implements
 

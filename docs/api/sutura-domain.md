@@ -539,6 +539,10 @@ Why a range was rejected.
 
 - `Empty` - `end` is at or before `start`.
 
+  Refused rather than normalised by swapping. A swapped range means the caller believes
+  something we do not, and answering a different question than the one asked is worse than
+  refusing: an empty result reads as "there was no revenue in June".
+
 #### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
@@ -1736,6 +1740,22 @@ Why a fragment is not one.
 - `TooLong`
 - `ControlCharacter` - A control character other than tab and newline. Those two are formatting a person might use inside a long `CASE`; the rest are not text, and their likeliest origin is a paste accident or an attempt to hide part of a fragment from a reviewer's terminal.
 - `InvisibleCharacter` - A character a terminal, a diff and a browser do not render, or render in the wrong order.
+
+  A second refusal beside `Self::ControlCharacter` rather than a wider version of it,
+  because it is a second character class: `char::is_control` is **false** for every one of
+  these - they are general category `Cf`, not `Cc` - so the refusal above let them through
+  while its stated reason, "an attempt to hide part of a fragment from a reviewer's
+  terminal", is precisely what they do.
+
+  This is Trojan Source, CVE-2021-42574, pointed at a metric definition. A fragment holding a
+  right-to-left override inside a string literal reads in a terminal, in a diff and in a pull
+  request as `status = 'active'` and compiles to a comparison against something else, so the
+  branch never fires and the number certified under the name a reviewer approved is zero. The
+  digest covers text, faithfully, and the text is not what the reviewer read.
+
+  **The set is `crate::text::is_invisible` and is not restated here.** It used to be, as a
+  private `const fn` two hundred lines below this variant, and the second copy was missing
+  three of the seven ranges - which is the whole argument for the module that now owns it.
 - `StatementTerminator` - A `;` anywhere in the text. An authored computation is ONE expression that a generator splices into a statement it composes; a semicolon is the one character that can end that statement and begin another, which turns a metric definition into a script. Refused textually - inside a string literal too - because nothing here parses, and a rule that depended on tokenising would be a parser by another name. A literal that needs one is the derived-column case `docs/adr/0001` sends upstream.
 
 #### Implements
@@ -2176,7 +2196,16 @@ rather than *you have not said whether you can*.
 
 - `AsWritten` - Pushable as written: one column in the leg, one function above it.
 - `Decomposed` - Pushable decomposed: two columns in the leg, divided once above.
+
+  `Avg` is the only one today, and it travels as a `Sum` and a `Count`. The zero handling is
+  part of the classification rather than of whoever builds the tree, because it is what makes
+  the decomposition faithful: an `AVG` over no rows is null, so the division above a leg whose
+  count is zero has to be null too.
 - `AsGroupingKey` - Not pushable. The column travels as a grouping key and the aggregate runs above.
+
+  `CountDistinct` is the only one, and it is the expensive kind: the leg carries one row per
+  distinct key rather than one row per group, because two join keys can share a value and no
+  re-aggregating function repairs a sum of exact distinct counts.
 
 #### Methods
 
@@ -2252,6 +2281,10 @@ fn _above(numerator: Carried, denominator: Carried, zero_denominator: ZeroDenomi
 
 - `Aggregated` - One aggregate the leg computes and hands up as one column.
 - `CountIf` - A conditional count the leg computes and hands up as one column.
+
+  Its own variant rather than an `Aggregated` with a `Count`, for the
+  reason `Term::CountIf` is its own term: `COUNT(col)` counts non-null rows and would count
+  the `false` ones too.
 - `Keys` - No aggregate in the leg at all: the column travels as a grouping key, and the aggregate `Pulled` names runs above the rows it carried.
 
 #### Methods
@@ -3240,6 +3273,12 @@ Why a note body was rejected.
 
 - `Empty` - Nothing a reader would see. A note with no body is a claim with no reason attached, and the prompt would render a heading over empty space - so this covers whitespace, control characters the renderer drops, and the zero-width code points that draw nothing, as well as the empty string.
 - `InvisibleCharacter` - One of them, mixed into prose. **Separate from `Self::Empty`, because a body made ENTIRELY of these characters was already refused and a body with one in the middle of a sentence was not** - and the second is the dangerous one: the first renders as a blank heading somebody notices, the second renders as a paragraph that reads correctly and is not what it says.
+
+  It is a second refusal beside the emptiness check rather than a widening of it for the reason
+  `crate::expression::InvalidFragment::InvisibleCharacter` gives: `char::is_control` is false
+  for every one of these - general category `Cf`, not `Cc` - so nothing that tests for a control
+  character can see one. The code is reported because an author cannot find the character by
+  looking at the file.
 - `TooLong` - Over `MAX_NOTE_BODY_BYTES`. The document does not load; it is not shortened.
 - `TooManyLines` - Over `MAX_NOTE_LINES`. Separate from the byte cap because four thousand newlines are four thousand lines of a rendered prompt and eight kilobytes of nothing.
 
@@ -3331,6 +3370,13 @@ says so.
 - `Metric` - The metric as a whole.
 - `Dimension` - One dimension of one metric. Scoped to the metric because a dimension is: two metrics may declare `segment` over the same column and still not permit the same questions about it.
 - `Value` - One declared value of one dimension of one metric.
+
+  A `DimensionValue` rather than a `String`, and it is the same type a dimension declares its
+  allowlist with, because `bundle` checks one against the other: a referent whose value could
+  not have been declared is a document fault, and the type is what makes the two sides of that
+  check the same thing. It also closes a channel that carried unparsed catalog text -
+  `sutura_app::prompt` interpolates this value into the scope line of a caveat, which is the one
+  rendering in that document whose continuation lines start at column zero.
 
 #### Methods
 
@@ -3711,6 +3757,21 @@ of one or both of them gets a `InvalidTerm` that says which.
 - `Aggregate` - One aggregate over one column: `SUM(amount_cents)`.
 - `CountIf` - How many rows have this boolean column true.
 
+  Its own term rather than `Aggregate(count, column)`, because `COUNT(col)` counts non-null
+  rows and would count the `false` ones too. It is spelled `COUNTIF` in one dialect and
+  `SUM(CASE WHEN .. THEN 1 ELSE 0 END)` in another, which is the generator's problem and
+  exactly the kind of thing that should not be in a catalog document.
+
+  **And it is not a variant of `Aggregate`, which was the obvious alternative.** `Aggregate`
+  is a pure function-name set: `as_str` returns the word for a refusal, and each of the two
+  generators has one `match` over it that maps a name to a call. A conditional term inside it
+  would mean `{ aggregate: count_if, column: x }` and `{ count_if: x }` were two catalog
+  spellings of one measure, compiling to two plan shapes and two digests for a definition
+  that is identical - the "two paths" this module argues against everywhere else. A disk-only
+  mirror of `Aggregate` with one extra word avoids the two spellings and buys the other half
+  of the problem: a set that has to be kept in step with the domain's, whose failure mode is
+  an aggregate no document can write and nothing anywhere failing to say so.
+
 #### Methods
 
 ```rust
@@ -3777,6 +3838,19 @@ one sentence and neither of them can collide with a scalar YAML resolves itself.
 - `Null` - The measure is null for that row. The generator guards the denominator - a `NULLIF`, or the dialect's own safe-divide.
 - `Fail` - The division is emitted unguarded, and the fault is raised where the value crosses back into the domain. A definition choosing this is saying an empty period is a fault and not a figure.
 
+  **The word used to be a wish, and this paragraph is the correction.** "Unguarded" is not the
+  same as "fails": both generators cast the numerator to a floating type first, because integer
+  division truncates and `SUM(cents) / COUNT(*)` returning a whole number is wrong for every
+  ratio anybody wants. So the division is IEEE float division, and IEEE float division by zero
+  does not raise - it answers `inf`, or `NaN` when both halves are zero. A metric declaring that
+  an empty period is a fault therefore answered the *string* `inf` under its own certified name,
+  in both adapters, which is why the differential test agreed with itself and passed.
+
+  What makes the word true is `crate::warehouse::Real`: a cell carries a checked finite `f64`,
+  so an adapter handed a non-finite one has an error naming the column instead of a value. That
+  is a stronger place for the check than a guard on the division would have been - it closes
+  `-inf` and `NaN` too, and it holds for an adapter that renders no SQL at all.
+
 #### Methods
 
 ```rust
@@ -3805,6 +3879,10 @@ it makes an unrecognised shape an error naming what it found.
 
 - `Simple` - One term: `SUM(amount_cents)`, or a conditional count.
 - `Ratio` - One term divided by another: an average revenue per user, a rate, a share.
+
+  The two halves are separate terms over possibly different columns, which is what
+  distinguishes this from `Simple(avg, column)`: `SUM(revenue) / COUNT(DISTINCT customer)` is
+  not the mean of a column, and computing it as one is a different and wrong number.
 
 #### Methods
 
@@ -4010,6 +4088,15 @@ variant is the contract and the `#[error]` text is a convenience for a human.
 - `IllegalCharacter` - Contains a character that is not `[A-Za-z0-9_]`. `offending` is the first one, which is the one worth reporting: a message naming all of them tells the reader less.
 - `TooLong` - Longer than a target data system will keep. The limit is 63 characters, the tightest among the data systems targeted here.
 - `TrailingHyphen` - Ends in a hyphen.
+
+  **Only `Hyphens::Allowed` can produce this**, and there is exactly one name shape in this
+  domain that admits a hyphen at all - see `ProjectName`. Under `Hyphens::Rejected` a
+  hyphen anywhere is an `Self::IllegalCharacter`, so this variant is unreachable for the
+  seven ordinary identifier types.
+
+  Its own variant rather than folded into `IllegalCharacter`, because the offending character
+  is legal *elsewhere in the same name*: reporting `-` as illegal in `my-project-` would be a
+  message the parse of `my-project` contradicts.
 
 #### Implements
 
@@ -4501,6 +4588,17 @@ Why a version label was rejected.
 - `Empty` - Empty or whitespace-only. An unversioned snapshot must not be able to claim it is one.
 - `ControlCharacter` - Holds a control character. This is the one that matters: provenance is written to an audit sink line by line, so a newline here appends a record nobody wrote.
 - `InvisibleCharacter` - Holds an invisible or direction-changing code point. **The second half of the reason the variant above exists**, and it was missing: `char::is_control` is false for every one of these (general category `Cf`, not `Cc`), so the check that refuses a newline could not see a right-to-left override, and a version label carrying one passed.
+
+  That matters here for exactly the reason the control-character refusal states. A version
+  travels in `Provenance`, and provenance is written to an audit sink line by line, echoed
+  into the body of an answer, and printed by the compile command - so a label that renders as
+  `v2.1` in every one of those places and is a different string is a provenance record that
+  cannot be matched against the bundle it names. The digest is what makes an answer checkable;
+  two labels a reader cannot tell apart is the one way to make the version half of it useless.
+
+  The code is reported rather than the value, which is the opposite of the variant above: a
+  label whose only defect is a character that draws nothing would print as though it were
+  correct, so the message names the character instead.
 - `TooLong`
 
 #### Implements
@@ -4802,10 +4900,25 @@ available at that boundary.
 - `NotCompiled` - The anchor's own question would not compile against the bundle that carries it.
 - `Refused` - The anchor's own question was refused. A governance outcome, surfaced as one: an anchor a caller could not have asked for is not a failure of the data system.
 - `SourceNotConfigured` - The plan names a data system this process did not open. Not prose in a report field: it is the same condition the query path refuses, and it is a misconfigured composition root rather than an outage.
+
+  **It used to be `SourceMismatch`, carrying the plan's source and the one warehouse's**, and
+  that pair stopped being expressible when the service started holding a registry: a plan now
+  SELECTS its warehouse rather than being compared against one, so the only failure left is that
+  no data system is registered under the name. Renamed rather than kept with a second field
+  nothing could fill, because a variant no code path can produce is one this enum refuses to
+  carry.
 - `NotOneNumber` - The declared range covers more than one period at the metric's coarsest grain, so the result is several numbers and an anchor is one.
 - `NoMeasureColumn` - The result carries no column named after the metric, so there is nothing to compare.
 - `ResultShapeMismatch` - The result set was not the shape it reported.
 - `NotAnAnchor` - The plan the boot path compiled is not this anchor's own, so nothing executed it.
+
+  **A defect in the boot path rather than anything about the catalog**, which is why it is one
+  variant with the typed cause flattened into it rather than one per cause: whoever reads a
+  report needs to know this anchor was not checked and why, and every way
+  `sutura_domain::plan::AnchorPlan::of` refuses a plan is "the question compiled here was not the
+  anchor's". Nothing in this workspace can provoke it - it is a SELF-CHECK on the boot path, not
+  a barrier against a caller, and `AnchorPlan`'s own documentation is where that distinction is
+  argued - and a check with no reportable outcome would have to be a panic instead.
 - `Failed` - The data system failed the statement. `message` is the adapter's own, `chain` is every cause beneath it - the driver error included, which is the part that names a table, a column or a file and the part a single string used to throw away.
 
 #### Implements
@@ -4825,6 +4938,10 @@ What happened when one metric's anchor was checked.
 - `Matched` - The metric reproduced its declared number.
 - `Mismatch` - It produced a different one. This is the interesting failure: the definition still runs, so nothing errors, and the number is simply not the one that was certified.
 - `NotExecuted` - The check could not run at all: the data system was unreachable, or the statement failed.
+
+  Deliberately not merged with `Mismatch`. "It is wrong" and "we do not know" call for
+  different operational responses, and collapsing them makes an outage look like a wrong
+  number.
 
 #### Implements
 
@@ -4905,11 +5022,44 @@ Why a bundle is not validated.
 
 - `AuthoredSqlNotExecutable` - The bundle carries a metric whose computation is catalog-authored SQL, and the adapter this build selected does not declare `Warehouse::EXECUTES_AUTHORED_SQL` - which today is every adapter this workspace ships. The fragment is stored as written and compiled by nothing, so this refusal is what stands between it and a served bundle; `docs/adr/0004` is the record.
 - `AnchorMismatch` - The declared number and the produced one, both quoted.
+
+  `{:?}` and not `{}`, for the reason `crate::measure::RequiredFilter`'s `Display` gives: a
+  bundle is refused on this line and somebody reads it to find out why, so the spacing of both
+  halves has to be visible. `expected` came from a catalog author and is an
+  `AnchorValue` at rest; `actual` came from the data system and
+  is held to nothing, which is the half that makes the quoting worth having.
 - `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`
 - `UnknownMetricChecked`
 - `DeclaredKeyNotUnique` - A declared join key the data contradicts.
+
+  **The one boot outcome that stops a deployment over a cardinality declaration**, and it is a
+  `NotValidated` rather than a warning because of what the declaration buys: a `many_to_one` is
+  what licenses a join to be measure-preserving, and a target column that is not unique makes
+  the same question answer differently depending on how the plan was shaped. See
+  `cardinality` for the two numbers that measurement produced.
+
+  **The counts and no key value**, deliberately: this reaches an operator's log, and a
+  duplicated dimension key printed there is source data copied into a sink nobody scoped for
+  it. What it carries locates the table; the operator queries it.
+
+  **Boxed**, because `result_large_err` is deliberately left on in this workspace and five
+  parsed names inline made this the widest `Result` the boot path returns.
 - `DeclaredKeyNotCounted` - A declared join key no data system would count.
+
+  **A refusal rather than a warning, and the direction is the opposite of
+  `crate::warehouse::Warehouse::preflight`'s on purpose.** A pre-flight runs in a composition
+  root, where *could not verify* has somewhere to go: a `WARN` line and a deployment that
+  serves. This runs inside the operation that mints the proof, where the only two outcomes are
+  *validated* and *not* - and where the existing rule for a statement the data system would not
+  run is already refusal (`NotValidated::AnchorNotExecuted`). Silence was the third option and
+  is the one this variant exists to remove: it made *the identity may not read the dimension
+  table* - the identity-relevant case in an identity-aware runtime - indistinguishable from a
+  clean check.
+
+  **What it costs**, stated with the claim: a data system briefly unreachable at boot now stops
+  a deployment that would have served, for a source carrying no anchored metric. For every
+  source that carries one, the anchor pass already refused it.
 
 #### Implements
 
@@ -5190,6 +5340,9 @@ Why a set of contributions is not a manifest.
 
 - `NoContributors` - Nothing was contributed, so the manifest would record no composition at all.
 - `DuplicateSource` - Two contributions name one source, so one of them would not be recorded.
+
+  `source_name` and not `source`, for `FederatedPlanError`'s
+  reason: `thiserror` reads a field called `source` as the error's cause.
 
 ##### Implements
 
@@ -5847,6 +6000,17 @@ anchor's question, which is a defect here rather than anything about a caller.
 - `Grouped` - The plan groups by something. An anchor is a metric's own number, not a slice of it.
 - `Requested` - The plan carries a predicate a question asked for, which an anchor's plan never does.
 - `NotTheCoarsestGrain` - The plan buckets at a finer grain than the metric's coarsest, so it returns a series.
+
+  **The gap a second review found**, and the reason it is not cosmetic: an anchor certifies one
+  number, and a plan at `Day` grain over the anchor's range comes back as one row per day. The
+  comparison downstream insists on exactly one row, so this arrived as a mismatch that reads like
+  a broken definition - and a plan that returns a series is strictly more than the number the
+  bundle already publishes.
+
+  `coarsest` is an `Option` because a set can be empty, and the empty case is folded in here
+  rather than given a variant of its own: `Definitions::assemble`
+  refuses a metric that declares no grain, so a separate variant would be one no test could
+  provoke - and this crate's rule is that an enum does not carry one of those.
 - `NotTheAnchorsRange` - The plan's range is not the range the anchor's author certified.
 
 #### Implements
@@ -6551,6 +6715,9 @@ a number that is too large, a number in the wrong place, and a value nothing rea
 
 - `OutOfRange` - A predicate binds a parameter the list does not hold.
 - `OutOfPlaceholderOrder` - A predicate binds a parameter out of placeholder order.
+
+  `position` is how many predicates before it bound one, which is the placeholder a positional
+  dialect would give it.
 - `NeverRead` - The set carries a parameter no predicate binds.
 
 ##### Implements
@@ -6853,6 +7020,10 @@ Why a federated plan could not be built.
 - `KeyNotOnLeg` - An answer key names a column the leg it belongs to does not project.
 - `LeafDoesNotReaggregate` - A carried leaf names an aggregate the combine has no re-aggregating function for.
 
+  Refused before a plan exists rather than when a group is reduced: it is a defect in this
+  workspace's own wiring, and reduced, the same plan refused a group holding a value and
+  answered `Null` for a group of nulls, under the metric's own certified name.
+
 ##### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
@@ -6873,16 +7044,53 @@ value for.
 ##### Variants
 
 - `MissingColumn` - A column `combine` reached for by label was absent from a leg's result.
+
+  The labelling contract is one function - the splitter and the combiner both call `labels` -
+  so this is a wiring defect between the two halves rather than a choice either side made.
 - `NonFinite` - A division happened by a zero denominator while the measure declared `fails`.
+
+  On the mono-source path a non-finite cell is refused at the port; this is this slice's port,
+  so the guard landing here is an error naming the metric it could not certify.
 - `DuplicateLabels` - A leg result had two columns under one label, so the combiner could not tell which of them a leaf or key names.
 - `FloatLinkKey` - A link cell carried a floating-point key, which the ADR's float-key rule forbids.
 - `AmbiguousLink` - A link value had more than one lookup row, which would double every measure.
 - `NonNumericLeaf` - A leaf cell that was not a number reached a re-aggregating aggregate.
+
+  The `DuckDB` adapter deliberately returns `DECIMAL` and wide integer columns as
+  `Value::Text` to keep them exact; a sum reaching such a cell cannot certify a number, so
+  it is refused rather than counted as zero.
 - `MixedNumericLeaf` - A leaf column carried two numeric types, so no total or comparison over it is exact.
+
+  A result column in a data system has one logical type. `RowSet` constrains a row's width and
+  nothing about its cells, so a column mixing `Value::Integer` and `Value::Real` cells is
+  representable here, and the two ways to answer one are both wrong numbers: dropping either
+  subtotal loses it outright, and folding the integer one into the real one is an `i64 as f64`
+  widening - the same silent widening `DuckDB`'s own conversion refuses for a 32-bit float and
+  for a wide integer that does not fit an `i64`. Refused instead, which is also what leaves the
+  aggregates above comparing and adding one type.
 - `Overflow` - A leaf total overflowed a 64-bit integer.
 - `UnsupportedAggregate` - An aggregate the combiner does not know how to re-aggregate with.
+
+  The one path `FederatedPlan::new` closes is a carried leaf naming an aggregate
+  `reaggregate::reaggregates` answers `false` for - it refuses such a federation before any
+  leg runs, so no plan that constructor built carries this value. **The limit: nothing else
+  closes it, and construction is not restricted to this module.** `FederatedFailure` is `pub`
+  and re-exported, and the application's federated execution already writes a sibling
+  variant's literal from outside the crate. So any caller can build this value directly; it
+  stays a refusal rather than becoming a panic because a value that claims a re-aggregation
+  which does not exist would answer wrongly, not because the type seals the variant.
 - `ResourcesExhausted` - Materialising the answer crossed the byte budget `docs/adr/0009` applies at the conversion boundary.
+
+  The legs have no row cap - that measured key cardinality rather than bytes, which is exactly
+  what 0009 retired - so this is the bound on the answer `combine` builds. A refusal is honest
+  in the way a truncated one is not: the caller sees a `federation_not_executable`-adjacent
+  refusal rather than a row set that stopped early.
 - `MalformedRow` - A row whose width contradicts the result's own column count.
+
+  Unreachable by construction on both halves: a leg result is built by `RowSet::new`, which
+  refuses a ragged row up front, and the answer is projected from a single fixed key list. It is
+  this slice's defensive arm - the named, reachable-if-the-type-lying shape the old `LegCount`
+  catch-all used to swallow.
 
 ##### Implements
 
@@ -7604,7 +7812,43 @@ fn _checked(
 ##### Variants
 
 - `Fact` - Read off the metric's own model, grouped by the bucket and by every key the answer or a non-descending term needs.
+
+  `keys` holds three kinds of column and this type does not distinguish them - the answer's
+  local dimension keys, every remote dimension's join key, and every distinct key a
+  non-descending term needs. It does not, because the rendering does not care: all three are
+  grouped by and projected. Which is which is read from the federated plan beside the legs.
+  Bounded by arithmetic that already exists rather than by a budget:
+  `MAX_DIMENSIONS` dimension keys, plus one bucket, plus at
+  most two distinct keys because a `Measure` is one term or a ratio
+  of two. Seven grouping columns, worst case.
+
+  **`terms` may be EMPTY, and the empty case is the whole of the distinct-key leg.** A fact leg
+  with no terms groups by its key list and projects it, which is a distinct set of keys - the
+  exact answer an exact `CountDistinct` needs above. At most four entries, because a measure is
+  one term or a ratio of two and `Avg` expands one term into two.
+
+  **`tables` is a `StatementTables` and not a table beside a vector of joins, and that is
+  this variant's own guard rather than a tidier signature.** A fact leg keeps every SAME-SOURCE
+  hop as a `JOIN` of its own, so two tables whose paths end in one name render under one
+  implicit alias inside this leg's statement - `crate::plan::tables` holds the reproduction and
+  the argument for refusing rather than aliasing. Taking the checked set as the field is what
+  makes the ambiguous leg unrepresentable rather than something a producer has to remember to
+  ask about: it did not, and the statement it rendered compared one table with itself. It
+  serializes `#[serde(flatten)]`, so the pinned form is `table` beside `joins` exactly as
+  before - a leg plan's serialized shape is a function of the split, not of where the guard
+  lives.
+
+  Same-source hops only. A dimension on another data system is a
+  `Lookup` leg, not a join.
 - `Lookup` - Read off one remote dimension model: its join key, the columns the answer groups by, and whatever filters went with it.
+
+  No bucket, no terms, no range and no metric. A dimension table has no time column, so a range
+  would be a predicate on a column that is not there; nothing is aggregated, so there is no
+  term and no measure label; and the metric belongs to the fact leg.
+
+  `bindings` may be empty, and whether it is decides the join kind above - INNER for a remote
+  dimension carrying a filter, LEFT for one that does not. That derivation belongs to the
+  splitter and is deliberately not a field here.
 
 ##### Methods
 
@@ -7817,6 +8061,21 @@ emitting - is a variant a caller can branch on rather than a change to a message
 ##### Variants
 
 - `OneIdentifierTwoTables` - Two of the statement's tables answer to one identifier.
+
+  Carries both paths and the identifier they collapse to, so the refusal says which two tables
+  rather than sending a reader to count them. `first` is whichever occurs earlier in the
+  statement: the `FROM` table, then the joins in plan order. Where the two differ only in case,
+  `alias` is the LATER spelling - the earlier one is readable off `first`.
+
+  **The two paths are their dotted TEXT rather than a `QualifiedTable` each, and the reason is
+  a lint this workspace deliberately does not allow.** `clippy::result_large_err` is on because
+  a service whose public surface is a refusal wants to know when the error half of a `Result`
+  grows, and two `QualifiedTable`s plus a `TableName` measured 168 bytes against a threshold of
+  128. `sutura_sql::generate::GenerateError::QualificationUnsupported` already carries its table
+  the same way and for the same reason, and the precedent for trimming rather than allowing the
+  lint is `crate::knowledge`'s `AmbiguousPhrase`, whose own note says two referents were 160
+  bytes of it. Nothing branches on these two: the one production caller reads `Self::alias` and
+  the transports carry the identifier alone.
 
 ##### Methods
 
@@ -8047,18 +8306,239 @@ somebody else's input.
 - `DuplicateDimension` - The same dimension appears twice in one question. Refused rather than deduplicated: a caller who sent it twice believes something we do not.
 - `TooManyDimensions` - More group-by keys than `MAX_DIMENSIONS`.
 - `ResultTooLarge` - The result was too much data to certify, and `ResultBound` says which bound said so.
+
+  **The refusal that replaced a silent truncation, and it was a wrong-number bug.** The cap
+  used to be the `LIMIT` on the statement and nothing compared the rows that came back against
+  it, so a question wide enough to exceed it was answered with the first `MAX_ROWS` groups by
+  group key - with provenance attached and no indication it was partial. Summing them gives a
+  wrong number under a certified name, and nothing downstream can tell.
+
+  A governance outcome rather than an error, for the same reason
+  `TimeRangeTooLong` is: the question is well formed, the
+  metric permits it, and the answer is still no. Refused rather than narrowed, because a total
+  over part of the groups is not a smaller answer to the question asked - it is a different
+  number wearing the same name.
+
+  **One variant for two bounds, and the payload is what keeps that from being a lie.** A row cap
+  this deployment configured and a data system declining to hand a result back in one piece are
+  the same answer to a caller - *too much data, ask a narrower question* - so they share a
+  variant, a code and a status rather than teaching an authorization server, a dashboard and an
+  agent a second vocabulary for one remedy. What they do not share is a number, which is why the
+  field is `ResultBound` rather than a `limit` that would have to be filled in with something
+  for the case that has none.
 - `TimeRangeTooLong` - A span of history longer than `MAX_RANGE_DAYS`.
+
+  The availability boundary, and a governance outcome rather than a malformed question: the
+  range parsed, both endpoints are real dates, and the answer is still no. Refused rather than
+  silently narrowed to the last permitted day, because an answer about a different period than
+  the one asked about is a wrong number nothing downstream can detect.
+
+  Carries the two day counts and nothing from the caller's text, which is what makes it safe to
+  log: a day count is derived from parsed dates, so there is no caller-controlled string to
+  reflect into a message that reaches a log, a UI and an agent's context.
 - `PlanSpansTooManySources` - The plan would need to read from more than the deployment serves.
+
+  Refused rather than run in parts, because each data system is a separate identity to satisfy,
+  and a plan that runs partly as somebody else is the failure this design exists to prevent.
+
+  **Exactly two is served** - a question that spans two sources is split into two legs and
+  combined above them (the splitter reaches `sutura_semantic::Plan::Federated`, and `answer`
+  executes it where the registered adapter can run a leg and otherwise refuses it as
+  `FederationNotExecutable`). So this is the bound on
+  an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
 - `FederationNotExecutable` - The question asked is served by two sources, but this build has no adapter that can execute a leg.
+
+  **A fact about the BUILD, not about the question or the sources.** `Warehouses<W>` holds one
+  adapter type, so this reads that type's `Warehouse::EXECUTES_LEGS` once: a build whose adapter
+  declares it answers every two-source question it can plan, and a build whose adapter takes the
+  default refuses all of them. The in-process engine declares it and is non-optional in both
+  published binaries, so a release answers; an adapter that takes the default - `BigQuery`, or a
+  fake - still arrives here.
+
+  `answer` refuses here rather than surface the adapter's own refusal as a retryable 503: this
+  is not a data system being down, and a caller must not retry it.
+
+  **One producer, and that is `telekom/sutura#338`.** The compile stage used to raise this too,
+  for a two-source plan it had built and could not then assemble - a defect in this workspace
+  wearing a governance refusal's clothes. It mattered most while every published build refused
+  here anyway, because the two were then the same answer to a caller; it still matters now that
+  a release executes legs, because the question a caller has to be able to ask is *is this
+  build unable to run a leg, or did sutura fail to assemble a plan it had already decided on*.
+  That failure leaves as `sutura_semantic::CompileFailure` now, so this variant means the
+  capability and nothing else.
 - `FederationLinkAmbiguous` - The question's remote dimensions join the metric's own through more than one relationship.
+
+  The combiner links the two legs on a single column; two relationships on one remote data
+  system would need two link columns, which the lookup leg does not carry. Refused rather than
+  guess a link, and named as a link ambiguity rather than a source count: it is not that too
+  many sources are involved.
 - `MeasureDoesNotFederate` - The question's measure cannot be decomposed into one leg per source.
+
+  A measure federates only when its aggregate can be recomputed above the legs. A distinct count
+  cannot: two exact distinct counts added together over-count every key the two legs share, and
+  no re-aggregating function repairs it. The honest answer is to refuse rather than to pull the
+  rows up through a combiner that would have to guess.
+
+  Carries the metric and the aggregate that cannot descend, so a caller sees why.
 - `PlanTablesShareAnIdentifier` - Two tables the plan would read answer to one identifier inside one statement.
+
+  **A reproduced wrong-answer report, not a hypothetical.** A fact table at
+  `analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` gave a
+  statement whose `ON` clause compared `orders.customer_id` with `orders.id` - one table with
+  itself - because a column is qualified by the LAST part of a path and both paths end the same
+  way. A real `DuckDB` answers that with `Binder Error: Ambiguous reference to table "orders"`; a
+  target that binds it to one side instead returns a number under a certified metric name.
+
+  **A refusal here rather than a load-time refusal, deliberately**, and the asymmetry with
+  `LabelShadowsTable` is the
+  reason: a colliding LABEL costs its author a rename, while a colliding TABLE is a physical
+  name nobody here can change - and same-name tables across datasets are the normal shape of the
+  estate that qualified paths exist for. So the metric stays authorable and only a question that
+  actually puts both tables in one statement is declined; asking for a dimension that needs no
+  join is still answered. `sutura_domain::plan::tables` holds the guard and the argument for why
+  distinct explicit aliases are not the fix today.
+
+  Carries the identifier the two collapsed to and neither of the two paths. The identifier is
+  the thing a person can act on - it names the join to avoid - and a path carries the project
+  and dataset a deployment reads, which is the operator's business rather than the asker's. The
+  operator-facing detail is on the domain error the plan stage refused with.
 - `SourceUnavailable` - The plan named a data system this process did not open.
+
+  **What raises it today is a name comparison, not an identity check**, and the doc comment
+  used to claim otherwise. `sutura_app::answer` compares the plan's source against the
+  adapter's own and refuses when they differ, which catches a bundle pointed at one data
+  system being answered from another - a real hole, and the reason the check exists.
+
+  It is deliberately the variant an identity failure will also use, because both are the same
+  answer to a caller: this question cannot be answered here, and it will not be answered
+  somewhere else instead. A refusal rather than a fallback - running as the service's own
+  identity would turn "you may not see these rows" into "here are the rows" - but nothing in
+  this workspace can yet run as any identity, so that half is a design target and not a
+  control. `AGENTS.md` records which is which.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
+
+  **The variant that exists because process death was the alternative.** Shipped profiles
+  compile `panic = "abort"`, so an unbounded allocation is not an error for the caller who
+  asked - it is the process ending for every caller in flight. A bounded pool turns that into a
+  reservation that fails, and this is what a failed reservation is on the way out.
+
+  **A refusal rather than an error, and the distinction is the whole point of the variant.**
+  Exhaustion used to reach a caller as `503 unavailable`, which is what a data system that is
+  down looks like - so a caller was told to retry against a bound that will fire again at the
+  same place. It is a governance outcome: the question is well formed, the metric permits it,
+  and this deployment will not spend more than a configured number of bytes certifying it.
+
+  Carries the ceiling and not what was asked for. The ceiling is a configured number, so it is
+  the same for every caller and safe in a log; the *demand* is a measurement of the shape of
+  somebody's data, and reporting it would tell a caller how much of the pool their question
+  needed - a number arrived at by asking rather than by being permitted to know it.
+
+  **What this does NOT cover, stated with the claim.** The pool counts what the engine's own
+  operators reserve - a hash-join build side, aggregate state, a sort - and nothing else. Not
+  what a driver buffers, not `collect()` materialising every batch, not the row set built while
+  results are converted. So a question large enough to end the process on one of those paths
+  still ends it, and this refusal is not the control that reaches them.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
+
+  **Understood, and refused.** Asking differently does not help: what is missing is a grant at
+  the data system, or a different subject. The plan is fine, the metric permits the question,
+  and this deployment will not answer it as somebody else - which is the whole of what the
+  credential port bought, because the alternative was a leg that ran as the process and came
+  back with rows the asker may not see, under a certified metric name and valid provenance.
+
+  **It is the one refusal `docs/adr/0008` adds, and the record deletes the other one it
+  proposed.** A `SourceCannotImpersonate` was on that list at `409`, and part 6 walks every
+  configuration that was supposed to reach it: each turns out to be a boot refusal, an `Err` for
+  a wiring defect between the broker and the source declaration, this variant, or the decided
+  permitted behaviour - a shared source in a multi-user deployment answers and records the
+  posture it ran under. A variant no test can provoke is one this enum refuses to carry.
+
+  **It amends `docs/adr/0005`**, which says the `403`s "are not a statement about a credential"
+  because at the time no token widened anything. This one is, so a transport's detail for it must
+  not send a caller looking for a better deployment token: the deployment's own credential is
+  not what is missing.
+
+  Carries the source and nothing about the credential. Which grant a subject lacks is the data
+  system's to say, and guessing it here would be this deployment holding a second opinion about
+  somebody else's authorization.
 - `SourceRefused` - The data system refused the executed statement because the identity it ran it as may not ask it.
+
+  **The refusal a data system hands back at the identity/authorization level, as opposed to the
+  two bounds `ResourcesExhausted` and
+  `ResultTooLarge` classify.** Those are the domain's own
+  numbers - a reservation this deployment refused, a page it caps. This one is the DATA
+  SYSTEM saying no about WHO asked: the role it runs the question under lacks the permission,
+  a statement's `SELECT` names a table or column that identity may not read, row-level security
+  denies it. It is permanent in the same sense `CredentialUnavailable`
+  is - the same question as the same identity is refused again - but it is not a missing
+  credentials decision: the identity that ran the query WAS presented, and the source refuses
+  it.
+
+  **A refusal rather than an error, and the distinction is the whole variant.** It used to
+  arrive as `crate::warehouse::Warehouse::execute`'s `Err` and leave the transport as the
+  `503` a dead data system produces - so a caller was told to retry an authorization decision
+  that will refuse again at the same place. It is an answer, and the answer does not change by
+  asking again.
+
+  **It is the query-time sibling of the boot-time
+  `Warehouse::preflight_was_refused`
+  split.** That predicate tells a pre-flight's *could not verify* apart from *this identity may
+  not ask*; this variant is the same split when the asking happens in `execute`. An adapter
+  answers `Warehouse::source_refused`, and this
+  is what the domain names the `true` half.
+
+  Carries the source and nothing about which permission or which identity: both are the data
+  system's to say, and echoing them would publish a foreign authorization decision into a log,
+  a UI and an agent's context.
 - `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
+
+  **Not a source count, and that distinction is the whole variant.**
+  `PlanSpansTooManySources` bounds a fan-out and says
+  *sources*; this says what a combined number would be made of. Two sources under one posture
+  are answered - that is the shape that ships - and two sources deciding identity two different
+  ways are refused, because adding rows one identity was permitted to see to rows another
+  identity was permitted to see produces a total no identity is entitled to, under a certified
+  metric name and with valid provenance attached.
+
+  Refused rather than disclosed, and *disclosed* is not the third option it reads as: an answer
+  carries `executed_as` and `rows` in one body on both transports, with no streaming and no
+  second message, so the only outcome that reaches a caller before the rows is a refusal. The
+  per-leg record still ships and is still worth having - it documents a disclosure that
+  happened, which is a different job from preventing one.
+
+  **Carries the posture LABELS and never a `SourcePosture`.** That type's shared variant holds
+  the operator's own acknowledgement text and both are `Serialize`, so a value here would
+  publish operator prose to every caller, log and agent context - the same rule
+  `PlanTablesShareAnIdentifier` follows when it
+  carries the identifier and neither path. The labels come from a closed set of two.
+
+  **What it cannot decide, stated with the claim.** *Same posture* is decidable and *same
+  asker* is not: nothing in this workspace names WHICH shared identity a source is read as, so
+  two `shared-service-user` legs may be two different deployment-held identities and this
+  passes them.
 - `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
+
+  **A refusal rather than a failure, and `docs/adr/0029` argues both directions once rather
+  than asserting the choice.** For a failure: time is load-dependent in a way memory is not, so
+  *repeating this without modification will fail the same way* is likely here rather than
+  certain. For a refusal, which wins: the deployment decided the bound and the data system
+  enforced it, so something WAS judged; the failure this replaces used to leave as a retryable
+  `503`, which invites an automatic retry that spends the whole budget at the data system
+  again, and on a networked adapter billed for the call, bills again; and an `Err` writes no
+  audit record, so a question a configured bound stopped would leave no outcome anywhere.
+
+  Mapped from `crate::warehouse::Warehouse::deadline_exceeded` after
+  `ResourcesExhausted` and
+  `ResultTooLarge`, before
+  `SourceRefused`; also raised directly, with no adapter
+  involved at all, when the budget is already spent before `dry_run`, before `execute`, or
+  before the next leg of a federated answer starts.
+
+  Carries the configured budget in seconds - the same reason
+  `ResourcesExhausted` carries its ceiling: a number an
+  operator configured, the same for every caller, safe in a log. Not how long the question
+  would have taken, which nobody knows, and not which leg spent it, which would tell a caller
+  how a deployment's sources compare.
 
 #### Methods
 
@@ -8110,8 +8590,44 @@ agent two paragraphs saying one thing.
 #### Variants
 
 - `Rows` - The plan's row cap, in rows.
+
+  Carries the limit and **not** how many rows there would have been, because nobody knows: the
+  plan asks for one row more than the cap and stops there, so what is known is "more than
+  this". That is the difference from
+  `TooManyDimensions`, which can name what was requested
+  because the caller sent it.
 - `Volume` - The data system would not hand this result back in one piece.
+
+  Raised through `Warehouse::result_did_not_fit`, a predicate for the reason that port method's
+  own documentation gives. It is *not* the row cap: the statement carries `MAX_ROWS + 1` as its
+  `LIMIT`, so a result reaching this arm was inside the cap and was still more data than the
+  data system would deliver at once - a wide result rather than a tall one.
+
+  **Carries no number, and that is a decision rather than a field somebody forgot.** The bound
+  belongs to the data system and is not stated to a client: the endpoint this arm was built for
+  caps a reply by size and reports neither that cap nor the reply's size, so the only figures
+  in scope are how much was scanned and how much would be billed - neither of which is the
+  bound that fired. An `Option<u64>` here would make every reader decide what an absence
+  permits, and a figure filled in from one of those would be a certified-looking number for a
+  bound that is not the one that refused. A fabricated limit is worse than an absent one.
+
+  **The limit, stated with the claim:** a caller is told to narrow the question and is not told
+  by how much. That is the whole of what this deployment honestly knows.
 - `Encoded` - This deployment's own rendered-response ceiling, in bytes.
+
+  **The third arm, and it exists because the first two do not cover a wide-but-short result.**
+  A result inside `plan::MAX_ROWS` and inside every data system's own reply cap can still carry
+  `MAX_DIMENSIONS` grouped columns of arbitrary text - `crate::catalog::MAX_DIMENSION_VALUE_CHARS`
+  bounds a caller's filter value and a catalog author's allowlist entry, and says nothing about
+  the length of a value a data system actually returns - so the row cap counts rows and the
+  volume bound is the data system's, and neither measures what a caller's own cells add up to.
+  Raised by
+  `sutura_app::answer` against `ResponseByteLimit`, after the row cap has already passed, over
+  `RowSet::rendered_byte_len` - the same canonical cell text an anchor is compared against, not
+  the wire bytes a transport wraps it in.
+
+  Carries the ceiling, because unlike `Self::Volume` this is a number the deployment chose
+  rather than one it was never told.
 
 #### Implements
 
@@ -8317,6 +8833,15 @@ free text.
 - `FilterDimension`
 - `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `crate::catalog::MAX_DIMENSION_VALUE_CHARS`.
 
+  **The one variant with no `#[source]`, and the omission is the point.** Every other cause in
+  this enum either carries no caller text or carries text that already failed an identifier
+  parse, which is a few dozen ASCII bytes. `crate::catalog::DimensionValue`'s own parse error
+  carries the offending input, because it exists for the author of a catalog - and a transport
+  error reaches a log, a UI and an agent's context, which is the one place
+  `crate::query::RefusalReason` is explicit that a caller's own text must not arrive. So the
+  field and the index are reported and the cause is dropped: the same answer
+  `DimensionValueNotAllowed` gives, at the boundary that now catches it earlier.
+
 #### Implements
 
 `Debug`, `Display`, `Error`
@@ -8436,9 +8961,39 @@ answer about the statement once it ran.
 #### Variants
 
 - `TooManyRows` - The result had more rows than this deployment's row cap.
+
+  Refused rather than truncated, the same argument `RefusalReason::ResultTooLarge` makes: a
+  result cut at the cap is a different, smaller number under the caller's own statement, and
+  nothing downstream could tell that it was cut.
+
+  **The limit this bounds, stated next to the claim.** `crate::plan::MAX_ROWS` is the same
+  number the certified path renders as a `LIMIT`; the raw path has no clause to add to the
+  caller's own text, so the Postgres adapter enforces it by reading no more than that many
+  rows plus one off a STREAMED result (`Client::query_raw`) before refusing, rather than by
+  materialising the whole result first and counting afterward. What this does NOT bound: the
+  statement's own execution time or the SERVER's memory while it produces those rows - both
+  are the connect-time `statement_timeout`'s job, a coarser and unrelated ceiling.
 - `ResultTooLarge` - The data system would not hand this result back in one piece.
+
+  Carries no number, for the reason `crate::query::ResultBound::Volume` carries none: the bound
+  belongs to the data system, and a figure borrowed from wherever the statement failed would be
+  a certified-looking number for a bound that is not the one that fired.
 - `StatementFailed` - The statement did not complete: a syntax error the data system's own parser found, a constraint it enforced, or the connection's own statement timeout firing before it returned.
+
+  **No text from the driver is carried**, and that is the whole point of the variant rather than
+  a field left unfilled. Whoever controls the statement controls part of the message a database
+  returns about it - `docs/adr/0013`'s own accounting of what this tool spends - so until
+  `docs/adr/0022` Decision 3's quoting exists, nothing here forwards the data system's own words.
+  An operator reads the driver's complaint from the log line this refusal is built from, not
+  from the field.
 - `SourceRefused` - The data system refused the statement at the identity or authorization level: a write inside the read-only transaction sutura wraps every call in, a role lacking a grant the statement needed, or a row-level policy denying it.
+
+  **Distinguished from `Self::StatementFailed` on purpose**, the same split
+  `RefusalReason::SourceRefused` draws against a plan's own execution failure: this is the data
+  system saying no about WHO asked and what they may do, not a malformed statement or a timeout.
+  `docs/adr/0013`'s amendment is explicit that the read-only transaction is a real, server-
+  enforced boundary for statement-shaped writes and not for a VOLATILE function's own side
+  effects - see that record for the limit stated with the claim.
 
 #### Methods
 
@@ -8479,6 +9034,11 @@ output.
 #### Variants
 
 - `Rows` - The statement executed and produced this result.
+
+  Rendered the same way `crate::warehouse::RowSet` renders a certified answer's cells - every
+  value as text - but there is no `RowSet` here and no shared constructor with one: the raw path
+  builds this straight from the driver's own columns, so nothing about the certified answer's
+  row-set type can leak a field this variant does not declare.
 - `Refusal` - The statement was refused, before or after it reached the data system.
 
 #### Methods
@@ -8586,8 +9146,20 @@ the offending input as typed fields; the `#[error]` text is a convenience for a 
 #### Variants
 
 - `Empty` - Empty or whitespace-only.
+
+  **The variant the whole witness rests on.** An acknowledgement whose reason is the empty
+  string is a key an operator wrote without saying anything, which reads in a diff and in a
+  startup log exactly like a deliberate acknowledgement and is not one.
 - `ControlCharacter` - Holds a control character. The startup log prints this on one line, so a newline here appends a line nobody wrote.
 - `InvisibleCharacter` - Holds an invisible or direction-changing code point.
+
+  The second half of the reason the variant above exists: `char::is_control` is false for every
+  one of these - general category `Cf`, not `Cc` - so the check that refuses a newline provably
+  cannot see a right-to-left override. `crate::text` owns the set, so this refusal and the one
+  a version label gets are the same refusal.
+
+  The code is reported rather than the value, because text whose only defect draws nothing would
+  print as though it were correct.
 - `TooLong`
 
 #### Implements
@@ -8739,7 +9311,14 @@ Two variants, and the closed set is the point: an answer cannot claim a third th
 #### Variants
 
 - `SharedServiceUser` - Every query reaches this source under one identity the deployment holds. Carries the operator's acknowledgement, so it cannot be reached by leaving anything at a default.
+
+  **Honest, not broken.** It is right for a single-user deployment - static credentials, one
+  user, one host - and right for a source nobody needs to see per subject. The failure is never
+  the posture; it is a source in this posture being *believed* to impersonate.
 - `ImpersonationAtSource` - Each query reaches this source as the asking subject, so the SOURCE decides what that subject sees: its own authorization, its row and column policies, its own catalog.
+
+  Reaching it that way is the whole reason this posture exists - sutura carries no per-dataset
+  classification and holds no second opinion about someone else's authorization.
 
 #### Methods
 
@@ -8907,6 +9486,15 @@ Why a source's two identity declarations do not go together.
 
 - `VerificationIdentityOnASharedSource` - A verification identity was declared on a shared source, where nothing would read it.
 
+  Refused rather than ignored, for the reason every unknown key in the settings tree is an
+  error: a declaration that does nothing reads as a control that is in place. On a shared source
+  the verification identity **is** the shared identity - there is no second credential to
+  configure - so a name written here is either a misunderstanding or a key on the wrong entry.
+
+  The field is `at` rather than `source`, and that is not a naming preference: `thiserror` reads
+  a field called `source` as the `Error::source` chain, so a `SourceName` there does not compile.
+  Every error in this module names its source field `at` for that reason.
+
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
@@ -8929,6 +9517,10 @@ mode nobody chose.
 - `TheSharedIdentity` - The source is shared, so the anchor runs as the one identity every caller reads it as.
 - `Declared` - The source impersonates, and the operator declared a static identity for the boot path.
 - `NoneDeclared` - The source impersonates and nothing was declared. There is no identity to run an anchor as.
+
+  A deployment that genuinely wants an impersonating source with no verification identity gets
+  it by authoring no anchors on that source's metrics - a catalog fact a reviewer can see, rather
+  than a runtime behaviour they have to infer.
 
 #### Implements
 
@@ -9194,6 +9786,8 @@ reason every error in this crate does.
 - `Infinite` - Infinite, in either direction.
 - `NotANumber` - Not a number at all. Its own variant rather than a value on the one above, because `NaN` compares unequal to itself: an `Infinite` carrying one would make two of these errors unequal for a reason that has nothing to do with what happened.
 
+  `Infinite`: NotFinite::Infinite
+
 #### Implements
 
 `Debug`, `Display`, `Error`, `PartialEq`
@@ -9376,6 +9970,10 @@ Why a result set could not be built.
 #### Variants
 
 - `RowWidth` - A row has a different number of cells than there are columns.
+
+  Checked once here rather than trusted, because every consumer downstream indexes by column
+  position, and the `indexing_slicing` ban means each of them would otherwise need its own
+  fallback for a case that must not exist.
 
 #### Implements
 
@@ -9679,6 +10277,10 @@ The column types a fixture CSV can declare, and the one classification every ada
 - `Integer` - A column of `i64` integers only (a `SUM` over it stays exact).
 - `WideInteger` - A non-negative integer column that needs the shared `u64` range.
 - `Decimal` - An exact fixed-point decimal, carrying the widest canonical scale.
+
+  An all-integer column is NOT this - it is `Self::Integer` or `Self::WideInteger` - because
+  both stay exact. A column with an integer and a fraction is a decimal of the observed scale;
+  a column of decimals only is a decimal too.
 - `Real` - Everything floating-point.
 - `Date` - A `YYYY-MM-DD` column.
 - `Text` - The fallback, for text and for a column with no data.
@@ -10034,7 +10636,28 @@ metrics that have one.
 - `All` - The data system was asked and holds every table it was asked about.
 - `AllBut` - The data system was asked and does not hold these.
 - `UnreadableInventory` - The inventory reported a total the adapter could not read and no readable table IDs.
+
+  These tables are neither established present nor absent. Unlike `Self::Unaccounted`,
+  there is no shortfall to count or bound. This is an answered inventory, not an error fetching
+  one, and a boot must refuse without blaming the catalog's table declarations.
 - `Unaccounted` - The data system was asked, answered, and its answer did not account for every table it said it holds - so whether it holds these is not established either way.
+
+  **The point of the variant is that this is NOT `Self::AllBut`**, and the difference is what
+  an operator is sent to do. A data system whose inventory reports a total and then names fewer
+  tables than the total claims has left a gap, and any table the bundle names that is missing
+  from what it DID name may be sitting in that gap. Reporting such a table absent is rounding a
+  shortfall down to zero and blaming the catalog for it.
+
+  **Presence is unaffected, which is why this variant is not simply *could not check*.** A
+  table the answer named is a table the data system really has; a short inventory cannot
+  un-name an entry it carried. So an answer that fell short and still named everything the
+  bundle asks about is `Self::All`, and only the tables it did not reach land here.
+
+  **What it does NOT separate, stated where the claim is:** an inventory can fall short because
+  its shape changed under the adapter, or because a table was created or dropped while it was
+  being read. Both leave the same gap over the same tables, and this answer says only that the
+  gap is there. A root that wanted to tell them apart would need evidence no data system offers
+  at boot.
 
 ##### Methods
 
@@ -10184,7 +10807,14 @@ Why two answers do not carry the same content.
 ##### Variants
 
 - `Columns` - The two sides labelled the result differently.
+
+  Checked first, because everything below is per column and a differing label means the two
+  sides are not answering about the same columns at all.
 - `Multiplicity` - One side answered a row a different number of times than the other.
+
+  A `0` on either side is the ordinary case of a row one side did not answer at all. One
+  variant covers both, because *this row appeared twice here and once there* is the same
+  defect and a second variant for it would report the same thing two ways.
 
 ##### Implements
 
@@ -10372,7 +11002,15 @@ as an unchecked one.
 ##### Variants
 
 - `MayDuplicateRows` - The join type promises nothing about the target column.
+
+  `one_to_many` is the only one: it is the direction that MAY duplicate rows, which is why
+  `Definitions` already refuses to reach a dimension through one. A probe over it would refuse
+  a bundle for holding exactly the shape it declared.
 - `ModelUndefined` - The target model is not in these definitions.
+
+  Unreachable through a loaded bundle - `Definitions` refuses a relationship naming a model it
+  does not carry - and reported rather than panicked for the reason every self-check in this
+  domain is: the input is a catalog document, and a panic reachable from one is a defect.
 - `ColumnNotOnModel` - The target model does not declare the column the relationship joins on. Unreachable for `ModelUndefined`'s reason, and reported for it.
 
 ##### Implements

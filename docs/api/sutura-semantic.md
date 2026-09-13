@@ -52,7 +52,13 @@ A refusal is a variant here rather than an `Err`, which is the same choice
 ### Variants
 
 - `Planned` - The question resolved to one data system, and this is what we decided to execute.
+
+  The plan is boxed because it is by far the larger of the payloads, and an enum whose size is
+  set by its rarest variant makes every refusal carry the cost of an answer.
 - `Federated` - The question resolved to two data systems, split into a fact leg and a lookup leg.
+
+  The two legs execute against their own sources and `FederatedPlan::combine` turns the rows
+  back into one answer above them.
 - `Refused` - The question was refused, and this is why.
 
 ### Methods

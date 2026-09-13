@@ -494,7 +494,7 @@ remove the property the test would be checking around.
   **Corrected: the section is `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not
   wired* now** - `AGENTS.md` carries no such section. Nothing named there may be cited as an
   invariant either.
-- The `data_systems:` axis of `crates/sutura-app/tests/adapters/mod.rs` still gains **no** entry.
+- The `data_systems:` axis of `crates/sutura-app/tests/adapters/adapters.rs` still gains **no** entry.
   That registry's rule is that an entry is something somebody could deploy, and a cell that has never
   executed reads as coverage. It gains one in the change that pastes a green acceptance run.
 - `sutura-serve` still refuses `kind: bigquery` by name, and correctly: it links no `BigQuery`

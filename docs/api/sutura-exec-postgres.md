@@ -45,6 +45,10 @@ Why this data system could not answer.
 - `NotADate` - A day came back that is not a date this build can represent.
 - `Shape`
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
+
+  A defect in the rendering or in this adapter's value mapping rather than anything about the
+  data - two aggregates over no group produce one row of two integers - and it travels as an
+  `Err` from the port, which the boot path reads as *this declaration went unchecked*.
 - `Render`
 - `Fixture` - A fixture import failed.
 - `FixtureRead`
@@ -52,6 +56,11 @@ Why this data system could not answer.
 - `FixtureSchema` - The shared conformance fixture schema could not be inferred.
 - `InvalidSchemaName` - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
 - `InvalidStatementTimeout` - The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
+
+  The value becomes a `SET statement_timeout = N` line verbatim, so it is parsed at the
+  boundary and refused if it is not a number or exceeds the `u32` ceiling - a value that
+  cannot be a timeout must not reach the statement as uninterpreted text. The cause
+  survives so the operator sees the number did not parse, not a plain refusal.
 - `RawTransaction` - The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run - sutura's own fixed text on the simple query protocol (`docs/adr/0013`), never the caller's.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
@@ -202,7 +211,7 @@ The fixture tier's credential - a value that cannot exist unconfigured.
 
 **Behind the default-off `fixtures` feature**, because both callers are tests
 (`crates/sutura-exec-postgres/tests/conformance.rs` and
-`crates/sutura-app/tests/adapters/mod.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
+`crates/sutura-app/tests/adapters/adapters.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
 no artefact a release publishes contains this module or the connection config over it, which
 deletes the *reachable from a consumer* half rather than hardening it. `--all-features` compiles,
 lints and tests it on every run.

@@ -1,6 +1,6 @@
 //! What both acceptance legs need from the environment, and how the adapter is opened over it.
 //!
-//! **One module rather than two copies, for `crates/sutura-app/tests/adapters/mod.rs`'s own reason:**
+//! **One module rather than two copies, for `crates/sutura-app/tests/adapters/adapters.rs`'s own reason:**
 //! two copies of "open this data system over the developer's project" is two things to keep in step,
 //! and the bound the [`bounds`] function sets is the one path in this repository that spends real
 //! money. A second copy that drifted by a digit would be a leg that bills differently from the one a
