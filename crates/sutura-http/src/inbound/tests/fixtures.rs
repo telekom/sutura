@@ -230,6 +230,10 @@ pub(super) struct StubSource {
     /// Which look waits at [`Self::gate`], if any. Look zero is the priming read, so a cell that
     /// wants the first *refresh* held names look one.
     hold_at: Option<usize>,
+    /// Which look panics instead of returning, if any. Same indexing as [`Self::hold_at`]. Exists to
+    /// provoke `LookFailed::DidNotFinish` - a refusal variant no other cell reaches - and to prove
+    /// `InFlight` is released across an unwinding blocking closure.
+    panic_at: Option<usize>,
     /// Two waiters: the held look, and whoever releases it - which must be a thread that is not the
     /// runtime's, or a build whose read runs on the executor deadlocks instead of failing.
     pub(super) gate: Arc<std::sync::Barrier>,
@@ -249,15 +253,30 @@ impl StubSource {
         Self {
             script,
             hold_at,
+            panic_at: None,
             gate: Arc::new(std::sync::Barrier::new(2)),
             calls: AtomicUsize::new(0),
         }
+    }
+
+    /// Makes the given look (by index, same scheme as [`Self::hold_at`]) panic instead of returning.
+    #[must_use]
+    pub(super) fn panicking_at(mut self, call: usize) -> Self {
+        self.panic_at = Some(call);
+        self
+    }
+
+    /// Panics if `call` is the scripted one - split out of [`Self::read`] so `clippy` does not read a
+    /// deliberate panic as one escaping a `Result`-returning function by accident.
+    fn panic_if_scripted(&self, call: usize) {
+        assert!(self.panic_at != Some(call), "this look was scripted to panic");
     }
 }
 
 impl KeySetSource for StubSource {
     fn read(&self) -> Result<String, KeySetUnavailable> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        self.panic_if_scripted(call);
         if self.hold_at == Some(call) {
             // Blocking, on whichever thread this is. That is the whole instrument: a cell asserts
             // what the rest of the process can still do while this line has not returned.

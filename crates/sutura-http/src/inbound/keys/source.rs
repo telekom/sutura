@@ -110,7 +110,7 @@ impl KeySetSource for FileKeySet {
             cause,
         };
         let file = std::fs::File::open(&self.path).map_err(unreadable)?;
-        let mut bounded = std::io::Read::take(file, MAX_KEY_SET_BYTES as u64 + 1);
+        let mut bounded = std::io::Read::take(file, u64::try_from(MAX_KEY_SET_BYTES).unwrap_or(u64::MAX).saturating_add(1));
         let mut document = String::new();
         let _bytes = std::io::Read::read_to_string(&mut bounded, &mut document).map_err(unreadable)?;
         if document.len() > MAX_KEY_SET_BYTES {

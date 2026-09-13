@@ -9,11 +9,13 @@
 //! | --- | --- |
 //! | [`a_held_source_read_does_not_block_the_executor`] | the read and the parse are off the async worker thread |
 //! | [`a_read_lasting_beyond_its_window_does_not_start_a_second_one`] | one look in flight, whatever the windows say - which is also what makes two looks completing out of order unreachable |
+//! | [`a_second_look_inside_the_window_is_refused_and_the_next_window_looks_again`] | the window compare in `reserve` itself, sequentially - the concurrency cell in `super::review` now holds the `InFlight` flag instead, see its header |
 //! | [`a_caller_that_gives_up_mid_look_does_not_stop_refresh`] | the reservation follows the awaiter: a request that leaves mid-look frees it rather than holding it for the life of the process |
+//! | [`a_panic_inside_the_source_read_frees_the_reservation_for_the_next_window`] | a look that never returns an answer is still a released reservation - the one exit path the other cells do not take |
 //! | [`a_source_that_stays_unreadable_keeps_the_keys_and_says_how_stale_they_are`] | the availability half of the position, and the measurement the documented bound lacked |
 //! | [`a_document_that_stays_unusable_is_never_a_successful_refresh`] | a rejected document does not become a freshness stamp by being read twice |
 //! | [`a_refresh_that_recovers_confirms_the_keys_again`] | the position is not one-way: a source that comes back resets it |
-//! | [`a_key_set_document_over_the_byte_bound_is_refused_rather_than_read`] | the bound on the work itself, in the one source that ships |
+//! | [`a_key_set_document_over_the_byte_bound_is_refused_rather_than_read`] | the cap and the edge on the work itself, in the one source that ships - not the pre-allocation read, see its header |
 //!
 //! **The instrument is the fake at the port**, `super::fixtures::StubSource`, scripted look by
 //! look; the three timing cells hold one look inside it on a `std::sync::Barrier` released by an OS
@@ -176,6 +178,64 @@ async fn a_read_lasting_beyond_its_window_does_not_start_a_second_one() {
 }
 
 #[tokio::test]
+async fn a_second_look_inside_the_window_is_refused_and_the_next_window_looks_again() {
+    // **Finding 1 + 2 from review, held sequentially.** Moving the read onto the blocking pool
+    // parked `super::review::two_concurrent_callers_past_the_same_pre_state_perform_exactly_one_read`'s
+    // first caller on its `JoinHandle`, so the second now loses on the `InFlight` flag in `reserve`
+    // and never reaches the window compare that cell's own header used to describe. That cell still
+    // holds a real bound - see its reworded header - but the compare itself needs a cell that reaches
+    // it, and this one is deterministic and sequential: no barrier, no second task, no sleep. Every
+    // instant is one this cell passes to `poll_once` itself, which is what `IMMEDIATELY` windows are
+    // for.
+    //
+    // Three steps, and each kills a different mutation:
+    // - the first look past the window happens, so the count below is not a fluke of priming.
+    // - the SAME instant, immediately after, must be refused by the window compare - the flag is
+    //   already clear (the first look's `InFlight` was dropped inside `record`, before this call even
+    //   starts), so a `NotDue` here can only come from the compare in `reserve`. Killing the compare
+    //   (mutation E: `window = Duration::ZERO`) turns this into a second read.
+    // - a whole window later must look again. Reversing the two checks in `reserve` (mutation B: the
+    //   flag swap before the window compare) makes the SECOND step above leak the flag forever - the
+    //   window-loser sets it before failing the compare, and nothing clears a flag that was never
+    //   handed out as an `InFlight` - so this third step is refused too, which is how it kills B.
+    let pair = key_pair();
+    let now = Instant::now();
+    let (cache, source) = scripted(
+        &[Some(jwks(KID, &pair)), Some(jwks(KID, &pair)), Some(jwks(KID, &pair))],
+        None,
+        now,
+    );
+    let t1 = now + Duration::from_millis(5);
+
+    assert_eq!(
+        cache.poll_once(t1).await,
+        Refreshed::Unchanged,
+        "the first look past the window happens"
+    );
+    assert_eq!(source.calls.load(Ordering::SeqCst), 2, "the priming read plus one look");
+
+    assert_eq!(
+        cache.poll_once(t1).await,
+        Refreshed::NotDue,
+        "the same instant is still inside the window the first look just stamped, and the flag is \
+         already clear - only the compare can refuse this one"
+    );
+    assert_eq!(
+        source.calls.load(Ordering::SeqCst),
+        2,
+        "a look refused by the window compare must not read the source"
+    );
+
+    let t2 = t1 + Duration::from_secs(1);
+    assert_eq!(
+        cache.poll_once(t2).await,
+        Refreshed::Unchanged,
+        "a whole window later the compare must let a look through again"
+    );
+    assert_eq!(source.calls.load(Ordering::SeqCst), 3, "the window reopening must look");
+}
+
+#[tokio::test]
 async fn a_caller_that_gives_up_mid_look_does_not_stop_refresh() {
     // The reservation was a `bool` set by `reserve` and cleared by `record`, and the look between
     // the two is awaited on the REQUEST task: `key_for` reaches `poll_once` with any token naming
@@ -224,6 +284,49 @@ async fn a_caller_that_gives_up_mid_look_does_not_stop_refresh() {
     let (count, ids) = cache.describe().await;
     assert_eq!(count, 1);
     assert_eq!(ids, vec![String::from("the-next-key")]);
+}
+
+#[tokio::test]
+async fn a_panic_inside_the_source_read_frees_the_reservation_for_the_next_window() {
+    // **NIT 4 from review.** `LookFailed::DidNotFinish` existed for a blocking task that never hands
+    // an answer back - the task panicked, or the runtime is shutting down - and nothing provoked it:
+    // `grep -rn DidNotFinish crates/` found only the declaration and the fallback text `announce`
+    // prints for it. It is provokable, and provoking it also proves the thing the seven other cells
+    // in this module do not reach: `InFlight` is held across the `.await` on the blocking task's
+    // `JoinHandle`, so a panic that unwinds the closure on the POOL thread still drops the guard on
+    // the AWAITER's stack when the `Err(JoinError)` comes back - there is no path from a panicking
+    // `read` to a reservation that never clears.
+    let pair = key_pair();
+    let now = Instant::now();
+    let (cache, source) = cache_around(
+        StubSource::scripted(vec![Some(jwks(KID, &pair)), Some(jwks(KID, &pair))], None).panicking_at(1),
+        KeyFamily::EllipticCurve,
+        IMMEDIATELY,
+        IMMEDIATELY,
+        now,
+    );
+
+    let panicked = cache.poll_once(now + Duration::from_millis(5)).await;
+    assert_eq!(
+        panicked,
+        Refreshed::Unavailable,
+        "a look whose blocking task panicked did not finish, and did not finish is unavailable: {panicked:?}"
+    );
+    assert_eq!(source.calls.load(Ordering::SeqCst), 2, "the panicking look was attempted");
+
+    // The next window: if the panic had leaked the flag, this would be `NotDue` and the count would
+    // stay at two.
+    let recovered = cache.poll_once(now + Duration::from_secs(1)).await;
+    assert_eq!(
+        recovered,
+        Refreshed::Unchanged,
+        "the reservation must be released across the panic, so the next window looks again: {recovered:?}"
+    );
+    assert_eq!(
+        source.calls.load(Ordering::SeqCst),
+        3,
+        "the next window's look actually happened"
+    );
 }
 
 // ----------------------------------- what a failing refresh does, and does not, bound ----
@@ -350,6 +453,14 @@ fn a_key_set_document_over_the_byte_bound_is_refused_rather_than_read() {
     // `std::fs::read_to_string` read whatever was at the path, so the read and the parse behind it
     // were work proportional to the file - a denial-of-service primitive whatever else it is, and one
     // a sidecar mistake reaches as easily as anything else does.
+    //
+    // **State the limit next to the claim (finding 3 from review).** This cell holds the CAP and the
+    // EDGE - `TooLarge { limit }` at exactly `MAX_KEY_SET_BYTES + 1` and `MAX_KEY_SET_BYTES` below -
+    // and both shapes of `FileKeySet::read` return the same refusal for the same bytes, so it does
+    // NOT hold WHERE the check sits. "Refused rather than read" in this cell's own name is a
+    // code-reading claim: the pre-allocation half - that `Read::take` at `source.rs:113` bounds the
+    // allocation itself rather than a length check after `std::fs::read_to_string` - is held by
+    // review, not by a cell here.
     //
     // The real source and not a fake, because the bound lives in the implementor: the port hands back
     // an owned `String`, so nothing above it could object once the allocation had happened. The
