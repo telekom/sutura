@@ -1,8 +1,8 @@
 //! Asking every open data system whether it holds the tables the bundle names.
 //!
 //! **The decision sequence, once, for every composition root that has one** - and it is here rather
-//! than copied into each because review measured the copy: the two helpers underneath were
-//! byte-identical between `sutura-serve` and `sutura-cli`, and neither of them contains a word an
+//! than copied into each because review measured the copy: each helper underneath was
+//! byte-identical between `sutura-serve` and `sutura-cli`, and none of them contains a word an
 //! operator reads. [`models_by_table`] is a pure query over [`PinnedDefinitions`], which is a
 //! `sutura-domain` type, and [`AbsentBehind`]'s rendering is a list of names rather than a sentence.
 //!
