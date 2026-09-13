@@ -740,7 +740,11 @@ async fn a_gateway_assertion_arrives_in_its_own_header_and_leaves_the_deployment
     // No `Bearer` challenge in this mode, which is a fix: the caller holds no bearer token for this
     // resource, and a challenge telling it to present one is a well-formed instruction it cannot
     // follow - and following it would put a credential in a header this deployment refuses to read.
-    assert_eq!(gate.challenge(), None, "a gateway deployment issues no Bearer challenge");
+    assert_eq!(
+        gate.challenge(&"/v1/query".parse().expect("a request URI"), &axum::http::HeaderMap::new()),
+        None,
+        "a gateway deployment issues no Bearer challenge"
+    );
 }
 
 #[test]

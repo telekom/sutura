@@ -323,7 +323,7 @@ mod tests {
         use sutura_domain::model::Aggregate;
         use sutura_domain::model::{ColumnName, DimensionName, TableName};
         use sutura_domain::plan::{
-            AnswerKey, InternalLabel, LegPlan, PlanBucket, PlanColumn, PlanKey, ResultLabel, StatementTables,
+            AnswerKey, InternalLabel, LegPlan, PlanBindings, PlanBucket, PlanColumn, PlanKey, ResultLabel, StatementTables,
         };
 
         let fact_source = SourceName::parse("facts").expect("a test source");
@@ -345,16 +345,14 @@ mod tests {
             bucket: bucket("month"),
             keys: vec![key("product_family"), link()],
             terms: Vec::new(),
-            filters: Vec::new(),
-            params: Vec::new(),
+            bindings: PlanBindings::none(),
             range: june(),
         };
         let lookup = LegPlan::Lookup {
             source: lookup_source,
             table: table.clone().into(),
             keys: vec![link(), key("region")],
-            filters: Vec::new(),
-            params: Vec::new(),
+            bindings: PlanBindings::none(),
         };
         let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))));
         sutura_domain::plan::FederatedPlan::new(

@@ -14,8 +14,8 @@ use crate::federation::{Above, Carried, Federation};
 use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use crate::plan::{
-    InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, ResultLabel,
-    StatementTables,
+    InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
+    ResultLabel, StatementTables,
 };
 use crate::warehouse::ParamValue;
 
@@ -69,14 +69,17 @@ fn fact(terms: Vec<LegTerm>) -> LegPlan {
         bucket: bucket(),
         keys: vec![key("customer_key", "fct_subscription_monthly", "customer_key")],
         terms,
-        filters: vec![PlanFilter::new(
-            PredicateOrigin::Definition,
-            PlanPredicate::AtOrAfter {
-                column: column("fct_subscription_monthly", "month"),
-                param: 0,
-            },
-        )],
-        params: vec![ParamValue::Date(Date::parse("2026-06-01").expect("a test date is a date"))],
+        bindings: PlanBindings::parse(
+            vec![PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::AtOrAfter {
+                    column: column("fct_subscription_monthly", "month"),
+                    param: 0,
+                },
+            )],
+            vec![ParamValue::Date(Date::parse("2026-06-01").expect("a test date is a date"))],
+        )
+        .expect("the fact fixture binds its one bound in placeholder order"),
         range: range(),
     }
 }
@@ -89,8 +92,7 @@ fn lookup() -> LegPlan {
             key("customer_key", "dim_customer", "customer_key"),
             key("region", "dim_customer", "region"),
         ],
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
     }
 }
 
@@ -145,8 +147,7 @@ fn a_lookup_leg_has_no_measure_and_no_bucket() {
         ref source,
         ref table,
         ref keys,
-        ref filters,
-        ref params,
+        ref bindings,
     } = lookup()
     else {
         panic!("the lookup fixture is a lookup");
@@ -154,8 +155,8 @@ fn a_lookup_leg_has_no_measure_and_no_bucket() {
     assert_eq!(source.as_str(), "crm");
     assert_eq!(table.to_string(), "dim_customer");
     assert_eq!(keys.len(), 2);
-    assert_eq!(filters.as_slice(), []);
-    assert_eq!(params.as_slice(), []);
+    assert_eq!(bindings.filters(), []);
+    assert_eq!(bindings.params(), []);
     // And the labels it projects are its keys and nothing else: no bucket label, no measure label.
     assert_eq!(
         lookup().result_labels(),
@@ -178,7 +179,7 @@ fn a_lookup_leg_cannot_carry_a_time_range() {
     // dimension table has neither - and cannot be given either, which is the doctest's half.
     let LegPlan::Fact {
         range: bounded,
-        ref filters,
+        ref bindings,
         ..
     } = fact(Vec::new())
     else {
@@ -186,17 +187,18 @@ fn a_lookup_leg_cannot_carry_a_time_range() {
     };
     assert_eq!(bounded, range());
     assert!(
-        filters
+        bindings
+            .filters()
             .iter()
             .any(|filter| matches!(*filter.predicate(), PlanPredicate::AtOrAfter { .. })),
         "a fact leg bounds its range as a predicate"
     );
 
-    let LegPlan::Lookup { ref filters, .. } = lookup() else {
+    let LegPlan::Lookup { ref bindings, .. } = lookup() else {
         panic!("the lookup fixture is a lookup");
     };
     assert!(
-        !filters.iter().any(|filter| matches!(
+        !bindings.filters().iter().any(|filter| matches!(
             *filter.predicate(),
             PlanPredicate::AtOrAfter { .. } | PlanPredicate::Before { .. }
         )),

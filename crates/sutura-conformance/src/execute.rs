@@ -160,7 +160,9 @@ where
             })?;
         match checked {
             PreFlight::NotAsked => {}
-            PreFlight::Accepted => {
+            // The estimate is not this pack's business: what is under test here is that a pre-flight
+            // and an execution cannot disagree about what an adapter accepts, not what either priced.
+            PreFlight::Accepted { .. } => {
                 accepted = accepted.saturating_add(1);
                 warehouse
                     .execute(executable, &corpus::presented())

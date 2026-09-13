@@ -419,6 +419,24 @@ configured with - the process, for the file engine that ships - and the composit
 a bundle with an anchor on a source that declared no verification identity, which is the half
 available before the port changes.
 
+# What is refused before any anchor runs
+
+A metric whose computation is catalog-authored SQL, unless `W` declares
+`Warehouse::EXECUTES_AUTHORED_SQL`. The fragment is stored as written and nothing published
+compiles it, so an adapter taking the default cannot execute the metric; refusing the bundle
+here, naming the metric, is what stands between that and a served bundle with a metric that
+is silently skipped or a measure quietly substituted. Read off the ONE adapter type
+`Warehouses<W>` holds, the way `EXECUTES_LEGS` is - so it is a fact about the build, not
+about the data. No adapter this workspace ships opts in; `docs/adr/0004` is the decision.
+
+**"Before any anchor runs" is a placement, not an assertion.** It is true because this check
+sits ahead of `declared_keys::hold` and `verify_anchors` in the body below, and the ordering
+ahead of `declared_keys::hold` is held INCIDENTALLY, by the `examples/authored-sql` cell: that
+catalog declares a relationship and attaches no data to it, so a block moved below `hold`
+fails there first, on `declared_keys::hold`'s own refusal, rather than on this one. Nothing
+separates the placement from `verify_anchors` alone, and no fixture's fake counts an anchor
+or a declared key that was never touched.
+
 ## `type_alias Answering`
 
 What answering produced, or why it could not.
@@ -1172,6 +1190,7 @@ reviewed, so the refusal is what carries the names.
 #### Variants
 
 - `Empty` - Nothing was contributed; a deployment serves at least one metadata source.
+- `Manifest` - The composed contributions are not a manifest: nothing to record, or two of them naming one source. Distinct from `CompositionError::Empty`, which is this function's own check on its input - this one is the manifest refusing to record a composition it cannot represent. Only `NoContributors` is unreachable from here: `CompositionError::Empty` above wins first on any input that would otherwise produce it. `DuplicateSource` IS reachable through this public function - `assemble` runs no source-name uniqueness check of its own, only the per-element checks below - and is exercised directly by a test on this function, not only on `ContributionManifest::parse`. What keeps a duplicated name off the *served* path is `Catalogs::parse` in `sutura-config` refusing it at configuration time, before assembly runs.
 - `NotASingleContribution` - A contribution's own manifest did not name exactly one source, so this bundle cannot say who contributed it. The `count` is what a reader needs: the manifest is supposed to be the per-source record, and a value that failed to be one has nothing to merge under.
 - `VersionMismatch` - Two contributors certify different snapshots. A bundle is one version, and `docs/adr/0011`'s amendment records the decision: two sources certified at different times is the "answers that differ across a refresh boundary" shape, refused rather than papered over.
 - `MetricCollision` - The one interpretation has no precedence, declared or otherwise: two definitions of one number is the failure this system exists to prevent.

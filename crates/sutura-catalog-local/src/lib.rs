@@ -547,7 +547,7 @@ impl SemanticCatalog for LocalCatalog {
 #[cfg(test)]
 mod tests {
     use crate::LocalCatalog;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
 
@@ -614,6 +614,42 @@ mod tests {
     /// What a document failed to be, given the whole document.
     fn error_for(name: &str, document: &str) -> crate::LocalCatalogError {
         outcome_for(name, document).expect_err("this document cannot load")
+    }
+
+    #[test]
+    fn the_authored_sql_example_loads_and_its_fragment_is_under_the_digest() {
+        // Red on base by construction: there `MetricDoc` has no `authored_sql` key and
+        // `deny_unknown_fields` refuses the example's metric document, so the load fails. What the
+        // load does NOT do is compile the fragment - `sutura-catalog-local` may not reach `sutura-sql`
+        // (`FORBIDDEN_EDGES` in `xtask/src/boundaries.rs`), so this asserts admission and the digest,
+        // and nothing about the SQL being SQL.
+        use sutura_domain::model::MetricName;
+        use sutura_domain::pinned::SemanticCatalog as _;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/authored-sql/catalog");
+        let pinned = catalog(root.clone()).load().expect("the authored SQL example loads");
+        let name = MetricName::parse("order_value_spread").expect("the example metric has a name");
+        let metric = pinned.definitions().metric(&name).expect("the example declares its metric");
+        assert_eq!(metric.computation().kind(), "authored_sql");
+        assert!(metric.measure().is_none());
+
+        // The authored text is part of the definition: change one token and the digest moves, which
+        // is what makes a re-pin visible when somebody edits the SQL under a certified name.
+        let changed_root = scratch("authored-digest");
+        let model = std::fs::read_to_string(root.join("models/orders.md")).expect("the example model is readable");
+        let authored =
+            std::fs::read_to_string(root.join("metrics/order_value_spread.md")).expect("the example metric is readable");
+        std::fs::write(changed_root.join("orders.md"), model).expect("the model copy is writable");
+        std::fs::write(
+            changed_root.join("order_value_spread.md"),
+            authored.replace("MAX(amount_cents)", "SUM(amount_cents)"),
+        )
+        .expect("the changed metric is writable");
+        let changed = catalog(changed_root.clone())
+            .load()
+            .expect("the changed authored expression still loads");
+        assert_ne!(pinned.digest(), changed.digest());
+        drop(std::fs::remove_dir_all(changed_root));
     }
 
     /// Unix only, and that is a portability statement rather than a gap in the suite.
