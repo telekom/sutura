@@ -49,6 +49,7 @@ use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
 
 use crate::adapters::source;
@@ -95,6 +96,15 @@ fn fake_leg() -> Presented {
         },
         SourcePosture::ImpersonationAtSource => panic!("the fakes' posture is the shared one, one function above"),
     }
+}
+
+/// The deadline every fake in this file executes under - a generous budget, since nothing here is
+/// about time.
+fn fake_deadline() -> Deadline {
+    Deadline::opened_at(
+        std::time::Instant::now(),
+        Budget::parse(std::time::Duration::from_secs(30)).expect("thirty seconds is a budget"),
+    )
 }
 
 /// The whole plan a fake was handed.
@@ -175,7 +185,7 @@ impl Warehouse for RecordingWarehouse {
         clippy::unwrap_in_result,
         reason = "the fixed one-cell result is a literal, so a failure to build it is a broken \n                  test rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         let plan = whole_plan(executable);
         self.seen.borrow_mut().push(String::from(plan.metric().as_str()));
         // One row of nothing, shaped so `RowSet::new` accepts it. A fake that returned plausible
@@ -187,7 +197,8 @@ impl Warehouse for RecordingWarehouse {
     // The anchor path runs the same body. It takes no credential, so what it says about identity is
     // what these fakes can honestly say: nothing reaches a data system here.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        self.execute(Executable::Query(plan.plan()), &fake_leg()).map(AnchorRows::of)
+        self.execute(Executable::Query(plan.plan()), &fake_leg(), fake_deadline())
+            .map(AnchorRows::of)
     }
 }
 
@@ -258,7 +269,7 @@ impl Warehouse for CertifiedNumbers {
         clippy::unwrap_in_result,
         reason = "the one-cell result is built from a literal shape, so a failure to build it is a \n                  broken test rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         let plan = whole_plan(executable);
         // Labelled after the plan's metric, because that is the column an anchor check looks for. A
         // metric this fake holds no number for answers nothing, which reads as a mismatch rather
@@ -271,7 +282,8 @@ impl Warehouse for CertifiedNumbers {
     // The anchor path runs the same body, which is what makes this fake the one a bundle validates
     // against: `verify_and_validate` goes through here now rather than through `execute`.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        self.execute(Executable::Query(plan.plan()), &fake_leg()).map(AnchorRows::of)
+        self.execute(Executable::Query(plan.plan()), &fake_leg(), fake_deadline())
+            .map(AnchorRows::of)
     }
 }
 
@@ -334,7 +346,7 @@ impl Warehouse for WideResult {
         clippy::unwrap_in_result,
         reason = "the one-column shape is a literal here, so a failure to build it is a broken test \n                  rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         let plan = whole_plan(executable);
         self.asked_for.borrow_mut().push(plan.row_limit());
         // One column, so the shape is trivially rectangular and the only thing the test reads is how
@@ -345,7 +357,8 @@ impl Warehouse for WideResult {
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        self.execute(Executable::Query(plan.plan()), &fake_leg()).map(AnchorRows::of)
+        self.execute(Executable::Query(plan.plan()), &fake_leg(), fake_deadline())
+            .map(AnchorRows::of)
     }
 }
 
@@ -401,7 +414,7 @@ impl Warehouse for ExhaustedEngine {
     // is no reservation for a ceiling to refuse there, which is why `answer` does not treat its
     // failure as exhaustion either.
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(Exhausted)
     }
 
@@ -450,7 +463,7 @@ impl Warehouse for BothPredicatesEngine {
         &self.source
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(Exhausted)
     }
 
@@ -498,7 +511,7 @@ impl Warehouse for BrokenEngine {
         &self.source
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(Exhausted)
     }
 
@@ -555,7 +568,7 @@ impl Warehouse for WideForTheWire {
         &self.source
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(WouldNotFit)
     }
 

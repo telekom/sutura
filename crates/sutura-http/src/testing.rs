@@ -31,6 +31,7 @@ use sutura_domain::pinned::{
 };
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 use crate::state::ServiceState;
@@ -90,6 +91,16 @@ pub(crate) fn unanchored_bundle() -> PinnedDefinitions {
 /// A question the bundle above can answer, for a test that needs to reach the warehouse.
 pub(crate) fn a_question() -> sutura_domain::query::Query {
     sutura_domain::query::Query::new(metric_name(), Grain::Month, june(), Vec::new(), Vec::new())
+}
+
+/// The port's deadline every fake surface here executes under - a generous budget, since none of
+/// these tests are about time.
+pub(crate) fn deadline() -> Deadline {
+    Deadline::opened_at(
+        std::time::Instant::now(),
+        sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(30))
+            .expect("thirty seconds is a budget"),
+    )
 }
 
 /// The same bundle, with prose a catalog author wrote to be hostile.
@@ -314,13 +325,18 @@ impl Warehouse for FailingWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -337,6 +353,10 @@ impl Warehouse for FailingWarehouse {
 #[derive(Debug, thiserror::Error)]
 #[error("the data system would not return the whole result at once")]
 pub(crate) struct WouldNotReturnAtOnce;
+
+/// `docs/adr/0029`'s own mapping fake, in its own file for this file's `max-lines` reason.
+mod deadline;
+pub(crate) use deadline::WarehouseThatOutranItsDeadline;
 
 /// A data system that will not return the whole result at once.
 ///
@@ -379,7 +399,7 @@ impl Warehouse for WarehouseThatWillNotPage {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(WouldNotReturnAtOnce)
     }
 
@@ -432,7 +452,7 @@ impl Warehouse for WarehouseThatFailsToExecute {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -469,7 +489,12 @@ impl Warehouse for FakeWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
@@ -481,7 +506,7 @@ impl Warehouse for FakeWarehouse {
         Ok(AnchorRows::of(self.result.clone()))
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         // Held rather than slept, and that is about the test suite rather than about realism. A
         // `spawn_blocking` task that sleeps keeps running after the assertion, and dropping a
         // `tokio` runtime waits for the blocking pool - so a fixed sleep long enough to outrun the

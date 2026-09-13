@@ -95,6 +95,7 @@ use sutura_domain::model::TableName;
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, RowSet, Warehouse};
 use sutura_sql::generate::generate;
@@ -555,7 +556,11 @@ where
     /// here in a way it is not for an in-process engine - the port's own documentation draws exactly
     /// that line. `estimated_bytes` carries whatever `totalBytesProcessed` the endpoint reported for
     /// THIS statement - `docs/adr/0030` decides the shape; nothing here sums or refuses against it.
-    fn dry_run(&self, executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
+    ///
+    /// **The deadline is carried, not enforced here; see `docs/adr/0029`.** `CallDeadline` still
+    /// opens from this adapter's own configured job bounds rather than from the port's `Deadline` -
+    /// deriving `timeoutMs`/`jobTimeoutMs` from it is a later slice behind `telekom/sutura#160`.
+    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         let estimated_bytes = self
@@ -565,7 +570,8 @@ where
         Ok(PreFlight::Accepted { estimated_bytes })
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         let answered = self

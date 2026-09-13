@@ -44,6 +44,7 @@ use sutura_domain::model::{QualifiedTable, SourceName, TableName};
 use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, RowSet, Value, Warehouse};
 
 /// Why this data system could not answer.
@@ -738,7 +739,8 @@ impl Warehouse for DataFusionWarehouse {
     // during analysis, so a plan naming a table that was never attached is an error out of
     // `execute` before a single row comes back - which is what the pre-flight was for.
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    // Carried, not enforced here; see `docs/adr/0029` (a later slice behind `telekom/sutura#160`).
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         // What this leg runs as, matched exhaustively before anything is executed. There is exactly
         // one shape this adapter can honour, and the other two are a wiring defect rather than a
         // question anybody may retry - see `DataFusionError::NoPlaceForASubject`.
@@ -825,34 +827,11 @@ mod value_mapping_tests;
 #[cfg(test)]
 mod width_tests;
 
-/// The posture this crate's own tests open the engine with.
-///
-/// One definition shared by four test files, so a fixture cannot drift from the capability the adapter
-/// declares. Shared is the honest value rather than a convenient one: one process, one
-/// operating-system identity, and `IMPERSONATION` says there is nowhere for a subject to arrive.
+/// Fixtures shared by this crate's own tests: the posture, the leg credential and the deadline.
 #[cfg(test)]
-pub(crate) fn test_posture() -> SourcePosture {
-    SourcePosture::SharedServiceUser {
-        declared: sutura_domain::source::SharedIdentityDeclared::of(
-            sutura_domain::source::AcknowledgementReason::parse("one process reading local files as one identity")
-                .expect("a fixture reason is a reason"),
-        ),
-    }
-}
-
-/// What this crate's own tests execute a leg as.
-///
-/// The deployment's own identity for the source, carrying the same acknowledgement
-/// [`test_posture`] declares - because that is the one shape this adapter can honour, and a fixture
-/// that presented anything else would be testing the refusal rather than the execution. The refusal
-/// has its own test.
+mod test_fixtures;
 #[cfg(test)]
-pub(crate) fn test_leg() -> Presented {
-    match test_posture() {
-        SourcePosture::SharedServiceUser { declared } => Presented::SharedServiceUser { declared },
-        SourcePosture::ImpersonationAtSource => panic!("the fixture posture is shared, one function above"),
-    }
-}
+pub(crate) use test_fixtures::{test_deadline, test_leg, test_posture};
 
 /// The plan every engine-execution question drives, and its helpers - one definition shared by
 /// `width_tests.rs` and `pool/ceiling_tests.rs`, where a second copy drifted into a byte-identical

@@ -32,7 +32,7 @@ mod results;
 
 use fakes::{
     Broken, Case, ListingRefused, Paged, Recording, Refusing, a_subject_token, day, impersonating_posture, leg_of, one_cell,
-    open, other_posture, plan, shared_posture, source,
+    open, other_posture, plan, shared_posture, source, test_deadline,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -56,7 +56,7 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
     let plan = plan();
     drop(
         warehouse
-            .execute(Executable::Query(&plan), &leg_of(&shared_posture()))
+            .execute(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
             .expect("the fake answers"),
     );
     let seen = warehouse.transport.seen.borrow();
@@ -85,7 +85,7 @@ fn a_subjects_own_credential_is_sent_as_the_jobs_bearer_and_the_statement_runs_u
     let token = "exchanged-for-subject-a";
     drop(
         warehouse
-            .execute(Executable::Query(&plan), &a_subject_token(token))
+            .execute(Executable::Query(&plan), &a_subject_token(token), test_deadline())
             .expect("an impersonating source accepts a subject's own credential"),
     );
     let seen = warehouse.transport.seen.borrow();
@@ -105,7 +105,7 @@ fn two_subjects_each_run_their_statement_under_the_bearer_minted_for_them() {
     for token in ["exchanged-for-subject-a", "exchanged-for-subject-b"] {
         drop(
             warehouse
-                .execute(Executable::Query(&plan), &a_subject_token(token))
+                .execute(Executable::Query(&plan), &a_subject_token(token), test_deadline())
                 .expect("an impersonating source accepts a subject's own credential"),
         );
     }
@@ -292,11 +292,11 @@ fn a_principal_to_switch_to_is_refused_rather_than_run_under_this_deployments_ow
         name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),
     };
     let refused = warehouse
-        .execute(Executable::Query(&plan), &presented)
+        .execute(Executable::Query(&plan), &presented, test_deadline())
         .expect_err("a principal switch is not a bearer this adapter can send");
     assert!(matches!(refused, BigQueryError::NoPrincipalSwitch { .. }), "{refused:?}");
     let pre_flight = warehouse
-        .dry_run(Executable::Query(&plan), &presented)
+        .dry_run(Executable::Query(&plan), &presented, test_deadline())
         .expect_err("the pre-flight refuses the same shape");
     assert!(
         matches!(pre_flight, BigQueryError::NoPrincipalSwitch { .. }),
@@ -323,7 +323,7 @@ fn a_subjects_own_credential_on_a_shared_source_is_refused_by_the_posture_check(
         },
     ] {
         let error = warehouse
-            .execute(Executable::Query(&plan), &presented)
+            .execute(Executable::Query(&plan), &presented, test_deadline())
             .expect_err("a subject credential does not fit the shared posture");
         assert!(
             matches!(error, BigQueryError::PresentedDisagreesWithPosture { .. }),
@@ -344,7 +344,7 @@ fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_run() {
     let warehouse = open(Recording::empty(), shared_posture());
     let plan = plan();
     let error = warehouse
-        .execute(Executable::Query(&plan), &leg_of(&other_posture()))
+        .execute(Executable::Query(&plan), &leg_of(&other_posture()), test_deadline())
         .expect_err("another operator's acknowledgement is not this source's");
     assert!(
         matches!(error, BigQueryError::PresentedDisagreesWithPosture { .. }),
@@ -367,7 +367,7 @@ fn a_dry_run_really_asks_the_endpoint_before_it_says_accepted() {
     let warehouse = open(Recording::empty().estimating(2048), shared_posture());
     let plan = plan();
     let answered = warehouse
-        .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()))
+        .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
         .expect("the fake validates");
     assert_eq!(
         answered,
@@ -384,7 +384,7 @@ fn a_dry_run_the_endpoint_rejects_is_not_reported_as_accepted() {
     let warehouse = open(Broken, shared_posture());
     let plan = plan();
     let error = warehouse
-        .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()))
+        .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
         .expect_err("a rejected dry run is not an acceptance");
     assert!(matches!(error, BigQueryError::Endpoint { .. }), "{error:?}");
     // The cause survives, so a caller that knows the transport can still read it.
@@ -845,7 +845,7 @@ fn a_refused_job_and_an_unreachable_job_are_not_the_same_source_outcome() {
     // in `sutura_app`'s `a_source_that_refuses_the_statement_is_refused_not_a_transport_failure`).
     let refused = open(Refusing, shared_posture());
     let error = refused
-        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())
         .expect_err("a refused job is a failure of the call");
     assert!(
         refused.source_refused(&error),
@@ -857,7 +857,7 @@ fn a_refused_job_and_an_unreachable_job_are_not_the_same_source_outcome() {
     // not claim the refusal. Answering `false` keeps it a retryable transport failure above the port.
     let broken = open(Broken, shared_posture());
     let error = broken
-        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())
         .expect_err("an unreachable endpoint is a failure of the call");
     assert!(
         !broken.source_refused(&error),

@@ -761,6 +761,17 @@ presents and the posture the fixture opened the adapter with cannot drift apart 
 exactly the disagreement each adapter's exhaustive match on what it received exists to catch.
 An adapter that compares the two witnesses fails here if a fixture opened it any other way.
 
+### `fn deadline`
+
+```rust
+pub fn deadline() -> sutura_domain::warehouse::deadline::Deadline
+```
+
+The port's deadline every pack executes under.
+
+A generous budget, opened now: these packs assert content and refusal shapes, not timing, so the
+only requirement is that it not run out before an adapter answers.
+
 ### `fn csv`
 
 ```rust

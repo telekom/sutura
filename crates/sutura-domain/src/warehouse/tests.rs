@@ -1,5 +1,10 @@
-//! The port's own vocabulary, held against itself: a parameter renders as a value, a cell is finite,
-//! and a row set is as wide as it says.
+//! The port's own small value types, provoked once each: a rendered parameter, a ragged row set, a
+//! scalar read off a shaped result, and the checked real number a cell may hold.
+//!
+//! Moved out of `warehouse.rs` verbatim rather than restructured, because that file was at the
+//! `max-lines` cap before it had anywhere to grow for `docs/adr/0029`'s deadline record - the same
+//! move several sibling modules already make (`use super::{..}` and nothing else changed) when a
+//! `mod tests` block exists only to relieve a line cap rather than to mark a real seam.
 
 use super::{MalformedRowSet, NotFinite, ParamValue, Real, RowSet, Value};
 use crate::calendar::Date;

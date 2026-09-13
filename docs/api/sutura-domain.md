@@ -8029,6 +8029,7 @@ somebody else's input.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
 - `SourceRefused` - The data system refused the executed statement because the identity it ran it as may not ask it.
 - `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
+- `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
 
 #### Methods
 
@@ -9165,6 +9166,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::SourcePosture;
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
 struct Undeclared {
@@ -9184,7 +9186,7 @@ impl Warehouse for Undeclared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -9202,6 +9204,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
 struct Declared {
@@ -9222,7 +9225,7 @@ impl Warehouse for Declared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -10279,3 +10282,129 @@ than by position, and a label that no column can shadow is what makes reading by
 #### `constant DISTINCT_LABEL`
 
 The label the distinct count is projected under. See `ROWS_LABEL`.
+
+### Module `deadline`
+
+One absolute deadline per answer, and the budget it was opened from.
+
+A module of its own rather than a type or two added here, for the reason `cardinality`
+already gives - and because this file was at the `max-lines` cap the day the record needed
+somewhere to grow (`docs/adr/0029`). `Deadline` and `Budget` are used unqualified below, the
+same way `cardinality`'s two types are.
+One absolute deadline per answer: how long is left, read against an instant a caller supplies.
+
+The domain reads no clock - `crate::identity::Expiry::passed_by` is the precedent, and the same
+shape applies here: `now` arrives as an argument to `Deadline::remaining_at` rather than being
+read, so the one comparison this module makes lives here and not at whichever call site happens
+to hold a clock. `docs/adr/0029` is the record; this module is its first slice, carried by the
+port and not yet enforced by any adapter this release links.
+
+#### `struct Deadline`
+
+```rust
+pub struct Deadline
+```
+
+The instant one answer's execution has to be finished by.
+
+Opened ONCE per request, by the transport, at the instant the request arrived - before
+admission, so the wait for a concurrency slot sits inside the caller's bound rather than adds to
+it. Shared by the pre-flight, every leg of a federated answer and the re-check between them:
+`Self::remaining_at` is a comparison against an instant every reader shares, so *what is left*
+is a read and never a division.
+
+Two `Copy` words - an `Instant` and a `Budget` - so it crosses into a
+`sutura_runtime::spawn_carrying_span` closure by value and carries no secret.
+
+`PartialEq`/`Eq` so a test can assert that two legs of one federated answer were handed the SAME
+value - one instant, never re-derived - without exposing the instant itself as an accessor a
+caller could otherwise be tempted to compare against its own clock.
+
+##### Methods
+
+```rust
+pub const fn budget(self) -> Budget
+```
+
+The budget this deadline opened with - what a refusal that ran out of time names, and never
+how long is left (that is `Self::remaining_at`, and it needs a `now` this type does not
+have).
+
+```rust
+pub const fn opened_at(opened: Instant, budget: Budget) -> Self
+```
+
+Opens a deadline at `opened`, good for `budget`.
+
+```rust
+pub fn remaining_at(self, now: Instant) -> Option<Duration>
+```
+
+What is left at `now`, or `None` when it is spent.
+
+**Never a zero duration.** `Some(Duration::ZERO)` reads as *no timeout at all* to
+`tokio::time::timeout` and to every client underneath it, so handing one on would turn a
+spent budget into an unbounded wait rather than a stopped one - the same rule
+`sutura_exec_bigquery`'s `CallDeadline::remaining` already follows for its own budget.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct Budget`
+
+```rust
+pub struct Budget
+```
+
+How long one answer may execute.
+
+Parses: non-zero. A zero budget would read as *no timeout* the moment it reached a client
+underneath - the same rule `Deadline::remaining_at` applies to what is left mid-flight,
+applied here to what a caller may configure to begin with.
+
+The only production constructor is `sutura_config::RequestTimeout::budget`, which subtracts a
+fixed reply margin from the configured request timeout once. `Self::parse` stays `pub`
+because a test - and a third transport - needs to build one directly; what holds production is
+that one call site and review, and `docs/adr/0029` states the limit next to the claim.
+
+##### Methods
+
+```rust
+pub const fn duration(self) -> Duration
+```
+
+The duration, for the one call site (`Deadline::remaining_at`) that does arithmetic on it.
+
+```rust
+pub const fn parse(budget: Duration) -> Result<Self, NoBudget>
+```
+
+Parses a budget, refusing zero.
+
+```rust
+pub const fn seconds(self) -> u64
+```
+
+The budget, in whole seconds - what `RefusalReason::DeadlineExceeded` carries, because it is
+a configured number and not how long the question would have taken, which nobody knows.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct NoBudget`
+
+```rust
+pub struct NoBudget
+```
+
+Why a duration is not a budget: it is zero.
+
+Declared last in this file: `xtask check-boundaries`'s pub-field scan misreads a unit struct
+followed by an `impl` block as the struct's own fields, a gate defect noted as a PR follow-up
+rather than worked around with more prose here.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`

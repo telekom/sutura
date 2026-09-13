@@ -57,7 +57,16 @@ pub mod agreement;
 /// `many_to_one`, two topologies, two numbers, and a refusal from neither.
 pub mod cardinality;
 
+/// One absolute deadline per answer, and the budget it was opened from.
+///
+/// A module of its own rather than a type or two added here, for the reason [`cardinality`]
+/// already gives - and because this file was at the `max-lines` cap the day the record needed
+/// somewhere to grow (`docs/adr/0029`). `Deadline` and `Budget` are used unqualified below, the
+/// same way [`cardinality`]'s two types are.
+pub mod deadline;
+
 use crate::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
+use crate::warehouse::deadline::Deadline;
 use crate::warehouse::preflight::TablesPresent;
 
 /// A value bound to a placeholder.
@@ -443,6 +452,7 @@ impl AnchorRows {
 /// use sutura_domain::model::SourceName;
 /// use sutura_domain::plan::{AnchorPlan, Executable};
 /// use sutura_domain::source::SourcePosture;
+/// use sutura_domain::warehouse::deadline::Deadline;
 /// use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 ///
 /// struct Undeclared {
@@ -462,7 +472,7 @@ impl AnchorRows {
 ///         &self.posture
 ///     }
 ///
-///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 ///
@@ -480,6 +490,7 @@ impl AnchorRows {
 /// use sutura_domain::model::SourceName;
 /// use sutura_domain::plan::{AnchorPlan, Executable};
 /// use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+/// use sutura_domain::warehouse::deadline::Deadline;
 /// use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 ///
 /// struct Declared {
@@ -500,7 +511,7 @@ impl AnchorRows {
 ///         &self.posture
 ///     }
 ///
-///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 ///
@@ -609,7 +620,18 @@ pub trait Warehouse {
     /// the subject cannot see. The check has to be asked as the same principal as the question, or it
     /// answers a different question - which is also why the return type is [`PreFlight`] rather than
     /// `()`. See that type for what its two variants keep apart.
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    ///
+    /// **And it takes the deadline, for [`execute`](Warehouse::execute)'s reason.** Against a
+    /// networked data system a pre-flight is a round trip that spends part of one answer's budget,
+    /// so an adapter that honours it needs to know what is left before it starts one. `docs/adr/0029`
+    /// is the record; every adapter in this slice accepts the parameter and ignores it - carried, not
+    /// enforced here.
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
@@ -655,14 +677,49 @@ pub trait Warehouse {
     /// ```
     ///
     /// The compiling twin, so the block above cannot be passing for a typo - the only difference is
-    /// the argument that says whose credential this runs under:
+    /// the two arguments that say whose credential this runs under and by when it has to be done:
     ///
     /// ```
     /// use sutura_domain::identity::Presented;
     /// use sutura_domain::plan::Executable;
+    /// use sutura_domain::warehouse::deadline::Deadline;
     /// use sutura_domain::warehouse::{RowSet, Warehouse};
     ///
     /// fn _as_the_asker<W: Warehouse>(
+    ///     warehouse: &W,
+    ///     executable: Executable<'_>,
+    ///     presented: &Presented,
+    ///     deadline: Deadline,
+    /// ) -> Result<RowSet, W::Error> {
+    ///     warehouse.execute(executable, presented, deadline)
+    /// }
+    /// ```
+    ///
+    /// # The deadline is a parameter too, opened by the transport before this call was ever reached
+    ///
+    /// One absolute [`Deadline`] per answer, shared by the pre-flight, this call, and every leg of a
+    /// federated answer - never re-derived, never divided. `docs/adr/0029` is the record: what an
+    /// adapter does with it is the adapter's own business, because the interrupt that actually stops
+    /// a data system is that data system's, and this port cannot make one uniform. [`Self::deadline_exceeded`]
+    /// is how an adapter reports that its own failure WAS the deadline, for a caller above this port
+    /// that has no way to inspect [`Self::Error`] itself.
+    ///
+    /// **Every adapter in this slice accepts the parameter and ignores it.** Carried, not enforced
+    /// here - the engine, `BigQuery` and Postgres each stop their own data system with it in a later
+    /// change behind `telekom/sutura#160`, and `docs/adr/0029`'s table says which mechanism per
+    /// adapter. An adapter that ignores the deadline mid-call is not caught until its own `Result`
+    /// comes back; what IS caught here, before this call is ever made, is a budget already spent -
+    /// `sutura_app::answer` and `sutura_app::federated::execute_leg` both ask before every call.
+    ///
+    /// The call a caller who remembered `presented` but not `deadline` would actually write - the
+    /// shape this parameter's own addition produced - does not compile either:
+    ///
+    /// ```compile_fail
+    /// use sutura_domain::identity::Presented;
+    /// use sutura_domain::plan::Executable;
+    /// use sutura_domain::warehouse::{RowSet, Warehouse};
+    ///
+    /// fn _forgot_the_deadline<W: Warehouse>(
     ///     warehouse: &W,
     ///     executable: Executable<'_>,
     ///     presented: &Presented,
@@ -670,7 +727,12 @@ pub trait Warehouse {
     ///     warehouse.execute(executable, presented)
     /// }
     /// ```
-    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error>;
+    ///
+    /// Its compiling twin is `_as_the_asker` above - three arguments, not two - which is the whole
+    /// point: nothing here checks the ARITY, the compiler already does, so this pair is honest about
+    /// proving only that the third argument exists and is a `Deadline`, not that a reviewer needs to
+    /// remember to ask for it.
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error>;
 
     /// Re-runs one anchor's plan, under the identity this adapter was configured with.
     ///
@@ -776,6 +838,30 @@ pub trait Warehouse {
     /// predicate rather than a conversion, for [`result_did_not_fit`](Warehouse::result_did_not_fit)'s
     /// reasons; which permission or identity is the data system's to say. Defaulted to `false`.
     fn source_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Was this [`dry_run`](Warehouse::dry_run) or [`execute`](Warehouse::execute) failure the
+    /// deadline: fired at the data system, or found already spent before the statement was sent?
+    ///
+    /// **The fourth predicate beside [`working_set_exhausted`](Warehouse::working_set_exhausted),
+    /// [`result_did_not_fit`](Warehouse::result_did_not_fit) and
+    /// [`source_refused`](Warehouse::source_refused), for their exact reason: `Self::Error` is the
+    /// adapter's own type, so nothing above this port can tell a stopped question from a dropped
+    /// connection, and a predicate is what lets the domain ask without an adapter minting its own
+    /// [`RefusalReason`](crate::query::RefusalReason).** `true` leaves as
+    /// [`RefusalReason::DeadlineExceeded`](crate::query::RefusalReason::DeadlineExceeded), audited
+    /// and answered `422` rather than the retryable failure a data system being down produces -
+    /// `docs/adr/0029` argues both directions once.
+    ///
+    /// Defaulted to `false`, which is the honest answer for an adapter that does not yet read the
+    /// deadline at all: every adapter in this slice takes the default, because carrying the
+    /// parameter and stopping the data system with it are two different changes and this one is the
+    /// first. An adapter that does read it and cannot tell its own timeout from another failure must
+    /// still answer `false`, for [`result_did_not_fit`](Warehouse::result_did_not_fit)'s reason - the
+    /// two mistakes do not cost the same, and a transport failure reported as a stopped deadline
+    /// tells a caller not to retry something a retry might answer.
+    fn deadline_exceeded(&self, _error: &Self::Error) -> bool {
         false
     }
 

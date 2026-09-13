@@ -207,6 +207,15 @@ mod tests {
     use crate::naming::{build_token, ci_run_id, run_token, suffixed_bundle, suffixed_table};
     use crate::support::{Connection, Wired, bounds, opened, presented};
 
+    /// The port's deadline this leg's own answers execute under - a generous budget, since this
+    /// leg is about the corpus agreeing with the engine and not about time.
+    fn deadline() -> sutura_domain::warehouse::deadline::Deadline {
+        sutura_domain::warehouse::deadline::Deadline::opened_at(
+            std::time::Instant::now(),
+            sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(60)).expect("60s"),
+        )
+    }
+
     /// What the fixture LOADS are bounded by, which is not what the questions are bounded by.
     ///
     /// **Measured, not guessed.** `support::bounds` derives its deadline from
@@ -779,7 +788,7 @@ mod tests {
                 sutura_semantic::Compiled::Planned { plan } => plan,
             };
             let verdict = warehouse
-                .dry_run(Executable::Query(&plan), &presented())
+                .dry_run(Executable::Query(&plan), &presented(), deadline())
                 .unwrap_or_else(|e| panic!("{name}: the endpoint did not accept the corpus statement: {e:?}"));
             // The estimate itself is not asserted on: what the endpoint reports for
             // `totalBytesProcessed` is real data, not a fixture, and pinning a byte count here would
@@ -842,8 +851,8 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let from_engine = sutura_app::answer(&validated, &question, &a_caller(), &locally, &engine, 1 << 30);
-            let from_bigquery = sutura_app::answer(&validated, &question, &a_caller(), &remotely, &there, 1 << 30);
+            let from_engine = sutura_app::answer(&validated, &question, &a_caller(), &locally, &engine, 1 << 30, deadline());
+            let from_bigquery = sutura_app::answer(&validated, &question, &a_caller(), &remotely, &there, 1 << 30, deadline());
 
             let (here, over_there) = match (from_engine, from_bigquery) {
                 (Ok(one), Ok(other)) => (one.into_outcome(), other.into_outcome()),

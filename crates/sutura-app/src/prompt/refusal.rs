@@ -203,6 +203,15 @@ const SOURCE_REFUSED: Guide = Guide {
              would be needed.",
 };
 
+const DEADLINE_EXCEEDED: Guide = Guide {
+    reason: "deadline_exceeded",
+    meaning: "this deployment stopped the question after its configured time budget, rather than \
+              let it keep running",
+    remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the \
+             same question unchanged returns the same refusal: the budget is a configured number, \
+             not a passing condition, so this is not an outage to wait out.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -226,6 +235,9 @@ pub(super) const GUIDES: &[&Guide] = &[
     // Actionable, and last of the actionable ones: the remedy is the same narrowing
     // `ResultTooLarge` asks for, and an agent reaching this one has already read that.
     &RESOURCES_EXHAUSTED,
+    // Actionable, and grouped with `ResourcesExhausted` for the same reason: a configured bound
+    // this deployment enforces, not a passing outage, and the same narrowing remedy.
+    &DEADLINE_EXCEEDED,
     &PLAN_SPANS_TOO_MANY_SOURCES,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
@@ -277,6 +289,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
         RefusalReason::LegsDecideIdentityDifferently { .. } => &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
+        RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
     }
 }
 

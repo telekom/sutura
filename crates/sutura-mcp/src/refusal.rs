@@ -159,6 +159,15 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              acting for.",
             postures.iter().copied().collect::<Vec<&str>>().join(" and ")
         ),
+        // Written for an agent: stop, and say why, rather than retry. This deployment decided the
+        // bound and the data system enforced it - something WAS judged - so retrying unchanged
+        // spends the whole budget again. A narrower question is what changes the outcome, which is
+        // the guide `sutura_app::prompt::refusal` gives for the same reason.
+        RefusalReason::DeadlineExceeded { budget_seconds } => format!(
+            "this deployment stopped the question after {budget_seconds} seconds, its configured \
+             budget for one answer. Retrying it unchanged will be refused again: narrow the \
+             period, ask for fewer dimensions, or add a filter."
+        ),
     };
     (code, detail)
 }
@@ -232,6 +241,7 @@ mod tests {
             RefusalReason::LegsDecideIdentityDifferently {
                 postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
             },
+            RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         ]
     }
 
@@ -289,6 +299,19 @@ mod tests {
         assert!(
             detail.contains("5 dimensions were asked for") && detail.contains("at most 4 are allowed"),
             "{detail}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_deadline_names_its_budget_in_the_sentence() {
+        // `docs/adr/0029`'s own claim for this wire: "the sentence names the configured budget in
+        // seconds". `RefusalContent` is `{code, detail}`, so the sentence is the ONLY place
+        // `budget_seconds` reaches this wire at all.
+        let (code, detail) = refused(&RefusalReason::DeadlineExceeded { budget_seconds: 29 });
+        assert_eq!(code, "deadline_exceeded");
+        assert!(
+            detail.contains("29 seconds"),
+            "the sentence does not name the budget: {detail}"
         );
     }
 
