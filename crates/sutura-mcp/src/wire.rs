@@ -142,7 +142,7 @@ pub enum MalformedQuestion {
         cause: serde_json::Error,
     },
     /// Every other way a question can be malformed: which field, and none of the caller's own value
-    /// except where it already failed an identifier parse - see that type's own documentation.
+    /// at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note.
     /// Shared with `sutura-http`, which parses the same five fields into the same domain types and
     /// would otherwise carry its own copy of this whole vocabulary.
     #[error(transparent)]

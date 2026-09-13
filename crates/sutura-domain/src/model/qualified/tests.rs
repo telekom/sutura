@@ -83,10 +83,7 @@ fn a_refusal_names_which_part_of_the_path_was_wrong() {
         quoted,
         InvalidQualifiedTable::Dataset {
             value: String::from("sa\"les.orders"),
-            cause: InvalidIdentifier::IllegalCharacter {
-                value: String::from("sa\"les"),
-                offending: '"',
-            },
+            cause: InvalidIdentifier::IllegalCharacter { offending: '"' },
         }
     );
     // The cause survives `#[source]`, which is what a reader following the chain gets.
@@ -129,13 +126,7 @@ fn a_legacy_domain_scoped_project_is_refused_rather_than_supported() {
     assert!(matches!(refused, InvalidQualifiedTable::TooManyParts { .. }), "{refused:?}");
     // Even written as one part, the colon is not a project character.
     let colon = ProjectName::parse("com:project").expect_err("a colon is not a project character");
-    assert_eq!(
-        colon,
-        InvalidIdentifier::IllegalCharacter {
-            value: String::from("com:project"),
-            offending: ':',
-        }
-    );
+    assert_eq!(colon, InvalidIdentifier::IllegalCharacter { offending: ':' });
 }
 
 #[test]
@@ -149,17 +140,14 @@ fn no_part_of_a_path_can_carry_a_quote_which_is_what_the_golden_stripping_rests_
         let refused = ProjectName::parse(&raw).expect_err("a quote character is not a project character");
         assert_eq!(
             refused,
-            InvalidIdentifier::IllegalCharacter { value: raw, offending },
+            InvalidIdentifier::IllegalCharacter { offending },
             "a {offending:?} reached a project name"
         );
     }
     // And a dot, which is what would turn one part back into a path.
     assert_eq!(
         ProjectName::parse("a.b").expect_err("a dot is not a project character"),
-        InvalidIdentifier::IllegalCharacter {
-            value: String::from("a.b"),
-            offending: '.',
-        }
+        InvalidIdentifier::IllegalCharacter { offending: '.' }
     );
 }
 
@@ -171,17 +159,11 @@ fn a_hyphen_is_a_project_character_and_is_not_a_dataset_or_table_character() {
     drop(ProjectName::parse("analytics-prod").expect("a hyphen is a project character"));
     assert_eq!(
         DatasetName::parse("sales-eu").expect_err("a hyphen is not a dataset character"),
-        InvalidIdentifier::IllegalCharacter {
-            value: String::from("sales-eu"),
-            offending: '-',
-        }
+        InvalidIdentifier::IllegalCharacter { offending: '-' }
     );
     assert_eq!(
         TableName::parse("or-ders").expect_err("a hyphen is not a table character"),
-        InvalidIdentifier::IllegalCharacter {
-            value: String::from("or-ders"),
-            offending: '-',
-        }
+        InvalidIdentifier::IllegalCharacter { offending: '-' }
     );
 }
 
@@ -193,16 +175,11 @@ fn a_trailing_hyphen_is_refused_and_only_the_hyphen_admitting_parser_can_say_so(
     // carries a case nothing produces.
     assert_eq!(
         ProjectName::parse("analytics-").expect_err("a trailing hyphen is refused"),
-        InvalidIdentifier::TrailingHyphen {
-            value: String::from("analytics-"),
-        }
+        InvalidIdentifier::TrailingHyphen
     );
     assert_eq!(
         parse_name("analytics-", Hyphens::Rejected).expect_err("a hyphen is illegal here, not trailing"),
-        InvalidIdentifier::IllegalCharacter {
-            value: String::from("analytics-"),
-            offending: '-',
-        },
+        InvalidIdentifier::IllegalCharacter { offending: '-' },
         "under Hyphens::Rejected a trailing hyphen is refused one guard earlier, so TrailingHyphen is \
          unreachable for an ordinary identifier"
     );

@@ -626,10 +626,22 @@ impl ResponseByteLimit {
     ///
     /// **Unmeasured, and stated as such rather than dressed up as a derived cost.** 8 MiB is a
     /// round number, not a figure timed against `Outcome::from` building a wire body of that size -
-    /// no such measurement exists in this codebase yet. Lowering it trades headroom for encode
-    /// latency on the async executor thread the wire body is still built on after the blocking
-    /// closure returns; raising it trades the other way. Either direction is a decision the next
-    /// change to this constant should measure rather than guess at twice.
+    /// no such measurement exists in this codebase yet. Lowering it trades encode latency on the
+    /// async executor thread the wire body is still built on after the blocking closure returns;
+    /// raising it trades the other way. Either direction is a decision the next change to this
+    /// constant should measure rather than guess at twice.
+    ///
+    /// **What this bounds is the RENDERED text, and the wire body is up to six times larger.**
+    /// [`crate::warehouse::RowSet::new`] validates row WIDTH only, so a returned
+    /// [`crate::warehouse::Value::Text`] may hold C0 bytes that `serde_json` must escape as
+    /// `\u00XX` - six wire bytes for one rendered byte. Measured once, during review of the change
+    /// that added this constant: 1024 rendered bytes serialized as 6146 JSON bytes, a factor of
+    /// six. So 8 MiB here admits roughly 48 MiB of HTTP body, and on the agent surface that again
+    /// alongside it, because `sutura-mcp` sends a text block AND structured content built from the
+    /// same `OutcomeContent`. **Neither number is re-measured by any cell in this workspace** -
+    /// the factor is a worst case for one shape of value, recorded so that whoever next changes
+    /// this constant knows which side of the encode they are choosing, not a bound this type
+    /// enforces on a transport.
     pub const DEFAULT: Self = Self(8 * 1024 * 1024);
 
     /// Reads a byte ceiling.

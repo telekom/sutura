@@ -34,9 +34,10 @@ pub(crate) fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
 /// **The same governance shape as [`exceeds_row_cap`], one measurement further out - see the call
 /// site's own comment for why the row cap cannot see this.** `RowSet::rendered_byte_len` is the
 /// canonical cell text an anchor is compared against, not the wire bytes either transport's own
-/// response body eventually wraps it in; the ceiling is chosen with enough headroom that the two
-/// stay close. Named, for the reason `exceeds_row_cap` is: the boundary is testable without a data
-/// system.
+/// response body eventually wraps it in, and the two do NOT stay close - see
+/// [`ResponseByteLimit::DEFAULT`](sutura_domain::query::ResponseByteLimit::DEFAULT) for the factor
+/// measured between them and what it means for the number this compares against. Named, for the
+/// reason `exceeds_row_cap` is: the boundary is testable without a data system.
 pub(crate) fn exceeds_response_bound(rows: &sutura_domain::warehouse::RowSet) -> Option<u64> {
     let limit = sutura_domain::query::ResponseByteLimit::DEFAULT;
     (rows.rendered_byte_len() > limit.bytes()).then_some(limit.bytes())

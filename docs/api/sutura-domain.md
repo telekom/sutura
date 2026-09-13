@@ -413,6 +413,12 @@ Each variant carries what was wrong as typed fields rather than a formatted sent
 numeric parse failure keeps its cause: a discarded cause is the difference between "the month is
 not a number" and knowing which character stopped it.
 
+**None of them carries the rejected text**, for the reason
+`crate::model::InvalidIdentifier`'s own note gives in full: a caller's date string reaches
+this parser through `crate::question::parse_query`, and both transports render that failure by
+walking its cause chain into a message the caller reads. A date is not an identifier and has no
+character set to be bounded by, so the layout it failed is the whole of what is worth saying.
+
 #### Variants
 
 - `Malformed` - Not `YYYY-MM-DD`. Exactly one layout is accepted, because a parser that guesses between `03-04-2026` and `2026-04-03` guesses wrong for half the world.
@@ -3974,8 +3980,21 @@ pub enum InvalidIdentifier
 
 Why a name was rejected.
 
-The variants carry the offending input as typed fields rather than a formatted sentence: the
-variant is the contract and the `#[error]` text is a convenience for a human.
+**No variant carries the rejected input, and that is a control rather than a style choice.**
+This is a leaf error raised by one parser that cannot know who reads it, and both transports
+render a malformed question by walking its whole cause chain into a message the caller gets
+back - an RFC 7807 `detail` on the HTTP surface, `invalid_params` in an agent's context on the
+agent one. An input echoed here is therefore an input reflected there, and the character set
+that rejected it is no bound on it: `parse_name` checks the character set BEFORE the length,
+so the two variants a non-name reaches admit any byte at any length, and `Self::TooLong` held
+the whole of an input it had measured only against the limit that input broke.
+
+What each variant carries is the diagnosis and not the evidence - which rule was broken, the one
+offending character, the measured length against the limit. A reader who needs the input names it
+themselves, and every wrapper of this error in this workspace already does, because a wrapper
+knows whose text it holds and this parser does not: `RdbmsError::ColumnName` names the column it
+read from a dictionary, and `crate::question::MalformedQuestion` names the request field and
+deliberately not its value.
 
 #### Variants
 
@@ -8277,9 +8296,28 @@ pub enum MalformedQuestion
 
 Why a caller's raw fields did not become a `Query`.
 
-Every variant names the field, and none of them echoes the caller's value back except where the
-value is the thing that failed to parse as an identifier - which is a bounded character set, not
-free text.
+**Every variant names the field, and neither a variant's own sentence nor any link of its cause
+chain carries the caller's own text.** The chain is the half that has to be said out loud,
+because both transports render this failure by walking `source()` to the end and handing the
+result straight to whoever asked - the RFC 7807 `detail` on the HTTP surface, an
+`invalid_params` message in a model's context on the agent one. So
+`crate::model::InvalidIdentifier` and `crate::calendar::InvalidDate` report the rule that
+was broken, the one offending character, and the measured length against the limit, and echo
+nothing they rejected; `FilterValue` drops its cause outright, for the reason its own note
+gives.
+
+**The one value that does come back is one that already parsed.** `Range`'s cause is
+`crate::calendar::InvalidTimeRange::Empty`, which names both endpoints - and they are
+`crate::calendar::Date`s by then, so what renders is ten characters of digits and hyphens in
+the single layout that type accepts, not the text a caller sent. That is the distinction this
+whole note turns on, and the one an earlier version of it got backwards: a parse's OUTPUT is
+bounded by the type that produced it, and its INPUT is bounded by nothing whatever.
+
+**The limit.** This is a property of `Display` and `source()` across these enums, held by their
+carrying no field a renderer could reach for - not by a gate, and not by either transport, which
+walk whatever chain they are given. `crates/sutura-mcp/tests/shared_question_conversion.rs`
+asserts it over every caller-controlled field against both transports' rendering, and is what
+reddens if one of those sentences is widened again.
 
 #### Variants
 

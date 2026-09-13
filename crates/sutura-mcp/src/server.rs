@@ -406,8 +406,8 @@ fn question(request: CallToolRequestParams) -> Result<Query, ErrorData> {
 ///
 /// The chain is walked into the message because `Display` on a `thiserror` enum prints the outermost
 /// sentence only, and here the inner one is the half that names the field or the character set. That
-/// is safe for exactly the reason `MalformedQuestion` is careful about: no variant carries the
-/// caller's own text except where it has already failed an identifier parse.
+/// is safe for exactly the reason `sutura_domain::question::MalformedQuestion`'s own note gives: no
+/// variant, and no link of any variant's cause chain, carries the caller's own text.
 fn invalid(error: &MalformedQuestion) -> ErrorData {
     let mut message = error.to_string();
     for cause in cause_chain(error) {
