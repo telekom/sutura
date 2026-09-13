@@ -327,7 +327,9 @@ mod tests {
     use super::answer_federated;
     use crate::Warehouses;
     use crate::tests::{asked_by_a_person, bundle, june, metric, shared, test_deadline};
-    use crate::tests_support::{AdapterFailure, DryRunOutcome, FixedBroker, LegPreflightWarehouse, RecordingLegsWarehouse};
+    use crate::tests_support::{
+        AdapterFailure, DryRunOutcome, FixedBroker, LegDeadlineExceededWarehouse, LegPreflightWarehouse, RecordingLegsWarehouse,
+    };
     use sutura_domain::model::{Grain, SourceName};
     use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
     use sutura_domain::warehouse::deadline::{Budget, Deadline};

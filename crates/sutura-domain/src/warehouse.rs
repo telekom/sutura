@@ -710,6 +710,28 @@ pub trait Warehouse {
     /// adapter. An adapter that ignores the deadline mid-call is not caught until its own `Result`
     /// comes back; what IS caught here, before this call is ever made, is a budget already spent -
     /// `sutura_app::answer` and `sutura_app::federated::execute_leg` both ask before every call.
+    ///
+    /// The call a caller who remembered `presented` but not `deadline` would actually write - the
+    /// shape this parameter's own addition produced - does not compile either:
+    ///
+    /// ```compile_fail
+    /// use sutura_domain::identity::Presented;
+    /// use sutura_domain::plan::Executable;
+    /// use sutura_domain::warehouse::{RowSet, Warehouse};
+    ///
+    /// fn _forgot_the_deadline<W: Warehouse>(
+    ///     warehouse: &W,
+    ///     executable: Executable<'_>,
+    ///     presented: &Presented,
+    /// ) -> Result<RowSet, W::Error> {
+    ///     warehouse.execute(executable, presented)
+    /// }
+    /// ```
+    ///
+    /// Its compiling twin is `_as_the_asker` above - three arguments, not two - which is the whole
+    /// point: nothing here checks the ARITY, the compiler already does, so this pair is honest about
+    /// proving only that the third argument exists and is a `Deadline`, not that a reviewer needs to
+    /// remember to ask for it.
     fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error>;
 
     /// Re-runs one anchor's plan, under the identity this adapter was configured with.

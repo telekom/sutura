@@ -302,6 +302,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_stopped_deadline_names_its_budget_in_the_sentence() {
+        // `docs/adr/0029`'s own claim for this wire: "the sentence names the configured budget in
+        // seconds". `RefusalContent` is `{code, detail}`, so the sentence is the ONLY place
+        // `budget_seconds` reaches this wire at all.
+        let (code, detail) = refused(&RefusalReason::DeadlineExceeded { budget_seconds: 29 });
+        assert_eq!(code, "deadline_exceeded");
+        assert!(
+            detail.contains("29 seconds"),
+            "the sentence does not name the budget: {detail}"
+        );
+    }
+
     /// The bound with no number still tells an agent what to do, and names nothing it was not told.
     #[test]
     fn a_bound_with_no_number_still_says_narrow_and_says_not_to_retry() {

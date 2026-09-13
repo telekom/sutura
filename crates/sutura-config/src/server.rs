@@ -11,7 +11,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use sutura_domain::warehouse::deadline::Budget;
+use sutura_domain::warehouse::deadline::{Budget, NoBudget};
 
 /// The socket the service listens on.
 ///
@@ -77,8 +77,13 @@ impl core::fmt::Display for BindAddress {
 /// Bounded at both ends. Zero is a service that answers nothing, and an hour is a connection
 /// held open long enough that a handful of them are the outage: a question here is one
 /// aggregate over a bounded range, so a minute is already generous and five is the ceiling.
+///
+/// Carries its own [`Budget`] beside the duration, computed once in [`Self::parse`] rather than
+/// re-derived on every [`Self::budget`] read: `parse` is the one place that already proves the
+/// timeout can afford [`Self::REPLY_MARGIN`], so recomputing it later would be the same fact
+/// re-argued at a second call site with an `expect` standing in for the proof.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RequestTimeout(Duration);
+pub struct RequestTimeout(Duration, Budget);
 
 /// The largest request body the service will read.
 ///
@@ -179,17 +184,17 @@ impl RequestTimeout {
     /// one second to two: the smallest accepted value is the smallest one [`Self::budget`] can open
     /// a non-zero [`Budget`] from. Checked here rather than in `budget` because a value that fails
     /// this refuses at startup, naming the margin - `budget` is then infallible.
-    pub const fn parse(seconds: u64) -> Result<Self, InvalidBound> {
+    ///
+    /// **The margin check is [`Budget::parse`]'s own zero check, read back rather than re-argued**:
+    /// this function does not separately compare `seconds` against [`Self::REPLY_MARGIN`] and then
+    /// trust that comparison to make a second, later `Budget::parse` call infallible - it asks
+    /// `Budget::parse` once, on the subtracted duration, and turns the one way it can fail into
+    /// [`InvalidBound::CannotAffordReplyMargin`]. One fact, checked once, instead of a promise one
+    /// call site keeps and another has to take on faith.
+    pub fn parse(seconds: u64) -> Result<Self, InvalidBound> {
         if seconds == 0 {
             return Err(InvalidBound::Zero {
                 name: "server.request_timeout_seconds",
-            });
-        }
-        if seconds <= Self::REPLY_MARGIN.as_secs() {
-            return Err(InvalidBound::CannotAffordReplyMargin {
-                name: "server.request_timeout_seconds",
-                found: seconds,
-                margin_seconds: Self::REPLY_MARGIN.as_secs(),
             });
         }
         if seconds > Self::MAX_SECONDS {
@@ -199,7 +204,15 @@ impl RequestTimeout {
                 limit: Self::MAX_SECONDS,
             });
         }
-        Ok(Self(Duration::from_secs(seconds)))
+        let duration = Duration::from_secs(seconds);
+        let budget = Budget::parse(duration.saturating_sub(Self::REPLY_MARGIN)).map_err(|NoBudget| {
+            InvalidBound::CannotAffordReplyMargin {
+                name: "server.request_timeout_seconds",
+                found: seconds,
+                margin_seconds: Self::REPLY_MARGIN.as_secs(),
+            }
+        })?;
+        Ok(Self(duration, budget))
     }
 
     #[inline]
@@ -212,19 +225,11 @@ impl RequestTimeout {
         self.0.as_secs()
     }
 
-    /// The execution port's budget: this timeout minus [`Self::REPLY_MARGIN`], computed once here so
-    /// every caller reads the same number rather than re-deriving it.
-    ///
-    /// **Infallible, and that is [`Self::parse`]'s floor read back rather than a fallible
-    /// conversion.** A [`RequestTimeout`] only exists at all once `parse` has refused a value that
-    /// cannot afford the margin, so what is left here is never zero.
-    #[expect(
-        clippy::expect_used,
-        reason = "parse refuses a timeout that cannot afford the margin, so what is left is never zero"
-    )]
-    pub fn budget(self) -> Budget {
-        Budget::parse(self.0.saturating_sub(Self::REPLY_MARGIN))
-            .expect("parse refuses a timeout that cannot afford the margin, so this is never zero")
+    /// The execution port's budget: this timeout minus [`Self::REPLY_MARGIN`], computed once in
+    /// [`Self::parse`] so every caller reads the same number rather than re-deriving it.
+    #[inline]
+    pub const fn budget(self) -> Budget {
+        self.1
     }
 }
 

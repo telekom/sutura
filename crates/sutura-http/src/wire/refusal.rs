@@ -646,6 +646,22 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_deadline_names_its_budget_in_the_sentence() {
+        // `docs/adr/0029`'s own claim for this wire: "the sentence names the configured budget in
+        // seconds". `RefusalBody` is `{code, status, detail}`, so the sentence is the ONLY place
+        // `budget_seconds` reaches this wire at all - the sibling of
+        // `exhaustion_is_not_the_status_a_dead_data_system_comes_back_as`'s ceiling assertion.
+        let (status, body) = refused(&RefusalReason::DeadlineExceeded { budget_seconds: 29 });
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body.code(), "deadline_exceeded");
+        let detail = body.detail();
+        assert!(
+            detail.contains("29 seconds"),
+            "the sentence does not name the budget: {detail}"
+        );
+    }
+
+    #[test]
     fn a_missing_credential_at_a_source_is_not_a_request_to_authenticate_again() {
         // `docs/adr/0005` says the 403s on this surface are not a statement about a credential, and
         // this variant is the one that makes that stop being true - so the sentence has one job

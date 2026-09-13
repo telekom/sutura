@@ -53,7 +53,9 @@ impl sutura_domain::audit::AuditSink for DiscardingAuditSink {
 
 /// Two more fakes for `docs/adr/0029`'s own RED cells - split out for this file's own reason, below.
 mod deadline;
-pub(crate) use deadline::{NeverAskedWarehouse, RecordingLegsWarehouse};
+pub(crate) use deadline::{
+    LegDeadlineExceededWarehouse, MonoDeadlineExceededWarehouse, NeverAskedWarehouse, RecordingLegsWarehouse,
+};
 
 /// The driver's own complaint, one level below the adapter's.
 #[derive(Debug, thiserror::Error)]
@@ -98,6 +100,11 @@ pub(crate) enum DryRunOutcome {
     SourceRefused,
     /// The data system could not be reached while checking the statement.
     TransientFailure,
+    /// The data system reports the deadline as having fired while checking the statement -
+    /// `docs/adr/0029`'s pre-`dry_run` failure mode rather than its pre-call check, so the mapping
+    /// under test is `Warehouse::deadline_exceeded` -> `RefusalReason::DeadlineExceeded`, not the
+    /// budget-already-spent short circuit `NeverAskedWarehouse` covers.
+    TimedOut,
 }
 
 /// A data system with a declared source and posture, which either answers one fixed result or
@@ -125,6 +132,13 @@ pub(crate) struct FixedWarehouse {
     /// so every fixture that predates the check answers exactly as it did before, and only the
     /// tests that are about the check say otherwise.
     counts: CountsBack,
+    /// How many times `execute` was reached.
+    ///
+    /// **The instrument for the pre-`execute` deadline re-check**, paired with
+    /// [`Self::answering_after`]'s slow pre-flight: what proves a budget spent DURING a pre-flight
+    /// round trip stops the call before `execute` - not merely that the outcome looks like a
+    /// refusal - is that this counter stays zero.
+    executions: Cell<usize>,
 }
 
 /// What a fake answers when the boot path asks whether a declared key is really unique.
@@ -150,6 +164,7 @@ impl FixedWarehouse {
             result: None,
             pre_flight_takes: std::time::Duration::ZERO,
             counts: CountsBack::NotAsked,
+            executions: Cell::new(0),
         }
     }
 
@@ -161,6 +176,7 @@ impl FixedWarehouse {
             result: Some(result),
             pre_flight_takes: std::time::Duration::ZERO,
             counts: CountsBack::NotAsked,
+            executions: Cell::new(0),
         }
     }
 
@@ -177,6 +193,7 @@ impl FixedWarehouse {
             result: Some(result),
             pre_flight_takes: std::time::Duration::ZERO,
             counts,
+            executions: Cell::new(0),
         }
     }
 
@@ -193,7 +210,13 @@ impl FixedWarehouse {
             result: Some(result),
             pre_flight_takes,
             counts: CountsBack::NotAsked,
+            executions: Cell::new(0),
         }
+    }
+
+    /// How many times `execute` was reached.
+    pub(crate) fn executions(&self) -> usize {
+        self.executions.get()
     }
 
     /// Refuses credential material this fake has nowhere to put, the way both shipped adapters do.
@@ -235,6 +258,7 @@ impl Warehouse for FixedWarehouse {
     }
 
     fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+        self.executions.set(self.executions.get().saturating_add(1));
         self.deliverable(presented)?;
         self.result.clone().ok_or(AdapterFailure::Statement { cause: DriverFailure })
     }
@@ -310,6 +334,7 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
             DryRunOutcome::Accepted => Ok(PreFlight::Accepted { estimated_bytes: None }),
             DryRunOutcome::SourceRefused => Err(AdapterFailure::RefusedBySource),
             DryRunOutcome::TransientFailure => Err(AdapterFailure::Statement { cause: DriverFailure }),
+            DryRunOutcome::TimedOut => Err(AdapterFailure::TimedOut),
         }
     }
 
@@ -320,6 +345,10 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
 
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(error, AdapterFailure::RefusedBySource)
+    }
+
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::TimedOut)
     }
 
     fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -493,59 +522,6 @@ impl Warehouse for RefusingSourceWarehouse {
 
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(error, AdapterFailure::RefusedBySource)
-    }
-}
-
-/// A data system whose `execute` fails with what it reports as the deadline having fired.
-///
-/// The mono-path sibling [`RefusingSourceWarehouse`] is modelled on: `answer` must turn this
-/// specific error into [`RefusalReason::DeadlineExceeded`] and never into the retryable `503` a dead
-/// data system produces, so `sutura_app::tests`'s
-/// `running_out_of_time_is_a_refusal_and_not_a_503` pins the mapping the same way that fixture pins
-/// `source_refused`.
-pub(crate) struct DeadlineExceededWarehouse {
-    source: SourceName,
-    posture: SourcePosture,
-}
-
-impl DeadlineExceededWarehouse {
-    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
-        Self { source, posture }
-    }
-}
-
-impl Warehouse for DeadlineExceededWarehouse {
-    type Error = AdapterFailure;
-
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-
-    fn source(&self) -> &SourceName {
-        &self.source
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        &self.posture
-    }
-
-    fn dry_run(
-        &self,
-        _executable: Executable<'_>,
-        _presented: &Presented,
-        _deadline: Deadline,
-    ) -> Result<PreFlight, Self::Error> {
-        Ok(PreFlight::NotAsked)
-    }
-
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Err(AdapterFailure::TimedOut)
-    }
-
-    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        Err(AdapterFailure::TimedOut)
-    }
-
-    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
-        matches!(error, AdapterFailure::TimedOut)
     }
 }
 

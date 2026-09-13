@@ -156,3 +156,63 @@ impl Warehouse for RecordingLegsWarehouse {
         Ok(AnchorRows::of(self.result.clone()))
     }
 }
+
+/// A data system whose `execute` fails with what it reports as the deadline having fired.
+///
+/// The mono-path sibling `RefusingSourceWarehouse` is modelled on: `answer` (and, when
+/// `EXECUTES_LEGS` is `true`, `crate::federated::execute_leg`) must turn this specific error into
+/// `RefusalReason::DeadlineExceeded` and never into the retryable `503` a dead data system
+/// produces, so `sutura_app::tests`'s `running_out_of_time_is_a_refusal_and_not_a_503` and its
+/// federated sibling pin the mapping the same way `RefusingLegsWarehouse` pins `source_refused` on
+/// both paths.
+pub(crate) struct DeadlineExceededWarehouse<const EXECUTES_LEGS: bool> {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl<const EXECUTES_LEGS: bool> DeadlineExceededWarehouse<EXECUTES_LEGS> {
+    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
+        Self { source, posture }
+    }
+}
+
+impl<const EXECUTES_LEGS: bool> Warehouse for DeadlineExceededWarehouse<EXECUTES_LEGS> {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = EXECUTES_LEGS;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+        Err(AdapterFailure::TimedOut)
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::TimedOut)
+    }
+
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::TimedOut)
+    }
+}
+
+/// The mono-path and federated-leg instances of `DeadlineExceededWarehouse`, the shape
+/// `MonoPreflightWarehouse`/`LegPreflightWarehouse` already give the pre-flight sibling.
+pub(crate) type MonoDeadlineExceededWarehouse = DeadlineExceededWarehouse<false>;
+pub(crate) type LegDeadlineExceededWarehouse = DeadlineExceededWarehouse<true>;
