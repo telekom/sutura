@@ -20,6 +20,12 @@
 //! trust store is a refusal at load, naming the source (ADR 0010 rule 2). `TrustAnchors` has no
 //! default, so there is no value the loader could have filled in on the operator's behalf.
 //!
+//! And `Verified` deliberately has no client identity either, which makes a written one a refusal
+//! rather than a field: `verified` verifies the source's chain and presents nothing, so a
+//! `client_certificate` on it is a control the mode cannot carry. Giving `Verified` the fields
+//! instead would collapse the distinction the block above is drawn on - the mode that presents a
+//! certificate is `Mutual`, and a superset would leave two spellings for one state.
+//!
 //! And there is deliberately no way to ask for TLS without verification. Every library in this
 //! space offers the escape hatch - `danger_accept_invalid_certs`, `sslmode=require` - and each one
 //! is an encrypted channel with an unknown peer. A `bool` named `verify` would make that reachable
@@ -92,8 +98,10 @@ impl TrustAnchors {
 
 /// The client certificate and key this deployment presents to a source.
 ///
-/// A pair - a certificate with no key, or a key with no certificate, is refused at load naming the
-/// missing half. The paths are read by the adapter at boot; only the paths live in configuration.
+/// A pair - in a `mutual` declaration, a certificate with no key or a key with no certificate is
+/// refused at load naming the missing half. Only `mutual` builds one: on any other mode a written
+/// half is refused for being unread, before this type is reached. The paths are read by the adapter
+/// at boot; only the paths live in configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientIdentity {
     /// The certificate (and any chain) this deployment presents. Absolute.
@@ -171,11 +179,22 @@ impl SourceTransport {
 pub enum InvalidTransport {
     #[error("`sources.{alias}.transport_mode` does not name how the channel to this source is secured - one of: {known}")]
     UnknownTransport { alias: SourceName, known: &'static str },
-    /// A `plaintext` channel also named anchors or a client identity, which nothing would read.
+    /// A key was written that the declared mode does not read, so nothing would honour it.
+    ///
+    /// **One refusal for both modes that discard something, and that is the point.** `plaintext`
+    /// reads no anchors and no client identity; `verified` verifies the source's chain and presents
+    /// nothing, so it reads no client identity either. The failure is identical in both: an
+    /// operator writes a control, the mode cannot carry it, and a deployment that reads past it
+    /// starts with that control silently absent. Naming the KEY rather than listing the candidates
+    /// is what a message reading *names `transport_anchors` or a client certificate* could not do.
     #[error(
-        "`sources.{alias}` is `transport_mode: plaintext` and also names `transport_anchors` or a client certificate - a channel that encrypts nothing reads neither. Remove them, or write a TLS mode"
+        "`sources.{alias}.{key}` was written and `transport_mode: {mode}` does not read it - a control nothing honours is worse than one nobody wrote. Remove the key, or write a `transport_mode` that carries it"
     )]
-    PlaintextWithMaterial { alias: SourceName },
+    KeyNotReadByMode {
+        alias: SourceName,
+        mode: &'static str,
+        key: &'static str,
+    },
     /// A source declared TLS and named no trust anchors.
     ///
     /// Rule 2 of `docs/adr/0010`: the trust store is stated, not inherited, so there is no value to
@@ -222,7 +241,12 @@ const TRANSPORT_KNOWN: &str = "plaintext, verified, mutual";
 ///
 /// `mode` is the `transport_mode` word. `anchors` is the written `transport_anchors` value (a path or
 /// the word `system`). `client_certificate`/`client_key` are the optional identity pair. `plaintext`
-/// is the one way to declare no TLS; a `plaintext` declaration that also names material is refused.
+/// is the one way to declare no TLS.
+///
+/// **A mode is refused a key it would not read, and the two modes that discard something share one
+/// refusal.** `plaintext` reads no anchors and no client identity; `verified` verifies the source's
+/// chain and presents nothing, so it reads no client identity either. `mutual` is the only mode
+/// that reads all three, so it is the only one nothing is refused on for being unread.
 pub fn parse(
     alias: &SourceName,
     mode: &str,
@@ -235,14 +259,28 @@ pub fn parse(
     match mode {
         // A `plaintext` channel that also names anchors or a client identity is a configuration
         // nobody can see. Refused rather than ignored.
-        "plaintext" if anchors.is_some() || client_certificate.is_some() || client_key.is_some() => {
-            Err(InvalidTransport::PlaintextWithMaterial { alias: alias.clone() })
+        "plaintext" => {
+            refuse_unread_keys(
+                alias,
+                "plaintext",
+                std::iter::once(("transport_anchors", written(anchors)))
+                    .chain(client_identity_keys(client_certificate, client_key)),
+            )?;
+            Ok(SourceTransport::Plaintext)
         }
-        "plaintext" => Ok(SourceTransport::Plaintext),
+        // **The same argument one mode along, and `verified` was violating it.** `verified` verifies
+        // the SOURCE's chain and presents nothing: `SourceTransport::Verified` has no field for a
+        // client identity, no adapter reads one off it, and there is therefore no input for which
+        // the pair could be honoured. Accepting it started a deployment with mutual TLS silently
+        // absent - the exact failure the `plaintext` arm above already refuses, and the asymmetry
+        // is `github.com/telekom/sutura#659`. The refusal names `mutual` as the remedy.
         "verified" => {
+            refuse_unread_keys(alias, "verified", client_identity_keys(client_certificate, client_key))?;
             let anchors = TrustAnchors::parse(alias, anchors)?;
             Ok(SourceTransport::Verified { anchors })
         }
+        // The one mode that reads all three material keys, so nothing is discarded here and nothing
+        // is refused for being unread.
         "mutual" => {
             let anchors = TrustAnchors::parse(alias, anchors)?;
             let identity = parse_client_identity(alias, client_certificate, client_key)?;
@@ -254,6 +292,51 @@ pub fn parse(
         }),
     }
 }
+
+/// Whether anything meaningful was written under a key.
+///
+/// An empty string is an absent key, which is what the rest of this module already does with
+/// operator-written text - `TrustAnchors::parse` and `parse_client_identity` both filter an empty
+/// value before reading it, and `sources::parse_placement` reads its foreign keys the same way. The
+/// refusals below would otherwise name a key whose written value was nothing.
+fn written(value: Option<&str>) -> bool {
+    value.is_some_and(|text| !text.trim().is_empty())
+}
+
+/// The two keys that carry a client identity, paired with whether this entry wrote each one.
+///
+/// **The count is in the TYPE, and the array is shared rather than spelled per arm.** Neither
+/// `plaintext` nor `verified` presents a certificate, so both refuse the same pair for the same
+/// reason; two per-arm lists is how the placement-level foreign-key check had already diverged once
+/// before `sources::postgres_only_keys` collapsed it, and it is how `verified` came to refuse
+/// nothing while the `plaintext` arm beside it refused this exact class. A third key on the pair
+/// is a compile error at this signature rather than a mode that quietly stops reading it.
+fn client_identity_keys(certificate: Option<&str>, key: Option<&str>) -> [(&'static str, bool); 2] {
+    [("client_certificate", written(certificate)), ("client_key", written(key))]
+}
+
+/// Refuses the first key in `keys` this entry wrote, naming it and the mode that would not read it.
+///
+/// `Ok(())` when nothing in `keys` was written. The shape `sources::refuse_foreign_keys` already
+/// uses one level up, for the same fail-closed argument: a key that is known and known to the wrong
+/// place is refused rather than read past.
+fn refuse_unread_keys(
+    alias: &SourceName,
+    mode: &'static str,
+    keys: impl IntoIterator<Item = (&'static str, bool)>,
+) -> Result<(), InvalidTransport> {
+    for (key, present) in keys {
+        if present {
+            return Err(InvalidTransport::KeyNotReadByMode {
+                alias: alias.clone(),
+                mode,
+                key,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Reads a client identity that may be absent, refusing a partial one.
 fn parse_client_identity(
     alias: &SourceName,
@@ -430,10 +513,71 @@ mod tests {
             parse(&source("pg"), "plaintext", None, None, None).unwrap(),
             SourceTransport::Plaintext
         );
-        // A plaintext channel that also names anchors is a configuration nobody can see.
+        // A plaintext channel that also names anchors is a configuration nobody can see, and the
+        // refusal names the KEY - each of the three it does not read, one at a time, so a single
+        // written key is observed rather than only the first of a set.
+        for (key, anchors, certificate, client_key) in [
+            ("transport_anchors", Some("system"), None, None),
+            ("client_certificate", None, Some("/tls/c.pem"), None),
+            ("client_key", None, None, Some("/tls/k.pem")),
+        ] {
+            assert_eq!(
+                parse(&source("pg"), "plaintext", anchors, certificate, client_key),
+                Err(InvalidTransport::KeyNotReadByMode {
+                    alias: source("pg"),
+                    mode: "plaintext",
+                    key,
+                })
+            );
+        }
+        // An empty value is an absent key, not written material: the refusal names a key an
+        // operator can find in the file, and `""` is not one.
+        assert_eq!(
+            parse(&source("pg"), "plaintext", Some("  "), Some(""), None).unwrap(),
+            SourceTransport::Plaintext
+        );
+    }
+
+    #[test]
+    fn a_verified_channel_refuses_a_client_identity_it_would_discard() {
+        // `github.com/telekom/sutura#659`. `SourceTransport::Verified` has no field for a client
+        // identity and no adapter reads one off it, so accepting the pair started a deployment with
+        // mutual TLS silently absent - the class the `plaintext` arm already refused, one match arm
+        // over. Both halves, because each is written alone in a real file.
+        for (key, certificate, client_key) in [
+            ("client_certificate", Some("/tls/c.pem"), Some("/tls/k.pem")),
+            ("client_certificate", Some("/tls/c.pem"), None),
+            ("client_key", None, Some("/tls/k.pem")),
+        ] {
+            assert_eq!(
+                parse(&source("pg"), "verified", Some("system"), certificate, client_key),
+                Err(InvalidTransport::KeyNotReadByMode {
+                    alias: source("pg"),
+                    mode: "verified",
+                    key,
+                })
+            );
+        }
+        // THE CONTROL, and without it the three above would also pass a `verified` arm that refused
+        // everything: the same entry with no client material parses, so what is refused is the
+        // written pair and not the mode.
+        assert_eq!(
+            parse(&source("pg"), "verified", Some("system"), None, None).unwrap(),
+            SourceTransport::Verified {
+                anchors: TrustAnchors::System
+            }
+        );
+        // And `mutual` is the remedy the message names, so it has to be one that works on the same
+        // input the refusal was raised for.
         assert!(matches!(
-            parse(&source("pg"), "plaintext", Some("system"), None, None),
-            Err(InvalidTransport::PlaintextWithMaterial { alias }) if alias == source("pg")
+            parse(
+                &source("pg"),
+                "mutual",
+                Some("system"),
+                Some("/tls/c.pem"),
+                Some("/tls/k.pem")
+            ),
+            Ok(SourceTransport::Mutual { .. })
         ));
     }
 

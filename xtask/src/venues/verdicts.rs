@@ -167,7 +167,7 @@ pub(super) fn transition_problems(
 ///    demand* means a job is the only thing that can demand a run there.
 ///
 /// **Why rule 2 is not universal, measured rather than assumed.** Requiring it everywhere refused
-/// the two `in process` venues, whose claims are answered on every push: this workspace's suite
+/// every `in process` venue, whose claims are answered on every push: this workspace's suite
 /// runs in CI as a nix CHECK, and [`super::sources::invoked`] resolves `just <task>` and
 /// `nix run .#<app>` - so `just test` is genuinely run by CI and is invisible to that reader. A
 /// gate that reddens correct work gets disabled, and the run-site token already states the

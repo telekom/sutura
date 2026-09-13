@@ -754,7 +754,10 @@ are mutually exclusive.
 - `plaintext` uses no TLS. It is accepted only with an absolute unix-socket directory or a loopback
   IP literal; a hostname or non-loopback address is a startup refusal.
 - `verified` requires `transport_anchors` and requires the TLS handshake. `system` means the host's
-  trust store because the operator wrote it; an absolute path means that PEM bundle alone.
+  trust store because the operator wrote it; an absolute path means that PEM bundle alone. It
+  presents nothing, so a `client_certificate` or `client_key` written on a `verified` entry is a
+  **startup refusal naming the key**, never a setting read past - the mode that presents a
+  certificate is `mutual`.
 - `mutual` adds `client_certificate` and `client_key`, both absolute and both required. The source
   still verifies the server against `transport_anchors`. The client certificate identifies this
   deployment, not the caller, so it does not change the `shared-service-user` posture.
