@@ -666,6 +666,14 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // the match, not a production arm - a comment can stay behind after an arm is removed and
         // the rule would stay live over a sentence that had become true again. Anchored on the
         // fifth arm's own match pattern instead, which cannot outlive the arm it names.
+        //
+        // REVIEW #667 ROUND 2: that only holds for THIS arm going. The claim guarded is a COUNT
+        // over five arms, and this anchor tracks one of them - regress a DIFFERENT arm's status
+        // (or `ResourcesExhausted`'s own status while keeping its pattern) and the rule stays
+        // live, refusing a sentence that has gone back to true. Not fixable by a better anchor: a
+        // count needs `COUNTS`, and `Granularity::Occurrences` can't tell a production arm from
+        // the `#[cfg(test)]` ones sharing the same literal further down this file. If that
+        // regression is ever the real shape, the fix is to delete this row, not to re-anchor it.
         evidence: &[Evidence {
             path: "crates/sutura-http/src/wire/refusal.rs",
             holds: "RefusalReason::ResourcesExhausted { ceiling_bytes } => (",

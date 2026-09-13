@@ -435,7 +435,6 @@ declaration against it is a boot refusal - which is the posture cross-check work
 execution arriving. And the corpus-wide leg this page specifies - #78's importer shape
 pointed at a dataset - was still not built when this amendment was written. **It is now**, and the
 third amendment below is its record; this sentence is left as the pointer rather than deleted,
-
 because a reader arriving at an amendment wants to know which of its limits a later one spent.
 
 **Corrected: the premise moved and the consequence with it.** `IMPERSONATION` is
