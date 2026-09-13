@@ -131,6 +131,13 @@ pub enum CompositionError {
 /// relationship (both are `Structure`), and the second has no variant for either. A small closed
 /// enum local to this composition step is what the issue's "existing typed vocabulary or a small
 /// closed enum if needed" resolves to here.
+///
+/// **The limit, next to the claim.** Closure - a seventh call site naming a kind this type has no
+/// variant for is a compile error - is held by the compiler, for all six variants. WHICH kind a
+/// given call site in [`check_no_element_collisions`] names is pinned by a test for two of them,
+/// `Model` and `Relationship`; the other four (`GlossaryTerm`, `Caveat`, `Absence`, `WorkedExample`)
+/// have no cell of their own, so a call site there naming the wrong (but still valid) variant is
+/// caught by nothing but review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ElementKind {
     Model,

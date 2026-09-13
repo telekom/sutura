@@ -57,6 +57,19 @@ mod tests {
         )
     }
 
+    /// A complete, valid model document whose TOTAL byte length is exactly `total_len` - padded
+    /// with a YAML comment inside its frontmatter, which contributes to the file's size on disk
+    /// without being a value any parser reads (so no per-field length cap - a description, a note
+    /// body - can fire for an unrelated reason; see the module doc's second "Why").
+    fn padded_model_document(unique: &str, total_len: usize) -> String {
+        let prefix = format!("---\nkind: model\nname: bound_{unique}\nsource: local\ntable: bound_{unique}\ncolumns: [id]\n# ");
+        let suffix = "\n---\nA fixture model, used only to make this directory large.\n";
+        let padding_len = total_len
+            .checked_sub(prefix.len() + suffix.len())
+            .expect("total_len must be large enough to hold the frontmatter and body around the padding");
+        format!("{prefix}{}{suffix}", "a".repeat(padding_len))
+    }
+
     #[test]
     fn a_directory_with_too_many_documents_is_refused_by_name() {
         // Comfortably over the production cap (1,000 as of this writing) - the assertion is on the
@@ -91,14 +104,91 @@ mod tests {
         // length cap (a description, a note body) fires first for an unrelated reason, and both
         // documents remain exactly as parseable as the small one in the first test. Two documents
         // is far under the document-count bound above, so that check does not fire first either.
-        const PADDING_BYTES: usize = 20 * 1024 * 1024;
+        const OVERSIZED_LEN: usize = 20 * 1024 * 1024;
         let root = scratch("too-large-aggregate");
         std::fs::write(root.join("model-a.md"), model_document("a")).expect("a document is writable");
-        let padding = "a".repeat(PADDING_BYTES);
-        let oversized = format!(
-            "---\nkind: model\nname: bound_b\nsource: local\ntable: bound_b\ncolumns: [id]\n# {padding}\n---\nA fixture model, used only to make this directory large.\n"
+        std::fs::write(root.join("model-b-oversized.md"), padded_model_document("b", OVERSIZED_LEN))
+            .expect("a document is writable");
+
+        let catalog = LocalCatalog::new(test_name(), root.clone(), version());
+        let err = catalog.load().expect_err(
+            "on origin/main these two documents load in full regardless of size - refusing the \
+             directory is exactly the behaviour this test exists to require",
         );
-        std::fs::write(root.join("model-b-oversized.md"), oversized).expect("a document is writable");
+        let message = err.to_string();
+        assert!(
+            message.contains("bytes"),
+            "the refusal should name what was measured in bytes: {message}"
+        );
+
+        drop(std::fs::remove_dir_all(&root));
+    }
+
+    /// The document-count bound at exactly the cap. Neither red-on-base cell above names the
+    /// boundary VALUE - both use a count and a size comfortably over it - so a weakened check that
+    /// still refuses somewhere past the true cap (`>` mutated to `>=`, which moves the effective
+    /// cap to one less) had nowhere to be caught. This cell is that boundary: exactly
+    /// `MAX_CATALOG_DOCUMENTS` (1,000 as of this writing) must load, not be refused for size. Green
+    /// on base is fine here - `origin/main` has no such bound at all - the file already carries the
+    /// two red-on-base cells above, and the causality gate measures the file, not each cell.
+    #[test]
+    fn a_directory_at_exactly_the_document_cap_loads() {
+        const DOCUMENT_COUNT: usize = 1_000;
+        let root = scratch("at-the-document-cap");
+        for n in 0..DOCUMENT_COUNT {
+            let unique = format!("{n:05}");
+            std::fs::write(root.join(format!("model-{unique}.md")), model_document(&unique)).expect("a document is writable");
+        }
+
+        let catalog = LocalCatalog::new(test_name(), root.clone(), version());
+        catalog
+            .load()
+            .expect("exactly the cap must load, not be refused for a count that stays at it");
+
+        drop(std::fs::remove_dir_all(&root));
+    }
+
+    /// The aggregate-byte bound at exactly the cap - the twin of the document-count boundary above,
+    /// same reasoning: a `>` mutated to `>=` moves the effective cap down by one byte, and nothing
+    /// else in this file would catch it.
+    #[test]
+    fn two_documents_summing_to_exactly_the_aggregate_cap_load() {
+        // Mirrors the production constant rather than importing it (private to `src/lib.rs`, and
+        // this file compiles against the public API only) - the second document is padded to
+        // whatever length makes the total hit this number exactly, so the two cannot drift apart.
+        const AGGREGATE_CAP: u64 = 16 * 1024 * 1024;
+        let root = scratch("at-the-aggregate-cap");
+        let first = model_document("a");
+        let first_len = u64::try_from(first.len()).expect("a fixture document's length fits a u64");
+        std::fs::write(root.join("model-a.md"), &first).expect("a document is writable");
+        let second_len = usize::try_from(AGGREGATE_CAP - first_len).expect("the remainder fits a usize");
+        let second = padded_model_document("b", second_len);
+        assert_eq!(
+            second.len(),
+            second_len,
+            "the padding helper must hit the requested length exactly"
+        );
+        std::fs::write(root.join("model-b.md"), &second).expect("a document is writable");
+
+        let catalog = LocalCatalog::new(test_name(), root.clone(), version());
+        catalog
+            .load()
+            .expect("exactly the aggregate cap must load, not be refused for a total that stays at it");
+
+        drop(std::fs::remove_dir_all(&root));
+    }
+
+    /// The aggregate is a SUM, not a per-file limit: two documents, each well UNDER the aggregate
+    /// cap on its own, whose total is over it. A mutation that checked each file's own size against
+    /// the cap (rather than a running total) would never refuse this directory - neither file is
+    /// individually oversized - so this is the cell that catches that specific weakening, which the
+    /// two red-on-base cells above do not (both put all the size in one file).
+    #[test]
+    fn two_documents_each_under_the_cap_whose_sum_is_over_it_are_refused_by_name() {
+        const EACH_LEN: usize = 9 * 1024 * 1024;
+        let root = scratch("aggregate-not-per-file");
+        std::fs::write(root.join("model-a.md"), padded_model_document("a", EACH_LEN)).expect("a document is writable");
+        std::fs::write(root.join("model-b.md"), padded_model_document("b", EACH_LEN)).expect("a document is writable");
 
         let catalog = LocalCatalog::new(test_name(), root.clone(), version());
         let err = catalog.load().expect_err(

@@ -53,20 +53,28 @@ const DOCUMENT_EXTENSION: &str = "md";
 /// at boot, not a value a caller supplies per question. The walk in [`LocalCatalog::documents`]
 /// refuses as soon as it finds one document past this count, rather than finishing the tree and
 /// refusing afterward - so a directory built to be large does not get walked to the end before the
-/// refusal fires. 1,000 is a round number well above the largest corpus this format has been
-/// exercised against (the widest example under `examples/` is 50 documents); a real deployment with
-/// more documents than this is the case to raise the constant for, not to work around.
+/// refusal fires. **Documents, not entries**: a directory holding this many `.md` document-shaped
+/// files plus an unbounded number of other entries (subdirectories, non-`.md` files, a skipped
+/// symlink) is unaffected - this bounds what becomes a definition, not the size of the tree it lives
+/// in. 1,000 is a round number well above the largest corpus this format has been exercised against
+/// (the widest example under `examples/` is 50 documents); a real deployment with more documents
+/// than this is the case to raise the constant for, not to work around.
 const MAX_CATALOG_DOCUMENTS: usize = 1_000;
 
 /// The most bytes a local catalog's documents may sum to.
 ///
 /// Checked from each file's own metadata in [`LocalCatalog::read_all`], before that file is read to
-/// a `String` - so the file that would cross the bound is never read into memory. 16 MiB is a round
-/// number, and a generous one: every document here is markdown with a small, capped body
+/// a `String` - so the file that crosses the bound is never read into memory, held by reading the
+/// code rather than by a per-file cell: the stat happens, then the read, in that order, for every
+/// document. (The usual stat-then-read window still applies - a file that grows between the two
+/// calls is read in full at whatever size it reached by the second one; operator-controlled content,
+/// so that window is accepted rather than closed.) 16 MiB is a round number, and a generous one: a
+/// document's PARSED prose is capped after parsing
 /// ([`sutura_domain::knowledge::MAX_NOTE_BODY_BYTES`], [`sutura_domain::catalog::MAX_DESCRIPTION_BYTES`],
 /// both 4 KiB), so `MAX_CATALOG_DOCUMENTS` bodies alone could not exceed roughly 4 MiB even at the
-/// document cap - this bounds the AGGREGATE across a directory of many small documents, not any one
-/// of them, which already has its own cap.
+/// document cap - but a document's FILE has no cap of its own, so this is also the only bound on one
+/// pathological file (`tests/bounds.rs` exercises exactly that case, a single document padded well
+/// past this limit). This bounds the AGGREGATE across many small documents as well as that one case.
 const MAX_CATALOG_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The two halves of a bundle's content, read and checked but not yet pinned.
@@ -199,10 +207,18 @@ pub enum LocalCatalogError {
     TooManyDocuments { path: PathBuf, found: usize, limit: usize },
     /// The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
     ///
-    /// `found` is the running total, checked from each file's own metadata and INCLUDING the file
-    /// that crossed `limit` - which is refused before that file is read into memory, not after.
-    #[error("the catalog at {path} holds more than {limit} bytes of documents ({found} found before the read stopped)")]
-    TooLarge { path: PathBuf, found: u64, limit: u64 },
+    /// `path` is the catalog root, matching `TooManyDocuments` and `Empty` above - the rendered
+    /// text names "the catalog", so the path in it has to be the catalog's, not one file's.
+    /// `document` is the one whose metadata pushed the running total over `limit` - checked from
+    /// its own size and INCLUDING it, before it is read into memory, not after. `found` is that
+    /// running total.
+    #[error("the catalog at {path} holds more than {limit} bytes of documents (the read stopped at {document}, {found} found)")]
+    TooLarge {
+        path: PathBuf,
+        document: PathBuf,
+        found: u64,
+        limit: u64,
+    },
     /// The domain could not hash the definitions.
     ///
     /// One variant rather than the two this used to have. Those two - the canonical form failing to
@@ -362,7 +378,8 @@ impl LocalCatalog {
             total_bytes = total_bytes.saturating_add(size);
             if total_bytes > MAX_CATALOG_BYTES {
                 return Err(LocalCatalogError::TooLarge {
-                    path,
+                    path: self.root.clone(),
+                    document: path,
                     found: total_bytes,
                     limit: MAX_CATALOG_BYTES,
                 });
