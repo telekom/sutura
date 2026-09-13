@@ -1,5 +1,7 @@
 //! [`PricedWarehouse`], split out of `super` for that file's own `max-lines` cap.
 
+use std::cell::Cell;
+
 use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::Executable;
@@ -11,11 +13,17 @@ use super::AdapterFailure;
 
 /// A fake whose `dry_run` reports a chosen byte estimate - every other fake here answers
 /// `NotAsked`/`Accepted { estimated_bytes: None }`, so nothing else can provoke a ledger charge.
+///
+/// **Counts its own `execute` calls**, the same `LegPreflightWarehouse::executions()` shape
+/// `tests_support.rs` already gives `PreflightWarehouse` - a refusal a spend cell asserts on has
+/// to also assert nothing was executed, or the ledger's POSITION (before `execute`, not after) is
+/// held by nothing.
 pub(crate) struct PricedWarehouse {
     source: SourceName,
     posture: SourcePosture,
     result: RowSet,
     estimated_bytes: Option<u64>,
+    executions: Cell<usize>,
 }
 
 impl PricedWarehouse {
@@ -31,7 +39,13 @@ impl PricedWarehouse {
             posture,
             result,
             estimated_bytes,
+            executions: Cell::new(0),
         }
+    }
+
+    /// How many times `execute` was reached.
+    pub(crate) fn executions(&self) -> usize {
+        self.executions.get()
     }
 }
 
@@ -63,6 +77,7 @@ impl Warehouse for PricedWarehouse {
     }
 
     fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+        self.executions.set(self.executions.get().saturating_add(1));
         Ok(self.result.clone())
     }
 

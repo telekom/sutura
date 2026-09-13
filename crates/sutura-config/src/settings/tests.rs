@@ -820,6 +820,12 @@ fn the_whole_settings_tree_can_be_logged_without_printing_the_token() {
     assert!(rendered.contains("REDACTED"), "{rendered}");
 }
 
+/// A written `governance.per_replica_spend_ceiling` reaching `Settings::spend_budget()`, and its
+/// absent-key twin. `#[cfg(test)]` on the declaration for `telekom/sutura#657`'s reason: a bare
+/// `mod governance;` names nothing `xtask test-causality`'s scan reads as a test.
+#[cfg(test)]
+mod governance;
+
 /// Reading an inbound-identity declaration. Carved out because this file hit the line limit.
 mod inbound;
 

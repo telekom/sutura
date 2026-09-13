@@ -1,9 +1,10 @@
 //! `sutura_app::answer` wired to a REAL, configured `SpendLedger` - split out of `super` (`tests.rs`)
 //! for that file's own `max-lines` cap, and because the local `answer` wrapper there is pinned to
-//! `SpendLedger::no_budget()` for every other test - so these two call `crate::answer` directly.
+//! `SpendLedger::no_budget()` for every other test - so these call `crate::answer` directly.
 //! `use super::*` reaches every fixture this file needs: `bundle`, `source`, `shared`,
 //! `asked_by_a_person`, `test_deadline`, `metric`, `june`, `certified`.
 
+use sutura_domain::identity::{Actor, ActorChain};
 use sutura_domain::model::Grain;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 
@@ -38,6 +39,17 @@ fn a_configured_ceiling_refuses_when_the_dry_runs_own_price_exceeds_it() {
         ),
         "a dry run priced over the configured ceiling must refuse, not {outcome:?}"
     );
+    // The ledger's POSITION, not just the outcome: a refusal that ran `execute` anyway would still
+    // read as `BudgetExhausted` above, so that assertion alone does not hold "refused, not billed
+    // silently" - only a call count on the adapter itself can.
+    assert_eq!(
+        warehouses
+            .get(&source())
+            .expect("the priced source is registered")
+            .executions(),
+        0,
+        "a question refused for spend must never reach `execute`"
+    );
 }
 
 #[test]
@@ -67,5 +79,100 @@ fn an_adapter_that_did_not_price_is_never_refused_for_spend() {
     assert!(
         matches!(outcome, ToolOutcome::Answer { .. }),
         "an adapter that did not price its dry run must never be refused for spend: {outcome:?}"
+    );
+}
+
+#[test]
+fn two_subjects_are_isolated_through_answer_not_only_in_the_ledger() {
+    // `spend::tests::two_subjects_are_isolated_from_each_other` proves the MAP; this proves the
+    // SERVICE keys on the subject `PrincipalChain::attribution()` names when it consults that map -
+    // a claim about `crate::answer`'s own wiring, held by nothing until now.
+    let warehouses = Warehouses::of(PricedWarehouse::pricing(source(), shared(), certified(), Some(600)));
+    let validated = verify_and_validate(bundle(), &warehouses).expect("the anchors hold");
+    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, std::time::Duration::from_secs(60))));
+    let subject_a = RequestContext::of(PrincipalChain::of(Subject::Verified {
+        id: SubjectId::parse("one@example.com").expect("a test subject id parses"),
+    }));
+    let subject_b = RequestContext::of(PrincipalChain::of(Subject::Verified {
+        id: SubjectId::parse("two@example.com").expect("a test subject id parses"),
+    }));
+    let ask = |context: &RequestContext| {
+        crate::answer(
+            &validated,
+            &question,
+            context,
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            1 << 30,
+            test_deadline(),
+            &ledger,
+        )
+        .expect("an Ok either way")
+        .into_outcome()
+    };
+
+    assert!(
+        matches!(ask(&subject_a), ToolOutcome::Answer { .. }),
+        "subject A's first 600 bytes fit under the 1000-byte ceiling"
+    );
+    assert!(
+        matches!(
+            ask(&subject_a),
+            ToolOutcome::Refusal {
+                reason: RefusalReason::BudgetExhausted { .. }
+            }
+        ),
+        "subject A's second 600 bytes put them over the ceiling"
+    );
+    assert!(
+        matches!(ask(&subject_b), ToolOutcome::Answer { .. }),
+        "subject B has never been charged and is unaffected by subject A's own ceiling"
+    );
+}
+
+#[test]
+fn an_agent_acting_for_a_subject_spends_that_subjects_own_budget() {
+    // `docs/adr/0030`'s reversal of its own first draft: the key is the SUBJECT `attribution()`
+    // names, never the acting chain - so an agent's charge lands on the human it acted for, and
+    // that human's own next direct question is refused by what the agent already spent for them.
+    let warehouses = Warehouses::of(PricedWarehouse::pricing(source(), shared(), certified(), Some(600)));
+    let validated = verify_and_validate(bundle(), &warehouses).expect("the anchors hold");
+    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, std::time::Duration::from_secs(60))));
+    let subject = Subject::Verified {
+        id: SubjectId::parse("one@example.com").expect("a test subject id parses"),
+    };
+    let acting_for_the_subject = RequestContext::of(
+        PrincipalChain::of(subject.clone()).acting(ActorChain::of(Actor::parse("query_agent").expect("a test actor parses"))),
+    );
+    let the_subject_directly = RequestContext::of(PrincipalChain::of(subject));
+    let ask = |context: &RequestContext| {
+        crate::answer(
+            &validated,
+            &question,
+            context,
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            1 << 30,
+            test_deadline(),
+            &ledger,
+        )
+        .expect("an Ok either way")
+        .into_outcome()
+    };
+
+    assert!(
+        matches!(ask(&acting_for_the_subject), ToolOutcome::Answer { .. }),
+        "the agent's first 600 bytes fit under the 1000-byte ceiling"
+    );
+    assert!(
+        matches!(
+            ask(&the_subject_directly),
+            ToolOutcome::Refusal {
+                reason: RefusalReason::BudgetExhausted { .. }
+            }
+        ),
+        "the subject's own direct question is refused by what the agent already spent on their behalf"
     );
 }

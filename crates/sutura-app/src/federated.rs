@@ -531,6 +531,17 @@ mod tests {
             ),
             "the summed estimate (1200) is over the ceiling (1000), even though neither leg alone is: {outcome:?}"
         );
+        // The ledger's POSITION, not just the outcome, and on BOTH legs: a mutation that charged
+        // after `run_leg` (rather than after both `dry_run_leg`s and before either `run_leg`) would
+        // still refuse - the estimates are unchanged - so the outcome assertion above cannot see it.
+        for leg in ["facts", "geo"] {
+            let source = SourceName::parse(leg).expect("a test source");
+            assert_eq!(
+                warehouses.get(&source).expect("both legs are registered").executions(),
+                0,
+                "a federated answer refused for spend must never reach either leg's `execute`"
+            );
+        }
     }
 
     /// `docs/adr/0029` decision 3's own RED cell - split out so this file stays under the
