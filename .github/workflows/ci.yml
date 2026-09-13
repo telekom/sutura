@@ -614,15 +614,18 @@ jobs:
       # costs.
       #
       # THE HEADING NAMES WHAT THE STAGE'S GRAPH ROOT REALISES, NOT A PROPERTY OF EVERY STEP IN
-      # IT, because two of them need no closure at all. It used to read "the gates that need the
-      # dependency closure", which this change made false of a step it moved: `apps.deny` is a
-      # `writeShellScript` that puts the toolchain and `cargo-deny` on `PATH` and runs
-      # `cargo deny check` (`flake.nix`), so what `Supply chain` needs is a NETWORK for the
-      # advisory database, and `check-attribution` needs a resolvable registry for the same reason.
-      # Both sit after `Clippy` anyway, and deliberately: ahead of it a `cargo-deny` advisory or an
-      # `actionlint` finding would pre-empt the structural sweep and the workspace lint, which
-      # nothing could do before the staging work. Placement here is about what may pre-empt what,
-      # not about the closure.
+      # IT. It used to read "the gates that need the dependency closure", which this change made
+      # false of a step it moved: `apps.deny` is a `writeShellScript` that puts the toolchain and
+      # `cargo-deny` on `PATH` and runs `cargo deny check` (`flake.nix`), so `Supply chain` builds
+      # nothing from this tree and needs no closure at all - what it needs is a NETWORK for the
+      # advisory database. `The attribution document generates completely` is not the same case and
+      # is not claimed as one: `nix run .#xtask` does need the closure, and a resolvable registry
+      # as well.
+      #
+      # `Supply chain` sits here anyway, and deliberately: ahead of `Clippy` a `cargo-deny`
+      # advisory or an `actionlint` finding would pre-empt the structural sweep and the workspace
+      # lint, which nothing could do before the staging work and which #642 shipped. Placement is
+      # about what may pre-empt what, not about the closure.
       - name: Realise the xtask and lint gates in one graph
         continue-on-error: true
         uses: ./.github/actions/measure-host

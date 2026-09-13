@@ -14,7 +14,7 @@
 //! the file is already parsed here, and a second gate over the same text is how two readers come
 //! to disagree.
 //!
-//! # Why the required condition is not the same for both steps
+//! # Why the required condition is not the same for every step
 //!
 //! Measured over this repository's own runs rather than chosen:
 //!
@@ -26,7 +26,7 @@
 //!   step was skipped. There is **no** step-level `!cancelled()` witness inside `ci` either way,
 //!   because no step there carried a reachability condition before this rule.
 //!
-//! So the two differ by whether a cancelled run still owes the obligation:
+//! So they differ by whether a cancelled run still owes the obligation:
 //!
 //! * `Secrets` takes `always()`. A committed credential is **already disclosed** by the time any
 //!   gate runs, so there is nothing to defer to the next push, and `always()` is the only form
