@@ -22,8 +22,11 @@ through `sutura-sql` (`Dialect::Postgres`); nothing here is compiled or translat
   (`tls::client_config`). Which source gets which is `sutura_config::sources::transport`'s
   decision and never this adapter's, so a caller that builds no config gets a cleartext
   connection - including to a server that offers TLS.
-- A `statement_timeout` is set at connect, so a slow server statement cannot hold a
-  blocking-pool thread past the caller's request deadline.
+- **`dry_run` and `execute` stop at the port's deadline**, with `SET LOCAL statement_timeout` -
+  `docs/adr/0029`'s Postgres row. The raw SQL tool's own path (`execute_raw`) carries no
+  per-request deadline, so its own `SET LOCAL` is always the connect-time ceiling. `57014
+  query_canceled` is what either firing looks like, and is also what a manual `pg_cancel_backend`
+  produces - indistinguishable to `deadline_exceeded`.
 
 ## `enum PostgresError`
 
@@ -53,6 +56,7 @@ Why this data system could not answer.
 - `InvalidSchemaName` - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
 - `InvalidStatementTimeout` - The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
 - `RawTransaction` - The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run - sutura's own fixed text on the simple query protocol (`docs/adr/0013`), never the caller's.
+- `Transaction` - The certified path's own per-statement transaction (`docs/adr/0029`) did not open - sutura's own fixed literal text, never the caller's, the same as `Self::RawTransaction`.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
 - `LegWithoutCombiner` - A leg without a combiner.
