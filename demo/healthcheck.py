@@ -128,6 +128,17 @@ def main() -> None:
             token = handle.read().strip()
     except OSError as problem:
         fail(f"the deployment token was not readable: {problem}")
+    # An EMPTY token file is not a readable credential, and a probe that reports healthy over one is
+    # the defect this guard exists for: `demo/run.sh` writes this file, a generator that produced
+    # nothing leaves it zero bytes, and the server then reads `access_token: ""` as ABSENT - which
+    # `sutura-config` permits on a loopback, non-production bind by design. The request below would
+    # otherwise succeed carrying `Bearer ` and nothing would have been authenticated.
+    #
+    # THE LIMIT, beside the claim: this refuses to report a demo READY while it holds no credential.
+    # It does not gate the `development` posture, which deliberately serves loopback without a
+    # token; this file cannot change that and does not try to.
+    if not token:
+        fail("the deployment token file is empty, so this demo holds no credential")
     try:
         document = json.loads(
             fetch(f"http://127.0.0.1:{sutura_port}/openapi.json", token)

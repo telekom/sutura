@@ -77,7 +77,14 @@ chmod 0700 "$run_dir"
 # The bearer token that authenticates the chat client to the server. Generated per start, written
 # 0600 under `run_dir`, and read back by the probe - never printed, never in an image layer.
 token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-[ -n "$token" ] || fail "the deployment token could not be generated"
+# `fail` is not a function in this script, and the refusal must not rest on `set -e` either: with
+# `-e` removed this guard wrote a zero-byte token file and `access_token: ""` into the deployment,
+# which the server reads as NO credential and serves anyway on a loopback development bind. Refuse
+# in the shape the endpoint checks above already use, so the reason reaches the operator.
+if [ -z "$token" ]; then
+    printf 'sutura-demo: the deployment token generator produced nothing\n' >&2
+    exit 1
+fi
 printf '%s' "$token" > "$run_dir/token"
 chmod 0600 "$run_dir/token"
 
