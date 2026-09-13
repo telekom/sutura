@@ -43,7 +43,7 @@ use crate::source::UniformlyExecuted;
 use crate::text::first_invisible;
 use crate::warehouse::cardinality::{KeyNotCounted, KeyNotUnique};
 
-pub use manifest::{Contribution, ContributionManifest, RequiredOrOptional};
+pub use manifest::{Contribution, ContributionManifest, InvalidManifest, RequiredOrOptional};
 
 /// The longest version label we accept. Long enough for a commit id plus a tag, short enough that
 /// it cannot be used to smuggle a paragraph into an audit record.

@@ -10,7 +10,8 @@
 //! whatever a collector is ingesting. It is for an operator, and the lines that matter most are
 //! the ones about what this service does *not* do.
 
-use sutura_config::{Environment, InboundIdentity, Settings};
+use sutura_config::sources::transport::TrustAnchors;
+use sutura_config::{Environment, InboundIdentity, Settings, SourcePlacement};
 
 /// The name, in block letters.
 ///
@@ -236,6 +237,37 @@ fn announce_surface(settings: &Settings) {
             "log; the declared catalogs are composed by the metadata assembler"
         ),
     }
+    // The CHANNEL each declared source is reached over, one line per source. `docs/adr/0010` decides
+    // that a transport is a named choice rather than an inherited default, and a choice that never
+    // reaches the log is indistinguishable from a default - the reason `announce_token_class` exists
+    // one function down. `describe()` is the enum's own word for the mode, so this line cannot claim
+    // one the type does not have. The anchors are printed beside it because `system` is reachable
+    // only by writing it, and the log is where that choice becomes distinguishable from a default.
+    for (source, configured) in settings.sources().each() {
+        let (channel, anchors) = match configured.placement() {
+            SourcePlacement::Postgres { transport, .. } => (
+                transport.describe(),
+                transport.anchors().map(|anchors| match anchors {
+                    TrustAnchors::System => String::from("system"),
+                    TrustAnchors::File(path) => path.display().to_string(),
+                }),
+            ),
+            // The two kinds with no per-source channel, and deliberately not one word for both:
+            // `files` truly has no wire, so `"none declared"` is accurate for it. `bigquery`'s wire
+            // DOES carry TLS - `ureq`'s own, against its compiled-in roots - and printing "none
+            // declared" beside `anchors=none` reads to an operator scanning the log as plaintext,
+            // which it is not.
+            SourcePlacement::Files { .. } => ("none declared", None),
+            SourcePlacement::BigQuery { .. } => ("wire-owned tls (not declared)", None),
+        };
+        tracing::info!(
+            source = %source,
+            kind = configured.kind().as_str(),
+            channel,
+            anchors = anchors.as_deref().unwrap_or("none"),
+            "source channel"
+        );
+    }
 }
 
 /// The one line an operator must not be able to miss, and it is now two lines because the answer
@@ -301,7 +333,32 @@ fn announce_token_class(inbound: &InboundIdentity) {
 mod tests {
     use sutura_config::{Environment, Settings, Sources};
 
-    use super::{BANNER, announce_provenance};
+    use super::{BANNER, announce_provenance, announce_surface};
+
+    #[test]
+    fn a_postgres_sources_channel_and_anchors_reach_the_log_and_bigquery_reads_as_wire_owned() {
+        // `docs/adr/0010`'s "the startup line then prints that it was chosen" - held here, and not
+        // by the log line's own existence: a source whose channel is `verified` has to say so, and
+        // its anchors have to be readable next to it, or the distinction the ADR names is not
+        // actually visible anywhere. The `bigquery` source in the same tree is the finding-11 half:
+        // it must not read as `"none declared"`, which beside `anchors=none` looks like plaintext.
+        let sources = Sources::defaults(Environment::Development).with_overlay(
+            "security:\n  identity: \"multi-user\"\nsources:\n  \
+             warehouse:\n    kind: \"postgres\"\n    host: \"127.0.0.1\"\n    port: 5432\n    \
+             database: \"marts\"\n    user: \"sutura\"\n    password_file: \"/etc/sutura/pg-password\"\n    \
+             transport_mode: \"verified\"\n    transport_anchors: \"/etc/sutura/ca.pem\"\n    \
+             posture: \"shared-service-user\"\n    acknowledged_because: \"one service role for everybody\"\n  \
+             analytics:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
+             credential_file: \"/etc/sutura/bigquery.json\"\n    max_bytes_billed: 1073741824\n    \
+             posture: \"shared-service-user\"\n    acknowledged_because: \"one service account for everybody\"\n",
+        );
+        let settings = Settings::load(&sources).expect("two declared sources load");
+        let recorded = crate::testing::capture(|| announce_surface(&settings));
+        assert!(recorded.contains("\"channel\":\"verified\""), "{recorded}");
+        assert!(recorded.contains("\"anchors\":\"/etc/sutura/ca.pem\""), "{recorded}");
+        assert!(recorded.contains("wire-owned tls"), "{recorded}");
+        assert!(!recorded.contains("\"channel\":\"none declared\""), "{recorded}");
+    }
 
     #[test]
     fn the_startup_report_says_which_configuration_files_are_in_effect() {

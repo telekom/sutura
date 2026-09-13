@@ -30,6 +30,7 @@ thiserror = { workspace = true }
 # RON, INI and TOML parsers plus `async-trait` and `convert_case`, which is five file formats
 # and an async abstraction for a service that reads one format synchronously at startup.
 config = { workspace = true }
+url = { workspace = true }
 # The two halves of the token comparison, and neither is hand-rolled on purpose.
 #
 # `sha2` reduces both sides to a fixed 32 bytes, which is what removes the length oracle: a

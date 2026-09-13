@@ -485,16 +485,26 @@ async fn two_concurrent_callers_past_the_same_pre_state_perform_exactly_one_read
     // **The second-round finding, and it broke the specific claim this module makes.** Two callers
     // both observed the old `last_attempt` in `key_for`, each entered `poll_once`, and `poll_once`
     // stamped-and-read unconditionally - so both read the source. Measured at three reads where two
-    // were required. The module doc, the sequential test below and `docs/adr/0014` all state a bound
-    // of one read per window, so under concurrency the code did not do what three places said.
+    // were required.
     //
-    // **Why this is deterministic and not a race that happens to lose.** The barrier releases only
-    // when the SECOND task arrives, so both are provably past the point `key_for`'s pre-lock
-    // comparison sits at before either goes on to `poll_once`. From there the outcome does not depend
-    // on the schedule: whichever task takes the write lock first stamps inside the same acquisition it
-    // compared in, so the other cannot observe the pre-state. The count is 2 for every interleaving
-    // with the reservation, and was 3 for every interleaving without it - which is what makes this a
-    // regression rather than a flake in either direction.
+    // **What this cell holds NOW, stated because the mechanism moved under it.** The source read is
+    // off the executor since, so under the multi-thread runtime below the first task lands inside
+    // `reserve`, is handed its `InFlight`, and is then parked on the blocking task's `JoinHandle` -
+    // still holding the write lock's *result*, not the lock. By the time the second task reaches
+    // `reserve`, the first has already dropped the write lock; the second loses on
+    // `self.reading.swap(true, ..)`, never on the window compare. So this cell holds "one look in
+    // flight bounds concurrent callers to one read", backed by `InFlight` - it no longer reaches the
+    // compare in `reserve` that the paragraph above describes. That compare, sequentially and with no
+    // concurrency to blur which check refused, is
+    // `super::refresh::a_second_look_inside_the_window_is_refused_and_the_next_window_looks_again`.
+    //
+    // **Why THIS cell is still deterministic and not a race that happens to lose.** The barrier
+    // releases only when the SECOND task arrives, so both are provably past the point `key_for`'s
+    // pre-lock comparison sits at before either goes on to `poll_once`. From there the outcome does
+    // not depend on the schedule: whichever task takes the flag first is handed the `InFlight`, so the
+    // other cannot observe an unset flag. The count is 2 for every interleaving with the reservation,
+    // and was 3 for every interleaving without it - which is what makes this a regression rather than
+    // a flake in either direction.
     let pair = key_pair();
     let now = Instant::now();
     let (cache, source) = cache_of_family(
