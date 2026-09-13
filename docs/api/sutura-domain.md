@@ -8284,7 +8284,7 @@ free text.
 #### Variants
 
 - `Metric`
-- `Grain`
+- `Grain` - **Carries no field, and that is on purpose.** The accepted set is fixed and finite, so the sentence names all five instead of echoing back the one that did not match - the caller's text would otherwise sit in a `Debug` rendering unread by any transport, the shape `MalformedQuestion` is elsewhere careful never to carry.
 - `Date`
 - `Range`
 - `Dimension`
@@ -9078,6 +9078,21 @@ One function so there is one answer. An anchor comparison that formatted the val
 call site would compare differently in two places, and the failure would look like a data
 problem rather than a formatting one.
 
+```rust
+pub fn rendered_len(&self) -> usize
+```
+
+The byte length `Self::render` would produce, without paying for the allocation when a
+cheaper answer exists.
+
+**`Text` is the one variant this saves a clone for, and it is the one that matters.**
+`render` clones the text to hand a caller an owned `String`; measuring a ceiling needs only
+the length, and cloning a value that might be megabytes wide just to learn how long it is is
+a second copy of exactly the data `RowSet::rendered_byte_len` exists to bound. `Null` is a
+fixed four bytes. `Integer` and `Real` still render to measure: their text is at most a few
+dozen bytes, so the allocation costs nothing and duplicating `Display`'s digit-counting here
+is the more likely place for the two to drift apart than a small, bounded allocation is.
+
 #### Implements
 
 `Clone`, `Debug`, `PartialEq`, `Serialize`
@@ -9132,18 +9147,19 @@ Builds a result set, rejecting a ragged one.
 pub fn rendered_byte_len(&self) -> u64
 ```
 
-The total bytes every cell would occupy once rendered through `Value::render`.
+The total bytes every cell would occupy once rendered through `Value::render`, measured
+through `Value::rendered_len` so a wide `Text` cell is counted without being cloned.
 
 **A proxy for the encoded response size, and not the wire size itself - stated because the
-gap matters.** This sums the canonical text form of every cell, which is the same rendering
-an anchor is compared against; it is not the JSON a transport wraps that text in, nor the
-tab-delimited text block the agent-facing tool result also sends, and both add quoting,
-escaping and delimiters this number does not count. It exists to give a cheap, monotonic
-figure to compare against a byte ceiling before either transport builds its own wire form,
-which is what lets one measurement serve both without either reaching into the other's
-rendering. Column labels are not counted: they come from the catalog an operator authored,
-not from a caller's own cells, and every other size bound in this module is about what a
-caller's question can make a data system return.
+gap matters.** This sums the canonical text length of every cell, which is the same
+rendering an anchor is compared against; it is not the JSON a transport wraps that text in,
+nor the tab-delimited text block the agent-facing tool result also sends, and both add
+quoting, escaping and delimiters this number does not count. It exists to give a cheap,
+monotonic figure to compare against a byte ceiling before either transport builds its own
+wire form, which is what lets one measurement serve both without either reaching into the
+other's rendering. Column labels are not counted: they come from the catalog an operator
+authored, not from a caller's own cells, and every other size bound in this module is about
+what a caller's question can make a data system return.
 
 ```rust
 pub fn rows(&self) -> &[Vec<Value>]
