@@ -1104,6 +1104,15 @@ Everything about the log.
 
 The string was neither format.
 
+## `use ToolsSettings`
+
+What this deployment turned on beside the certified tool.
+
+Infallible to build, like the other settings groups: an unset key is `false`, and there is no
+combination of booleans here that is wrong on its own - `tools.run_sql.enabled` is checked
+against `security.identity` in `Settings::refusals`, which is a cross-group rule and belongs
+there rather than in this type.
+
 ## Module `api`
 
 Whether the generated documentation is served, and why the default differs by environment.
@@ -4726,3 +4735,43 @@ pub const fn service_name(&self) -> &ServiceName
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+## Module `tools`
+
+The tool surface's own settings: which of the capabilities beside the certified one this
+deployment turned on.
+
+One tool exists here today - `docs/adr/0013`'s raw SQL tool - and this module is where a second
+one's own key would arrive, per tool, off by default: there is deliberately no group-wide switch,
+because a tool this deployment never turns on should never be a line item in an operator's
+decision about a different one.
+
+### `struct ToolsSettings`
+
+```rust
+pub struct ToolsSettings
+```
+
+What this deployment turned on beside the certified tool.
+
+Infallible to build, like the other settings groups: an unset key is `false`, and there is no
+combination of booleans here that is wrong on its own - `tools.run_sql.enabled` is checked
+against `security.identity` in `Settings::refusals`, which is a cross-group rule and belongs
+there rather than in this type.
+
+#### Methods
+
+```rust
+pub const fn new(run_sql_enabled: bool) -> Self
+```
+
+```rust
+pub const fn run_sql_enabled(self) -> bool
+```
+
+Whether `docs/adr/0013`'s raw SQL tool is turned on. Off unless an operator wrote
+`tools.run_sql.enabled: true`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`

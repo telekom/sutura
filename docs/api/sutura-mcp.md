@@ -737,6 +737,32 @@ One dimension of one metric.
 
 One metric, as much of it as a caller needs to ask a valid question.
 
+### `use MalformedStatement`
+
+Why a `run_sql` call's arguments were not a statement.
+
+### `use RawContent`
+
+What the raw SQL tool produced, as the tool's structured content.
+
+**The load-bearing shape.** No field here is named `provenance`, `definition_version` or
+`definition_digest`, at any depth - there is nowhere on this type to put one, which is what makes
+a raw answer unable to be rendered as certified rather than merely undecorated as one.
+
+**The two variant NAMES deliberately do not carry a `Raw` prefix** (`clippy::enum_variant_names`
+over the type's own already-`Raw`-prefixed name) - only their SERIALIZED tags do, pinned by an
+explicit `#[serde(rename)]` on each rather than derived from the Rust identifier: `Rows` would
+otherwise serialize `outcome: "rows"` and `Refusal` would serialize exactly the certified path's
+own `outcome: "refusal"` - the one collision `docs/adr/0013` forbids.
+
+### `use RunSqlArgs`
+
+One raw statement, as a tool call carries it.
+
+One field, bounded by `RawStatement::parse` on the way in - `deny_unknown_fields` is what keeps
+this tool from ever growing a second field a caller could smuggle a table name or a row-id list
+through, the same governance boundary `super::AskArgs` holds for the certified tool.
+
 ### Module `catalog`
 
 The catalog tool's wire shape: what `describe_catalog` takes, what it answers, and the text half
@@ -825,6 +851,82 @@ pub struct DimensionContent
 ```
 
 One dimension of one metric.
+
+##### Implements
+
+`Debug`, `Serialize`
+
+### Module `raw`
+
+The raw SQL tool's wire shape: what `run_sql` takes, and what it answers.
+
+Its own module for the reason `wire/catalog.rs` has one - one whole tool, sharing nothing with
+`ask`'s shapes but `sutura_domain::warehouse::Value::render`.
+
+# The discriminant, and why it shares nothing with a certified answer's
+
+`docs/adr/0013` requires that a raw result's wire shape share no serialized field name and no
+discriminant VALUE with `crate::wire::OutcomeContent::Answer`'s. That type tags with
+`outcome: "answer"` / `outcome: "refusal"`; `RawContent` tags with `outcome: "raw_rows"` /
+`outcome: "raw_refusal"` - a different key set at the object's own single discriminant, so a
+client branching on the string cannot mistake one for the other, and neither serialized object
+carries a `provenance` or a `definition_digest` key at any depth.
+
+#### `struct RunSqlArgs`
+
+```rust
+pub struct RunSqlArgs
+```
+
+One raw statement, as a tool call carries it.
+
+One field, bounded by `RawStatement::parse` on the way in - `deny_unknown_fields` is what keeps
+this tool from ever growing a second field a caller could smuggle a table name or a row-id list
+through, the same governance boundary `super::AskArgs` holds for the certified tool.
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`
+
+#### `enum MalformedStatement`
+
+```rust
+pub enum MalformedStatement
+```
+
+Why a `run_sql` call's arguments were not a statement.
+
+##### Variants
+
+- `NotAnObject`
+- `Statement`
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `enum RawContent`
+
+```rust
+pub enum RawContent
+```
+
+What the raw SQL tool produced, as the tool's structured content.
+
+**The load-bearing shape.** No field here is named `provenance`, `definition_version` or
+`definition_digest`, at any depth - there is nowhere on this type to put one, which is what makes
+a raw answer unable to be rendered as certified rather than merely undecorated as one.
+
+**The two variant NAMES deliberately do not carry a `Raw` prefix** (`clippy::enum_variant_names`
+over the type's own already-`Raw`-prefixed name) - only their SERIALIZED tags do, pinned by an
+explicit `#[serde(rename)]` on each rather than derived from the Rust identifier: `Rows` would
+otherwise serialize `outcome: "rows"` and `Refusal` would serialize exactly the certified path's
+own `outcome: "refusal"` - the one collision `docs/adr/0013` forbids.
+
+##### Variants
+
+- `Rows` - The statement executed.
+- `Refusal` - The statement was refused. Still an `Ok` and still a tool result, for `ServerHandler::call_tool`'s reason: a governance outcome is not a fault.
 
 ##### Implements
 
