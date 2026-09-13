@@ -29,11 +29,13 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::federation::{Carried, Federation};
-use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::measure::Measure;
+use sutura_domain::model::{MetricName, SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate,
-    PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure, plan_required_filter,
+    FederatedPlan, FederatedPlanError, IncoherentBindings, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanFilter,
+    PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure,
+    plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -78,12 +80,27 @@ pub(crate) enum Plan {
 /// rather than a governance refusal. `crates/sutura-app/tests/differential/federated.rs` is the
 /// venue that would see such an edit today: it asserts that the only compile-side refusal a
 /// two-source corpus question may get is `MeasureDoesNotFederate`.
+///
+/// [`NotBound`](PlanError::NotBound) is the fourth arm and carries the same argument for the same
+/// reason. [`predicates_and_params`] and [`requested_for`] mint every parameter index from the
+/// position the value was pushed to, so neither can build a set
+/// [`PlanBindings::parse`](sutura_domain::plan::PlanBindings::parse) refuses, and no test provokes
+/// this arm either. What it buys is that a producer which stops minting - a hand-written index, a
+/// reordered push - surfaces as a failure rather than as a statement that renders correctly on a
+/// numbered dialect and binds the wrong values on a positional one.
+/// [`sutura_domain::plan::bindings`] argues why that is a wrong number rather than an error, and it
+/// is why this is not a [`RefusalReason`]: a caller cannot narrow their question out of our own
+/// arithmetic.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PlanError {
     #[error("the question was refused")]
     Refused(RefusalReason),
+    #[error("metric {metric} uses authored SQL, which this plan shape does not carry")]
+    AuthoredSqlNotPlanned { metric: MetricName },
     #[error(transparent)]
     NotAssembled(#[from] FederatedPlanError),
+    #[error(transparent)]
+    NotBound(#[from] IncoherentBindings),
 }
 
 impl From<RefusalReason> for PlanError {
@@ -103,6 +120,11 @@ impl From<RefusalReason> for PlanError {
 /// function's discipline: a whole-answer plan and a fact leg each take their tables as a
 /// [`StatementTables`], so neither can be built without the answer.
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
+    let Some(measure) = resolution.metric.measure() else {
+        return Err(PlanError::AuthoredSqlNotPlanned {
+            metric: resolution.metric.name().clone(),
+        });
+    };
     // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
     // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
     // drop a source here.
@@ -111,8 +133,8 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
         .collect();
 
     match remote.len() {
-        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution)?))),
-        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution)?))),
+        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
+        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?))),
         // Two are served; three or more refused, because each source is a separate identity.
         _ => Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
             sources: 1 + remote.len(),
@@ -133,7 +155,7 @@ fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
 }
 
 /// A question confined to one data system: exactly the plan this module already built.
-fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
+fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan, PlanError> {
     let metric = resolution.metric;
     let model = resolution.model;
     // Two readings of "the table", and both are used below. `own_path` is what the `FROM` names -
@@ -171,7 +193,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
 
     let requested: Vec<&ResolvedFilter> = resolution.filters.iter().collect();
-    let (filters, params) = predicates_and_params(resolution, &requested, own_table, &time_column);
+    let bindings = predicates_and_params(resolution, &requested, own_table, &time_column)?;
 
     let keys: Vec<PlanKey> = resolution
         .keys
@@ -179,7 +201,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
         .map(|key| PlanKey::new(ResultLabel::dimension(key.dimension.name()), column_of(key, own_table)))
         .collect();
 
-    let measure = plan_measure(metric.measure(), |column| PlanColumn::new(own_table.clone(), column.clone()));
+    let measure = plan_measure(closed, |column| PlanColumn::new(own_table.clone(), column.clone()));
 
     // **Where the statement's tables stop being a list and become a checked set.** Two tables whose
     // paths end in the same name render under one implicit alias, so a column qualified by it names
@@ -201,8 +223,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
         keys,
         measure,
         ResultLabel::measure(metric.name()),
-        filters,
-        params,
+        bindings,
         resolution.range,
     ))
 }
@@ -216,7 +237,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
 // The splitter builds both legs, their keys, their filters and the link in one pass over the
 // resolution; it is a single act of splitting a resolved question, and it returns Err from several
 // places that far apart to make a reviewer see the splitter's refusals together.
-fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanError> {
+fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<FederatedPlan, PlanError> {
     let metric = resolution.metric;
     let model = resolution.model;
     // Two readings of "the table", for the reason `mono_plan` gives: the path is what a leg's `FROM`
@@ -224,7 +245,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
     let own_path = model.table();
     let own_table = model.table_name();
 
-    let federation = Federation::of(metric.measure());
+    let federation = Federation::of(closed);
     // The combiner cannot re-count a distinct aggregate, so a measure that needs that is refused.
     if let Some(keys) = federation.carried().iter().find_map(|leaf| match **leaf {
         Carried::Keys { pulled, .. } => Some(pulled.above()),
@@ -309,8 +330,8 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
         .collect();
 
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
-    let (fact_filters, fact_params) = predicates_and_params(resolution, &local_filters, own_table, &time_column);
-    let (lookup_filters, lookup_params) = requested_for(&remote_filters, remote_table);
+    let fact_bindings = predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
+    let lookup_bindings = requested_for(&remote_filters, remote_table)?;
 
     // The fact leg's terms, projected under the one labelling rule the combiner reads back - in the
     // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
@@ -383,8 +404,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
         bucket: bucket.clone(),
         keys: fact_keys,
         terms,
-        filters: fact_filters,
-        params: fact_params,
+        bindings: fact_bindings,
         range: resolution.range,
     };
 
@@ -392,8 +412,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
         source: remote_source.clone(),
         table: remote_path.clone(),
         keys: lookup_keys,
-        filters: lookup_filters,
-        params: lookup_params,
+        bindings: lookup_bindings,
     };
 
     // The answer's group-by keys in question order, each naming which leg's result it is read from.
@@ -434,12 +453,6 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
     .map_err(PlanError::NotAssembled)
 }
 
-/// The predicates a statement carries, paired with the parameters they bind.
-///
-/// A named alias because the tuple is over the complexity threshold in `clippy.toml`, and naming it
-/// says what the pairing means: neither half is usable without the other.
-type PredicatesAndParams = (Vec<PlanFilter>, Vec<ParamValue>);
-
 /// Every predicate a fact leg will carry, and the parameters they bind, built together.
 ///
 /// The range bounds, then the metric's required filters, then `requested` - the caller's own filters
@@ -450,7 +463,7 @@ fn predicates_and_params(
     requested: &[&ResolvedFilter<'_>],
     own_table: &TableName,
     time_column: &PlanColumn,
-) -> PredicatesAndParams {
+) -> Result<PlanBindings, IncoherentBindings> {
     let metric = resolution.metric;
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
@@ -499,12 +512,12 @@ fn predicates_and_params(
         ));
     }
 
-    (filters, params)
+    PlanBindings::parse(filters, params)
 }
 
 /// The predicates a lookup leg carries: only the caller's own remote filters, bound on the remote
 /// table.
-fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) -> PredicatesAndParams {
+fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) -> Result<PlanBindings, IncoherentBindings> {
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
     for filter in requested {
@@ -518,7 +531,7 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
             },
         ));
     }
-    (filters, params)
+    PlanBindings::parse(filters, params)
 }
 
 /// Every dimension the question mentions, grouped by or filtered on.

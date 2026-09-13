@@ -44,6 +44,11 @@
 //! every field it might have is a field handed to anybody who can route a packet. No version, no
 //! build, no configuration, no catalog. A test asserts the body byte for byte.
 //!
+//! A directly validating deployment also exposes its RFC 9728 protected-resource metadata without a
+//! token. That document is deliberately only the exact resource identifier and the configured
+//! authorization server; it is absent in gateway and single-player deployments and shares the probe
+//! rate limit with liveness.
+//!
 //! # What is deliberately absent
 //!
 //! * **No CORS layer.** A browser is not a client of this surface. An allow-list nobody needs is an

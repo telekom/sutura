@@ -24,11 +24,11 @@ says why they look the way they do.
 ## Serving is MCP
 
 **Both transports are built, and one property this section describes is not.** `sutura-http` serves
-a versioned `v1` tree, a liveness probe, a generated interface description, rate limiting and a
-bearer gate; `sutura-mcp` serves the tool surface over a process's own standard input and output,
-and `just mcp-e2e` drives that one end to end. What is absent is a caller identity on the agent
-surface: a pipe has no header a token could arrive in, so it answers as the deployment and offers
-every capability, and a network-reachable agent surface needs the identity leg
+a versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated
+interface description, rate limiting and a bearer gate; `sutura-mcp` serves the tool surface over a
+process's own standard input and output, and `just mcp-e2e` drives that one end to end. What is absent
+is a caller identity on the agent surface: a pipe has no header a token could arrive in, so it answers
+as the deployment and offers every capability, and a network-reachable agent surface needs the identity leg
 [how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md) designs.
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
@@ -472,10 +472,16 @@ which are text is a word in the document rather than a reading of it.
 record: what the hatch is, what stays closed, which constructs are refused at load and why each one
 is on the list.
 
-**Partly built.** The domain types and the compile - parse, refuse, qualify against the model's
-columns, render per dialect, all at catalog-compile time - exist in `sutura_domain::expression` and
-`sutura_sql::expression`. What does not exist yet is the wiring: no catalog document can write
-`authored_sql:` and no plan can carry a compiled one, so no metric uses the hatch today.
+**Loaded and refused at boot; not compiled, not executed.** A local metric document writes
+`authored_sql:` beside nothing else, the fragment is admitted as text - present, bounded, one
+fragment rather than a script, no control or invisible characters - and pinned under the definition
+digest exactly as written. Nothing published compiles it: the compile in `sutura_sql::expression`
+has no production caller, and a catalog adapter may not reach that crate
+(`cargo xtask check-boundaries`), because both shipped binaries link the local catalog and a SQL
+generator in its tree is one in the network binary's. Every adapter this workspace ships leaves
+`Warehouse::EXECUTES_AUTHORED_SQL` at `false`, so `verify_and_validate` refuses a bundle carrying an
+authored metric before serving, naming it. The compile belongs to the first adapter that executes
+the fragment. Until then an authored fragment is stored, not checked.
 
 **A pinned statement**, rendered upstream and taken as given, spliced into a generated wrapper. Not
 built. The rest of this section is its design.
@@ -751,9 +757,11 @@ door: what the port bought is that the day a real source arrives, there is no co
 read as the process through.
 
 **The HTTP transport is here now**, and this sentence used to say it was not: an axum surface with a
-versioned `v1` tree, a liveness probe, a generated interface description, rate limiting, a bearer
-gate and optional in-process TLS. What it does **not** carry is a per-caller identity - the token
-authenticates the deployment - so none of the identity claims above are made true by its arrival.
+versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
+description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
+the deployment; `security.inbound` instead establishes the caller in `direct` or `behind-gateway`
+mode. Neither makes a data system execute as that caller: leg 2 remains absent from every published
+adapter.
 
 Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
 the row cap and the ten-year span. The spliced-statement path is designed, documented above, and

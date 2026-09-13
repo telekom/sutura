@@ -827,6 +827,10 @@ reconcile them. The plan owns the numbering and the dependency graph. What is be
   correction above. What may NOT happen is that the stack stops at this branch: a `LegPlan` nothing
   renders and a `generate_leg` nothing calls is the *Built And Not Wired* shape, and AGENTS.md has a
   section named after that mistake. The branch after it is not optional.
+
+  **Corrected: the section moved out of `AGENTS.md`.** The register is now
+  `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired*, cited by ADR 0016 at the
+  new location. The shape this bullet warns against is unchanged.
 - **`feat/two-source-execution` - the execution half, with two DuckDB files as its first instance.**
   The splitter in `sutura-semantic`, keyed on the relationship graph rather than on `SourceName`; the
   `Executable` enum on the port and the mechanical diff at every implementor and fake; the combiner

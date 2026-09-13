@@ -394,27 +394,28 @@ pub fn publish(scope: &Scope, reported: &[(&str, String)]) -> Result<PathBuf, Di
 /// Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
 /// stale file is the one way discovery could hand back a wrong answer instead of an error.
 ///
-/// **It used to `remove_file`, and that was the other half of `github.com/telekom/sutura#317`.** A
-/// nix-native tier merges its entry into this same document, so removing the file withdrew a claim
-/// over a server that was still running - `just dev-down` did it deliberately, and every failing
-/// path through `with_endpoints_forgotten` did it by accident. Fail-closed is the right posture
-/// about *our* entries and is somebody else's data when applied to theirs.
+/// **It merges rather than deletes, and that is `github.com/telekom/sutura#317`.** A nix-native
+/// tier writes into this same document, so a `remove_file` withdrew a claim over a server that was
+/// still running. The last entry out still takes the file with it, because the file's EXISTENCE is
+/// what discovery reads as *something is provisioned here*.
 ///
-/// The last entry out still takes the file with it, because the file's EXISTENCE is what discovery
-/// reads as *something is provisioned here* - the rule `nix/tier-endpoints.nix`'s `withdraw` holds
-/// on the other side.
-///
-/// A document this module cannot read is **refused rather than removed**: it publishes nothing a
-/// harness can use either way, and destroying state that cannot be attributed is the failure this
-/// function was changed to stop.
-///
-/// **The limit that widened with it, stated with the claim.** The `remove_file` this replaced
-/// healed an unreadable document by deleting it. Attribution needs the document parsed first, so
-/// ANY [`Malformed`] variant - not merely one about an entry - now refuses both `just dev-up` and
-/// `just dev-down` before either touches the tier, and nothing repairs the file automatically. That
-/// is the trade taken deliberately: state that cannot be attributed is not destroyed, and the price
-/// is a manual delete, which is why [`DiscoveryError`]'s message names it.
+/// **The limit, stated with the claim.** A document this module cannot read is refused rather than
+/// removed, so ANY [`Malformed`] variant refuses both `just dev-up` and `just dev-down` before
+/// either touches the tier, and nothing repairs the file automatically - the price of never
+/// destroying state that cannot be attributed, which is why [`DiscoveryError`] names the delete.
 pub fn forget(scope: &Scope) -> Result<(), DiscoveryError> {
+    withdraw(scope, |_name, provisioner| provisioner != OURS)
+}
+
+/// Withdraw the NAMED services' entries that THIS provisioner published, and nothing else.
+///
+/// A scoped teardown that called [`forget`] would also withdraw a Docker tier it left running.
+pub fn forget_services(scope: &Scope, services: &[&str]) -> Result<(), DiscoveryError> {
+    withdraw(scope, |name, provisioner| provisioner != OURS || !services.contains(&name))
+}
+
+/// Shared withdrawal body; removes the file when nothing is left.
+fn withdraw(scope: &Scope, keep: impl Fn(&str, Provisioner) -> bool) -> Result<(), DiscoveryError> {
     let path = path_for(scope);
     if !path.exists() {
         return Ok(());
@@ -422,7 +423,7 @@ pub fn forget(scope: &Scope) -> Result<(), DiscoveryError> {
     // Parsed rather than edited blind, so an entry is attributed before it is withdrawn.
     let surviving: Vec<String> = Endpoints::discover(scope)?
         .services()
-        .filter(|&(_name, endpoint)| endpoint.provisioner() != OURS)
+        .filter(|&(name, endpoint)| keep(name, endpoint.provisioner()))
         .map(|(name, _endpoint)| String::from(name))
         .collect();
 
@@ -668,6 +669,7 @@ mod tests {
             "path_for",
             "publish",
             "forget",
+            "forget_services",
         ];
 
         let source = include_str!("discovery.rs");
@@ -898,6 +900,43 @@ mod tests {
         std::fs::remove_file(super::path_for(&scope)).expect("the fixture is removable");
         publish(&scope, &[("clickhouse", String::from("0.0.0.0:60663"))]).expect("writes");
         super::forget(&scope).expect("withdraws");
+        assert!(matches!(
+            Endpoints::discover(&scope),
+            Err(DiscoveryError::NotProvisioned { .. })
+        ));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_scoped_teardown_withdraws_only_the_services_it_removed() {
+        // `dev-down --only demo` must not withdraw another live Docker service's address.
+        let dir = temp_worktree("scoped-withdraw");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+        a_nix_tier_has_published(&scope, "postgres");
+        publish(
+            &scope,
+            &[
+                ("demo", String::from("0.0.0.0:60670")),
+                ("clickhouse", String::from("0.0.0.0:60671")),
+            ],
+        )
+        .expect("writes");
+
+        super::forget_services(&scope, &["demo"]).expect("withdraws the demo entry");
+
+        let found = Endpoints::discover(&scope).expect("the other entries keep the file");
+        assert_eq!(
+            found.services().map(|(name, _)| name).collect::<Vec<_>>(),
+            vec!["clickhouse", "postgres"],
+            "a scoped teardown withdrew an entry for a service it did not remove"
+        );
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+
+        // The last entry out still takes the file with it, as unscoped teardown does.
+        let dir = temp_worktree("scoped-last");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+        publish(&scope, &[("demo", String::from("0.0.0.0:60672"))]).expect("writes");
+        super::forget_services(&scope, &["demo"]).expect("withdraws");
         assert!(matches!(
             Endpoints::discover(&scope),
             Err(DiscoveryError::NotProvisioned { .. })

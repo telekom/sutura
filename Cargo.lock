@@ -3864,6 +3864,7 @@ dependencies = [
  "subtle",
  "sutura-domain",
  "thiserror 2.0.20",
+ "url",
 ]
 
 [[package]]

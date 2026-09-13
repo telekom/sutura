@@ -33,10 +33,11 @@ mod resolve;
 use crate::plan::PlanError;
 pub use crate::resolve::BundleInconsistent;
 use crate::resolve::ResolveError;
+use sutura_domain::model::MetricName;
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::FederatedPlanError;
 use sutura_domain::plan::QueryPlan as DomainPlan;
 pub use sutura_domain::plan::{FederatedPlan, QueryPlan};
+use sutura_domain::plan::{FederatedPlanError, IncoherentBindings};
 pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin};
 use sutura_domain::query::{Query, RefusalReason};
 /// What compiling a question produced.
@@ -78,28 +79,39 @@ impl Compiled {
 }
 /// Why compiling failed, which is never why a question was refused.
 ///
-/// **Two arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question the
-/// deployment declines comes back as [`Compiled::Refused`]; what reaches this type is our own side
-/// being wrong. Those are the two ways that can happen: the pinned bundle names something it does not
-/// hold, and the splitter built a two-source plan that
-/// [`FederatedPlan::new`](sutura_domain::plan::FederatedPlan::new) then rejected. The second used to
+/// **Four arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question
+/// the deployment declines comes back as [`Compiled::Refused`]; what reaches this type is our own
+/// side being wrong. Those are the four ways that can happen: the pinned bundle names something it
+/// does not hold, the bundle reaches this compiler with authored SQL its plan cannot carry, the
+/// splitter built a two-source plan that
+/// [`FederatedPlan::new`](sutura_domain::plan::FederatedPlan::new) then rejected, and a producer
+/// built a plan whose predicates and parameters did not resolve each other. The third used to
 /// be flattened into [`RefusalReason::FederationNotExecutable`], which is what a build whose adapter
 /// type does not declare `Warehouse::EXECUTES_LEGS` is told - so a wiring defect and a statement
 /// about the build's own capability arrived as one value, and a caller could not tell which it had.
 ///
 /// **The limit, next to the claim:** nothing provokes [`NotAssembled`](CompileFailure::NotAssembled)
-/// today. Every `FederatedPlanError` variant is structurally unreachable from the splitter as it
-/// stands - `crate::plan::PlanError` enumerates why, one variant at a time - so what this arm buys is
-/// that a future edit which makes one reachable surfaces as a failure rather than as a refusal a
-/// caller would retry.
+/// or [`NotBound`](CompileFailure::NotBound) today. Every `FederatedPlanError` variant is
+/// structurally unreachable from the splitter as it stands, and every
+/// [`IncoherentBindings`](sutura_domain::plan::IncoherentBindings) variant is unreachable from the
+/// two functions that build a binding set, because both mint each parameter index from the position
+/// the value was pushed to - `crate::plan::PlanError` enumerates why, one variant at a time - so what
+/// these arms buy is that a future edit which makes one reachable surfaces as a failure rather than
+/// as a refusal a caller would retry.
 #[derive(Debug, thiserror::Error)]
 pub enum CompileFailure {
     /// The pinned bundle names a model or a relationship it does not hold.
     #[error(transparent)]
     Bundle(#[from] BundleInconsistent),
+    /// The bundle carries authored SQL, while the domain plan deliberately carries no SQL.
+    #[error("metric {metric} uses authored SQL, which the semantic plan cannot carry")]
+    AuthoredSqlNotPlanned { metric: MetricName },
     /// A two-source plan this workspace compiled and could not then assemble.
     #[error("this deployment compiled a two-source question it could not assemble")]
     NotAssembled(#[from] FederatedPlanError),
+    /// A plan this workspace compiled whose predicates and parameters did not resolve each other.
+    #[error("this deployment compiled a question whose parameters did not bind")]
+    NotBound(#[from] IncoherentBindings),
 }
 
 /// Resolves and plans. It does not render.
@@ -151,6 +163,8 @@ pub fn compile(query: &Query, pinned: &PinnedDefinitions) -> Result<Compiled, Co
         Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
         Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
+        Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
+        Err(PlanError::NotBound(cause)) => Err(cause.into()),
     }
 }
