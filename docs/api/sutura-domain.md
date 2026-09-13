@@ -60,9 +60,6 @@ types it speaks in:
   descriptive content.
 - `pinned` is the hashed snapshot a question resolves against, plus the catalog port.
 - `query` is the tool surface, defined mostly by what it has no field for.
-- `question` is the one conversion from a caller's raw fields to a `query::Query`, shared by
-  both transports so a governed field set and its typed refusal exist in one place rather than
-  two kept equal by review.
 - `warehouse` is the execution port. It speaks in plans, so an adapter that executes without
   generating any SQL is a first-class implementation of it rather than a special case.
 - `source` is what a deployment declares about one source: which identity a query reaches it as,
@@ -254,34 +251,10 @@ the `ToolOutcome`: provenance rides to the caller, and what a credential's lifet
 not the caller's business.
 
 ```rust
-pub const fn of_raw(chain: &'a PrincipalChain, statement: &'a RawStatement, outcome: &'a RawOutcome, executed_until: Option<Expiry>) -> Self
-```
-
-The raw path's constructor, matching `Self::of`'s shape: the outcome half is derived from
-the outcome, once, here.
-
-`statement` is `docs/adr/0013`'s "audit-only field never returned to the caller" - it rides
-on the record and nowhere else. Taken separately from `outcome` rather than read off it,
-because `RawOutcome` itself carries no statement text at all: the
-caller's own text is not something the OUTCOME needed to hold, and giving it a field there
-would be a second place a wire type could reach for it.
-
-```rust
 pub const fn outcome(&self) -> &RecordedOutcome<'a>
 ```
 
 How it ended.
-
-```rust
-pub const fn statement(&self) -> Option<&RawStatement>
-```
-
-The statement text, where this record is a raw call. `None` for a certified answer or
-refusal - there was no caller-supplied statement to carry.
-
-**Audit-only, and this is the one accessor.** Nothing in this crate or in `sutura-app` renders
-this back to the caller; a sink is the only reader, which is what makes the demand signal
-`docs/adr/0013`'s ramp section wants a property of the record rather than of the reply.
 
 #### Implements
 
@@ -303,8 +276,6 @@ no certified answer, and a channel that records only answers cannot report it.
 
 - `Answered` - The question was answered. The row count sizes it; the provenance says which definitions produced it, so a record can be matched against the bundle that was serving.
 - `Refused` - The question was declined. The variant is what a reader needs - not a sentence - because it is what an aggregate over records can group by.
-- `RawAnswered` - A raw statement executed. `docs/adr/0013`'s ramp section is explicit that this record is what makes an ungoverned answer a written demand signal rather than a hole - so unlike `Self::Answered`, the statement text rides on the record. It is never returned to the caller: `CallRecord::statement` is this module's only accessor for it.
-- `RawRefused` - A raw statement was refused, before or after it reached the data system. The statement rides here too, for the same reason: a refused raw call is exactly the demand signal the ramp section wants recorded, and the SQL that would have answered it is the point.
 
 #### Implements
 
@@ -438,12 +409,6 @@ Why a date was rejected.
 Each variant carries what was wrong as typed fields rather than a formatted sentence, and the
 numeric parse failure keeps its cause: a discarded cause is the difference between "the month is
 not a number" and knowing which character stopped it.
-
-**None of them carries the rejected text**, for the reason
-`crate::model::InvalidIdentifier`'s own note gives in full: a caller's date string reaches
-this parser through `crate::question::parse_query`, and both transports render that failure by
-walking its cause chain into a message the caller reads. A date is not an identifier and has no
-character set to be bounded by, so the layout it failed is the whole of what is worth saying.
 
 #### Variants
 
@@ -4006,21 +3971,8 @@ pub enum InvalidIdentifier
 
 Why a name was rejected.
 
-**No variant carries the rejected input, and that is a control rather than a style choice.**
-This is a leaf error raised by one parser that cannot know who reads it, and both transports
-render a malformed question by walking its whole cause chain into a message the caller gets
-back - an RFC 7807 `detail` on the HTTP surface, `invalid_params` in an agent's context on the
-agent one. An input echoed here is therefore an input reflected there, and the character set
-that rejected it is no bound on it: `parse_name` checks the character set BEFORE the length,
-so the two variants a non-name reaches admit any byte at any length, and `Self::TooLong` held
-the whole of an input it had measured only against the limit that input broke.
-
-What each variant carries is the diagnosis and not the evidence - which rule was broken, the one
-offending character, the measured length against the limit. A reader who needs the input names it
-themselves, and every wrapper of this error in this workspace already does, because a wrapper
-knows whose text it holds and this parser does not: `RdbmsError::ColumnName` names the column it
-read from a dictionary, and `crate::question::MalformedQuestion` names the request field and
-deliberately not its value.
+The variants carry the offending input as typed fields rather than a formatted sentence: the
+variant is the contract and the `#[error]` text is a convenience for a human.
 
 #### Variants
 
@@ -8077,7 +8029,6 @@ somebody else's input.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
 - `SourceRefused` - The data system refused the executed statement because the identity it ran it as may not ask it.
 - `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
-- `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
 
 #### Methods
 
@@ -8130,65 +8081,10 @@ agent two paragraphs saying one thing.
 
 - `Rows` - The plan's row cap, in rows.
 - `Volume` - The data system would not hand this result back in one piece.
-- `Encoded` - This deployment's own rendered-response ceiling, in bytes.
 
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `struct ResponseByteLimit`
-
-```rust
-pub struct ResponseByteLimit
-```
-
-The most bytes an answer's rendered cells may occupy before this deployment declines to encode
-it into a response.
-
-**Parsed rather than a bare constant**, so a caller of this type cannot end up with a zero
-ceiling that refuses every answer while reading as "no bound was set" - the same distinction
-`crate::plan::MAX_ROWS` does not need to make, because nothing constructs a row cap from
-outside this crate.
-
-`Self::DEFAULT` is what every deployment is held to today - see its own documentation for the
-number and the reasoning. **The limit, stated here rather than left for a reader to assume
-otherwise:** nothing yet reads this from a settings file the way `server.max_body_bytes` bounds
-the request side: `sutura_app::answer` and `sutura_app::federated::answer_federated` both use
-`Self::DEFAULT` unconditionally. Making it operator-configurable is future work, threaded the
-same way `working_set_bytes` already is, from a composition root down through
-`sutura_app::surface::LocalService`.
-
-#### Methods
-
-```rust
-pub const fn bytes(self) -> u64
-```
-
-```rust
-pub const fn parse(bytes: u64) -> Result<Self, InvalidResponseByteLimit>
-```
-
-Reads a byte ceiling.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### `enum InvalidResponseByteLimit`
-
-```rust
-pub enum InvalidResponseByteLimit
-```
-
-Why a response byte ceiling is not one.
-
-#### Variants
-
-- `Zero` - Zero reads as "no bound was configured" to whoever wrote it, and is the opposite: it refuses every answer without saying it means to.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `enum ToolOutcome`
 
@@ -8268,286 +8164,6 @@ bounding the work that produced it: the groups are built, and then the answer is
 refusal is not a budget. A day count is also only a proxy for rows: ten years of a small table and
 ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 scanned, which needs something from the data system that no port asks for yet.
-
-## Module `question`
-
-Parsing a caller's raw question fields into a certified `crate::query::Query`.
-
-**The one conversion two transports used to duplicate.** `sutura-http`'s `QuestionBody` and
-`sutura-mcp`'s `AskArgs` carry the same five fields, for the reason every wire shape here does:
-they are both the whole of what a caller may ask, extracted as plain strings so a parse failure
-can name the field rather than quote a deserializer. Before this module existed, each transport
-re-derived `crate::query::Query` from those fields with its own copy of this logic, its own
-copy of `MalformedQuestion`, and its own copy of the grain and range parsers - identical code,
-kept equal only by review, because *an adapter may not depend on another adapter*. The shared
-part moves here, inward of both, where nothing has to be kept equal by hand any more.
-
-What stays with each transport is genuinely transport-shaped: the `#[derive(serde::Deserialize)]`
-/ `schemars::JsonSchema` wire struct itself, and the one extra failure a transport's own
-deserialization step can produce before this function is ever reached - MCP's arguments object
-failing to deserialize as an object at all, which HTTP's extractor rejects earlier in its own
-stack and which therefore has no analogue here. `parse_query` takes the five fields already
-extracted, as borrowed strings, so it carries no serde of its own and no framework.
-
-### `struct RawFilter`
-
-```rust
-pub struct RawFilter<'a>
-```
-
-One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
-wire struct a transport deserialized.
-
-Fields are private - a `pub` field on a `pub struct` fails `cargo xtask check-boundaries` in
-this crate - even though nothing here is validated yet: the two strings are exactly what a
-transport extracted, unchanged, and `new` is the only way to pair them.
-
-#### Methods
-
-```rust
-pub const fn new(dimension: &'a str, value: &'a str) -> Self
-```
-
-Pairs a caller's raw dimension name and value, as a transport extracted them.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`
-
-### `enum MalformedQuestion`
-
-```rust
-pub enum MalformedQuestion
-```
-
-Why a caller's raw fields did not become a `Query`.
-
-**Every variant names the field, and neither a variant's own sentence nor any link of its cause
-chain carries the caller's own text.** The chain is the half that has to be said out loud,
-because both transports render this failure by walking `source()` to the end and handing the
-result straight to whoever asked - the RFC 7807 `detail` on the HTTP surface, an
-`invalid_params` message in a model's context on the agent one. So
-`crate::model::InvalidIdentifier` and `crate::calendar::InvalidDate` report the rule that
-was broken, the one offending character, and the measured length against the limit, and echo
-nothing they rejected; `FilterValue` drops its cause outright, for the reason its own note
-gives.
-
-**The one value that does come back is one that already parsed.** `Range`'s cause is
-`crate::calendar::InvalidTimeRange::Empty`, which names both endpoints - and they are
-`crate::calendar::Date`s by then, so what renders is ten characters of digits and hyphens in
-the single layout that type accepts, not the text a caller sent. That is the distinction this
-whole note turns on, and the one an earlier version of it got backwards: a parse's OUTPUT is
-bounded by the type that produced it, and its INPUT is bounded by nothing whatever.
-
-**The limit.** This is a property of `Display` and `source()` across these enums, held by their
-carrying no field a renderer could reach for - not by a gate, and not by either transport, which
-walk whatever chain they are given. `crates/sutura-mcp/tests/shared_question_conversion.rs`
-asserts it over every caller-controlled field against both transports' rendering, and is what
-reddens if one of those sentences is widened again.
-
-#### Variants
-
-- `Metric`
-- `Grain` - **Carries no field, and that is on purpose.** The accepted set is fixed and finite, so the sentence names all five instead of echoing back the one that did not match - the caller's text would otherwise sit in a `Debug` rendering unread by any transport, the shape `MalformedQuestion` is elsewhere careful never to carry.
-- `Date`
-- `Range`
-- `Dimension`
-- `FilterDimension`
-- `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `crate::catalog::MAX_DIMENSION_VALUE_CHARS`.
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
-### `fn parse_query`
-
-```rust
-pub fn parse_query(metric: &str, grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>]) -> Result<crate::query::Query, MalformedQuestion>
-```
-
-Parses a caller's raw question fields into a `Query`.
-
-**This is the whole translation a transport is allowed to do**: extract each field from its own
-wire shape as a plain string, hand them here, get back a certified `Query` or a
-`MalformedQuestion` naming the field. Nothing here decides what may be asked - that is
-`sutura_app::compile`'s job, against the pinned catalog this function never sees and cannot
-widen.
-
-## Module `raw`
-
-The raw SQL tool's own outcome, refusal vocabulary and statement newtype.
-
-# Why this is a separate module, and not a widening of `crate::query`
-
-`docs/adr/0013` names the mechanism this module exists to be: the certified answer
-(`crate::query::ToolOutcome::Answer`) carries a `crate::pinned::Provenance` with no
-constructor that omits it, so a raw result that could ever be mistaken for one would have to
-reuse that type. `RawOutcome` is a different type instead - **no field of type `Provenance`
-anywhere in this module**, so labelling a raw answer as certified is unrepresentable rather than
-merely undone by a rule somebody remembers to apply.
-
-`RawRefusalReason` is its own vocabulary for the same reason
-`docs/adr/0013`'s amendment gives: `crate::query::RefusalReason` is keyed to a compiled plan -
-dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
-refused for is a bound this deployment applies before or after execution, or the data system's own
-answer about the statement, and this module's four variants are exactly that list.
-
-# What this module does not decide
-
-**Neither variant carries the data system's own error text.** `docs/adr/0022` Decision 3 - not yet
-built, because the raw tool did not exist when that record was written - requires the raw tool's
-failure text to be treated as untrusted content once it is rendered; until then, the closed enum
-here is what keeps a driver's `Display` from reaching a caller unquoted. A `String` field would
-have been the driver's own words; naming the SHAPE of the failure instead is what makes "never
-echoed" a property of the type rather than a discipline at every call site.
-
-### `struct RawStatement`
-
-```rust
-pub struct RawStatement
-```
-
-One statement, as a caller sent it: unparsed text, bounded and non-empty.
-
-**This is not a SQL type.** Nothing here reads a keyword out of the text - `docs/adr/0013`'s own
-rule against inspecting a statement to decide read-only applies to every other purpose a parser
-might be tempted for, and this newtype's whole job is bounding the edge, not understanding the
-middle. Sutura hands the bytes to the data system's own parser unexamined.
-
-#### Methods
-
-```rust
-pub fn as_str(&self) -> &str
-```
-
-The statement text, for the one adapter that runs it and for an audit record.
-
-**Never handed to a renderer for a caller-facing message.** This is the field `docs/adr/0013`'s
-consequences call "an audit-only field never returned to the caller" - the accessor exists for
-`crate::audit::CallRecord::of_raw` and for the execution port, not for a wire type to echo back.
-
-```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidRawStatement>
-```
-
-Parses a statement, rejecting anything this deployment will not even attempt to run.
-
-Trimmed the way `NoteBody::parse` trims prose, so leading and trailing whitespace an editor or
-a chat client added is not counted against the byte bound and cannot itself make an otherwise
-empty statement look non-empty.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `enum InvalidRawStatement`
-
-```rust
-pub enum InvalidRawStatement
-```
-
-Why text sent as a raw statement was refused before it ever reached a data system.
-
-#### Variants
-
-- `Empty` - Nothing a data system could run: empty, or made entirely of whitespace.
-- `TooLong` - Over `MAX_RAW_STATEMENT_BYTES`. Refused rather than truncated: a statement cut at the byte bound is not the statement the caller sent, and running part of it would answer a different question under the caller's own name.
-- `EmbeddedNul` - Contains an embedded NUL byte, which no text-protocol statement can carry - `tokio-postgres` itself refuses one at the wire. Named here, rather than left to surface as a driver error, because a bound this deployment can decide before opening a connection should not wait for one.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `enum RawRefusalReason`
-
-```rust
-pub enum RawRefusalReason
-```
-
-Why a raw statement was refused, or its execution did not produce rows a caller may see.
-
-**Closed, and deliberately narrower than `crate::query::RefusalReason`.** That vocabulary is
-keyed to a compiled plan - a metric, a grain, a federation shape - and a raw statement has none of
-those. What can still refuse it is a bound this deployment applies, or the data system's own
-answer about the statement once it ran.
-
-#### Variants
-
-- `TooManyRows` - The result had more rows than this deployment's row cap.
-- `ResultTooLarge` - The data system would not hand this result back in one piece.
-- `StatementFailed` - The statement did not complete: a syntax error the data system's own parser found, a constraint it enforced, or the connection's own statement timeout firing before it returned.
-- `SourceRefused` - The data system refused the statement at the identity or authorization level: a write inside the read-only transaction sutura wraps every call in, a role lacking a grant the statement needed, or a row-level policy denying it.
-
-#### Methods
-
-```rust
-pub const fn code(&self) -> &'static str
-```
-
-The machine-readable code a client or an agent branches on.
-
-The same derivation rule `RefusalReason::code` uses - the `snake_case` spelling of the
-variant's own name - kept as a hand-written match rather than shared with that type, because
-the two enums do not share a caller: nothing converts one into the other, and a shared
-derivation function would be a coupling this module's whole reason for existing argues against.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`, `Serialize`
-
-### `enum RawOutcome`
-
-```rust
-pub enum RawOutcome
-```
-
-What the raw SQL tool produced.
-
-**The load-bearing type in `docs/adr/0013`.** Compare its shape with
-`crate::query::ToolOutcome::Answer`, which carries a `Provenance` with no constructor that omits
-it: `RawOutcome` has no field of that type anywhere in this module, so a raw result cannot be
-rendered as certified by filling in a digest - there is nowhere to put one. A `compile_fail`
-doctest on this type, paired with a compiling twin, is what keeps that a property of the type
-rather than a claim in this comment: see `crate::raw` module tests.
-
-The two variants deliberately do not mirror `ToolOutcome`'s field names: `Rows` rather than
-`Answer`, so a wire type built by matching on both cannot pattern-match its way to identical
-output.
-
-#### Variants
-
-- `Rows` - The statement executed and produced this result.
-- `Refusal` - The statement was refused, before or after it reached the data system.
-
-#### Methods
-
-```rust
-pub const fn refusal(&self) -> Option<&RawRefusalReason>
-```
-
-The refusal reason, if this is one. Convenience for tests and for an audit sink, matching
-`ToolOutcome::refusal`'s own shape.
-
-```rust
-pub const fn row_count(&self) -> usize
-```
-
-How many rows this outcome carries, for an audit record. `0` for a refusal - nothing ran, or
-nothing came back.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `constant MAX_RAW_STATEMENT_BYTES`
-
-The largest raw statement this deployment will parse, in bytes.
-
-Bound at the edge, before anything does work proportional to it - the same argument
-`crate::knowledge::MAX_NOTE_BODY_BYTES` is bound for, and the reason is identical: an unbounded
-input is a denial-of-service primitive whatever else it is. 64 KiB is generous for a statement a
-person or an agent composes by hand and small next to the row and volume bounds that apply to
-what it returns.
 
 ## Module `source`
 
@@ -9151,17 +8767,16 @@ The posture labels this answer would have combined, in name order.
 The execution port: the plan that goes out, and the rows that come back.
 
 `Warehouse` names the port, not whether its implementation is a file or a cluster.
+
 **No statement appears in this module, and its absence is the decision rather than an omission.**
-A rendered statement used to live here, on the argument that the port had to hand one to
-something. The port takes a `crate::plan::QueryPlan` now - `Warehouse` below says why that is
-what makes a second kind of adapter possible - so nothing in the domain constructs or reads a
-statement, and the type that carries one moved out to `sutura-sql`, beside the code that renders
-it. A domain holding a rendered statement has acquired a concept no domain operation uses.
-What stays is `ParamValue`, and it stays because the type the port *does* take is built out of
-it: a `crate::plan::QueryPlan` carries a vector of them. It is also where the rule lives - a
-value is a closed set of typed variants an adapter binds, never text somebody concatenated.
-`crate::query` is the *tool* surface, where SQL must be unrepresentable because the text would
-come from a caller; here there is no text for a value to reach at all.
+The port takes a `crate::plan::QueryPlan` - `Warehouse` says why that is what makes a second
+kind of adapter possible - so nothing in the domain constructs or reads a statement, and the type
+carrying one lives in `sutura-sql` beside the code that renders it: a domain holding a rendered
+statement has acquired a concept no domain operation uses. What stays is `ParamValue`, because
+a `crate::plan::QueryPlan` carries a vector of them and because the rule lives there - a value
+is a closed set of typed variants an adapter binds, never text somebody concatenated.
+`crate::query` is the *tool* surface, where SQL must be unrepresentable because the text comes
+from a caller; here there is no text for a value to reach at all.
 
 ### `enum ParamValue`
 
@@ -9175,20 +8790,20 @@ A closed set rather than a string, because the whole point is that these never b
 our side. An adapter binds them with whatever its driver offers, and the driver is what decides
 how a date is written on the wire.
 
-**There is no `Integer`, and its absence is the decision rather than an omission.** The variant
-was here and nothing in the workspace constructed one: every caller value and every required
-filter binds as `Text`, because that is the type both of them are. Both
-adapters carried an arm for it and the goldens carried a rendering, so it read as covered while
-no question could reach it - and the dead arm was the lesser half of the cost. The real half is
-that a *numeric* definitional filter cannot be expressed safely here: `equals: { column:
-amount_cents, value: "500" }` compares an integer column against a text parameter, `DuckDB`
-casts it and answers, a driver that sends an explicitly-typed text parameter does not, and
-nothing refuses the definition because a `crate::catalog::Model` declares only column NAMES -
-there is no column type to check the value against. Adding the variant back without one would
-mean guessing the type from the value's own text, which makes a text column whose allowed value
-is `"500"` compare as a number: the same wrong comparison, arrived at from the other side.
+**There is no `Integer`, and its absence is the decision rather than an omission.** Nothing in
+the workspace constructed one - every caller value and every required filter binds as
+`Text`, because that is the type both of them are - while both adapters
+carried an arm and the goldens carried a rendering, so it read as covered while no question could
+reach it. The dead arm was the lesser half of the cost. The real half: a *numeric* definitional
+filter cannot be expressed safely here. `equals: { column: amount_cents, value: "500" }` compares
+an integer column against a text parameter, `DuckDB` casts it and answers, a driver sending an
+explicitly-typed text parameter does not, and nothing refuses the definition because a
+`crate::catalog::Model` declares only column NAMES - there is no column type to check against.
+Adding the variant back without one would mean guessing the type from the value's own text, which
+makes a text column whose allowed value is `"500"` compare as a number: the same wrong
+comparison from the other side.
 
-So it goes when a typed column model does, and not before. The reasoning is the one
+So it goes when a typed column model does, and not before - the reasoning
 `sutura_exec_datafusion`'s `cell` gives for leaving `Date64` unmapped: an unreachable arm holding
 a semantic choice nobody reviewed is worse than not having the arm.
 
@@ -9205,219 +8820,14 @@ pub fn render(&self) -> String
 
 A human-readable form, for showing a plan to a person.
 
-**Display only.** It is deliberately not the SQL literal for the value: a function that
-produced one would be the thing somebody reaches for the day they want to inline a parameter,
-and inlining a parameter is the one move this type exists to prevent. Text is quoted the way
-`Debug` quotes it, which makes an empty or space-padded value visible rather than SQL-shaped.
+**Display only, and deliberately not the SQL literal:** a function producing one is what
+somebody reaches for the day they want to inline a parameter, which is the one move this type
+exists to prevent. Text is quoted the way `Debug` quotes it, so an empty or space-padded value
+is visible rather than SQL-shaped.
 
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `enum NotFinite`
-
-```rust
-pub enum NotFinite
-```
-
-Why a floating-point cell was refused.
-
-Two variants rather than one, because the two faults have different causes and a reader chasing
-one is not chasing the other: an infinity is a non-zero quantity divided by zero, and a `NaN` is
-zero divided by zero. The variant carries the value rather than a formatted sentence, for the
-reason every error in this crate does.
-
-#### Variants
-
-- `Infinite` - Infinite, in either direction.
-- `NotANumber` - Not a number at all. Its own variant rather than a value on the one above, because `NaN` compares unequal to itself: an `Infinite` carrying one would make two of these errors unequal for a reason that has nothing to do with what happened.
-
-#### Implements
-
-`Debug`, `Display`, `Error`, `PartialEq`
-
-### `struct Real`
-
-```rust
-pub struct Real
-```
-
-A real number a result may carry: finite, and nothing else.
-
-**Parsed rather than validated, and the class it closes is larger than the bug that found it.**
-A cell used to be a raw `f64`, so `inf`, `-inf` and `NaN` were all representable, and
-`Value::render` turned the first of them into the string `"inf"` - an answer under a metric's
-own certified name that reads as data and is not a number. The route in was a ratio measure
-declaring `zero_denominator: fails`: both adapters cast the numerator to a floating type before
-dividing, so the division is IEEE float division, and IEEE float division by zero does not fail.
-It answers `inf`, or `NaN` when both halves are zero.
-
-Making the domain type refuse a non-finite value closes all three at once, at the one boundary
-every adapter has to cross, rather than guarding the one variant that exposed it. An adapter that
-gets one back has an error naming the column, which is what `fails` was always claiming to mean.
-
-Construct it with `parse`. The field is private, so a non-finite value is unrepresentable
-rather than merely rejected. There is deliberately no `Deref` and no arithmetic: two finite
-numbers divide to a non-finite one, so a type that let the result back in without passing
-`parse` again would be the hole this closes. `Value` is `Serialize` only today - if it ever
-gains `Deserialize`, this needs `#[serde(try_from = ..)]` routing through `parse`, because a
-derived one writes straight into the private field.
-
-`parse`: Real::parse
-
-#### Methods
-
-```rust
-pub const fn get(self) -> f64
-```
-
-The number, for a caller that has to do arithmetic on it.
-
-Named rather than reached through `Deref`, so the point at which the invariant stops applying
-is a call somebody wrote.
-
-```rust
-pub const fn parse(value: f64) -> Result<Self, NotFinite>
-```
-
-Parses a real number, rejecting a non-finite one.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `LowerExp`, `PartialEq`, `Serialize`
-
-### `enum Value`
-
-```rust
-pub enum Value
-```
-
-One cell of a result.
-
-`Real` is deliberately last on the list of things to reach for. A measure over integer minor
-units stays exact, and an anchor comparison over a float would depend on how two languages print
-the same bits. It exists because `avg` has to land somewhere - and it is a checked type rather
-than an `f64`, so the one thing a float can be that a number cannot does not fit in a cell.
-
-#### Variants
-
-- `Null`
-- `Integer`
-- `Real`
-- `Text`
-
-#### Methods
-
-```rust
-pub fn render(&self) -> String
-```
-
-The canonical text form, which is what an anchor is compared against.
-
-One function so there is one answer. An anchor comparison that formatted the value at the
-call site would compare differently in two places, and the failure would look like a data
-problem rather than a formatting one.
-
-```rust
-pub fn rendered_len(&self) -> usize
-```
-
-The byte length `Self::render` would produce, without the allocation when a cheaper
-answer exists - `Text` is measured rather than cloned, for `RowSet::rendered_byte_len`.
-`Integer`/`Real` still render: a few bytes, cheaper than duplicating `Display`'s counting.
-
-#### Implements
-
-`Clone`, `Debug`, `PartialEq`, `Serialize`
-
-### `struct RowSet`
-
-```rust
-pub struct RowSet
-```
-
-A result set: the column labels, and the rows.
-
-Labels are `String` rather than `crate::model::ColumnName` because a generated projection names
-things a model did not: the truncated time bucket, and the measure under the metric's own name.
-Constraining them to model column names would mean either lying about what they are or refusing
-to name them.
-
-#### Methods
-
-```rust
-pub fn cell(&self, row: usize, column: usize) -> Option<&Value>
-```
-
-One cell, by row and column position.
-
-`Option` rather than indexing, because `indexing_slicing` is denied for library crates here
-and because a caller that has a position from `column_index` still should not be able to
-panic on a result set that came back a different shape than expected.
-
-```rust
-pub fn column_index(&self, label: &str) -> Option<usize>
-```
-
-Where a column with this label sits, if there is exactly one.
-
-`None` for a label that appears twice, not the first match. Two columns with one label means
-the projection is not what we think it is, and returning either of them would answer with a
-number from a column nobody chose. `Definitions::assemble` refuses the catalog shapes that
-could cause it, so this is the second line rather than the first.
-
-```rust
-pub fn columns(&self) -> &[String]
-```
-
-```rust
-pub fn new(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Self, MalformedRowSet>
-```
-
-Builds a result set, rejecting a ragged one.
-
-```rust
-pub fn rendered_byte_len(&self) -> u64
-```
-
-The total bytes every cell would occupy once rendered (via `Value::rendered_len`, so a
-wide `Text` cell is counted rather than cloned) - a proxy for the encoded response size, not
-the wire size: the same canonical text an anchor compares against, not the JSON or
-tab-delimited bytes a transport wraps it in. Column labels are not counted.
-
-```rust
-pub fn rows(&self) -> &[Vec<Value>]
-```
-
-```rust
-pub const fn scalar(&self) -> Option<&Value>
-```
-
-The single cell of a single-row, single-column result, which is what an anchor check reads.
-
-`None` for any other shape rather than a panic or a silent first-cell: an anchor query that
-came back with three rows means the statement is not the one we thought, and reading its
-first cell would turn that into a wrong number.
-
-#### Implements
-
-`Clone`, `Debug`, `PartialEq`, `Serialize`
-
-### `enum MalformedRowSet`
-
-```rust
-pub enum MalformedRowSet
-```
-
-Why a result set could not be built.
-
-#### Variants
-
-- `RowWidth` - A row has a different number of cells than there are columns.
-
-#### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `enum PreFlight`
 
@@ -9427,19 +8837,17 @@ pub enum PreFlight
 
 What a pre-flight established.
 
-**`Self::NotAsked` is not `Self::Accepted`, and no caller can read it as one.** Before `dry_run` took a credential, a
-default of `Ok(())` was defensible: with nothing to be wrong about, "nothing went wrong" is honest. With a subject in the
-signature it stops being honest, because `Ok(())` from an adapter that did not look is indistinguishable from `Ok(())`
-from an adapter that asked the data system as that subject and was told yes - so a defaulted pre-flight would read as
-"this subject may run this plan" for every adapter that declined to implement one.
-
-The shape is the one the row cap already uses, where `row_limit()` is `max_rows + 1` so a result
-*at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 is the decision.
+**`Self::NotAsked` is not `Self::Accepted`, and no caller can read it as one.** With a
+subject in `dry_run`'s signature, a default of `Ok(())` stops being honest: it is
+indistinguishable from an adapter that asked the data system as that subject and was told yes, so
+a defaulted pre-flight would read as *this subject may run this plan* for every adapter that
+declined to implement one. The shape is the row cap's, where `row_limit()` is `max_rows + 1` so a
+result *at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 decides.
 
 **The limit, stated with the claim:** `Self::Accepted` is the data system's opinion at
-pre-flight time and not a guarantee about `execute`, so it is worth a round trip and is not an
-authorization decision. Nothing in the plan path may treat it as one, and there is no mechanism
-that would stop it - skipping a check on the strength of `Accepted` is a review question.
+pre-flight time, not a guarantee about `execute` and not an authorization decision. Nothing in
+the plan path may treat it as one, and no mechanism would stop it - skipping a check on the
+strength of `Accepted` is a review question.
 
 #### Variants
 
@@ -9449,43 +8857,6 @@ that would stop it - skipping a check on the strength of `Accepted` is a review 
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### `struct AnchorRows`
-
-```rust
-pub struct AnchorRows
-```
-
-The rows one anchor's plan produced at boot.
-
-**A wrapper with a private field, so a boot result cannot be handed back to a caller as an
-answer without a named conversion somebody wrote.** The anchor path and the request path are two
-ways into a data system and they run as different identities: `execute` takes the asking
-subject's credential and cannot be called without one, and `Warehouse::verify_anchor` takes no
-credential at all - it runs as whatever identity the deployment configured that adapter with,
-which is what `docs/adr/0008` part 1 decides for a path that has no caller.
-
-Two types rather than one so the separation is visible at a call site rather than in a comment.
-`Self::verified_at_boot` is named to be conspicuous in review and in a grep, the way
-`crate::identity::Secret::expose_secret` is.
-
-#### Methods
-
-```rust
-pub const fn of(rows: RowSet) -> Self
-```
-
-What an adapter returns from a verification run.
-
-```rust
-pub const fn verified_at_boot(&self) -> &RowSet
-```
-
-The rows, for the boot path that compares them against what an author certified.
-
-#### Implements
-
-`Clone`, `Debug`, `PartialEq`
 
 ### `trait Warehouse`
 
@@ -9566,7 +8937,6 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::SourcePosture;
-use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
 struct Undeclared {
@@ -9586,7 +8956,7 @@ impl Warehouse for Undeclared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -9604,7 +8974,6 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
 struct Declared {
@@ -9625,7 +8994,7 @@ impl Warehouse for Declared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -9640,30 +9009,75 @@ assert_eq!(
 );
 ```
 
-### `use RawColumnsAndRows`
+### `use NotFinite`
 
-The two halves `RawRows::into_parts` hands back: labels, then cells.
+Why a floating-point cell was refused.
 
-### `use RawExecution`
+Two variants rather than one, because the causes differ and a reader chasing one is not chasing
+the other: an infinity is a non-zero quantity divided by zero, a `NaN` is zero divided by zero.
+The variant carries the value rather than a formatted sentence, for the reason every error in
+this crate does.
 
-What `Warehouse::execute_raw` answers: `None` where
-the adapter does not accept raw text at all, otherwise the same result
-`execute` would have carried.
+### `use Real`
 
-Named so the port's own signature reads as one type rather than as a shape a reader has to
-re-derive at the call site.
+A real number a result may carry: finite, and nothing else.
 
-### `use RawRows`
+**Parsed rather than validated, and the class it closes is larger than the bug that found it.**
+A cell was a raw `f64`, so `inf`, `-inf` and `NaN` were representable and `Value::render`
+turned the first into the string `"inf"` - an answer under a metric's own certified name that
+reads as data and is not a number. The route in was a ratio measure declaring
+`zero_denominator: fails`: both adapters cast the numerator to a floating type before dividing,
+so the division is IEEE float division, which by zero does not fail - it answers `inf`, or `NaN`
+when both halves are zero.
 
-What a raw statement's execution produced, before the application layer turns it into a
-`crate::raw::RawOutcome`.
+Refusing a non-finite value in the domain type closes all three at once, at the one boundary
+every adapter crosses, rather than guarding the variant that exposed it. An adapter that gets one
+back has an error naming the column, which is what `fails` always claimed to mean.
 
-A plain pair rather than a `RowSet`: `RowSet::new` refuses a ragged
-result, which is a certified-answer guarantee about a plan the compiler shaped, and a raw
-statement's own adapter is the only thing that has already checked its rows are rectangular -
-the driver's own row type carries one value per declared column by construction. Building a
-`RowSet` here would ask that type's constructor to re-verify a shape only the adapter could have
-gotten wrong.
+Construct it with `parse`. The field is private, so a non-finite value is unrepresentable
+rather than merely rejected. No `Deref` and no arithmetic, deliberately: two finite numbers
+divide to a non-finite one, so a type letting the result back in without passing `parse` again
+would be the hole this closes. `Value` is `Serialize` only - if it gains `Deserialize`, this
+needs `#[serde(try_from = ..)]` routing through `parse`, because a derived one writes straight
+into the private field.
+
+`parse`: Real::parse
+
+### `use Value`
+
+One cell of a result.
+
+`Real` is deliberately last to reach for: a measure over integer minor units stays exact, and
+an anchor comparison over a float would depend on how two languages print the same bits. It
+exists because `avg` has to land somewhere, and it is a checked type rather than an `f64` so the
+one thing a float can be that a number cannot does not fit in a cell.
+
+### `use AnchorRows`
+
+The rows one anchor's plan produced at boot.
+
+**A wrapper with a private field, so a boot result cannot be handed back as an answer without a
+named conversion somebody wrote.** The anchor path and the request path are two ways into a data
+system running as different identities: `execute` takes the asking subject's credential and
+cannot be called without one, while
+`Warehouse::verify_anchor` takes none at all and
+runs as
+whatever identity the deployment configured - `docs/adr/0008` part 1 decides that for a path with
+no caller. Two types rather than one so the separation is visible at a call site rather than in a
+comment, and `Self::verified_at_boot` is named to be conspicuous in review and in a grep, the
+way `crate::identity::Secret::expose_secret` is.
+
+### `use MalformedRowSet`
+
+Why a result set could not be built.
+
+### `use RowSet`
+
+A result set: the column labels, and the rows.
+
+Labels are `String` rather than `crate::model::ColumnName` because a generated projection names
+things a model did not - the truncated time bucket, and the measure under the metric's own name -
+so constraining them would mean lying about what they are or refusing to name them.
 
 ### Module `csv`
 
@@ -9845,10 +9259,10 @@ ambiguity this type exists to remove is one level up, in whether an estimate exi
 The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
 
 **`pub mod` with no re-export beside it, and that is a documentation decision rather than a
-style one.** The domain's usual shape is a private submodule plus a `pub use`, which rustdoc
-inlines into the parent - and it did NOT inline here: `just api` generated three
-`### use None` stubs and no content for these three types, so the published reference would have
-carried a port method returning a type it does not describe. A public module gets documented.
+style one.** The domain's usual shape - a private submodule plus a `pub use` - did NOT inline
+here: `just api` generated `### use None` stubs and no content, so the published reference would
+have carried a port method returning a type it does not describe. A public module gets
+documented.
 What a data system answered when it was asked whether the bundle's tables are there.
 
 **A module of its own rather than part of `warehouse.rs`**, and the seam is a real one:
@@ -10125,14 +9539,14 @@ What it takes for two answers to one plan to be the same answer, for the differe
 compare them.
 
 Behind a default-off feature, and `cfg(test)` so this crate's own suite reaches it either way -
-the shape `sutura_runtime::testing`'s `test-capture` established. It is here rather than in each
-test target because two copies of a comparison policy is how both of them came to erase the cell
-type; its own module header carries that story and the limits.
+the shape `sutura_runtime::testing`'s `test-capture` established. Here rather than in each test
+target because two copies of a comparison policy is how both of them came to erase the cell type;
+its own header carries that story and the limits.
 
 **That header links the module's OWN items by absolute `crate::` path, and that is not style.**
-rustc merges this `///` block with the module's `//!` one and resolves the merged block in THIS
-scope, where `agreement`'s items are not - so a bare-name link there resolves to nothing, and no
-gate in this repository reads a rustdoc warning (#321). Four of them were shipped that way.
+rustc merges this `///` block with the module's `//!` one and resolves it in THIS scope, where
+`agreement`'s items are not - so a bare-name link there resolves to nothing, and no gate here
+reads a rustdoc warning (#321). Four were shipped that way.
 What it takes for two answers to one plan to be the SAME answer.
 
 One policy, so the differential legs cannot each have their own. Two of them did, and both were
@@ -10281,8 +9695,8 @@ multiplicity check, because a positional comparison of equal-height results cann
 
 Whether a declared join key is really unique in the table it points at.
 
-A module of its own for `preflight`'s reason - nothing in it is about a plan, a credential or
-a row - and its header carries the measurement that made the check necessary: one violated
+A module of its own for `preflight`'s reason - nothing in it is about a plan, a credential or a
+row - and its header carries the measurement that made the check necessary: one violated
 `many_to_one`, two topologies, two numbers, and a refusal from neither.
 What a data system answered when it was asked whether a declared join key is really unique.
 
@@ -10708,191 +10122,252 @@ than by position, and a label that no column can shadow is what makes reading by
 
 The label the distinct count is projected under. See `ROWS_LABEL`.
 
-### Module `deadline`
+### Module `cell`
 
-One absolute deadline per answer, and the budget it was opened from.
+One cell of a result, and the checked real a cell may carry.
+One cell of a result, and the checked real number a cell may carry.
 
-A module of its own rather than a type or two added here, for the reason `cardinality`
-already gives - and because this file was at the `max-lines` cap the day the record needed
-somewhere to grow (`docs/adr/0029`). `Deadline` and `Budget` are used unqualified below, the
-same way `cardinality`'s two types are.
-One absolute deadline per answer: how long is left, read against an instant a caller supplies.
+Its own module because these are the value vocabulary every adapter maps into, and none of them
+knows about a plan, a credential or a row. **What it does NOT hold:
+`ParamValue`, which travels the other way** - a value bound to a
+statement on the way OUT - and which the port module keeps beside the reason it exists.
 
-The domain reads no clock - `crate::identity::Expiry::passed_by` is the precedent, and the same
-shape applies here: `now` arrives as an argument to `Deadline::remaining_at` rather than being
-read, so the one comparison this module makes lives here and not at whichever call site happens
-to hold a clock. `docs/adr/0029` is the record; this module is its first slice, carried by the
-port and not yet enforced by any adapter this release links.
+`pub mod` so rustdoc documents these types rather than emitting a re-export stub, which is what
+`crate::warehouse::preflight` records happening to a private module with only a `pub use`. The
+re-export beside the declaration keeps the `sutura_domain::warehouse::` path its importers already use.
 
-#### `struct Deadline`
+#### `enum NotFinite`
 
 ```rust
-pub struct Deadline
+pub enum NotFinite
 ```
 
-The instant one answer's execution has to be finished by.
+Why a floating-point cell was refused.
 
-Opened ONCE per request, by the transport, at the instant the request arrived - before
-admission, so the wait for a concurrency slot sits inside the caller's bound rather than adds to
-it. Shared by the pre-flight, every leg of a federated answer and the re-check between them:
-`Self::remaining_at` is a comparison against an instant every reader shares, so *what is left*
-is a read and never a division.
+Two variants rather than one, because the causes differ and a reader chasing one is not chasing
+the other: an infinity is a non-zero quantity divided by zero, a `NaN` is zero divided by zero.
+The variant carries the value rather than a formatted sentence, for the reason every error in
+this crate does.
 
-Two `Copy` words - an `Instant` and a `Budget` - so it crosses into a
-`sutura_runtime::spawn_carrying_span` closure by value and carries no secret.
+##### Variants
 
-`PartialEq`/`Eq` so a test can assert that two legs of one federated answer were handed the SAME
-value - one instant, never re-derived - without exposing the instant itself as an accessor a
-caller could otherwise be tempted to compare against its own clock.
+- `Infinite` - Infinite, in either direction.
+- `NotANumber` - Not a number at all. Its own variant rather than a value on the one above, because `NaN` compares unequal to itself: an `Infinite` carrying one would make two of these errors unequal for a reason unrelated to what happened.
+
+##### Implements
+
+`Debug`, `Display`, `Error`, `PartialEq`
+
+#### `struct Real`
+
+```rust
+pub struct Real
+```
+
+A real number a result may carry: finite, and nothing else.
+
+**Parsed rather than validated, and the class it closes is larger than the bug that found it.**
+A cell was a raw `f64`, so `inf`, `-inf` and `NaN` were representable and `Value::render`
+turned the first into the string `"inf"` - an answer under a metric's own certified name that
+reads as data and is not a number. The route in was a ratio measure declaring
+`zero_denominator: fails`: both adapters cast the numerator to a floating type before dividing,
+so the division is IEEE float division, which by zero does not fail - it answers `inf`, or `NaN`
+when both halves are zero.
+
+Refusing a non-finite value in the domain type closes all three at once, at the one boundary
+every adapter crosses, rather than guarding the variant that exposed it. An adapter that gets one
+back has an error naming the column, which is what `fails` always claimed to mean.
+
+Construct it with `parse`. The field is private, so a non-finite value is unrepresentable
+rather than merely rejected. No `Deref` and no arithmetic, deliberately: two finite numbers
+divide to a non-finite one, so a type letting the result back in without passing `parse` again
+would be the hole this closes. `Value` is `Serialize` only - if it gains `Deserialize`, this
+needs `#[serde(try_from = ..)]` routing through `parse`, because a derived one writes straight
+into the private field.
+
+`parse`: Real::parse
 
 ##### Methods
 
 ```rust
-pub const fn budget(self) -> Budget
+pub const fn get(self) -> f64
 ```
 
-The budget this deadline opened with - what a refusal that ran out of time names, and never
-how long is left (that is `Self::remaining_at`, and it needs a `now` this type does not
-have).
+The number, for a caller that has to do arithmetic on it.
+
+Named rather than reached through `Deref`, so where the invariant stops applying is a call
+somebody wrote.
 
 ```rust
-pub const fn opened_at(opened: Instant, budget: Budget) -> Self
+pub const fn parse(value: f64) -> Result<Self, NotFinite>
 ```
 
-Opens a deadline at `opened`, good for `budget`.
-
-```rust
-pub fn remaining_at(self, now: Instant) -> Option<Duration>
-```
-
-What is left at `now`, or `None` when it is spent.
-
-**Never a zero duration.** `Some(Duration::ZERO)` reads as *no timeout at all* to
-`tokio::time::timeout` and to every client underneath it, so handing one on would turn a
-spent budget into an unbounded wait rather than a stopped one - the same rule
-`sutura_exec_bigquery`'s `CallDeadline::remaining` already follows for its own budget.
+Parses a real number, rejecting a non-finite one.
 
 ##### Implements
 
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Copy`, `Debug`, `Display`, `LowerExp`, `PartialEq`, `Serialize`
 
-#### `struct Budget`
+#### `enum Value`
 
 ```rust
-pub struct Budget
+pub enum Value
 ```
 
-How long one answer may execute.
+One cell of a result.
 
-Parses: non-zero. A zero budget would read as *no timeout* the moment it reached a client
-underneath - the same rule `Deadline::remaining_at` applies to what is left mid-flight,
-applied here to what a caller may configure to begin with.
+`Real` is deliberately last to reach for: a measure over integer minor units stays exact, and
+an anchor comparison over a float would depend on how two languages print the same bits. It
+exists because `avg` has to land somewhere, and it is a checked type rather than an `f64` so the
+one thing a float can be that a number cannot does not fit in a cell.
 
-The only production constructor is `sutura_config::RequestTimeout::budget`, which subtracts a
-fixed reply margin from the configured request timeout once. `Self::parse` stays `pub`
-because a test - and a third transport - needs to build one directly; what holds production is
-that one call site and review, and `docs/adr/0029` states the limit next to the claim.
+##### Variants
+
+- `Null`
+- `Integer`
+- `Real`
+- `Text`
 
 ##### Methods
 
 ```rust
-pub const fn duration(self) -> Duration
+pub fn render(&self) -> String
 ```
 
-The duration, for the one call site (`Deadline::remaining_at`) that does arithmetic on it.
+The canonical text form, which is what an anchor is compared against.
 
-```rust
-pub const fn parse(budget: Duration) -> Result<Self, NoBudget>
-```
-
-Parses a budget, refusing zero.
-
-```rust
-pub const fn seconds(self) -> u64
-```
-
-The budget, in whole seconds - what `RefusalReason::DeadlineExceeded` carries, because it is
-a configured number and not how long the question would have taken, which nobody knows.
+One function so there is one answer: an anchor comparison formatting the value at the call
+site would compare differently in two places, and the failure would look like a data problem
+rather than a formatting one.
 
 ##### Implements
 
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `PartialEq`, `Serialize`
 
-#### `struct NoBudget`
+### Module `rows`
 
-```rust
-pub struct NoBudget
-```
+A result set, and an anchor's rows.
+A result set, and the rows one anchor's plan produced at boot.
 
-Why a duration is not a budget: it is zero.
+Its own module because the shape of a result is a concept of its own: the ragged-row refusal,
+the one-cell read an anchor makes, and the wrapper that stops a boot result being handed back as
+an answer. **What it does NOT hold: any decision about who ran the query** - that belongs to the
+port in `crate::warehouse`.
 
-Declared last in this file: `xtask check-boundaries`'s pub-field scan misreads a unit struct
-followed by an `impl` block as the struct's own fields, a gate defect noted as a PR follow-up
-rather than worked around with more prose here.
+`pub mod` for `cell`'s reason, with the same re-export beside it.
 
-##### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### Module `raw`
-
-`Warehouse::execute_raw`'s own types - split out of
-`warehouse.rs` because that file hit the thousand-line limit `cargo xtask max-lines` enforces.
-
-#### `struct RawRows`
+#### `struct RowSet`
 
 ```rust
-pub struct RawRows
+pub struct RowSet
 ```
 
-What a raw statement's execution produced, before the application layer turns it into a
-`crate::raw::RawOutcome`.
+A result set: the column labels, and the rows.
 
-A plain pair rather than a `RowSet`: `RowSet::new` refuses a ragged
-result, which is a certified-answer guarantee about a plan the compiler shaped, and a raw
-statement's own adapter is the only thing that has already checked its rows are rectangular -
-the driver's own row type carries one value per declared column by construction. Building a
-`RowSet` here would ask that type's constructor to re-verify a shape only the adapter could have
-gotten wrong.
+Labels are `String` rather than `crate::model::ColumnName` because a generated projection names
+things a model did not - the truncated time bucket, and the measure under the metric's own name -
+so constraining them would mean lying about what they are or refusing to name them.
 
 ##### Methods
+
+```rust
+pub fn cell(&self, row: usize, column: usize) -> Option<&Value>
+```
+
+One cell, by row and column position.
+
+`Option` rather than indexing: `indexing_slicing` is denied for library crates here, and a
+caller holding a position from `column_index` still must not be able to panic on a result set
+that came back a different shape.
+
+```rust
+pub fn column_index(&self, label: &str) -> Option<usize>
+```
+
+Where a column with this label sits, if there is exactly one.
+
+`None` for a label that appears twice, not the first match: two columns under one label means
+the projection is not what we think, and returning either answers with a number from a column
+nobody chose. `Definitions::assemble` refuses the catalog shapes that cause it, so this is the
+second line rather than the first.
 
 ```rust
 pub fn columns(&self) -> &[String]
 ```
 
 ```rust
-pub fn into_parts(self) -> RawColumnsAndRows
+pub fn new(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Self, MalformedRowSet>
 ```
 
-The rows, owned - for a caller that is about to render them and drop the rest.
-
-```rust
-pub const fn of(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Self
-```
-
-The only constructor. Infallible: nothing here promises the two vectors agree in width, the
-way `RowSet::new` does for a certified answer - this is what
-`crate::raw::RawOutcome`'s builder reads that promise from before rendering; a raw statement's
-own adapter is what already produced a rectangular result.
+Builds a result set, rejecting a ragged one.
 
 ```rust
 pub fn rows(&self) -> &[Vec<Value>]
 ```
 
+```rust
+pub const fn scalar(&self) -> Option<&Value>
+```
+
+The single cell of a single-row, single-column result, which is what an anchor check reads.
+
+`None` for any other shape rather than a panic or a silent first cell: an anchor query coming
+back with three rows means the statement is not the one we thought, and reading its first cell
+would turn that into a wrong number.
+
+##### Implements
+
+`Clone`, `Debug`, `PartialEq`, `Serialize`
+
+#### `enum MalformedRowSet`
+
+```rust
+pub enum MalformedRowSet
+```
+
+Why a result set could not be built.
+
+##### Variants
+
+- `RowWidth` - A row has a different number of cells than there are columns.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct AnchorRows`
+
+```rust
+pub struct AnchorRows
+```
+
+The rows one anchor's plan produced at boot.
+
+**A wrapper with a private field, so a boot result cannot be handed back as an answer without a
+named conversion somebody wrote.** The anchor path and the request path are two ways into a data
+system running as different identities: `execute` takes the asking subject's credential and
+cannot be called without one, while
+`Warehouse::verify_anchor` takes none at all and
+runs as
+whatever identity the deployment configured - `docs/adr/0008` part 1 decides that for a path with
+no caller. Two types rather than one so the separation is visible at a call site rather than in a
+comment, and `Self::verified_at_boot` is named to be conspicuous in review and in a grep, the
+way `crate::identity::Secret::expose_secret` is.
+
+##### Methods
+
+```rust
+pub const fn of(rows: RowSet) -> Self
+```
+
+What an adapter returns from a verification run.
+
+```rust
+pub const fn verified_at_boot(&self) -> &RowSet
+```
+
+The rows, for the boot path that compares them against what an author certified.
+
 ##### Implements
 
 `Clone`, `Debug`, `PartialEq`
-
-#### `type_alias RawExecution`
-
-What `Warehouse::execute_raw` answers: `None` where
-the adapter does not accept raw text at all, otherwise the same result
-`execute` would have carried.
-
-Named so the port's own signature reads as one type rather than as a shape a reader has to
-re-derive at the call site.
-
-#### `type_alias RawColumnsAndRows`
-
-The two halves `RawRows::into_parts` hands back: labels, then cells.
