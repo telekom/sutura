@@ -82,8 +82,10 @@ artifacts help. The extrapolation that used to follow is void and is not replace
 read "on a four-vCPU runner that is twenty minutes and up", and the `ci` job runs on
 `rust-mcp-16core` - the same core count the 6m18 measurement was taken at. So the measured wall
 applies as measured, added to a `ci` job whose timeout is 75 minutes, and which a cap of 60 once
-killed mid-`Tests`. This was the second copy of that claim; `.github/workflows/ci.yml` carried the
-first and no gate pairs them, which is how one was corrected while this one stood.
+killed mid-`Tests`. That claim was written down in more than one place - `.github/workflows/ci.yml`
+and `xtask/src/crap.rs` each carried their own copy - and **no gate pairs them**, which is how one
+could be corrected while the others stood. Every copy this sweep found is corrected; the sweep is
+`rg`, not a mechanism, so a copy it missed is still possible.
 
 **Where the tests live.** Coverage scoped to one package sees only that package's tests. For
 `sutura-domain` that is the whole truth - its unit tests are its real test suite and they

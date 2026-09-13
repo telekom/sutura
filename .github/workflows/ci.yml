@@ -9,9 +9,11 @@
 # Steps AND the graph roots that realise them are gated on the classification. Licensing, the
 # structural gates and the secret scan carry no classification condition, because they judge docs
 # too - but read that as "not classification-gated", never as "always reports": a failed step ends
-# the job, so REACHABILITY is a separate property and only `if: ${{ !cancelled() }}` holds it.
-# `Licensing` and `Secrets` carry that line; `Structural gates` deliberately does not, and the
-# `ci` job says why beside the staging argument.
+# the job, so REACHABILITY is a separate property, and only a condition on the step holds it.
+# `Secrets` carries `always()` and `Licensing` `!cancelled()` - the two forms differ on a
+# cancellation, and `cargo xtask check-workflows` requires each by name, so neither is a
+# convention. `Structural gates` deliberately carries neither; the `ci` job says why beside the
+# staging argument, and `xtask/src/workflows/obligations.rs` says which case each form survives.
 #
 # Every action is pinned by commit. A tag is mutable and these run with the job's token.
 name: ci
@@ -488,9 +490,12 @@ jobs:
       #   * `Secrets` is now EARLIER, ahead of the gated `Format` - see its own comment. That one
       #     was a real hole and is closed.
       #   * `Supply chain`, `The attribution document generates completely` and `Workflow static
-      #     analysis` keep their original position after `Clippy`. An earlier draft of this change
-      #     hoisted them above stage 2, which let a `Supply chain` red pre-empt `Structural gates`
-      #     and `Clippy` - a regression this change introduced and then removed.
+      #     analysis` are back in their original position after `Clippy`, and the word for what
+      #     put them above it is not "draft". #642 HOISTED THEM INTO STAGE 1 AND MERGED, so for
+      #     the time that stood on `main` a `cargo-deny` advisory or an `actionlint` finding
+      #     pre-empted `Structural gates` and `Clippy` - the 38-gate structural sweep and the
+      #     workspace lint - on every pull request in this repository. Nothing could do that
+      #     before #642. This is the revert, not a draft being tidied up before it shipped.
       #   * `Structural gates` DOES now report after `Format`, and this is a TRADE TAKEN
       #     DELIBERATELY rather than something forced. `hygiene` takes `inheritedArtifacts
       #     ciArtifacts` while `fmt` needs none, so hygiene cannot precede the closure - but
@@ -559,39 +564,65 @@ jobs:
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has
       # to be here. Never gated on classification: a credential can be committed in any file.
       #
-      # `if: ${{ !cancelled() }}` IS THE MECHANISM, AND THE POSITION IS NOT (#639 slice I).
+      # `if:` IS THE MECHANISM AND THE POSITION IS NOT - AND THAT SENTENCE IS ONLY TRUE BECAUSE A
+      # GATE NOW REQUIRES THE LINE (#639 slice I). `cargo xtask check-workflows` holds this step's
+      # condition by name; before that rule existed the comment asserted a mechanism nothing
+      # checked, which is one edit from gone and worse than the reorder it was preferred to. The
+      # form each step needs, and the runs it was measured over, are in that rule's header.
       #
       # "Never gated on classification" was true of this step's `if:` and false of the thing that
       # matters, which is REACHABILITY: a failed step ends the job, so behind the `rust`-gated
       # `Format` this scan was exactly as unconditional as fmt was green, and a `fmt`-broken pull
       # request got no secret scan at all. That was equally true before this branch.
       #
-      # The first fix attempted here was to move the step ahead of `Format`. That works and it is
-      # not a mechanism: the next reorder loses a position and keeps a line, so the line is what
-      # holds the property. The step sits early because the two unconditional obligations read
-      # better together, and it would still run correctly last.
+      # `always()` AND NOT `!cancelled()`, WHICH IS A CORRECTION: this step carried `!cancelled()`
+      # first, on the strength of it being the idiom elsewhere in this file. The two forms differ
+      # only on a CANCELLATION, and that difference was then measured rather than assumed. Over
+      # this repository's runs: `!cancelled()` survives a preceding RED - `pr-cache` carries it and
+      # ran in all twelve runs where `ci` concluded `failure`, never skipped - but in the five runs
+      # where the `ci` JOB itself was cancelled, the one step carrying `always()` ran in all five
+      # while every unconditional step was skipped in two of them. There is no step-level
+      # `!cancelled()` witness inside this job either way, because until now no step here carried a
+      # reachability condition at all.
+      #
+      # So the question is whether a cancelled run still owes this scan, and it does: for a
+      # committed credential the disclosure has ALREADY HAPPENED by the time any gate runs, so
+      # there is nothing to defer to the next push. The usual argument against `always()` does not
+      # reach here - `pr-cache` prefers `!cancelled()` because it takes a PAID RUNNER and
+      # `always()` would start it after somebody pressed cancel, whereas this is a two-second step
+      # inside a runner already held. `Licensing` above keeps `!cancelled()` for that same reason
+      # inverted: it is a `nix build`, and its value is merge-blocking rather than already-spent.
       #
       # NOT A CONTAINMENT CLAIM, and the distinction is why this one was worth fixing while the
       # `Structural gates` ordering below was not: a red branch cannot merge either way, so nothing
-      # was ever exposed by the old order. But for a committed credential the disclosure has ALREADY
-      # HAPPENED by the time any gate runs, so learning about it is not something to defer to the
-      # next push. A scan that calls itself authoritative should not be skippable by an unrelated
-      # formatting error. Two seconds, measured.
+      # was ever exposed by the old order. A scan that calls itself authoritative should not be
+      # skippable by an unrelated formatting error. Two seconds, measured.
       - name: Secrets
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
       - name: Format
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.fmt -L
 
-      # >>> STAGE 2: THE GATES THAT NEED THE DEPENDENCY CLOSURE BUT NOT THE TESTS. <<<
+      # >>> STAGE 2: THE DEPENDENCY CLOSURE IS PAID FOR HERE, AND THE TESTS ARE NOT YET RUN. <<<
       #
       # `hygiene` compiles the xtask binary and `clippy` the workspace, both on top of
       # `ciArtifacts`, so this is the stage that pays for `sutura-deps` and stage 3 reuses it from
       # the local store - which is how the shared dependency artifact survives the split. The
       # stage-1 header above carries why the cut is here and what the lost cross-stage overlap
       # costs.
+      #
+      # THE HEADING NAMES WHAT THE STAGE'S GRAPH ROOT REALISES, NOT A PROPERTY OF EVERY STEP IN
+      # IT, because two of them need no closure at all. It used to read "the gates that need the
+      # dependency closure", which this change made false of a step it moved: `apps.deny` is a
+      # `writeShellScript` that puts the toolchain and `cargo-deny` on `PATH` and runs
+      # `cargo deny check` (`flake.nix`), so what `Supply chain` needs is a NETWORK for the
+      # advisory database, and `check-attribution` needs a resolvable registry for the same reason.
+      # Both sit after `Clippy` anyway, and deliberately: ahead of it a `cargo-deny` advisory or an
+      # `actionlint` finding would pre-empt the structural sweep and the workspace lint, which
+      # nothing could do before the staging work. Placement here is about what may pre-empt what,
+      # not about the closure.
       - name: Realise the xtask and lint gates in one graph
         continue-on-error: true
         uses: ./.github/actions/measure-host
