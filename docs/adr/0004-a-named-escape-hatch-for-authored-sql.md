@@ -40,15 +40,21 @@ binary's default closure. `nix/shipped.nix`'s `checks.shipped-features` closes t
 `cargo auditable` records rather than off any manifest; `sutura` legitimately links the crate, for
 `compile`, so its own entry stays unbanned. So the decision is held by two mechanisms answering two
 different questions - which crate may declare the edge, and which binary may embed the crate - not
-by this paragraph.
+by this paragraph. **The second mechanism's venue, next to the claim:** `checks.shipped-features`
+runs in `just shipped` and in the tag-triggered release build, not in `just validate`, `just ci` or
+any pull-request workflow - so an edge this gate would catch still merges green and is caught only
+at the first tag that builds the artifact.
 
 What holds instead is a refusal at boot. `Warehouse::EXECUTES_AUTHORED_SQL` defaults to `false`, no
 adapter this workspace ships opts in, and `sutura_app::verify_and_validate` - the only door to a
 `Validated` bundle - refuses a bundle carrying an authored metric as
 `NotValidated::AuthoredSqlNotExecutable`, naming the metric, before any anchor runs - by PLACEMENT
-in that function's body, ahead of `declared_keys::hold` and `verify_anchors`, and unasserted: no
-test's fake records that an anchor or a declared key was never touched, so the ordering is read off
-the source rather than proven by a cell that would go red if the two blocks traded places. It reads the
+in that function's body, ahead of `declared_keys::hold` and `verify_anchors`. The ordering ahead of
+`declared_keys::hold` is held INCIDENTALLY, by the `examples/authored-sql` cell: that catalog
+declares a relationship and attaches no data to it, so a block moved below `hold` fails there first,
+on `hold`'s own refusal rather than on this one. Nothing separates the placement from
+`verify_anchors` alone, and no test's fake counts an anchor or a declared key that was never
+touched. It reads the
 constant off the one adapter type the registry holds, the way `EXECUTES_LEGS` is read, so it is a
 fact about the build. **The limit, next to the claim:** the fragment is stored and not checked. A
 metric naming a column its model lacks, a construct on the denylist below, or a second table loads

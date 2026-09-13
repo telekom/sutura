@@ -173,7 +173,9 @@ let
       # of those entries and would still put the pre-1.0 SQL generator into this binary's default
       # closure, which renders no SQL and can reach none of it. This is the OUTCOME half: read out
       # of the artifact's own embedded dependency list rather than out of any manifest, so a
-      # future edge the placement gate does not name still fails here, naming this binary.
+      # future edge the placement gate does not name still fails here, naming this binary - AT THE
+      # TAG-TRIGGERED RELEASE BUILD, where `checks.shipped-features` runs, and not on a pull
+      # request.
       alsoForbidden = [ "polyglot-sql" ];
     }
   ];

@@ -35,16 +35,24 @@ use sutura_sql::Dialect;
 const DEFAULT_VERSION: &str = "local-working-tree";
 
 /// The label `catalog` and `describe` print beside a metric's `sutura_domain::expression::Computation`:
-/// `measure` for the ordinary case, `computation` for the authored-SQL one - a metric whose
+/// `measure` for the ordinary case, `authored` for the authored-SQL one - a metric whose
 /// `authored_sql:` combines two aggregates is not a measure, and printing it as one misnames the
 /// field the same reader is told, two lines below, uses the named escape hatch.
 const fn computation_label(computation: &sutura_domain::expression::Computation) -> &'static str {
     if computation.authored_sql().is_some() {
-        "computation"
+        "authored"
     } else {
         "measure"
     }
 }
+
+// The `{:<11}` column both call sites pad this label into leaves no space before the value once a
+// label reaches 11 characters - `const _` rather than a named constant for the same reason as
+// `capabilities.rs`: a name nothing reads, and `dead_code` is denied in this workspace.
+const _: () = assert!(
+    "measure".len() < 11 && "authored".len() < 11,
+    "a label this long touches the value in the padded column catalog/describe print it in"
+);
 
 /// The metric's definitional filters, for a person reading a catalog.
 ///
