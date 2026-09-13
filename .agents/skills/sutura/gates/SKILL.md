@@ -466,12 +466,29 @@ panic-free.
   rest - because a measurement beside the name of the thing it was measured on is exactly the
   content this check protects, and no file holds a measurement. Measured, that retreat spares TWO
   lines in the whole tree, and both are inside `UNITS`' own doc comment - so it costs no refusal
-  over any prose a person wrote. **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
+  over any prose a person wrote. **A PRINTED FLOAT is not one either, and that retreat was a
+  measured false positive of the check as it merged:** a round-trip artefact has no unit for the
+  rule above to spare it by, and the token reader strips a possessive, so the name of the engine
+  is adjacent in ordinary prose - *rather than duckdb's 0.30000000000000004* was refused as a
+  version of a thing that has never had one. It is keyed on a field WIDER than an `f64` carries
+  significant digits, because such a decimal was printed rather than chosen; the widest field any
+  version in this workspace's lock carries is five digits. **A SHORT decimal beside a pinned name
+  is still refused and that is deliberate** - a rendered `0.3` and a version `0.3` are the same
+  bytes, no text rule separates them, and the remedy is a word between the two or a unit after the
+  figure. Both halves are pinned by a test, so widening either one is a red rather than a hole.
+  **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
   dependency keys, flake inputs, `apps.<name>`, pixi dependency tables, compose image names and
   the `nix/` module basenames, so **a tool named only as a nix CHECK is outside all six** -
   `checks.nextest` is not `apps.nextest`, and nine transcriptions of nextest's version survived
   the branch's first sweep until they were removed by hand. **So the gate is a ratchet, not a
   proof that no copy is left**, and a green run means no copy the harvest can SEE.
+  **One uncompared claim has FOUR carriers, and only the first is refusable by a text scan:**
+  the version itself, the qualifier *the pinned X*, the TENSE - `reads` asserts a standing
+  property where the measurement was one observation - and *at the resolved version*. Each
+  says *this is true of what is pinned now* and nothing compares any of them, so removing
+  only the digits moves the claim rather than settling it. Keep a currency claim in any of
+  the four shapes only where a measurement was taken against what is pinned NOW; otherwise
+  state what was observed, and date it.
   **The trailing tag on a SHA-pinned action is out of scope by OWNER DECISION - dependabot
   maintains its own tags - and nobody here reproduced what dependabot writes.** It is implemented
   structurally, by a `#` breaking adjacency rather than by a list of those lines, so the exclusion

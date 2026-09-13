@@ -91,6 +91,11 @@ mod sources;
 
 use sources::{invoked, test_names, test_tasks};
 
+// The pairing of the two tables onto each other, which is the first property this file's header
+// claims. Split out when the rule stopped being a `for` loop: it claimed a column NAMES its venue
+// and held that the column's words are substrings of the name, and an empty column named anything.
+mod pairing;
+
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
 
@@ -125,22 +130,7 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
         return problems;
     }
 
-    for (venue, column) in listed.iter().zip(&columns) {
-        let name = key(&venue.name);
-        let unmatched: Vec<&str> = column
-            .split_whitespace()
-            .map(|word| word.trim_matches(|c: char| !c.is_ascii_alphanumeric()))
-            .filter(|word| !word.is_empty() && !name.contains(&word.to_lowercase()))
-            .collect();
-        if !unmatched.is_empty() {
-            problems.push(format!(
-                "{PAGE}: the claims column `{column}` does not name the venue in the same position \
-                 (`{}`) - {unmatched:?} appears in neither. The two tables are paired by ORDER, so \
-                 a reorder in one of them silently moves every limit",
-                venue.name
-            ));
-        }
-    }
+    problems.extend(pairing::problems(&listed, &columns));
 
     if claims.len() < 5 {
         problems.push(format!(
