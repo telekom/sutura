@@ -1,14 +1,26 @@
-//! `the_corpus_rows_agree_with_the_engine`, split out of `super` (`corpus.rs`'s own `mod tests`)
-//! for that file's `max-lines` cap - the same reason `naming.rs`/`support.rs` are their own files.
-//! `use super::*` reaches every fixture this test read before the move: `run_token`, `bundle`,
-//! `suffixed_bundle`, `opened`, `Connection`, `bounds`, `load_the_corpus`, `loader`, `engine`,
-//! `source`, `GrantsWhatEachSideDeclares`, `posture_of_the_engine_presented`, `presented`,
-//! `questions`, `stem`, `read_question`, `a_caller`, `deadline`, `chain`, `DIVIDES_BY_ZERO`,
-//! `agreement_between` and `drop_the_corpus`.
+//! `the_corpus_rows_agree_with_the_engine`, split out of `corpus.rs`'s own `mod tests` for that
+//! file's `max-lines` cap - the same reason `naming.rs`/`support.rs` are their own files.
+//!
+//! Declared at `corpus.rs`'s TOP LEVEL rather than nested inside `mod tests {}`, for the same
+//! reason `crates/sutura-serve/tests/served.rs` states at its own `mod harness`: a `#[path]`
+//! inside an inline module resolves against THAT module's directory rather than this file's, and
+//! `xtask/src/causality`'s own resolver additionally assumes a top-level declaration, so a nested
+//! one read as pre-existing tests newly enabled and failed `xtask test-causality` outright. Being
+//! a sibling of `tests` rather than a child means the fixtures it reads off that module -
+//! `bundle`, `load_the_corpus`, `loader`, `engine`, `source`, `GrantsWhatEachSideDeclares`,
+//! `posture_of_the_engine_presented`, `questions`, `stem`, `read_question`, `a_caller`,
+//! `deadline`, `chain`, `DIVIDES_BY_ZERO`, `agreement_between`, `drop_the_corpus` - are
+//! `pub(crate)` there instead of private, so this file can reach them at all.
 
-use sutura_domain::query::ToolOutcome;
+use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::query::{Query, ToolOutcome};
 
-use super::*;
+use crate::naming::{run_token, suffixed_bundle};
+use crate::support::{Connection, bounds, opened, presented};
+use crate::tests::{
+    DIVIDES_BY_ZERO, GrantsWhatEachSideDeclares, a_caller, agreement_between, bundle, chain, deadline, drop_the_corpus, engine,
+    load_the_corpus, loader, posture_of_the_engine_presented, questions, read_question, source, stem,
+};
 
 /// One `answer` call, named so the loop below spells one call rather than eight arguments twice -
 /// `locally` and `remotely` differ in which identity they grant, `engine` and `there` in which
@@ -140,7 +152,7 @@ fn the_corpus_rows_agree_with_the_engine() {
         compared.saturating_add(refused).saturating_add(excluded),
         total,
         "{compared} agreed + {refused} refused + {excluded} excluded is not the {total} questions \
-         in the corpus"
+     in the corpus"
     );
     assert!(compared > 8, "only {compared} questions produced rows from both sides");
     assert!(
@@ -154,6 +166,6 @@ fn the_corpus_rows_agree_with_the_engine() {
     drop_the_corpus(&pinned, &loader());
     println!(
         "bigquery-corpus: {compared} answers agreed exactly on content AND order, {refused} refusals \
-         agreed, {excluded} excluded, {total} in the corpus"
+     agreed, {excluded} excluded, {total} in the corpus"
     );
 }

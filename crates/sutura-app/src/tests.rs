@@ -903,11 +903,15 @@ fn a_refusal_naming_a_source_nobody_asked_about_is_a_failure_rather_than_a_refus
     );
 }
 
-/// Split out for `max-lines` - see that file's own header.
+/// Split out for `max-lines`. `#[cfg(test)]` on the declaration itself is `telekom/sutura#657`'s
+/// fix: a bare `mod` line reads as nothing to `xtask test-causality`'s scan, so a later diff would
+/// silently orphan this module instead of failing loud; the attribute reads as `TestModule`.
+#[cfg(test)]
 mod not_validated;
 
-/// `crate::answer` under a REAL, configured `SpendLedger` - split out for the same `max-lines`
-/// reason, and because the local `answer` wrapper above is pinned to `SpendLedger::no_budget()`.
+/// `crate::answer` under a REAL, configured `SpendLedger` - the local `answer` wrapper above is
+/// pinned to `SpendLedger::no_budget()`. `#[cfg(test)]` for `not_validated`'s reason above.
+#[cfg(test)]
 mod spend_test;
 
 #[test]

@@ -538,6 +538,14 @@ mod tests {
     mod deadline_test;
 
     /// Three leg-level refusals, split out for the same `max-lines` reason `deadline_test` was.
+    ///
+    /// `#[cfg(test)]` here is redundant under this file's own gate and present anyway - the same
+    /// reason `telekom/sutura#657` states at its own `mod refresh;`: `xtask test-causality` reverts
+    /// a file that adds no `#[test]` of its own, and a bare `mod leg_refusal_test;` declares
+    /// nothing the scan reads as one, so a later diff dropping only that line back to base would
+    /// orphan this module rather than fail loud. The attribute makes the declaration itself read as
+    /// `TestModule`, which the gate holds.
+    #[cfg(test)]
     mod leg_refusal_test;
 
     #[test]

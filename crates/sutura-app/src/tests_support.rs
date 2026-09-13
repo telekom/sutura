@@ -291,6 +291,12 @@ impl Warehouse for FixedWarehouse {
 }
 
 /// [`PricedWarehouse`] - split out for this file's own `max-lines` reason, above.
+///
+/// `#[cfg(test)]` here is redundant under this file's own gate and present anyway, for
+/// `telekom/sutura#657`'s reason: a bare `mod priced;` declares nothing `xtask test-causality`'s
+/// scan reads as a test, so a later diff touching only this line would revert the file and orphan
+/// the module rather than fail loud. The attribute reads as `TestModule`.
+#[cfg(test)]
 mod priced;
 pub(crate) use priced::PricedWarehouse;
 
