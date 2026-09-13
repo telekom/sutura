@@ -60,6 +60,9 @@ types it speaks in:
   descriptive content.
 - `pinned` is the hashed snapshot a question resolves against, plus the catalog port.
 - `query` is the tool surface, defined mostly by what it has no field for.
+- `question` is the one conversion from a caller's raw fields to a `query::Query`, shared by
+  both transports so a governed field set and its typed refusal exist in one place rather than
+  two kept equal by review.
 - `warehouse` is the execution port. It speaks in plans, so an adapter that executes without
   generating any SQL is a first-class implementation of it rather than a special case.
 - `source` is what a deployment declares about one source: which identity a query reaches it as,
@@ -8165,6 +8168,91 @@ bounding the work that produced it: the groups are built, and then the answer is
 refusal is not a budget. A day count is also only a proxy for rows: ten years of a small table and
 ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 scanned, which needs something from the data system that no port asks for yet.
+
+## Module `question`
+
+Parsing a caller's raw question fields into a certified `crate::query::Query`.
+
+**The one conversion two transports used to duplicate.** `sutura-http`'s `QuestionBody` and
+`sutura-mcp`'s `AskArgs` carry the same five fields, for the reason every wire shape here does:
+they are both the whole of what a caller may ask, extracted as plain strings so a parse failure
+can name the field rather than quote a deserializer. Before this module existed, each transport
+re-derived `crate::query::Query` from those fields with its own copy of this logic, its own
+copy of `MalformedQuestion`, and its own copy of the grain and range parsers - identical code,
+kept equal only by review, because *an adapter may not depend on another adapter*. The shared
+part moves here, inward of both, where nothing has to be kept equal by hand any more.
+
+What stays with each transport is genuinely transport-shaped: the `#[derive(serde::Deserialize)]`
+/ `schemars::JsonSchema` wire struct itself, and the one extra failure a transport's own
+deserialization step can produce before this function is ever reached - MCP's arguments object
+failing to deserialize as an object at all, which HTTP's extractor rejects earlier in its own
+stack and which therefore has no analogue here. `parse_query` takes the five fields already
+extracted, as borrowed strings, so it carries no serde of its own and no framework.
+
+### `struct RawFilter`
+
+```rust
+pub struct RawFilter<'a>
+```
+
+One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
+wire struct a transport deserialized.
+
+Fields are private - a `pub` field on a `pub struct` fails `cargo xtask check-boundaries` in
+this crate - even though nothing here is validated yet: the two strings are exactly what a
+transport extracted, unchanged, and `new` is the only way to pair them.
+
+#### Methods
+
+```rust
+pub const fn new(dimension: &'a str, value: &'a str) -> Self
+```
+
+Pairs a caller's raw dimension name and value, as a transport extracted them.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
+
+### `enum MalformedQuestion`
+
+```rust
+pub enum MalformedQuestion
+```
+
+Why a caller's raw fields did not become a `Query`.
+
+Every variant names the field, and none of them echoes the caller's value back except where the
+value is the thing that failed to parse as an identifier - which is a bounded character set, not
+free text.
+
+#### Variants
+
+- `Metric`
+- `Grain`
+- `Date`
+- `Range`
+- `Dimension`
+- `FilterDimension`
+- `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `crate::catalog::MAX_DIMENSION_VALUE_CHARS`.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `fn parse_query`
+
+```rust
+pub fn parse_query(metric: &str, grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>]) -> Result<crate::query::Query, MalformedQuestion>
+```
+
+Parses a caller's raw question fields into a `Query`.
+
+**This is the whole translation a transport is allowed to do**: extract each field from its own
+wire shape as a plain string, hand them here, get back a certified `Query` or a
+`MalformedQuestion` naming the field. Nothing here decides what may be asked - that is
+`sutura_app::compile`'s job, against the pinned catalog this function never sees and cannot
+widen.
 
 ## Module `source`
 

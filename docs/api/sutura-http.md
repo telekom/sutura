@@ -3375,32 +3375,6 @@ One equality filter.
 
 `ComposeSchema`, `Debug`, `Deserialize<'de>`, `ToSchema`
 
-### `enum MalformedQuestion`
-
-```rust
-pub enum MalformedQuestion
-```
-
-Why a body is not a question.
-
-Every variant names the field, and none of them echoes the caller's value back except where the
-value is the thing that failed to parse as an identifier - which is a bounded character set, not
-free text.
-
-#### Variants
-
-- `Metric`
-- `Grain`
-- `Date`
-- `Range`
-- `Dimension`
-- `FilterDimension`
-- `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS`.
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
 ### `enum OutcomeBody`
 
 ```rust
@@ -3608,3 +3582,12 @@ One dimension of one metric.
 #### Implements
 
 `ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
+
+### `type_alias MalformedQuestion`
+
+Why a body is not a question.
+
+**Owned by `sutura-domain::question`, not by this transport.** HTTP's and MCP's field sets and
+typed refusals were identical - kept equal only by review - so the parse moved inward of both;
+this alias is what every existing reference to `crate::wire::MalformedQuestion` in this crate
+keeps meaning.
