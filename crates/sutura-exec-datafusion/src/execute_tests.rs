@@ -618,6 +618,7 @@ mod deadline_tests {
     use futures_util::stream::Stream;
     use std::future::Future as _;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
     // `super::source` does not exist: `source()` lives at the crate root (`lib.rs`), not in
     // `execute_tests` - `crate::source()` is the same route `crate::test_posture()` already takes.
     // `Warehouse as _`: the outer module's own import is not inherited by this one either.
@@ -838,4 +839,77 @@ mod deadline_tests {
     // No `dry_run` variant: this adapter takes the port's default (`lib.rs`'s comment on the
     // omission), which never calls `rows` and is unchanged by this slice - a test pinning it would
     // pass identically before and after, which `just causality` would rightly read as no coverage.
+
+    /// A partition whose `execute` counts how many times `DataFusion` actually started pulling from
+    /// it - the proof the review of #680 (finding 2) asked for: a budget already spent must refuse
+    /// before the physical plan ever reaches the source, not merely produce the right error by some
+    /// other route. The stream it returns is never meant to run, so it borrows [`ForeverRows`]
+    /// rather than defining a third one.
+    #[derive(Debug)]
+    struct CountingPartition {
+        schema: SchemaRef,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl PartitionStream for CountingPartition {
+        fn schema(&self) -> &SchemaRef {
+            &self.schema
+        }
+
+        fn execute(&self, _ctx: Arc<TaskContext>) -> SendableRecordBatchStream {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(ForeverRows::new(
+                Arc::clone(&self.schema),
+                Instant::now(),
+                Arc::new(AtomicBool::new(false)),
+            ))
+        }
+    }
+
+    /// The variant doc says a spent budget is "found before a call" - this is what proves it rather
+    /// than asserting it: `Deadline::opened_at(now - 1s, 200ms)` is already spent the instant
+    /// `execute` reads it, so [`CountingPartition::execute`] must never run at all. Removing the
+    /// pre-check (`review of #680`'s M4: `remaining_at(..).unwrap_or(Duration::ZERO)` in place of the
+    /// early `return`) does not change the ERROR this test sees - `tokio::time::timeout(Duration::ZERO, rows)`
+    /// still answers `DeadlineExceeded` on its first poll - so `deadline_exceeded` alone cannot tell
+    /// the two shapes apart; only the call count can, and only this cell asks it.
+    #[test]
+    fn a_spent_deadline_never_lets_the_plan_touch_the_source() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let table_schema = schema();
+        let table = StreamingTable::try_new(
+            Arc::clone(&table_schema),
+            vec![Arc::new(CountingPartition {
+                schema: Arc::clone(&table_schema),
+                calls: Arc::clone(&calls),
+            })],
+        )
+        .expect("a streaming table with matching schema builds");
+
+        let adapter =
+            DataFusionWarehouse::new(crate::source(), crate::test_posture(), roomy()).expect("a current-thread runtime builds");
+        adapter
+            .context
+            .register_table("orders", Arc::new(table))
+            .expect("a streaming table registers");
+
+        let query = revenue_by_region();
+        let spent = Deadline::opened_at(
+            Instant::now()
+                .checked_sub(Duration::from_secs(1))
+                .expect("a test instant is not near the process start"),
+            Budget::parse(Duration::from_millis(200)).expect("200ms is a budget"),
+        );
+
+        let error = adapter
+            .execute(Executable::Query(&query), &crate::test_leg(), spent)
+            .expect_err("a deadline already spent must be refused before the plan runs");
+
+        assert!(adapter.deadline_exceeded(&error), "{error:?}");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "the source's own execute must never run once the deadline is already spent"
+        );
+    }
 }

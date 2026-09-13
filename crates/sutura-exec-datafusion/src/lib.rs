@@ -230,8 +230,8 @@ pub enum DataFusionError {
     /// [`Warehouse::deadline_exceeded`] names only this variant. A `SpawnedTask` aborts on `Drop`
     /// (`datafusion-common-runtime-55.0.0/src/common.rs:108-111`), and `EnsureCooperative`
     /// (`datafusion-physical-plan-55.0.0/src/coop.rs:65-67`) yields every non-cooperative leaf.
-    #[error("the deadline ran out with a budget of {budget_seconds}s")]
-    DeadlineExceeded { budget_seconds: u64 },
+    #[error("the deadline ran out with a budget of {budget:?}")]
+    DeadlineExceeded { budget: std::time::Duration },
 }
 
 /// A plan becomes expressions here. The half of this adapter that never reads a result.
@@ -771,9 +771,9 @@ impl Warehouse for DataFusionWarehouse {
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| DataFusionError::PresentedDisagreesWithPosture { cause })?;
-        let budget_seconds = deadline.budget().seconds();
+        let budget = deadline.budget().duration();
         let Some(remaining) = deadline.remaining_at(std::time::Instant::now()) else {
-            return Err(DataFusionError::DeadlineExceeded { budget_seconds });
+            return Err(DataFusionError::DeadlineExceeded { budget });
         };
         // **Both shapes, one path, and the match stays exhaustive.** It would read more simply as a
         // single call now that `rows` takes the `Executable` - and that is exactly what it must not
@@ -787,7 +787,7 @@ impl Warehouse for DataFusionWarehouse {
         // CONSTRUCTION, before `block_on`'s own argument is even evaluated - measured as a panic.
         self.runtime()?
             .block_on(async move { tokio::time::timeout(remaining, rows).await })
-            .map_err(|_elapsed| DataFusionError::DeadlineExceeded { budget_seconds })?
+            .map_err(|_elapsed| DataFusionError::DeadlineExceeded { budget })?
     }
 
     /// Re-runs an anchor's plan, under this process's own identity.
