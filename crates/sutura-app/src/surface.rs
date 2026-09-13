@@ -370,7 +370,7 @@ where
                 .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
             bundles.push(pinned);
         }
-        let pinned = crate::assemble::assemble(bundles).map_err(|cause| ServiceNotStarted::Composition { cause })?;
+        let pinned = crate::assemble::assemble(&bundles).map_err(|cause| ServiceNotStarted::Composition { cause })?;
         // The broker is NOT consulted here, and that is the boot path's whole shape: an anchor runs
         // through `Warehouse::verify_anchor`, which takes no credential because there is no caller to
         // mint one for. `docs/adr/0008` part 1 decides it, and `sutura_domain::warehouse` records

@@ -1254,10 +1254,47 @@ reviewed, so the refusal is what carries the names.
 
 `Debug`, `Display`, `Error`
 
+### `enum ElementKind`
+
+```rust
+pub enum ElementKind
+```
+
+The six kinds of catalog element two sources may collide over.
+
+`CompositionError::ElementCollision`'s `kind` field used to be a `&'static str`: a free-text
+field on a variant a caller matches by name is a contradiction, because nothing stopped a sixth
+call site from spelling one of the five existing kinds differently, or a seventh call site from
+naming a kind `check_no_element_collisions` does not actually check. Neither `DefinitionKind`
+nor `Capability` in `sutura_domain` fits: the first does not distinguish a model from a
+relationship (both are `Structure`), and the second has no variant for either. A small closed
+enum local to this composition step is what the issue's "existing typed vocabulary or a small
+closed enum if needed" resolves to here.
+
+**The limit, next to the claim.** Closure - a seventh call site naming a kind this type has no
+variant for is a compile error - is held by the compiler, for all six variants. WHICH kind a
+given call site in `check_no_element_collisions` names is pinned by a test for two of them,
+`Model` and `Relationship`; the other four (`GlossaryTerm`, `Caveat`, `Absence`, `WorkedExample`)
+have no cell of their own, so a call site there naming the wrong (but still valid) variant is
+caught by nothing but review.
+
+#### Variants
+
+- `Model`
+- `Relationship`
+- `GlossaryTerm`
+- `Caveat`
+- `Absence`
+- `WorkedExample`
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
+
 ### `fn assemble`
 
 ```rust
-pub fn assemble(bundles: Vec<sutura_domain::pinned::PinnedDefinitions>) -> Result<sutura_domain::pinned::PinnedDefinitions, CompositionError>
+pub fn assemble(bundles: &[sutura_domain::pinned::PinnedDefinitions]) -> Result<sutura_domain::pinned::PinnedDefinitions, CompositionError>
 ```
 
 Composes N contributions into one bundle, refusing a composition ADR 0011 says cannot exist.
@@ -1274,6 +1311,10 @@ of them, which is the crate-graph shape this avoids.
 one source, two contributions certifying different versions, two sources providing the same
 element, a contributor whose content disagrees with its declaration, or definitions/knowledge
 that do not assemble once merged.
+
+Takes a slice, not an owned `Vec`: every `Contributor` below borrows its bundle's
+`Definitions`/`Knowledge` rather than cloning them, so this function never needs to own a bundle
+to begin with - a caller that already has a `Vec` passes `&bundles`.
 
 ## Module `capability`
 
