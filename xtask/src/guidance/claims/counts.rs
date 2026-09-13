@@ -203,13 +203,17 @@ pub(super) fn stated_numbers(text: &str, marker: &str) -> Vec<(usize, u64)> {
 }
 
 /// What the tree holds, at the granularity this entry declares.
-pub(super) fn tally(root: &Path, all: &[String], counted: &Counted) -> u64 {
+///
+/// `unreadable` for the reason this whole check exists one level down: a file this cannot open
+/// lowers the tally, and a lowered tally is compared against the prose as if it were the tree. The
+/// zero floor in [`count_mismatches`] catches losing EVERY file and nothing catches losing one.
+pub(super) fn tally(root: &Path, all: &[String], counted: &Counted, unreadable: &mut Vec<String>) -> u64 {
     let mut total = 0_u64;
     for rel in all {
         if !matches_any(counted.over, rel) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = crate::repo::read_subject(root, rel, unreadable) else {
             continue;
         };
         total = total.saturating_add(counted.granularity.count_in(&text, counted.holds));
@@ -232,13 +236,13 @@ pub(super) struct Stated {
 /// One implementation of *where is this number stated*, because the mismatch check and the
 /// vacuity check are two questions about one answer and a second walk of the tree would be a
 /// second thing to keep in step.
-pub(super) fn statements(root: &Path, files: &[String], counted: &Counted) -> Vec<Stated> {
+pub(super) fn statements(root: &Path, files: &[String], counted: &Counted, unreadable: &mut Vec<String>) -> Vec<Stated> {
     let mut found = Vec::new();
     for rel in files {
         if !matches_any(counted.mentioned_in, rel) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = crate::repo::read_subject(root, rel, unreadable) else {
             continue;
         };
         for (line, number) in stated_numbers(&text, counted.marker) {
@@ -255,7 +259,7 @@ pub(super) fn statements(root: &Path, files: &[String], counted: &Counted) -> Ve
 pub(in crate::guidance) fn count_mismatches(root: &Path, all: &[String], files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for counted in COUNTS {
-        let actual = tally(root, all, counted);
+        let actual = tally(root, all, counted, &mut problems);
         if actual == 0 {
             // Zero means the thing counted moved, not that the prose is right. A count check that
             // silently agreed with nothing would pass vacuously, which is worse than failing.
@@ -266,7 +270,7 @@ pub(in crate::guidance) fn count_mismatches(root: &Path, all: &[String], files: 
             ));
             continue;
         }
-        let stated = statements(root, files, counted);
+        let stated = statements(root, files, counted, &mut problems);
         for page in &stated {
             if page.number != actual {
                 problems.push(format!(

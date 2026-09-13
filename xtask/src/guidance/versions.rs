@@ -246,9 +246,14 @@ fn comment_start(rel: &str, line: &str) -> Option<usize> {
 /// Six sources because the pins live in six places, and a seventh list written here would be the
 /// second copy this whole module is about. `rust`, `rustc` and `cargo` are named because the
 /// toolchain's pin file holds a channel rather than a tool name.
-fn pinned_names(root: &Path, files: &[String]) -> BTreeSet<String> {
+///
+/// **`unreadable` rather than `unwrap_or_default`**, which is `max_lines::count_lines`' shape from
+/// `github.com/telekom/sutura#619` on a different subject: a pin file this cannot open contributes
+/// no names, every version written beside one of those names stops being a version this check
+/// knows about, and the gate reports the comment scan it did as if the name set were the tree's.
+fn pinned_names(root: &Path, files: &[String], unreadable: &mut Vec<String>) -> BTreeSet<String> {
     let mut names: BTreeSet<String> = ["rust", "rustc", "cargo"].iter().map(|n| String::from(*n)).collect();
-    let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap_or_default();
+    let mut read = |rel: &str| crate::repo::read_subject(root, rel, unreadable).unwrap_or_default();
     for rel in files {
         let base = rel.rsplit('/').next().unwrap_or(rel);
         if base == "Cargo.toml" {
@@ -421,14 +426,14 @@ fn refused<'line>(line: &'line str, start: usize, names: &BTreeSet<String>) -> V
 
 /// Every comment and prose line in the tree that writes a version nothing compares.
 pub(in crate::guidance) fn comment_versions(root: &Path, files: &[String]) -> (Vec<String>, Scan) {
-    let names = pinned_names(root, files);
     let mut problems = Vec::new();
+    let names = pinned_names(root, files, &mut problems);
     let mut comments = 0_usize;
     for rel in files {
         if repo::matches_any(EXEMPT, rel) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
             continue;
         };
         let markdown = has_ext(rel, &["md"]);

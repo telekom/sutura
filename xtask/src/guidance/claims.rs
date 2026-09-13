@@ -61,6 +61,14 @@ pub(super) struct Evidence {
 
 impl Evidence {
     /// Is the evidence there?
+    ///
+    /// **An unreadable evidence file retires the rule rather than refusing, and the mechanism that
+    /// catches it is a test rather than this gate**: `tests::every_live_rule_still_has_its_evidence`
+    /// asserts `stands` for every row, so a row whose file cannot be opened is a red `just test`
+    /// while `check-guidance` itself stays green. Deliberately not migrated to
+    /// `repo::read_subject`: the evidence set is DECLARED and small, and a retired rule forbids
+    /// nothing rather than mis-measuring the tree. The limit is that `just hygiene` alone sees
+    /// neither - only `just validate` runs the gate and this test together.
     fn stands(&self, root: &Path) -> bool {
         let full = root.join(self.path);
         if self.holds.is_empty() {
@@ -187,7 +195,7 @@ pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> 
             if crate::repo::matches_any(rule.except, rel) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+            let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
                 continue;
             };
             for wording in rule.wordings {
@@ -537,15 +545,23 @@ SQL goldens read the cap";
         let (_root, files) = crate::repo::all_files()
             .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
             .expect("could not list the repo");
+        // The `unreadable` vec is asserted on, not discarded: on a clean checkout a subject this
+        // walk cannot open is a defect in the venue, and a test that threw the vec away would be
+        // the visible discard `repo::read_subject` exists to make somebody write out.
+        let mut unreadable = Vec::new();
         for counted in COUNTS {
             assert!(
-                super::counts::tally(&root, &files, counted) > 0,
+                super::counts::tally(&root, &files, counted, &mut unreadable) > 0,
                 "the {} count matches nothing - `{}` under {:?}",
                 counted.name,
                 counted.holds,
                 counted.over
             );
         }
+        assert!(
+            unreadable.is_empty(),
+            "a subject this tally walks could not be read: {unreadable:?}"
+        );
     }
 
     #[test]
@@ -559,15 +575,17 @@ SQL goldens read the cap";
         let (_root, files) = crate::repo::all_files()
             .and_then(|census| census.into_listing(crate::repo::Unmigrated::Guidance))
             .expect("could not list the repo");
+        let mut unreadable = Vec::new();
         for counted in COUNTS {
             assert!(
-                !super::counts::statements(&root, &files, counted).is_empty(),
+                !super::counts::statements(&root, &files, counted, &mut unreadable).is_empty(),
                 "no page under {:?} states the {} count before `{}`",
                 counted.mentioned_in,
                 counted.name,
                 counted.marker
             );
         }
+        assert!(unreadable.is_empty(), "a subject this walk could not be read: {unreadable:?}");
     }
 
     #[test]

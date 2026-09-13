@@ -315,7 +315,7 @@ fn bad_task_references(root: &Path, files: &[String]) -> Vec<String> {
         if !has_ext(rel, &["md", "nix", "yaml", "yml"]) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = repo::read_subject(root, rel, &mut problems) else {
             continue;
         };
         for (i, line) in text.lines().enumerate() {
@@ -350,7 +350,7 @@ fn dead_paths(root: &Path, files: &[String]) -> Vec<String> {
         if !has_ext(rel, &["md"]) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = repo::read_subject(root, rel, &mut problems) else {
             continue;
         };
         for (i, line) in text.lines().enumerate() {
@@ -371,7 +371,7 @@ fn dead_paths(root: &Path, files: &[String]) -> Vec<String> {
 fn stale_phrases(root: &Path, files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for rel in files {
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = repo::read_subject(root, rel, &mut problems) else {
             continue;
         };
         for rule in FORBIDDEN {
@@ -496,6 +496,14 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
              the scan is broken, not the source",
         ));
     }
+
+    // Byte-identical problems are ONE finding several checks reached, not several findings: every
+    // check that walks the tree calls `repo::read_subject`, so one sealed page printed the same
+    // `cannot be read` line twenty-five times - measured on `docs/architecture.md` at mode 000.
+    // Order-preserving, so the grouping a reader already gets is unchanged, and exact-match only:
+    // two checks reporting different things about one file are still two lines.
+    let mut seen = BTreeSet::new();
+    problems.retain(|problem| seen.insert(problem.clone()));
 
     if problems.is_empty() {
         // The page numbers are PRINTED, not merely held: a floor nobody can read is a floor
@@ -763,5 +771,73 @@ mod tests {
         // them is a compile error rather than a silent zero.
         assert_eq!(read.stated, 0, "the fixture states no registered absence");
         assert_eq!(scan.comments, 9, "every line of the fixture page is prose");
+    }
+    /// The controls a refusal needs beside it: a subject in scope, one out of scope, an empty one,
+    /// one with no trailing newline, and one the listing offers that is not on disk.
+    ///
+    /// **The refusal, not the predicate.** `github.com/telekom/sutura#619` measured three gates
+    /// dropping an unreadable in-scope file; this gate then had the same drop in some of its own
+    /// checks and not others, because each check decided again. `repo::read_subject` is what they
+    /// share now, and the drop it replaced was invisible in a green run for the reason the census
+    /// module states: the number this gate prints comes off the LISTING, so a dropped read leaves
+    /// the verdict announcing files it never opened rather than moving a denominator.
+    ///
+    /// Out of scope is the control that matters as much as the refusal - `#412` reddened a correct
+    /// tree by refusing a PNG for not being text - so a sealed file the check filters out by path
+    /// must stay silent.
+    #[test]
+    fn an_unreadable_subject_in_scope_is_a_finding_and_one_out_of_scope_is_not() {
+        let mut tree = crate::scratch_tree::Tree::of(
+            "guidance-unreadable",
+            &[
+                ("docs/page.md", b"a page with nothing forbidden on it\n"),
+                ("docs/empty.md", b""),
+                ("docs/unterminated.md", b"no trailing newline"),
+                ("docs/logo.png", b"\x89PNG\r\n\x1a\n binary"),
+            ],
+        );
+        let pages: Vec<String> = ["docs/page.md", "docs/empty.md", "docs/unterminated.md", "docs/logo.png"]
+            .iter()
+            .map(|rel| String::from(*rel))
+            .chain(std::iter::once(String::from("docs/deleted-but-listed.md")))
+            .collect();
+
+        // CONTROL: readable in scope, empty, unterminated, and a path the listing offers that is
+        // not on disk - `git ls-files` reads the index, so that last one is the shape refusing
+        // `NotFound` would turn red for anyone mid-edit.
+        assert!(
+            super::stale_phrases(tree.root(), &pages).is_empty(),
+            "a readable page, an empty one, an unterminated one and an absent one are not findings"
+        );
+        assert!(
+            super::dead_paths(tree.root(), &pages).is_empty(),
+            "no page cites a dead route"
+        );
+
+        // Mode bits are ignored for uid 0 and this suite runs as root in some venues, so a test
+        // that asserted the refusal without checking would assert nothing there.
+        if !tree.seal("docs/logo.png") {
+            return;
+        }
+        assert!(
+            super::dead_paths(tree.root(), &pages).is_empty(),
+            "a sealed file this check filters out by path is out of scope, not unreadable - #412"
+        );
+
+        if !tree.seal("docs/page.md") {
+            return;
+        }
+        for problems in [
+            super::stale_phrases(tree.root(), &pages),
+            super::dead_paths(tree.root(), &pages),
+            super::bad_task_references(tree.root(), &pages),
+        ] {
+            assert!(
+                problems
+                    .iter()
+                    .any(|p| p.contains("docs/page.md") && p.contains("cannot be read")),
+                "an unreadable page in scope must be named: {problems:?}"
+            );
+        }
     }
 }

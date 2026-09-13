@@ -54,6 +54,8 @@ mod registry;
 mod release_provenance;
 mod repo;
 mod rust_source;
+#[cfg(test)]
+mod scratch_tree;
 mod serde_parse;
 mod shared_client;
 mod shipped;

@@ -72,6 +72,8 @@ finer split is a cheap change if a caller ever needs the branch.
 - `Inconsistent`
 - `UncheckableKnowledge` - The notes do not hold together with the definitions they are about.
 - `Empty`
+- `TooManyDocuments` - The walk found more documents than `MAX_CATALOG_DOCUMENTS` permits.
+- `TooLarge` - The documents read so far sum to more bytes than `MAX_CATALOG_BYTES` permits.
 - `Digest` - The domain could not hash the definitions.
 
 ### Implements
