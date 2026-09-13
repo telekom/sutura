@@ -63,6 +63,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
     REFUSED,
     label("timeout"),
     label("too_large"),
+    label("tool_not_enabled"),
     UNAUTHORIZED,
     label("unavailable"),
 ];
@@ -300,6 +301,9 @@ mod tests {
             Failure::InsufficientScope {
                 required: "catalog.read",
             },
+            Failure::ToolNotEnabled {
+                capability: "sutura:sql.run",
+            },
             Failure::NotAQuestion {
                 detail: String::from("a bad body"),
             },
@@ -317,6 +321,7 @@ mod tests {
             match failure {
                 Failure::Unauthorized
                 | Failure::InsufficientScope { .. }
+                | Failure::ToolNotEnabled { .. }
                 | Failure::NotAQuestion { .. }
                 | Failure::TooLarge
                 | Failure::RateLimited

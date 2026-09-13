@@ -624,3 +624,10 @@ mod logging;
 
 #[cfg(test)]
 mod logging_tests;
+
+// ---------------------------------------------------------------- run_sql (raw SQL tool) ----
+
+/// `POST /v1/sql/run` - `docs/adr/0013`'s tool, off by default. Its own file for the reason
+/// `token` and `catalog_prose` have one: this one is at the `max-lines` bound.
+#[cfg(test)]
+mod run_sql;

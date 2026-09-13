@@ -110,6 +110,14 @@ pub enum RawRefusalReason {
     /// Refused rather than truncated, the same argument `RefusalReason::ResultTooLarge` makes: a
     /// result cut at the cap is a different, smaller number under the caller's own statement, and
     /// nothing downstream could tell that it was cut.
+    ///
+    /// **The limit this bounds, stated next to the claim.** `crate::plan::MAX_ROWS` is the same
+    /// number the certified path renders as a `LIMIT`; the raw path has no clause to add to the
+    /// caller's own text, so the Postgres adapter enforces it by reading no more than that many
+    /// rows plus one off a STREAMED result (`Client::query_raw`) before refusing, rather than by
+    /// materialising the whole result first and counting afterward. What this does NOT bound: the
+    /// statement's own execution time or the SERVER's memory while it produces those rows - both
+    /// are the connect-time `statement_timeout`'s job, a coarser and unrelated ceiling.
     TooManyRows { limit: u32 },
     /// The data system would not hand this result back in one piece.
     ///
@@ -273,10 +281,10 @@ mod tests {
     /// same rows shares no key and no value at the discriminant, and neither the top-level JSON nor
     /// any nested object names a `provenance` or a `definition_digest`.
     ///
-    /// Asserted on the SERIALIZED JSON key set directly, per `docs/143-plan.md`'s own mutation
-    /// substitute: a typed comparison could not see a mutation that added a `provenance: null` field,
-    /// because a `null` still fails "no key present" for an unrelated reason. Reading the parsed
-    /// object's own keys is what a `null` cannot hide from.
+    /// Asserted on the SERIALIZED JSON key set directly, rather than through a typed comparison: a
+    /// typed comparison could not see a mutation that added a `provenance: null` field, because a
+    /// `null` still fails "no key present" for an unrelated reason. Reading the parsed object's own
+    /// keys is what a `null` cannot hide from.
     #[test]
     fn a_raw_answer_carries_no_definition_digest_and_shares_no_discriminant_with_a_certified_one() {
         let raw = RawOutcome::Rows {

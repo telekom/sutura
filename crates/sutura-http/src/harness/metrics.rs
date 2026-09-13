@@ -80,6 +80,7 @@ sutura_questions_total{code="rate_limited"} 0
 sutura_questions_total{code="refused"} 0
 sutura_questions_total{code="timeout"} 0
 sutura_questions_total{code="too_large"} 0
+sutura_questions_total{code="tool_not_enabled"} 0
 sutura_questions_total{code="unauthorized"} 0
 sutura_questions_total{code="unavailable"} 0
 # TYPE sutura_question_duration_seconds histogram

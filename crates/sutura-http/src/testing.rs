@@ -523,6 +523,42 @@ impl Warehouse for FakeWarehouse {
         }
         Ok(self.result.clone())
     }
+
+    // `#666`'s review, finding 2: this build's fake needs to accept a raw statement for a
+    // router-level test to reach `RunSqlOutcome`'s status arms at all - every certified fixture in
+    // this file predates the raw tool and none of them override this.
+    const ACCEPTS_RAW_STATEMENTS: bool = true;
+
+    /// Answers every statement with one row, except the two magic strings a router-level test
+    /// provokes a specific outcome with: `"refuse me"` (a source refusal) and `"too many rows"`
+    /// (the row cap, at `self.result`'s own row count so a test can choose how far over).
+    fn execute_raw(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        _presented: &Presented,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        if statement.as_str() == "refuse me" {
+            return Some(Err(StatementRejected {
+                cause: ConnectionRefused,
+            }));
+        }
+        if statement.as_str() == "too many rows" {
+            let cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the row cap fits a usize");
+            let rows: Vec<Vec<Value>> = vec![vec![Value::Integer(1)]; cap.saturating_add(1)];
+            return Some(Ok(sutura_domain::warehouse::RawRows::of(vec![String::from("n")], rows)));
+        }
+        Some(Ok(sutura_domain::warehouse::RawRows::of(
+            vec![String::from("n")],
+            vec![vec![Value::Integer(1)]],
+        )))
+    }
+
+    /// This fake's `execute` never errs, so the only `StatementRejected` this predicate is ever
+    /// asked about is `execute_raw`'s own `"refuse me"` - unconditionally `true` is exact rather
+    /// than a widening.
+    fn source_refused(&self, _error: &Self::Error) -> bool {
+        true
+    }
 }
 
 /// The longest a held statement is held, whatever the test does.

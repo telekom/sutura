@@ -491,9 +491,11 @@ mod tests {
     use sutura_domain::pinned::NotValidated;
     use sutura_domain::query::Query;
 
-    use super::{LocalService, ServiceNotStarted};
-    use crate::tests::{june, metric, shared, source};
-    use crate::tests_support::{AuthoredWarehouse, DiscardingAuditSink, FixedBroker, FixedCatalog, authored_bundle};
+    use super::{LocalService, ServiceNotStarted, Surface as _};
+    use crate::tests::{asked_by_a_person, june, metric, shared, source};
+    use crate::tests_support::{
+        AuthoredWarehouse, DiscardingAuditSink, FixedBroker, FixedCatalog, RawCapableWarehouse, authored_bundle, bundle_over,
+    };
     use crate::{Warehouses, verify_and_validate};
 
     #[test]
@@ -584,5 +586,73 @@ mod tests {
             sutura_semantic::CompileFailure::AuthoredSqlNotPlanned { metric: failed } => assert_eq!(failed, metric()),
             other => panic!("the compiler must name the authored metric rather than substitute a measure: {other:?}"),
         }
+    }
+
+    /// `#666`'s review, finding 3: the constructor `CallRecord::of_raw` was tested directly, but
+    /// nothing reached `LocalService::run_sql`'s own `self.sink.record(...)` call - a mutation that
+    /// builds the record and never sinks it (`crates/sutura-app/src/surface.rs:449-454`) left the
+    /// whole suite green. This calls `run_sql` through the real `Surface` implementation, over a
+    /// sink that only a genuine `record` call can reach.
+    #[test]
+    fn run_sql_writes_one_record_per_outcome_carrying_the_statement_text() {
+        use sutura_domain::audit::{AuditSink, CallRecord, RecordedOutcome};
+        use sutura_domain::raw::RawStatement;
+
+        /// `Send + Sync + 'static`, without `std::sync::Mutex` (`clippy.toml` disallows it) or a
+        /// `tokio` dependency this crate does not have: a channel is `Sync` for a `Send` item and
+        /// needs neither.
+        struct RecordingSink {
+            sender: std::sync::mpsc::Sender<String>,
+        }
+
+        impl AuditSink for RecordingSink {
+            fn record(&self, record: &CallRecord<'_>) {
+                let statement = record.statement().map(|text| text.as_str().to_owned());
+                let line = match *record.outcome() {
+                    RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows} statement={statement:?}"),
+                    RecordedOutcome::RawRefused { reason, .. } => {
+                        format!("raw_refused reason={reason:?} statement={statement:?}")
+                    }
+                    RecordedOutcome::Answered { .. } | RecordedOutcome::Refused { .. } => String::from("certified"),
+                };
+                drop(self.sender.send(line));
+            }
+        }
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        // An empty catalog: no metric, so no anchor `LocalService::start` would re-run against
+        // this fake - `RawCapableWarehouse` answers only the raw path, deliberately, and boot must
+        // not touch the certified one to reach it.
+        let catalog = FixedCatalog::of(bundle_over(&[]));
+        let warehouse = RawCapableWarehouse::answering_rows(source(), shared(), 1);
+        let service = LocalService::start(
+            &catalog,
+            Warehouses::of(warehouse),
+            RecordingSink { sender },
+            FixedBroker::GrantsShared,
+            1 << 30,
+        )
+        .expect("an empty catalog with no anchors boots against any warehouse");
+
+        let context = asked_by_a_person();
+        let answered_statement = RawStatement::parse("select 1").expect("a test statement is a statement");
+        drop(
+            service
+                .run_sql(&context, &answered_statement)
+                .expect("the fake warehouse answers `select 1`"),
+        );
+        let refused_statement = RawStatement::parse("refuse me").expect("a test statement is a statement");
+        drop(
+            service
+                .run_sql(&context, &refused_statement)
+                .expect("a refusal is a result, not an `Err`"),
+        );
+
+        let lines: Vec<String> = receiver.try_iter().collect();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].starts_with("raw_answered"), "{lines:?}");
+        assert!(lines[0].contains("select 1"), "{lines:?}");
+        assert!(lines[1].starts_with("raw_refused"), "{lines:?}");
+        assert!(lines[1].contains("refuse me"), "{lines:?}");
     }
 }

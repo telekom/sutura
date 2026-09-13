@@ -5,8 +5,9 @@
 //! reads the same [`PostgresError`] the certified path does, so both paths classify
 //! `25006 read_only_sql_transaction` and `42501 insufficient_privilege` the same way.
 
+use futures_util::TryStreamExt as _;
 use sutura_domain::identity::Presented;
-use tokio_postgres::types::Type;
+use tokio_postgres::types::{ToSql, Type};
 
 use crate::{PostgresError, PostgresWarehouse, Value, execute_err_mapped};
 
@@ -50,6 +51,10 @@ impl PostgresWarehouse {
     ) -> Result<sutura_domain::warehouse::RawRows, PostgresError> {
         self.deliverable(presented)?;
         let sql = statement.as_str();
+        // Held for the whole `BEGIN` / statement / `ROLLBACK` triple: this client pipelines, so
+        // without this a concurrent caller's own exchange interleaves on the wire mid-transaction
+        // - see `PostgresWarehouse::execution_lock` for what was measured without it.
+        let _guard = crate::lock_execution(&self.execution_lock);
         self.runtime.block_on(async {
             self.client
                 .batch_execute("BEGIN READ ONLY")
@@ -70,6 +75,18 @@ impl PostgresWarehouse {
     /// [`Self::run_raw`](PostgresWarehouse::run_raw) so the transaction wrapper above reads as
     /// unconditional rollback around one expression, not around a multi-statement block a future
     /// edit could grow an early return out of.
+    ///
+    /// **Streamed, and read no further than [`sutura_domain::plan::MAX_ROWS`] plus one.** The
+    /// certified path bounds the same way with a `LIMIT` the compiler adds to the rendered SQL; a
+    /// raw statement is unparsed text with no clause this adapter may add - `docs/adr/0013`'s own
+    /// rule against inspecting it applies here too - so the bound has to be how many rows this
+    /// loop is willing to pull off the wire, not what the statement says. `Client::query` would
+    /// have materialised every row the statement produced before anything downstream could count
+    /// them; `Client::query_raw` yields rows one at a time, so a statement that would return far
+    /// more than the cap is stopped here rather than after it is already in this process's heap.
+    /// One row past the cap - not exactly at it - so the caller's own `exceeds_row_cap` check
+    /// still sees a count over the limit and refuses it, rather than a truncated result that
+    /// looks like a complete answer of exactly the cap's size.
     async fn run_raw_statement(&self, sql: &str) -> Result<sutura_domain::warehouse::RawRows, PostgresError> {
         let prepared = self
             .client
@@ -81,15 +98,20 @@ impl PostgresWarehouse {
             .iter()
             .map(|column| (column.name().to_owned(), column.type_().clone()))
             .collect();
-        let rows = self.client.query(&prepared, &[]).await.map_err(execute_err_mapped)?;
         let labels: Vec<String> = columns.iter().map(|(name, _)| name.to_owned()).collect();
-        let mut out: Vec<Vec<Value>> = Vec::with_capacity(rows.len());
-        for row in &rows {
+        let params: [&(dyn ToSql + Sync); 0] = [];
+        let mut stream = Box::pin(self.client.query_raw(&prepared, params).await.map_err(execute_err_mapped)?);
+        let cap = usize::try_from(sutura_domain::plan::MAX_ROWS).unwrap_or(usize::MAX);
+        let mut out: Vec<Vec<Value>> = Vec::new();
+        while let Some(row) = stream.try_next().await.map_err(execute_err_mapped)? {
             let mut cells = Vec::with_capacity(columns.len());
             for (index, (label, column_type)) in columns.iter().enumerate() {
-                cells.push(Self::cell(label, column_type, row, index)?);
+                cells.push(Self::cell(label, column_type, &row, index)?);
             }
             out.push(cells);
+            if out.len() > cap {
+                break;
+            }
         }
         Ok(sutura_domain::warehouse::RawRows::of(labels, out))
     }

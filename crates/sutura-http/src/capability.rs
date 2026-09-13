@@ -173,7 +173,15 @@ pub fn permitted_for(request: &Request, run_sql_enabled: bool) -> Permitted {
 pub async fn require_capability(State(state): State<crate::state::ServiceState>, request: Request, next: Next) -> Response {
     let run_sql_enabled = state.settings().tools().run_sql_enabled();
     match asked_for(&request) {
+        // `permitted_for` is the ONE gate: whether this proceeds turns entirely on whether it
+        // narrowed the deployment switch in, so a defect there (the mutation that no longer
+        // applies `Permitted::without` when off) shows up here as a `200` a router-level test
+        // catches - not as a second check this arm could pass around.
         Some(capability) if permitted_for(&request, run_sql_enabled).includes(capability) => next.run(request).await,
+        // Not included. WHICH of two reasons decides the BODY, never whether this proceeds -
+        // `sutura:sql.run` would not help a caller told to go get it when the real reason is a
+        // deployment switch (`#666`'s review, finding 2).
+        Some(capability) if capability == Capability::RunSql && !run_sql_enabled => refused_tool_not_enabled(capability),
         Some(capability) => refused(capability),
         // The route is not one this crate governs. Assembly proved that cannot reach here, and it is
         // refused rather than passed anyway: a layer that fell open on a case its author thought
@@ -213,6 +221,20 @@ fn refused(capability: Capability) -> Response {
     );
     Failure::InsufficientScope {
         required: capability.scope(),
+    }
+    .into_response()
+}
+
+/// The `403` for a capability no caller may reach because this DEPLOYMENT never turned it on -
+/// distinct from [`refused`], whose sentence sends a caller looking for a scope grant that would
+/// not help here.
+fn refused_tool_not_enabled(capability: Capability) -> Response {
+    tracing::warn!(
+        capability = capability.id(),
+        "refused: this deployment has not enabled this capability"
+    );
+    Failure::ToolNotEnabled {
+        capability: capability.scope(),
     }
     .into_response()
 }

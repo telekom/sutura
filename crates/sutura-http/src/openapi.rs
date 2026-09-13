@@ -119,14 +119,27 @@ pub struct ApiDoc;
 /// that list is a tool nothing should call. The set is exhaustive in both directions - a route the
 /// document describes that `crate::capability::governed` does not name, and a governed route it
 /// omits, are each a failure (`tests/operations.rs`).
+///
+/// **`run_sql_enabled` decides whether `/sql/run` is in the set at all.** The same absence
+/// `sutura_mcp`'s `tools/list` gives a deployment that never turned the raw tool on: a route this
+/// deployment answers `403` for every caller of, forever, is not a "governed operation" in the
+/// sense this document's own header claims - it is a switch nobody may use, and listing it invites
+/// a client generator to build a call nothing here will ever accept. The path is removed from the
+/// assembled document rather than never merged, because `#[utoipa::path]` has no per-deployment
+/// condition to attach to - the generator's own output is unconditional, and this is the one place
+/// the deployment's own setting can still act on it.
 #[must_use]
-pub fn document() -> utoipa::openapi::OpenApi {
+pub fn document(run_sql_enabled: bool) -> utoipa::openapi::OpenApi {
     let mut document = ApiDoc::openapi();
     document.merge(
         utoipa_axum::router::OpenApiRouter::new()
             .nest(API_V1_PREFIX, routes::v1::openapi_router())
             .into_openapi(),
     );
+    if !run_sql_enabled {
+        let route = format!("{API_V1_PREFIX}{}", crate::constants::base_paths::RUN_SQL);
+        drop(document.paths.paths.remove(&route));
+    }
     document
 }
 
@@ -135,8 +148,8 @@ pub fn document() -> utoipa::openapi::OpenApi {
 /// One function, used by the route that serves it and by any tooling that dumps it, so the two
 /// cannot emit different bytes. See the determinism note in this module's documentation for what
 /// that currently rests on.
-pub fn document_json() -> Result<String, serde_json::Error> {
-    document().to_json()
+pub fn document_json(run_sql_enabled: bool) -> Result<String, serde_json::Error> {
+    document(run_sql_enabled).to_json()
 }
 
 #[cfg(test)]

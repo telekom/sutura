@@ -62,6 +62,15 @@ pub enum Failure {
     /// `&'static str` rather than a `String`: the value can only be a capability's own literal, and a
     /// type that could hold caller text is a type somebody reflects caller text through.
     InsufficientScope { required: &'static str },
+    /// The capability exists on this surface, but this DEPLOYMENT never turned it on - distinct
+    /// from [`Self::InsufficientScope`], where the caller's own credential is what is missing.
+    ///
+    /// **`403`, the same status, a different code and sentence.** `docs/adr/0013`'s off-by-default
+    /// raw SQL tool is the first capability this applies to: a caller told `insufficient_scope`
+    /// for a route no scope can turn on would go obtain a grant that could never help. Checked
+    /// BEFORE the scope, in `crate::capability::require_capability` - the deployment's own switch
+    /// is the reason a caller with every scope this surface issues still cannot reach the route.
+    ToolNotEnabled { capability: &'static str },
     /// The body is not a question. Carries a message naming the field.
     NotAQuestion { detail: String },
     /// The body is larger than the configured bound.
@@ -111,7 +120,7 @@ impl Failure {
         use axum::http::StatusCode;
         match *self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::InsufficientScope { .. } => StatusCode::FORBIDDEN,
+            Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } => StatusCode::FORBIDDEN,
             Self::NotAQuestion { .. } => StatusCode::BAD_REQUEST,
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
@@ -137,6 +146,7 @@ impl Failure {
             Self::AtCapacity { retry_after_seconds } => Some(retry_after_seconds),
             Self::Unauthorized
             | Self::InsufficientScope { .. }
+            | Self::ToolNotEnabled { .. }
             | Self::NotAQuestion { .. }
             | Self::TooLarge
             | Self::RateLimited
@@ -152,6 +162,7 @@ impl Failure {
         match *self {
             Self::Unauthorized => "unauthorized",
             Self::InsufficientScope { .. } => "insufficient_scope",
+            Self::ToolNotEnabled { .. } => "tool_not_enabled",
             Self::NotAQuestion { .. } => "not_a_question",
             Self::TooLarge => "too_large",
             Self::RateLimited => "rate_limited",
@@ -170,6 +181,11 @@ impl Failure {
             // The scope, and nothing else about this deployment. See the variant.
             Self::InsufficientScope { required } => {
                 format!("your credential does not carry the scope `{required}`, which this operation requires")
+            }
+            // Named for what it is: obtaining a scope will not help here, and saying
+            // `insufficient_scope` would send a caller looking for a grant that does not exist.
+            Self::ToolNotEnabled { capability } => {
+                format!("`{capability}` is not enabled on this deployment")
             }
             Self::NotAQuestion { ref detail } => detail.clone(),
             Self::TooLarge => String::from("the body is larger than this service will read"),
@@ -273,6 +289,9 @@ mod tests {
             Failure::InsufficientScope {
                 required: "sutura:metrics.ask",
             },
+            Failure::ToolNotEnabled {
+                capability: "sutura:sql.run",
+            },
             Failure::NotAQuestion {
                 detail: String::from("`grain` is not a grain"),
             },
@@ -323,6 +342,9 @@ mod tests {
             Failure::InsufficientScope {
                 required: "sutura:metrics.ask",
             },
+            Failure::ToolNotEnabled {
+                capability: "sutura:sql.run",
+            },
             Failure::TooLarge,
             Failure::RateLimited,
             Failure::Timeout,
@@ -370,6 +392,26 @@ mod tests {
         // And it is not the same answer as a missing credential, in either half.
         assert_ne!(failure.status(), Failure::Unauthorized.status());
         assert_ne!(failure.code(), Failure::Unauthorized.code());
+    }
+
+    /// `#666`'s review, finding 2: a deployment switch and a missing scope are two different
+    /// reasons a capability is unreachable, and telling a caller `insufficient_scope` for the
+    /// first sends them to obtain a grant that will never help.
+    #[test]
+    fn a_deployment_switch_being_off_is_not_reported_as_a_missing_scope() {
+        let off = Failure::ToolNotEnabled {
+            capability: sutura_app::Capability::RunSql.scope(),
+        };
+        assert_eq!(
+            off.status(),
+            Failure::InsufficientScope { required: "x" }.status(),
+            "same 403"
+        );
+        assert_ne!(off.code(), Failure::InsufficientScope { required: "x" }.code());
+        assert_eq!(off.code(), "tool_not_enabled");
+        assert!(off.detail().contains("sutura:sql.run"), "{}", off.detail());
+        // Nothing here reads as "go get a scope" - the sentence a scope-refusal caller sees.
+        assert!(!off.detail().contains("credential"), "{}", off.detail());
     }
 
     #[test]

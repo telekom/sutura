@@ -21,6 +21,11 @@ use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyCounts, KeyUniquenes
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
 
+/// The raw-SQL-tool fake - split into its own file for the same reason this one is split out of
+/// `lib.rs`: this file reached the 1000-line gate too.
+mod raw;
+pub(crate) use raw::RawCapableWarehouse;
+
 /// A catalog over one already-pinned test bundle.
 pub(crate) struct FixedCatalog(PinnedDefinitions);
 

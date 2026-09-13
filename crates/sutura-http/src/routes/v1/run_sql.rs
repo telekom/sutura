@@ -44,14 +44,24 @@ const TAG: &str = "run_sql";
         ),
         (
             status = 403,
-            description = "REFUSED. `code: source_refused` - the data system refused the statement \
-                           at the identity or authorization level.",
+            description = "THREE THINGS, and the body shape tells the first two from the third - \
+                           `outcome: refusal` for the domain refusal, `code` with no `outcome` for \
+                           the other two.\n\n\
+                           REFUSED (`outcome: refusal`, `code: source_refused`): the data system \
+                           refused the statement at the identity or authorization level.\n\n\
+                           NOT ENABLED (`code: tool_not_enabled`): this DEPLOYMENT never turned \
+                           `run_sql` on. No scope changes this - the switch is `tools.run_sql.\
+                           enabled` in this deployment's own settings, not a grant an authorization \
+                           server can issue.\n\n\
+                           FAILED (`code: insufficient_scope`): your credential IS valid and does \
+                           not carry `sutura:sql.run`; the detail names it.",
             body = RawOutcomeBody
         ),
         (
             status = 413,
             description = "REFUSED. `too_many_rows` or `result_too_large` - too much data; ask a \
-                           narrower question.",
+                           narrower question. `too_many_rows` fires at the same `sutura_domain::\
+                           plan::MAX_ROWS` bound the certified path enforces.",
             body = RawOutcomeBody
         ),
         (

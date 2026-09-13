@@ -212,3 +212,67 @@ where
     }
     warehouses.each().find(|_| W::ACCEPTS_RAW_STATEMENTS)
 }
+
+#[cfg(test)]
+mod tests {
+    use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement};
+
+    use super::run_sql;
+    use crate::Warehouses;
+    use crate::tests::{asked_by_a_person, shared, source};
+    use crate::tests_support::{FixedBroker, RawCapableWarehouse};
+
+    fn statement(sql: &str) -> RawStatement {
+        RawStatement::parse(sql).expect("a test statement is a statement")
+    }
+
+    /// `#666`'s review, finding 4: a wire-serialisation test can construct
+    /// `RawRefusalReason::TooManyRows` directly and prove nothing about whether `run_sql` itself
+    /// ever produces one. This fake warehouse returns `MAX_ROWS + 1` rows over the real port, so
+    /// this is the first test that reaches `crate::exceeds_row_cap` through `run_sql` rather than
+    /// through a typed literal - the mutation `crates/sutura-app/src/raw.rs:182`'s own cap ->
+    /// `u32::MAX` reddens this test and no other.
+    #[test]
+    fn a_result_over_the_row_cap_is_refused_rather_than_returned() {
+        let over_cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the cap fits a usize") + 1;
+        let warehouse = RawCapableWarehouse::answering_rows(source(), shared(), over_cap);
+        let warehouses = Warehouses::of(warehouse);
+        let answered = run_sql(
+            &asked_by_a_person(),
+            &statement("select * from a_wide_table"),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+        )
+        .expect("crediting succeeds; only the row count refuses this call");
+        assert!(
+            matches!(
+                answered.outcome(),
+                RawOutcome::Refusal {
+                    reason: RawRefusalReason::TooManyRows { .. }
+                }
+            ),
+            "{:?}",
+            answered.outcome()
+        );
+    }
+
+    /// The row directly under the cap is not refused - the boundary the test above would not catch
+    /// on its own.
+    #[test]
+    fn a_result_at_the_row_cap_is_returned() {
+        let at_cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the cap fits a usize");
+        let warehouse = RawCapableWarehouse::answering_rows(source(), shared(), at_cap);
+        let warehouses = Warehouses::of(warehouse);
+        let answered = run_sql(
+            &asked_by_a_person(),
+            &statement("select * from a_table"),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+        )
+        .expect("crediting succeeds and the row count is exactly the cap");
+        let RawOutcome::Rows { ref rows, .. } = *answered.outcome() else {
+            panic!("a result at the cap must be an answer: {:?}", answered.outcome());
+        };
+        assert_eq!(rows.len(), at_cap);
+    }
+}

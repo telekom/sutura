@@ -3,13 +3,15 @@
 //! Its own module for the reason `wire/refusal.rs` has one: a seam the thousand-line limit on
 //! `wire.rs` does not have room for.
 //!
-//! It shares nothing with the certified route's shapes but the discriminator name (`outcome`) and
-//! the same content-negotiation `axum::Json` gives every response here.
+//! It shares the discriminator's NAME (`outcome`), the `columns`/`rows` keys a row-carrying body
+//! needs whichever tool produced it, and the same content-negotiation `axum::Json` gives every
+//! response here - never the discriminator's VALUE, and never a provenance-shaped key. See below.
 //!
 //! # The discriminant, restated for this transport
 //!
-//! `docs/adr/0013` requires no shared serialized field name or discriminant VALUE with a certified
-//! answer's.
+//! `docs/adr/0013` requires no shared discriminant VALUE and no provenance-shaped key with a
+//! certified answer's - WEAKER than "no field name in common": `columns` and `rows` are the same
+//! two keys on both bodies, because both carry rows and need the same two labels for them.
 //!
 //! [`RawOutcomeBody`] tags `outcome: "raw_rows"` / `outcome: "raw_refusal"` - never `"answer"` or
 //! `"refusal"` - and carries no `provenance` or `definition_digest` key at any depth, matching

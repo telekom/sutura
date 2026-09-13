@@ -8,7 +8,7 @@ mod tests {
     use sutura_http::openapi::document;
 
     fn documented_operations() -> Vec<(Method, String)> {
-        let document = document();
+        let document = document(true);
         let mut found = Vec::new();
         for (path, item) in &document.paths.paths {
             for (method, present) in [

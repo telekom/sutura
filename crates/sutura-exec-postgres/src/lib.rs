@@ -231,6 +231,20 @@ pub struct PostgresWarehouse {
     posture: sutura_domain::source::SourcePosture,
     runtime: tokio::runtime::Runtime,
     client: tokio_postgres::Client,
+    /// Single-flights every exchange on [`Self::client`] - a `PREPARE`, a certified `run`, a raw
+    /// call's `BEGIN`/statement/`ROLLBACK` triple. `Client` PIPELINES rather than serializing
+    /// concurrent callers: measured, two threads in `execute_raw` interleaved their triples, so a
+    /// refused write persisted OUTSIDE any transaction and a concurrent certified `run` failed
+    /// with `25P02`. `tokio::sync::Mutex<()>` (`clippy.toml` disallows `std::sync::Mutex`), held
+    /// across the whole `block_on` since it never yields the thread back mid-guard - so two
+    /// certified `run`s now wait on each other too, the shared-connection cost `docs/adr/0013`
+    /// states as a limit.
+    execution_lock: tokio::sync::Mutex<()>,
+}
+
+/// Locks [`PostgresWarehouse::execution_lock`]; `blocking_lock` since every caller is sync.
+fn lock_execution(lock: &tokio::sync::Mutex<()>) -> tokio::sync::MutexGuard<'_, ()> {
+    lock.blocking_lock()
 }
 
 impl core::fmt::Debug for PostgresWarehouse {
@@ -286,10 +300,9 @@ impl PostgresWarehouse {
             let (client, connection) = runtime
                 .block_on(config.connect(connector))
                 .map_err(|cause| PostgresError::Connect { cause })?;
-            // The connection's driver task is owned by this runtime, so it is polled exactly
-            // while this adapter is inside a `block_on`. `Client` is `Send + Sync`, so the
-            // multi-thread runtime serializes calls onto its workers. The driver task's
-            // ultimate error has no caller to report to; the next `block_on` fails on its own.
+            // Owned by this runtime, polled independently of any caller's `block_on`. `Client`
+            // PIPELINES - see `execution_lock`. No caller to report the driver's ultimate error to;
+            // the next `block_on` fails on its own.
             #[expect(
                 clippy::let_underscore_must_use,
                 clippy::let_underscore_untyped,
@@ -330,6 +343,7 @@ impl PostgresWarehouse {
             posture,
             runtime,
             client,
+            execution_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -568,6 +582,7 @@ impl PostgresWarehouse {
     fn run(&self, query: &GeneratedQuery) -> Result<RowSet, PostgresError> {
         let bound = Self::bind(query.params());
         let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = bound.iter().map(PgParam::as_ref).collect();
+        let _guard = lock_execution(&self.execution_lock);
         let (columns, rows) = self.runtime.block_on(async {
             let statement = self
                 .client
@@ -933,6 +948,7 @@ impl Warehouse for PostgresWarehouse {
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
+        let _guard = lock_execution(&self.execution_lock);
         drop(
             self.runtime
                 .block_on(self.client.prepare(query.sql()))

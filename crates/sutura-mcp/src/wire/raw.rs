@@ -3,14 +3,16 @@
 //! Its own module for the reason `wire/catalog.rs` has one - one whole tool, sharing nothing with
 //! `ask`'s shapes but `sutura_domain::warehouse::Value::render`.
 //!
-//! # The discriminant, and why it shares nothing with a certified answer's
+//! # The discriminant, and why it cannot be mistaken for a certified answer's
 //!
-//! `docs/adr/0013` requires that a raw result's wire shape share no serialized field name and no
-//! discriminant VALUE with [`crate::wire::OutcomeContent::Answer`]'s. That type tags with
-//! `outcome: "answer"` / `outcome: "refusal"`; [`RawContent`] tags with `outcome: "raw_rows"` /
-//! `outcome: "raw_refusal"` - a different key set at the object's own single discriminant, so a
-//! client branching on the string cannot mistake one for the other, and neither serialized object
-//! carries a `provenance` or a `definition_digest` key at any depth.
+//! `docs/adr/0013` requires that a raw result's wire shape share no discriminant VALUE and no
+//! provenance-shaped key with [`crate::wire::OutcomeContent::Answer`]'s - a WEAKER claim than "no
+//! field name in common", and the one this module's own test asserts. `columns` and `rows` ARE
+//! shared field names (both walk the same rows, so both need the same two labels for them); what
+//! neither shares is the VALUE at `outcome` - that type tags with `outcome: "answer"` /
+//! `outcome: "refusal"`, [`RawContent`] with `outcome: "raw_rows"` / `outcome: "raw_refusal"` - and
+//! neither raw variant carries a `provenance` or a `definition_digest` key at any depth, which is
+//! the property that actually keeps a raw result from being rendered as certified.
 
 use sutura_domain::raw::{RawOutcome, RawStatement};
 

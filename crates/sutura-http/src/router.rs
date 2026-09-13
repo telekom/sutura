@@ -507,7 +507,7 @@ fn documentation(state: &ServiceState, settings: &Settings, key: &ClientAddress)
     }
     // Serialized once, at startup, and served from a clone. Serializing per request would put a few
     // hundred kilobytes of work behind a path a caller can poll.
-    let json = match crate::openapi::document_json() {
+    let json = match crate::openapi::document_json(settings.tools().run_sql_enabled()) {
         Ok(json) => json,
         Err(cause) => {
             // Not fatal, and deliberately not: this service's job is answering questions, and a

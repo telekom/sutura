@@ -7,9 +7,10 @@ description: Why a deployment may enable a general SQL tool beside the certified
 
 Status: **accepted, scheduled LAST, and amended 2026-09-13** for the showcase's fork (which source),
 prerequisite 2's interim bound and prerequisite 4's read-only story - see the amendment at the foot of
-this record. Nothing here is built yet, and this record still does not amend an invariant - see *What
-this would change in the invariants* below, which says why the row cannot be written before the
-mechanism exists.
+this record. **PR1 (`#666`) builds the mechanism this record describes** - `RawOutcome`,
+`Capability::RunSql`, the boot refusal, and the Postgres execution path below - and this record still
+does not amend an invariant: PR1's own body states which of the two drafted rows it deferred and why,
+rather than landing them alongside a still-settling mechanism.
 
 **Corrected:** this said "deliberately UNSCHEDULED" and "no branch in the implementation stack" while
 `docs/implementation-plan.md` carried `feat/raw-sql-tool` as a row, 0009's order table carried
@@ -279,19 +280,24 @@ statement about the **certified** surface, and the mechanism behind it is untouc
 `Query` declares no such field and `deny_unknown_fields` makes an attempt an error naming it. That
 half is true today and stays true whatever happens here.
 
-**The second half must not be written into that table before it exists.** The row this record would
-add - a raw tool exists only as a separately-scoped, off-by-default capability whose result type
-cannot carry a definition digest, available only where the source executes as the asking subject or
-the deployment is single-user - cites as its mechanism an outcome type that does not exist, in a tool
-that has no branch in any implementation stack. The table's own rule decides the case, and it decides
-it against us: *a row that loses its mechanism gets deleted, not demoted to advice*, and a row that
-never had one is the same case. A reader who finds a raw-tool row in the enforced table and then finds
-no raw tool has learned that the table can be aspirational, which costs more than the row was worth.
+**The second half was not written into that table before the mechanism existed - and now that PR1
+(`#666`) has built it, it is still not written here, on purpose.** The mechanism this row would cite
 
-So: **the amendment lands with the implementation branch, not with this record.** What has to exist
-first is the list at the top of this file - the separate outcome type, the cancelling execution port,
-the scope gate and the advertisement filter, the read-only story per mode - plus the tests that provoke
-each of them. Until then this record is the decision and `AGENTS.md` says only what holds.
+- `RawOutcome` with no field of type `Provenance`, `Capability::RunSql`, the `run_sql`-in-multi-user
+  boot refusal - is real as of PR1's head, so the objection this section used to state (a mechanism that
+  does not exist, a tool with no branch) no longer holds. What still argues for waiting is smaller: PR1
+  is the FIRST commit the mechanism appears in, and this table's own history (`docs/adr/0022`'s two
+  amendments) is where a guarantee written down too early - before a second reviewer's own read of the
+  same code - turned out to describe a carrier that did not yet see every case. PR1's own body states
+  this plainly rather than silently deferring it, and names the two rows the plan drafted so a reader
+  can add them once the mechanism has had one more review's worth of scrutiny.
+
+So: **the amendment lands with the implementation branch, not with this record** - and PR1 is that
+branch. What had to exist first is the list at the top of this file - the separate outcome type, the
+cancelling execution port (interim: the connect-time bound above), the scope gate and the advertisement
+filter, the read-only story per mode - plus the tests that provoke each of them; PR1 builds all of it.
+Until the invariants file is amended in a follow-up, this record is the decision and `AGENTS.md` says
+only what holds.
 
 **What is NOT weakened:** a certified answer is still produced by compiling a declared metric, not by a
 model writing SQL. That is the point of the whole system and this record does not touch it. A deployment
@@ -445,19 +451,32 @@ design ("a development tier, not a query budget") and not narrowed to whatever i
 on this existing ceiling rather than block on `#160` PR4**, because the property the base record asked
 for - a runaway statement is killed by the source, not merely abandoned by the caller - already holds
 for Postgres today, and the gap is precision of the number rather than absence of a bound. **The limit,
-named rather than left implicit:** every statement on a raw-tool connection - certified legs sharing the
-connection are unaffected, since a fixture-only connection is not shared - runs under one ceiling for
+named rather than left implicit:** every statement on a raw-tool connection runs under one ceiling for
 every caller and every question, so a caller with a five-second budget and a caller with the deployment's
 full timeout are bounded identically; `#160` PR4 is still the fix for that, and this amendment does not
-call the interim state "the deadline travelling on the port." A raw-tool connection opened with its own,
-possibly tighter, `SUTURA_DEV_STATEMENT_TIMEOUT_MS`-equivalent setting, distinct from the certified
-path's connection, is left to the implementation branch rather than decided here; either choice keeps
-the property this paragraph depends on.
+call the interim state "the deadline travelling on the port."
 
-**What remains open for the implementation branch**, none of it decided by this amendment: the raw
-outcome type's exact shape and wire discriminant (it must share no serialized field name, and no
-discriminant value, with a certified `ToolOutcome::Answer`, per the base record's "unrepresentable
-rather than forbidden"); whether the audit record for a raw call is a new `RecordedOutcome` arm or a
-sibling constructor, and whether it carries the caller's statement text (the ramp section wants it to);
-and the exact capability id and scope literal (a fixed pair, per `sutura_app::Capability`'s own rule that
-neither may be derived from the other).
+**Corrected:** this paragraph said "certified legs sharing the connection are unaffected, since a
+fixture-only connection is not shared" - false for the served adapter PR1 ships. `PostgresWarehouse`
+is ONE `tokio_postgres::Client` for both `run` (the certified path) and `run_raw`, and that client
+pipelines: measured under concurrent load, two callers' `BEGIN` / statement / `ROLLBACK` triples
+interleaved on the wire, so a raw caller's own refused write aborted a transaction a concurrent
+certified `run` was inside, and the write itself ran outside any transaction and persisted. PR1's fix
+is `PostgresWarehouse::execution_lock`, single-flighting every exchange on the shared client - so
+`run` and `run_raw` no longer interleave - but the two paths still contend for the ONE connection: a
+slow or many raw statements make a concurrent certified question wait, which this paragraph's own
+"one ceiling for every caller" already names as a cost of sharing rather than as something narrowed
+here. A raw-tool connection opened separately from the certified path's, distinct enough that the two
+cannot contend, is left as future work rather than decided by PR1.
+
+**What PR1 (`#666`) settled, where this amendment left it open:** the raw outcome type is
+`sutura_domain::raw::RawOutcome`, carrying no field of type `Provenance` anywhere in its module - a
+`compile_fail` doctest on the type is the mechanism, not a claim in this record. Its wire discriminant
+shares no VALUE with a certified `ToolOutcome::Answer`'s, and neither serialized shape carries a
+`provenance` or `definition_digest` key at any depth - **weaker than "share no serialized field
+name"**, which this amendment used to claim and which is false: both bodies carry `columns` and `rows`
+under the same two keys, because both carry rows. The audit record is a sibling constructor
+(`CallRecord::of_raw`) with two new `RecordedOutcome` arms (`RawAnswered`, `RawRefused`), and it does
+carry the caller's statement text, as an audit-only field the wire layer never reads. The capability id
+is `run_sql`, the scope `sutura:sql.run` - the literal `crates/sutura-cli/tests/mcp.rs`'s own guard
+test already asserted did not exist, corrected rather than deleted.
