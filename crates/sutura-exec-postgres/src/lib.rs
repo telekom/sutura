@@ -903,6 +903,12 @@ impl Warehouse for PostgresWarehouse {
         &self.posture
     }
 
+    /// Prepares the statement without running it, as the identity this leg presents.
+    ///
+    /// `estimated_bytes` is `None`: `EXPLAIN` gives this adapter rows and a planner cost unit, not
+    /// bytes, and no money attaches to either - folding a Postgres cost estimate into a
+    /// byte-denominated budget would need a conversion this adapter does not attempt.
+    /// `docs/adr/0030` names this honest absence rather than a guess.
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
@@ -911,7 +917,7 @@ impl Warehouse for PostgresWarehouse {
                 .block_on(self.client.prepare(query.sql()))
                 .map_err(|cause| PostgresError::Prepare { cause })?,
         );
-        Ok(PreFlight::Accepted)
+        Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
     fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {

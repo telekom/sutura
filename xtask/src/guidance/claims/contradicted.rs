@@ -533,4 +533,174 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        // github.com/telekom/sutura#159. `BigQueryWarehouse::IMPERSONATION` moved from
+        // `NoPlaceForASubject` to `PerSubjectCredential` and the correction landed in the crate's
+        // own module doc (`crates/sutura-exec-bigquery/src/lib.rs`) but never reached five prose
+        // sites - three in 0017 and two in 0018, the second 0018 site (`:141`) phrased differently
+        // enough to need its own wording - which is the exact shape this table exists for: one
+        // correction, N sibling documents, and the sibling that was missed is a failure rather
+        // than a survivor.
+        //
+        // REVIEW #667: this entry's own `instead` repeated a second stale claim - "a broker that
+        // mints a per-leg credential is still unbuilt" - trusted from the same stale module doc
+        // (`lib.rs:56-63`, last touched 2026-08-31 in #93, before #284). The broker IS built:
+        // `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the
+        // exchange, and `crates/sutura-serve/src/broker.rs` composes it (`build_broker`, #284).
+        // The true limit is `.agents/skills/sutura/identity/SKILL.md`'s own row: wired in serve,
+        // not proven live - no exchanged token has ever run against a real STS
+        // (`docs/where-identity-is-proven.md`).
+        name: "the BigQuery adapter has no place for a subject",
+        wordings: &[
+            "IMPERSONATION` still reads `NoPlaceForASubject`",
+            "IMPERSONATION` is `NoPlaceForASubject` and the crate says so",
+        ],
+        evidence: &[Evidence {
+            path: "crates/sutura-exec-bigquery/src/lib.rs",
+            holds: "ImpersonationCapability::PerSubjectCredential",
+        }],
+        instead: "`BigQueryWarehouse::IMPERSONATION` is `ImpersonationCapability::PerSubjectCredential`, \
+                  so a source declared `impersonation-at-source` can be opened here and the posture \
+                  cross-check no longer refuses it by name. The broker is built too: \
+                  `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the \
+                  exchange and `crates/sutura-serve/src/broker.rs` composes it. What is still true \
+                  is narrower - wired in serve, not proven live: no exchanged token has ever run \
+                  against a real STS (`docs/where-identity-is-proven.md`)",
+        only: &[],
+        // Both records state the old value and amend it in place, per this repository's own rule
+        // for a record: preserve the sentence and correct it beside itself. Excepting them is what
+        // stops this entry firing against its own fix; every OTHER page is still held to it.
+        except: &[
+            "docs/adr/0017-what-a-bigquery-test-runs-against.md",
+            "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
+        ],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159. `AGENTS.md` carried a *Built And Not Wired* section that
+        // registered every claim with no mechanism behind it; the register MOVED to
+        // `.agents/skills/sutura/query-surface/SKILL.md` under the router rewrite, renamed to
+        // lowercase on the way (*Built and not wired*). Four ADRs (0007, 0008, 0017, 0018) still
+        // cite the old capitalised name as if it were still in `AGENTS.md`. ADR 0016 already cites
+        // the new location correctly, which is the evidence a reader needs to trust the register
+        // moved rather than vanished. REVIEW #667 measured the counts fresh rather than trusting
+        // the first draft's: `git grep -l 'Built And Not Wired' -- '*.md' '*.nix' '*.yml' '*.yaml'
+        // '*.toml' '*.sh'` is 5 files (the four ADRs plus `nix/shipped.nix`'s own, still-true,
+        // generic use - which is exactly why the wordings below are anchored to the ATTRIBUTION
+        // and not the bare phrase) and `git grep -l 'Built and not wired' -- (same globs)` is 7
+        // files / 8 hits. What excludes the six correct sites is the ATTRIBUTION, not the case: a
+        // fourth wording below is the lowercase attribution, added because a plausible rewrite
+        // using it is unmatched by the other three and no correct site names `AGENTS.md` this way.
+        name: "AGENTS.md carries a Built And Not Wired section",
+        wordings: &[
+            "`AGENTS.md`'s *Built And Not Wired*",
+            "AGENTS.md's *Built And Not Wired*",
+            "AGENTS.md has a section named after that mistake",
+            "`AGENTS.md`'s *Built and not wired*",
+        ],
+        evidence: &[Evidence {
+            path: ".agents/skills/sutura/query-surface/SKILL.md",
+            holds: "Built and not wired",
+        }],
+        instead: "the register is `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not \
+                  wired* section now; `AGENTS.md` carries no such section. ADR 0016 cites it \
+                  correctly",
+        only: &[],
+        // All four state the old name and amend it in place beside itself, per this repository's
+        // own rule for a record. ADR 0016, which already cites the new location, is deliberately
+        // NOT here - it has nothing to except.
+        except: &[
+            "docs/adr/0007-federating-across-different-data-systems.md",
+            "docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md",
+            "docs/adr/0017-what-a-bigquery-test-runs-against.md",
+            "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
+        ],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159. `CredentialBroker` shipped as a port
+        // (`crates/sutura-domain/src/identity/credential.rs`) with a static implementor
+        // (`sutura-config`), and ADR 0003's guarantee table still names it absent - the row this
+        // record's own local-file path never needed, so nobody read it again after it went stale.
+        name: "CredentialBroker does not exist",
+        wordings: &["CredentialBroker` is still absent"],
+        evidence: &[Evidence {
+            path: "crates/sutura-domain/src/identity/credential.rs",
+            holds: "pub trait CredentialBroker",
+        }],
+        instead: "`CredentialBroker` is a port in `sutura-domain`, with `sutura-config`'s \
+                  `StaticCredentialBroker` as one implementor. A local file still has no login, so \
+                  the guarantee's substance - nobody else to be, on this path - is unchanged; only \
+                  the trait's existence is",
+        only: &[],
+        // 0003 states the old value in its guarantee table and amends it in place below the table.
+        except: &["docs/adr/0003-datafusion-for-local-execution.md"],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159. The conformance packs record's own *Consequences* section
+        // asks for the gate this evidence names, which then shipped: `xtask/src/conformance.rs`
+        // holds every registered data system to the packs or requires it declared unbound. Three
+        // adapters (`duckdb`, `postgres`, the `datafusion` engine) bind `execute_packs!` today.
+        name: "the conformance packs are unbuilt",
+        wordings: &["accepted as the shape. None of it is built."],
+        evidence: &[Evidence {
+            path: "xtask/src/conformance.rs",
+            holds: "Every registered data system is held to the conformance packs",
+        }],
+        instead: "`crates/sutura-conformance` and `execute_packs!` exist, three data systems bind \
+                  them, and `xtask/src/conformance.rs` (`check-conformance-bindings`) holds the \
+                  registration in step. What is still unbuilt: a per-pack timing aggregate, the \
+                  `cargo-insta` unreferenced-snapshot check, and a fourth bound adapter",
+        only: &[],
+        // 0012 states the old status line and amends it directly below.
+        except: &["docs/adr/0012-conformance-packs-for-inputs-and-adapters.md"],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159, and the blocking dependency a 2026-09-06 comment on it
+        // named: `crates/sutura-http/src/wire/refusal.rs` used to carry the same stale count in
+        // its own comments (`:29`, `:500`, "four variants are `422`") and has since been corrected
+        // to five there - only `docs/serving.md` did not move with it. `COUNTS` cannot hold this
+        // claim: its `trailing_number` parses ASCII digits and this prose spells the number as a
+        // word, which is why this is registered rather than derived.
+        name: "four refusal reasons map to 422",
+        wordings: &["four of the codes above land"],
+        // REVIEW #667: the original anchor was the comment `// five variants are \`422\`` beside
+        // the match, not a production arm - a comment can stay behind after an arm is removed and
+        // the rule would stay live over a sentence that had become true again. Anchored on the
+        // fifth arm's own match pattern instead, which cannot outlive the arm it names.
+        //
+        // REVIEW #667 ROUND 2: that only holds for THIS arm going. The claim guarded is a COUNT
+        // over five arms, and this anchor tracks one of them - regress a DIFFERENT arm's status
+        // (or `ResourcesExhausted`'s own status while keeping its pattern) and the rule stays
+        // live, refusing a sentence that has gone back to true. Not fixable by a better anchor: a
+        // count needs `COUNTS`, and `Granularity::Occurrences` can't tell a production arm from
+        // the `#[cfg(test)]` ones sharing the same literal further down this file. If that
+        // regression is ever the real shape, the fix is to delete this row, not to re-anchor it.
+        evidence: &[Evidence {
+            path: "crates/sutura-http/src/wire/refusal.rs",
+            holds: "RefusalReason::ResourcesExhausted { ceiling_bytes } => (",
+        }],
+        instead: "five: `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, \
+                  `duplicate_dimension` and `resources_exhausted`. `docs/serving.md`'s own table, \
+                  above the sentence, lists all five",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159, raised in review of #667. `sutura-serve` links the
+        // adapter behind the default-off `bigquery` feature; a default build (feature off) still
+        // links none of it and still refuses `kind: bigquery` by name, which is the half of the
+        // sentence that survives.
+        name: "sutura-serve links no BigQuery adapter",
+        wordings: &["links no `BigQuery` adapter"],
+        evidence: &[Evidence {
+            path: "crates/sutura-serve/src/main.rs",
+            holds: "type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse",
+        }],
+        instead: "it links the adapter behind the default-off `bigquery` feature - \
+                  `OpenedSources::BigQuery` and the `BigQuerySource` type alias. A default build \
+                  (the feature off) still links none of it, which is the sense in which \
+                  \"refuses `kind: bigquery` by name\" survives",
+        only: &[],
+        // 0018 states the old value and amends it directly below.
+        except: &["docs/adr/0018-what-the-bigquery-wire-is-built-from.md"],
+    },
 ];

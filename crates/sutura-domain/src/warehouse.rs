@@ -23,6 +23,7 @@ use crate::source::{ImpersonationCapability, SourcePosture};
 /// Shared typing for deliberately simple CSV fixtures.
 #[cfg(any(test, feature = "fixtures"))]
 pub mod csv;
+pub mod estimate;
 /// The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
 ///
 /// **`pub mod` with no re-export beside it, and that is a documentation decision rather than a
@@ -31,6 +32,7 @@ pub mod csv;
 /// have carried a port method returning a type it does not describe. A public module gets
 /// documented.
 pub mod preflight;
+use estimate::EstimatedBytes;
 
 /// What it takes for two answers to one plan to be the same answer, for the differential legs that
 /// compare them.
@@ -123,11 +125,10 @@ impl ParamValue {
 /// strength of `Accepted` is a review question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreFlight {
-    /// The adapter did not ask. The default, and the honest answer for an adapter where checking
-    /// costs what running costs.
+    /// The adapter did not ask. The default, and the honest answer for an adapter where checking costs what running costs.
     NotAsked,
-    /// The data system was asked, as this subject, and accepted the plan.
-    Accepted,
+    /// The data system was asked, as this subject, and accepted the plan - see [`estimate::EstimatedBytes`].
+    Accepted { estimated_bytes: Option<EstimatedBytes> },
 }
 
 /// Where a plan runs.

@@ -104,13 +104,7 @@ pub(crate) fn plan(project: &str, reported: &Listing) -> Plan {
             .collect(),
     }
 }
-
 /// Is the plan still the plan?
-///
-/// Rule 2: **eligibility is re-checked at destroy time, under the lock.** The re-check is not a
-/// second opinion about the same inputs - it is the same decision taken again against a listing
-/// read *inside* the lock, because another worktree can start between the two moments. A target
-/// that has stopped being this worktree's project is a refusal rather than a removal.
 pub(crate) fn still_eligible(plan: &Plan, project: &str) -> bool {
     plan.target().is_none_or(|target| target == project)
 }
@@ -123,7 +117,32 @@ pub(crate) fn still_eligible(plan: &Plan, project: &str) -> bool {
 pub(crate) fn down_args() -> Vec<&'static str> {
     vec!["down", "--volumes", "--remove-orphans"]
 }
-
+/// The arguments that remove named services while leaving other project services.
+///
+/// Deliberately no `--volumes`: Compose applies that flag to EVERY named volume declared by the
+/// project, not merely to the named services. The selected volume is removed by its exact
+/// project-scoped name after this command succeeds.
+pub(crate) fn scoped_down_args<'a>(services: &'a [&'a str]) -> Option<Vec<&'a str>> {
+    if services.is_empty() {
+        return None;
+    }
+    let mut args = vec!["down"];
+    args.extend_from_slice(services);
+    Some(args)
+}
+/// The arguments that start either the active profile or an explicit service selection.
+///
+/// `--no-deps` is part of the exclusive lifecycle contract: naming `demo` must not silently
+/// widen into a future dependency. Keeping the construction pure makes that contract testable
+/// without a container runtime.
+pub(crate) fn up_args(names: Option<&[&'static str]>) -> Vec<&'static str> {
+    let mut args = vec!["up", "--detach", "--remove-orphans"];
+    if let Some(names) = names {
+        args.push("--no-deps");
+        args.extend_from_slice(names);
+    }
+    args
+}
 /// The one sentence that names what removes this worktree's tier.
 ///
 /// Here because this is the module that removes it, and shared because two places print it: a
@@ -133,6 +152,10 @@ pub(crate) fn down_args() -> Vec<&'static str> {
 /// backtick span starting `just `, so a renamed task fails on every copy rather than on one.
 pub(in crate::compose) const REMOVES_THIS_WORKTREE: &str =
     "`just dev-down` removes this worktree's project, its network and its named volumes";
+
+/// The scoped cleanup for a partial or failed exclusive demo lifecycle.
+pub(in crate::compose) const REMOVES_DEMO: &str =
+    "`just dev-down-demo` removes the demo container, its named volume and its discovery entry";
 
 /// Print the plan. Called for a dry run and for a real one, so what a reader is shown before a
 /// destroy is byte-identical to what they would have been shown by `--dry-run`.
@@ -163,7 +186,7 @@ pub(crate) fn describe(plan: &Plan) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Listing, Plan, Spared, down_args, plan, still_eligible};
+    use super::{Listing, Plan, Spared, down_args, plan, scoped_down_args, still_eligible, up_args};
 
     /// What the runtime answered, out of a list of project names. `&[]` is an answer of nothing,
     /// which is the case that has to stay distinguishable from no answer at all.
@@ -177,7 +200,6 @@ mod tests {
         // looking at what is gone. Three other projects are present and every one of them survives.
         let mine = "sutura-dev-aaaa1111";
         let existing = answered(&[mine, "sutura-dev-bbbb2222", "sutura-dev-cccc3333", "someone-elses-app"]);
-
         let chosen = plan(mine, &existing);
         assert_eq!(chosen.target(), Some(mine));
         let Plan::Considered { ref spared, .. } = chosen else {
@@ -264,5 +286,24 @@ mod tests {
         // pointing at it.
         assert!(down_args().contains(&"--volumes"));
         assert!(down_args().contains(&"--remove-orphans"));
+    }
+
+    #[test]
+    fn a_scoped_destroy_names_a_service_and_never_requests_every_volume() {
+        let args = scoped_down_args(&["demo"]).expect("one service is a scoped destroy");
+        assert_eq!(args, vec!["down", "demo"]);
+        assert!(!args.contains(&"--volumes"));
+        assert!(
+            scoped_down_args(&[]).is_none(),
+            "an empty selection would mean the whole project"
+        );
+    }
+    #[test]
+    fn an_exclusive_start_has_no_dependencies_and_a_whole_start_does_not() {
+        assert_eq!(up_args(None), vec!["up", "--detach", "--remove-orphans"]);
+        assert_eq!(
+            up_args(Some(&["demo"])),
+            vec!["up", "--detach", "--remove-orphans", "--no-deps", "demo"]
+        );
     }
 }
