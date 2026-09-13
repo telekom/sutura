@@ -211,6 +211,16 @@ mod proof {
     /// configured with - the process, for the file engine that ships - and the composition root refuses
     /// a bundle with an anchor on a source that declared no verification identity, which is the half
     /// available before the port changes.
+    ///
+    /// # What is refused before any anchor runs
+    ///
+    /// A metric whose computation is catalog-authored SQL, unless `W` declares
+    /// [`Warehouse::EXECUTES_AUTHORED_SQL`]. The fragment is stored as written and nothing published
+    /// compiles it, so an adapter taking the default cannot execute the metric; refusing the bundle
+    /// here, naming the metric, is what stands between that and a served bundle with a metric that
+    /// is silently skipped or a measure quietly substituted. Read off the ONE adapter type
+    /// `Warehouses<W>` holds, the way `EXECUTES_LEGS` is - so it is a fact about the build, not
+    /// about the data. No adapter this workspace ships opts in; `docs/adr/0004` is the decision.
     pub fn verify_and_validate<W>(
         pinned: PinnedDefinitions,
         warehouses: &Warehouses<W>,
@@ -218,7 +228,16 @@ mod proof {
     where
         W: Warehouse,
     {
-        // The cardinality declarations first. `declared_keys` carries why that order, and why a
+        // Before anything is executed: can this build execute every metric the bundle declares?
+        if !W::EXECUTES_AUTHORED_SQL {
+            let mut authored = pinned.definitions().metrics().values();
+            if let Some(metric) = authored.find(|metric| metric.computation().authored_sql().is_some()) {
+                return Err(NotValidated::AuthoredSqlNotExecutable {
+                    metric: metric.name().clone(),
+                });
+            }
+        }
+        // Then the cardinality declarations. `declared_keys` carries why that order, and why a
         // violated `many_to_one` is a bundle that cannot be validated rather than a question that
         // cannot be answered: the same question answers differently on one data system and on two,
         // and neither topology refused it.

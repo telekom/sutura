@@ -133,7 +133,7 @@ pub(crate) fn catalog(args: &[String]) -> ExitCode {
                 .map(sutura_domain::model::DimensionName::as_str)
                 .collect();
             println!("{name}");
-            println!("  measure    {}", metric.measure());
+            println!("  measure    {}", metric.computation());
             println!("  filters    {}", render_filters(metric.required_filters()));
             println!("  grains     {}", grains.join(", "));
             println!(
@@ -178,7 +178,7 @@ pub(crate) fn describe(args: &[String]) -> ExitCode {
             .ok_or_else(|| format!("this catalog defines no metric called {wanted}"))?;
         println!("{name}");
         println!("  model      {}", metric.model());
-        println!("  measure    {}", metric.measure());
+        println!("  measure    {}", metric.computation());
         println!("  filters    {}", render_filters(metric.required_filters()));
         println!("  time       {}", metric.time_column());
         for (dimension_name, dimension) in metric.dimensions() {

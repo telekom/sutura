@@ -425,3 +425,62 @@ impl<W, S, B> core::fmt::Debug for LocalService<W, S, B> {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use sutura_domain::model::Grain;
+    use sutura_domain::pinned::NotValidated;
+    use sutura_domain::query::Query;
+
+    use super::{LocalService, ServiceNotStarted};
+    use crate::tests::{june, metric, shared, source};
+    use crate::tests_support::{AuthoredWarehouse, DiscardingAuditSink, FixedBroker, FixedCatalog, authored_bundle};
+    use crate::{Warehouses, verify_and_validate};
+
+    #[test]
+    fn an_authored_metric_does_not_boot_against_the_in_process_engine() {
+        // The mechanism under test is `Warehouse::EXECUTES_AUTHORED_SQL` read inside
+        // `verify_and_validate`, through the real composition path and the one adapter every shipped
+        // binary links. Red on base by construction (`authored_bundle` cannot be built there); the
+        // compiled mutation is `const EXECUTES_AUTHORED_SQL: bool = true;` on `DataFusionWarehouse`,
+        // under which this test alone goes red.
+        let catalog = FixedCatalog::of(authored_bundle(metric(), source()));
+        let ceiling = core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive");
+        let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
+            source(),
+            shared(),
+            sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
+        )
+        .expect("the in-process engine starts");
+        let error = LocalService::start(
+            &catalog,
+            Warehouses::of(engine),
+            DiscardingAuditSink,
+            FixedBroker::GrantsShared,
+            1 << 30,
+        )
+        .expect_err("the in-process engine cannot execute authored SQL");
+        let ServiceNotStarted::NotValidated { cause } = error else {
+            panic!("the authored computation must be the startup refusal: {error:?}");
+        };
+        assert_eq!(cause, NotValidated::AuthoredSqlNotExecutable { metric: metric() });
+    }
+
+    #[test]
+    fn an_adapter_declaring_authored_sql_support_passes_only_the_capability_gate() {
+        // The other direction, so the gate above is a capability read and not an unconditional
+        // refusal of the key. What the declaring fake does NOT get is an answer: the plan carries no
+        // SQL, so the compiler names the metric rather than substituting a measure. No adapter this
+        // workspace ships makes the declaration; the fake exists to hold the gate's shape.
+        let pinned = authored_bundle(metric(), source());
+        verify_and_validate(pinned.clone(), &Warehouses::of(AuthoredWarehouse::new(source(), shared())))
+            .expect("the declaring fake passes startup because this bundle has no anchors");
+        let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+        let error = sutura_semantic::compile(&question, &pinned)
+            .expect_err("an authored computation has no representation in the semantic plan");
+        match error {
+            sutura_semantic::CompileFailure::AuthoredSqlNotPlanned { metric: failed } => assert_eq!(failed, metric()),
+            other => panic!("the compiler must name the authored metric rather than substitute a measure: {other:?}"),
+        }
+    }
+}

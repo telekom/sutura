@@ -2,9 +2,11 @@
 
 Runnable catalogs. **`single-player/` is a complete input to the binary** - a catalog of markdown
 documents, the data those documents describe, and a corpus of questions asked against them.
-**`multi-player/` is not that**: it is the served deployment SHAPE you would configure (and no binary
-in this repository can open its catalog yet), whose runnable proof is test code over a recorded
-fixture rather than an input directory - its own section below says which is which.
+**`authored-sql/` is a catalog every binary loads and refuses to start on**: one metric written as
+SQL under the named escape hatch, which nothing published compiles or executes. **`multi-player/` is
+neither**: it is the served deployment SHAPE you would configure (and no binary in this repository
+can open its catalog yet), whose runnable proof is test code over a recorded fixture rather than an
+input directory - its own section below says which is which.
 
 They are examples and tests at the same time, and that is the point rather than a
 convenience. `crates/sutura-cli/tests/example.rs` loads the `single-player/` catalog, pins its
@@ -18,7 +20,7 @@ printed. `just documented` runs it. Its exception is `sutura mcp`, which `just m
 instead, and a page printing any other subcommand of that binary fails it by name rather than being
 skipped. There is no separate copy of the commands below for CI to run.
 
-## The two directories
+## The three directories
 
 The split is about identity, which is the thing sutura exists for.
 
@@ -27,6 +29,16 @@ process already has. There is nobody else to be, so "every query runs as the cal
 principal" holds trivially: a local file has no login to present. That makes it the
 right shape for learning the format, and it is also exactly the claim that a laptop
 cannot test.
+
+**`authored-sql/`** is the smallest catalog that uses the author's named SQL escape hatch: one model,
+one metric whose `authored_sql:` combines two aggregates in a form the closed measure vocabulary does
+not carry, and the two-row CSV the model describes, so the directory is a complete input and not a
+prose description of one. What it demonstrates is admission and refusal, and nothing more: the
+catalog loads, the fragment sits under the definition digest exactly as written, and every adapter
+this repository ships refuses to start on it, naming the metric - no published code compiles the
+SQL or checks it against the model. `crates/sutura-catalog-local`'s
+`the_authored_sql_example_loads_and_its_fragment_is_under_the_digest` is the test that reaches it;
+its own [README](authored-sql/README.md) says what is and is not proven.
 
 **`multi-player/`** is the served deployment shape with per-caller identities: `security.inbound` declares
 who is asking, `security.identity: multi-user` makes the operator's acknowledgment a requirement, and
@@ -41,16 +53,17 @@ need a live system.
 
 ## The data
 
-Every dataset here is synthetic. It is produced by a seeded pseudo-random generator, the
-keys look like `C0001` because a generator wrote them, and no row corresponds to a real
+Every dataset here is synthetic. `single-player/` is produced by a seeded pseudo-random generator, the
+keys look like `C0001` because a generator wrote them, `authored-sql/` is two rows written by hand, and no row corresponds to a real
 person, contract or account. It is shaped like telco data because a semantic layer is
 easier to read over a domain with recognisable metrics, and none of the numbers mean
 anything outside this repository.
 
 ## Reaching a data system, when an example needs one
 
-**Neither directory here needs one today**, and saying so first is the honest order:
-`single-player/` is CSVs the engine reads directly, and `multi-player/`'s runnable form is the
+**No directory here needs one today**, and saying so first is the honest order:
+`single-player/` is CSVs the engine reads directly, `authored-sql/` is refused before its two rows are
+opened, and `multi-player/`'s runnable form is the
 recorded DataHub fixture rather than a data system. The
 development service tier exists for the adapters that are not written yet. This section is here so
 that the documented path to it is one command rather than something a reader has to work out, and

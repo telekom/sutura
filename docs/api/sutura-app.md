@@ -419,6 +419,16 @@ configured with - the process, for the file engine that ships - and the composit
 a bundle with an anchor on a source that declared no verification identity, which is the half
 available before the port changes.
 
+# What is refused before any anchor runs
+
+A metric whose computation is catalog-authored SQL, unless `W` declares
+`Warehouse::EXECUTES_AUTHORED_SQL`. The fragment is stored as written and nothing published
+compiles it, so an adapter taking the default cannot execute the metric; refusing the bundle
+here, naming the metric, is what stands between that and a served bundle with a metric that
+is silently skipped or a measure quietly substituted. Read off the ONE adapter type
+`Warehouses<W>` holds, the way `EXECUTES_LEGS` is - so it is a fact about the build, not
+about the data. No adapter this workspace ships opts in; `docs/adr/0004` is the decision.
+
 ## `type_alias Answering`
 
 What answering produced, or why it could not.
