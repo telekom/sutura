@@ -26,6 +26,15 @@ fn source() -> SourceName {
     SourceName::parse("local").expect("the committed source name parses")
 }
 
+/// The port's deadline this fixture's own engine call executes under - a generous budget, since
+/// this leg is about the cross-resource placement and not about time.
+fn deadline() -> sutura_domain::warehouse::deadline::Deadline {
+    sutura_domain::warehouse::deadline::Deadline::opened_at(
+        std::time::Instant::now(),
+        sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(60)).expect("60s"),
+    )
+}
+
 pub(crate) fn bundle() -> PinnedDefinitions {
     sutura_catalog_local::LocalCatalog::new(
         source(),
@@ -159,7 +168,7 @@ impl Live {
         let presented = sutura_domain::identity::Presented::SharedServiceUser { declared: declared() };
         let query = plan(&self.local)?;
         engine
-            .execute(Executable::Query(&query), &presented)
+            .execute(Executable::Query(&query), &presented, deadline())
             .map_err(|cause| Failed::during(Operation::Query, cause))
     }
 }
@@ -211,7 +220,7 @@ impl FixturePort for Live {
         let warehouse = self.warehouse(&layout.default, bounds())?;
         let positive = plan(&located)?;
         let first = warehouse
-            .execute(Executable::Query(&positive), &presented())
+            .execute(Executable::Query(&positive), &presented(), deadline())
             .map_err(|cause| Failed::during(Operation::Query, cause))?;
         if !same_rows(&expected, &first) {
             return Err(Failed::Query);
@@ -220,7 +229,7 @@ impl FixturePort for Live {
         // Dropping a qualifier must not accidentally read equivalent data in the default dataset.
         let shadow = plan(&self.local)?;
         let wrong = warehouse
-            .execute(Executable::Query(&shadow), &presented())
+            .execute(Executable::Query(&shadow), &presented(), deadline())
             .map_err(|cause| Failed::during(Operation::Query, cause))?;
         if wrong.rows().is_empty() || same_rows(&expected, &wrong) {
             return Err(Failed::Query);
@@ -234,7 +243,7 @@ impl FixturePort for Live {
             }
         });
         let negative = plan(&absent)?;
-        match warehouse.execute(Executable::Query(&negative), &presented()) {
+        match warehouse.execute(Executable::Query(&negative), &presented(), deadline()) {
             Err(BigQueryError::Endpoint {
                 cause:
                     WireError::Refused {
@@ -246,7 +255,7 @@ impl FixturePort for Live {
             _ => return Err(Failed::Negative),
         }
         let after = warehouse
-            .execute(Executable::Query(&positive), &presented())
+            .execute(Executable::Query(&positive), &presented(), deadline())
             .map_err(|cause| Failed::during(Operation::Query, cause))?;
         if !same_rows(&expected, &after) {
             return Err(Failed::Query);

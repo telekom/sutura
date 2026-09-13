@@ -84,6 +84,7 @@ use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
+use sutura_domain::warehouse::deadline::Deadline;
 
 use crate::warehouses::Warehouses;
 use crate::{ServiceError, Validated, verify_and_validate};
@@ -119,7 +120,17 @@ pub trait Surface: Send + Sync + 'static {
     /// returns**. That ordering is the requirement rather than an optimisation: a record written
     /// after the response is the record a crash loses, and the call worth having a record of is the
     /// one that went wrong.
-    fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure>;
+    ///
+    /// # The deadline is opened by the transport, before this call
+    ///
+    /// `deadline` is one absolute [`Deadline`], opened at the instant the request arrived - before
+    /// admission, so the wait for a concurrency slot sits inside the caller's own bound rather than
+    /// adds to it. Taking it here, as a parameter rather than a field this trait's own state holds,
+    /// is the same shape the working-set ceiling already uses: a transport cannot forget to open one
+    /// because there is nowhere else for the value to come from. `docs/adr/0029` is the record; in
+    /// this slice the deadline is carried through to the port and refused on when already spent, and
+    /// nothing yet stops a data system mid-call with it.
+    fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure>;
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -368,7 +379,7 @@ where
         self.definitions.get()
     }
 
-    fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
+    fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure> {
         let answered = crate::answer(
             &self.definitions,
             query,
@@ -376,6 +387,7 @@ where
             &self.broker,
             &self.warehouses,
             self.working_set_bytes,
+            deadline,
         )
         .map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own

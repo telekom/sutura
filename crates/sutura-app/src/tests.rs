@@ -3,6 +3,13 @@
 //! Split out of `lib.rs` for the reason [`crate::tests_support`] is - the file reached the 1000-line
 //! gate, and the fakes it uses live there.
 
+/// The port's deadline, at this call site: `docs/adr/0029`'s two RED cells.
+///
+/// Its own module for the reason this file's own header gives - `tests.rs` was at the `max-lines`
+/// cap this record needed to add two cells past - and not `#[cfg(test)]`, because this whole file
+/// is already only ever compiled under `cfg(test)`.
+mod deadline;
+
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
@@ -31,12 +38,14 @@ use super::{
     verify_anchors, verify_and_validate,
 };
 
-/// Bare `answer`, with the working-set ceiling pinned to 1 GiB for every unit answer here.
+/// Bare `answer`, with the working-set ceiling pinned to 1 GiB and a generous deadline for every
+/// unit answer here.
 ///
-/// `answer` gained a sixth argument - the ceiling the federated combiner counts against - and no
-/// test in this module needs a different one, so this local wrapper keeps two dozen call sites on
-/// their original five arguments rather than touching each. Deliberately not imported as
-/// `super::answer`, or the wrapper below and the import would collide on the name.
+/// `answer` gained a sixth argument - the ceiling the federated combiner counts against - and a
+/// seventh - the port's deadline - and no test in this module but the deadline's own needs either
+/// varied, so this local wrapper keeps two dozen call sites on their original five arguments rather
+/// than touching each. Deliberately not imported as `super::answer`, or the wrapper below and the
+/// import would collide on the name.
 fn answer<W, B>(
     definitions: &super::Validated<PinnedDefinitions>,
     query: &sutura_domain::query::Query,
@@ -48,7 +57,18 @@ where
     W: sutura_domain::warehouse::Warehouse,
     B: sutura_domain::identity::CredentialBroker,
 {
-    super::answer(definitions, query, context, broker, warehouses, 1 << 30)
+    super::answer(definitions, query, context, broker, warehouses, 1 << 30, test_deadline())
+}
+
+/// A generous deadline for every unit answer in this crate's own tests that is not about the
+/// deadline itself - shared by `crate::federated`'s test module too, so there is one fixture rather
+/// than two copies of the same thirty seconds.
+pub(crate) fn test_deadline() -> sutura_domain::warehouse::deadline::Deadline {
+    sutura_domain::warehouse::deadline::Deadline::opened_at(
+        std::time::Instant::now(),
+        sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(30))
+            .expect("thirty seconds is a budget"),
+    )
 }
 
 /// The context a question arrives with, naming a person the transport verified.

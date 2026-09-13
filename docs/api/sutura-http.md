@@ -2434,7 +2434,7 @@ a configured limit in a log and in a review, and it is not one.
 ### `fn enforce_timeout`
 
 ```rust
-pub async fn enforce_timeout(__arg0: axum::extract::State<std::time::Duration>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+pub async fn enforce_timeout(__arg0: axum::extract::State<sutura_config::RequestTimeout>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
 ```
 
 Gives up on a request that outran the configured bound, with the documented body.
@@ -2449,6 +2449,12 @@ constructed. Ten lines here is the whole cost of the response shape being one sh
 It bounds *the response*, which is what a caller experiences, and not the work: a question
 already handed to the blocking pool keeps running until the data system answers it. Cancelling
 that needs a cancellation token the `Warehouse` port does not have.
+
+**Also where the port's `Deadline` is opened**, at the instant this layer is reached - before
+admission, so the wait for a concurrency slot sits inside the caller's own bound rather than
+adds to it (`docs/adr/0029`). Inserted as a request extension, which is what lets the route
+handler read it with no state of its own to thread it through: `crate::inbound::VerifiedCaller`
+reaches the handler the same way, for the same reason.
 
 ### `type_alias RateLimit`
 

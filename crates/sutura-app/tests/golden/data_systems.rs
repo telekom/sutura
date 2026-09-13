@@ -81,6 +81,7 @@ where
             &crate::adapters::shared_credential(),
             &warehouse,
             1 << 30,
+            crate::adapters::deadline(),
         );
         settings(W::NAME).bind(|| match answered.map(sutura_app::Answered::into_outcome) {
             Ok(ToolOutcome::Refusal { ref reason }) => {
@@ -132,7 +133,11 @@ where
             continue;
         };
         warehouse
-            .dry_run(Executable::Query(plan), &crate::adapters::presented())
+            .dry_run(
+                Executable::Query(plan),
+                &crate::adapters::presented(),
+                crate::adapters::deadline(),
+            )
             .unwrap_or_else(|e| panic!("{} was rejected by {}: {e}", stem(&path), W::NAME));
     }
 }
@@ -197,6 +202,7 @@ where
             &crate::adapters::shared_credential(),
             &warehouse,
             1 << 30,
+            crate::adapters::deadline(),
         )
         .unwrap_or_else(|e| panic!("{file} failed on {}: {e}", W::NAME))
         .into_outcome();
@@ -277,6 +283,7 @@ where
         &crate::adapters::shared_credential(),
         &warehouse,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect_err("a zero denominator under `fails` must not answer");
     let rendered = chain(&error);
@@ -311,6 +318,7 @@ where
         &crate::adapters::shared_credential(),
         &warehouse,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("a non-zero denominator answers")
     .into_outcome();

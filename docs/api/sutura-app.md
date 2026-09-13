@@ -115,7 +115,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64) -> Answering<W, B>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline) -> Answering<W, B>
 ```
 
 Answers one question, or says why it will not.

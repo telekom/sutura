@@ -276,6 +276,7 @@ mod tests {
                 &crate::adapters::shared_credential(),
                 &engine,
                 1 << 30,
+                crate::adapters::deadline(),
             );
             let from_other = answer(
                 &validated,
@@ -284,6 +285,7 @@ mod tests {
                 &crate::adapters::shared_credential(),
                 &other,
                 1 << 30,
+                crate::adapters::deadline(),
             );
 
             // A third outcome, and it is the one that used to be missing.

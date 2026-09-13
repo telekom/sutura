@@ -227,12 +227,13 @@ async fn waited_out(overlay: &str) -> (Waited, testing::Holding) {
 /// order two real things happen in.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_question_that_outlives_its_reply_deadline_is_answered_rather_than_waited_on() {
-    // One second is the smallest value `RequestTimeout::parse` accepts, and three is a number no
-    // default carries. Read as durations from the same documents the surfaces were built from.
-    let short = Duration::from_secs(1);
+    // Two seconds is the smallest value `RequestTimeout::parse` accepts - one second cannot afford
+    // `docs/adr/0029`'s reply margin - and three is a number no default carries. Read as durations
+    // from the same documents the surfaces were built from.
+    let short = Duration::from_secs(2);
     let long = Duration::from_secs(3);
 
-    let (quick, holding) = waited_out("server:\n  request_timeout_seconds: 1\n").await;
+    let (quick, holding) = waited_out("server:\n  request_timeout_seconds: 2\n").await;
     quick.answers_on_the_failure_channel();
     assert!(
         quick.elapsed >= short,
@@ -243,7 +244,7 @@ async fn a_question_that_outlives_its_reply_deadline_is_answered_rather_than_wai
     // seconds - or of thirty, the shipped default - fails here rather than passing in five.
     assert!(
         quick.elapsed < long,
-        "a one-second deadline took at least three seconds, so the number applied is not the one configured: {:?}",
+        "a two-second deadline took at least three seconds, so the number applied is not the one configured: {:?}",
         quick.elapsed
     );
     quick.kept_its_slot_and_its_worker(&holding, &short).await;
@@ -314,8 +315,10 @@ impl Waited {
 /// the window above the request timeout is allowed and does nothing, the timeout answers first*.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_reply_deadline_bounds_the_wait_for_a_slot_too() {
+    // Two seconds is the smallest value `RequestTimeout::parse` accepts - one second cannot afford
+    // `docs/adr/0029`'s reply margin.
     let overlay =
-        "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 30\nserver:\n  request_timeout_seconds: 1\n";
+        "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 30\nserver:\n  request_timeout_seconds: 2\n";
     let deadline = reply(overlay);
     let admission = admission(overlay);
     assert_eq!(admission.bound(), 1, "the overlay's bound did not reach the surface");

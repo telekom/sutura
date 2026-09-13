@@ -18,6 +18,7 @@ use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::Executable;
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyCounts, KeyUniqueness};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
 
 /// A catalog over one already-pinned test bundle.
@@ -50,6 +51,10 @@ impl sutura_domain::audit::AuditSink for DiscardingAuditSink {
     fn record(&self, _record: &sutura_domain::audit::CallRecord<'_>) {}
 }
 
+/// Two more fakes for `docs/adr/0029`'s own RED cells - split out for this file's own reason, below.
+mod deadline;
+pub(crate) use deadline::{NeverAskedWarehouse, RecordingLegsWarehouse};
+
 /// The driver's own complaint, one level below the adapter's.
 #[derive(Debug, thiserror::Error)]
 #[error("no such file: orders.csv")]
@@ -78,6 +83,12 @@ pub(crate) enum AdapterFailure {
     /// The identity the statement ran as is not permitted to ask it.
     #[error("the data system refused the statement at the identity/authorization level")]
     RefusedBySource,
+    /// This fake's own stand-in for "the deadline fired at the data system" - never actually timed,
+    /// since nothing here reads a clock while executing. What is under test is the MAPPING from a
+    /// `deadline_exceeded` `true` to `RefusalReason::DeadlineExceeded`, not a real clock racing a
+    /// real statement - that is `docs/adr/0029`'s engine slice.
+    #[error("the deadline fired at the data system")]
+    TimedOut,
 }
 
 /// What a query pre-flight reports before the adapter is asked to execute.
@@ -212,7 +223,7 @@ impl Warehouse for FixedWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         // Zero for every fixture but one. See the field's own documentation: a pre-flight that takes
         // no time cannot make the deadline check between it and the execution fail.
@@ -223,7 +234,7 @@ impl Warehouse for FixedWarehouse {
         }
     }
 
-    fn execute(&self, _executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
         self.result.clone().ok_or(AdapterFailure::Statement { cause: DriverFailure })
     }
@@ -289,7 +300,12 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         match self.dry_run {
             DryRunOutcome::Accepted => Ok(PreFlight::Accepted { estimated_bytes: None }),
             DryRunOutcome::SourceRefused => Err(AdapterFailure::RefusedBySource),
@@ -297,7 +313,7 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
         }
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.executions.set(self.executions.get().saturating_add(1));
         Ok(self.result.clone())
     }
@@ -314,93 +330,9 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
 pub(crate) type MonoPreflightWarehouse = PreflightWarehouse<false>;
 pub(crate) type LegPreflightWarehouse = PreflightWarehouse<true>;
 
-/// A fake whose only additional claim is that it can execute catalog-authored SQL.
-///
-/// Used to prove the startup gate has both directions. It does not prove an authored query can be
-/// planned or answered; the production plan carries no SQL, and no published adapter makes this
-/// declaration.
-pub(crate) struct AuthoredWarehouse(FixedWarehouse);
-
-impl AuthoredWarehouse {
-    pub(crate) const fn new(source: SourceName, posture: SourcePosture) -> Self {
-        Self(FixedWarehouse::new(source, posture))
-    }
-}
-
-impl Warehouse for AuthoredWarehouse {
-    type Error = AdapterFailure;
-
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-    const EXECUTES_AUTHORED_SQL: bool = true;
-
-    fn source(&self) -> &SourceName {
-        self.0.source()
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        self.0.posture()
-    }
-
-    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
-        self.0.execute(executable, presented)
-    }
-
-    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        self.0
-            .result
-            .clone()
-            .map(AnchorRows::of)
-            .ok_or(AdapterFailure::Statement { cause: DriverFailure })
-    }
-}
-
-/// One authored metric over one model, with no anchors or relationships.
-pub(crate) fn authored_bundle(metric: sutura_domain::model::MetricName, source: SourceName) -> PinnedDefinitions {
-    use std::collections::BTreeSet;
-
-    use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Definitions, Description, Metric, Model};
-    use sutura_domain::expression::{AuthoredSql, Computation, DialectTag, SqlFragment};
-    use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
-    use sutura_domain::model::{ColumnName, Grain, ModelName, TableName};
-    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
-
-    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
-    let model_name = ModelName::parse("orders").expect("a test model is a model");
-    let model = Model::new(
-        model_name.clone(),
-        source.clone(),
-        TableName::parse("orders").expect("a test table is a table"),
-        BTreeSet::from([column("amount_cents"), column("order_date")]),
-        Description::default(),
-    );
-    let fragment = SqlFragment::parse("MAX(amount_cents) - MIN(amount_cents)").expect("a test fragment is SQL");
-    let authored =
-        AuthoredSql::new(BTreeMap::from([(DialectTag::portable(), fragment)])).expect("one portable fragment is authored SQL");
-    let authored_metric = Metric::new(
-        metric,
-        model_name,
-        Computation::AuthoredSql(authored),
-        Vec::new(),
-        column("order_date"),
-        BTreeSet::from([Grain::Month]),
-        Vec::new(),
-        None,
-        Description::default(),
-    )
-    .expect("no dimensions to duplicate");
-    let declared = MetadataCapabilities::of(
-        DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Metrics, DefinitionKind::Grains]),
-        KnowledgeCapabilities::none(),
-    );
-    PinnedDefinitions::pin(
-        DefinitionVersion::parse("test-1").expect("a test version is a version"),
-        Definitions::assemble(vec![model], vec![], vec![authored_metric]).expect("the test bundle is consistent"),
-        Knowledge::none(),
-        ContributionManifest::single(source, Contribution::of(declared)),
-    )
-    .expect("the test definitions hash")
-}
+/// The catalog-authored-SQL fake and its bundle - split out for this file's own `max-lines` reason.
+mod authored;
+pub(crate) use authored::{AuthoredWarehouse, authored_bundle};
 
 /// A fake that can run one half of a federated answer.
 ///
@@ -435,11 +367,16 @@ impl Warehouse for LegsWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Ok(self.result.clone())
     }
 
@@ -482,11 +419,16 @@ impl Warehouse for PageBoundLegsWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(AdapterFailure::TooMuchData)
     }
 
@@ -532,11 +474,16 @@ impl Warehouse for RefusingSourceWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(AdapterFailure::RefusedBySource)
     }
 
@@ -546,6 +493,59 @@ impl Warehouse for RefusingSourceWarehouse {
 
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(error, AdapterFailure::RefusedBySource)
+    }
+}
+
+/// A data system whose `execute` fails with what it reports as the deadline having fired.
+///
+/// The mono-path sibling [`RefusingSourceWarehouse`] is modelled on: `answer` must turn this
+/// specific error into [`RefusalReason::DeadlineExceeded`] and never into the retryable `503` a dead
+/// data system produces, so `sutura_app::tests`'s
+/// `running_out_of_time_is_a_refusal_and_not_a_503` pins the mapping the same way that fixture pins
+/// `source_refused`.
+pub(crate) struct DeadlineExceededWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl DeadlineExceededWarehouse {
+    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
+        Self { source, posture }
+    }
+}
+
+impl Warehouse for DeadlineExceededWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+        Err(AdapterFailure::TimedOut)
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::TimedOut)
+    }
+
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::TimedOut)
     }
 }
 
@@ -582,11 +582,16 @@ impl Warehouse for RefusingLegsWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(AdapterFailure::RefusedBySource)
     }
 
@@ -630,11 +635,16 @@ impl Warehouse for TransientlyBrokenWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(AdapterFailure::Statement { cause: DriverFailure })
     }
 

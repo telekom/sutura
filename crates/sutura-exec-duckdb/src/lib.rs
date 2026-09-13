@@ -24,6 +24,7 @@ use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -525,7 +526,11 @@ impl Warehouse for DuckDbWarehouse {
     /// from "nobody looked". `estimated_bytes` is `None`: `prepare` resolves the statement and reads
     /// no plan statistics that would price bytes touched, so this leg's contribution to a summed
     /// estimate is an honest absence rather than a number nobody promised. `docs/adr/0030`.
-    fn dry_run(&self, executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
+    ///
+    /// **The deadline is carried, not enforced here; see `docs/adr/0029`.** This adapter's row in
+    /// that record's table stays empty on purpose: the driver exposes an interrupt handle, but
+    /// honouring it needs a watchdog thread per call, which is a cost nobody has paid.
+    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         drop(
@@ -536,7 +541,8 @@ impl Warehouse for DuckDbWarehouse {
         Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         self.run(&query)

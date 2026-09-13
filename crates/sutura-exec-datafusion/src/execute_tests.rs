@@ -266,7 +266,7 @@ fn a_grouped_sum_comes_back_labelled_and_ordered_the_way_the_plan_says() {
     ));
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
     let result = adapter
-        .execute(Executable::Query(&query), &crate::test_leg())
+        .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect("the plan runs");
     assert_eq!(result.columns(), query.result_labels().as_slice());
     assert_eq!(
@@ -310,7 +310,7 @@ fn a_large_decimal_fixture_total_stays_exact() {
 
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
     let result = adapter
-        .execute(Executable::Query(&query), &crate::test_leg())
+        .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect("the plan runs");
     assert_eq!(
         result.rows(),
@@ -352,7 +352,7 @@ fn a_ratio_whose_zero_denominator_yields_null_answers_null_rather_than_failing()
         region_key(),
     );
     let result = adapter
-        .execute(Executable::Query(&query), &crate::test_leg())
+        .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(3.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Null));
@@ -383,7 +383,7 @@ fn a_count_if_answers_zero_for_a_group_with_no_matches_rather_than_nothing() {
         region_key(),
     );
     let result = adapter
-        .execute(Executable::Query(&query), &crate::test_leg())
+        .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Integer(0)));
     assert_eq!(result.cell(1, 2), Some(&Value::Integer(1)));
@@ -420,7 +420,7 @@ fn a_conditional_count_is_usable_as_a_ratio_numerator() {
         region_key(),
     );
     let result = adapter
-        .execute(Executable::Query(&query), &crate::test_leg())
+        .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(0.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Real(real(0.0))));
@@ -488,12 +488,14 @@ fn a_plan_naming_a_table_that_was_never_attached_is_an_error_and_never_an_empty_
     // twice. Asserted rather than assumed, because "the engine does not pre-check" is exactly
     // the kind of claim that stops being true when somebody adds an override back.
     assert!(
-        adapter.dry_run(Executable::Query(&query), &crate::test_leg()).is_ok(),
+        adapter
+            .dry_run(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+            .is_ok(),
         "the engine answers `would this work` by not asking, so a plan it cannot run still dry-runs clean"
     );
 
     let error = adapter
-        .execute(Executable::Query(&query), &crate::test_leg())
+        .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect_err("an unattached table does not resolve");
     assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
     assert_eq!(adapter.source().as_str(), "local");
@@ -526,7 +528,7 @@ fn credential_material_this_engine_cannot_use_is_refused_before_the_plan_is_buil
     ] {
         let expected = handed.as_str();
         let error = adapter
-            .execute(Executable::Query(&query), &handed)
+            .execute(Executable::Query(&query), &handed, crate::test_deadline())
             .expect_err("this engine cannot carry a subject");
         let DataFusionError::NoPlaceForASubject { ref at, presented } = error else {
             panic!("the adapter names what it was handed, before it plans anything: {error:?}");
@@ -537,7 +539,7 @@ fn credential_material_this_engine_cannot_use_is_refused_before_the_plan_is_buil
     // And the shape it CAN execute with reaches the engine, so the assertions above are not passing
     // against an adapter that refuses everything: the same plan then fails at resolution instead.
     let error = adapter
-        .execute(Executable::Query(&query), &crate::test_leg())
+        .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect_err("the table is not attached");
     assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
 }
@@ -571,7 +573,7 @@ fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_executed
     assert_eq!(fabricated.as_str(), crate::test_leg().as_str());
 
     let error = adapter
-        .execute(Executable::Query(&query), &fabricated)
+        .execute(Executable::Query(&query), &fabricated, crate::test_deadline())
         .expect_err("a witness that is not this source's is not this source's");
     let DataFusionError::PresentedDisagreesWithPosture { ref cause } = error else {
         panic!("the adapter names the disagreement rather than executing: {error:?}");
@@ -586,7 +588,7 @@ fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_executed
     // And the source's OWN witness still reaches the engine, so the assertion above is not passing
     // against an adapter that refuses every shared leg: the same plan then fails at resolution.
     let error = adapter
-        .execute(Executable::Query(&query), &crate::test_leg())
+        .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect_err("the table is not attached");
     assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
 }

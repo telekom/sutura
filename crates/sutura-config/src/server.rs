@@ -11,6 +11,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use sutura_domain::warehouse::deadline::Budget;
+
 /// The socket the service listens on.
 ///
 /// An `IpAddr` and a port, never a hostname. A hostname is refused rather than resolved: a name
@@ -130,6 +132,25 @@ pub enum InvalidBound {
          than refusing one question. Lower the key, or give the container more memory"
     )]
     AboveAvailableMemory { name: &'static str, found: u64, available: u64 },
+    /// `server.request_timeout_seconds` does not exceed [`RequestTimeout::REPLY_MARGIN`], so the
+    /// port's own budget - the timeout minus that margin - would be zero or negative.
+    ///
+    /// **Its own variant rather than [`Self::Zero`], because the arithmetic that fails is not "this
+    /// is zero" - one second parses today - it is "this cannot afford what is reserved out of it".**
+    /// `docs/adr/0029` is the record: the margin covers the cancellation reaching back through the
+    /// driver, the audit write and the response, and it stays where the transport's own give-up
+    /// already is - so a timeout that cannot afford it would leave the port with nothing to open a
+    /// [`Budget`] from.
+    #[error(
+        "{name} is {found}s and must exceed the {margin_seconds}s reply margin `docs/adr/0029` \
+         reserves out of it for the port's own budget - {minimum}s is the smallest accepted value",
+        minimum = margin_seconds.saturating_add(1)
+    )]
+    CannotAffordReplyMargin {
+        name: &'static str,
+        found: u64,
+        margin_seconds: u64,
+    },
 }
 
 impl RequestTimeout {
@@ -137,14 +158,38 @@ impl RequestTimeout {
     /// short enough that a stuck request is not a leaked connection for the rest of the day.
     pub const MAX_SECONDS: u64 = 300;
 
+    /// What [`Self::budget`] reserves out of the configured timeout before handing the rest to the
+    /// execution port, as one absolute [`Budget`].
+    ///
+    /// **Fixed, not proportional, and one second.** `docs/adr/0029` is the record: the transport's
+    /// own give-up (the `408`/failure this key already bounds) stays where it is, as the backstop
+    /// for an adapter that does not honour the deadline - two bounds firing at the same instant is a
+    /// race the backstop wins, so the port's own refusal would never be the outcome a caller sees.
+    /// What the margin covers - a cancellation reaching back through the driver, the audit write,
+    /// the response - does not scale with the timeout, which is why it is fixed rather than a
+    /// fraction of it.
+    pub const REPLY_MARGIN: Duration = Duration::from_secs(1);
+
     /// Reads a timeout in whole seconds.
     ///
     /// Seconds and not a duration string: sub-second precision is meaningless for a bound this
     /// coarse, and a parser for a suffixed number is a second grammar for a single value.
+    ///
+    /// **Refuses a timeout that cannot afford [`Self::REPLY_MARGIN`]**, which moves the floor from
+    /// one second to two: the smallest accepted value is the smallest one [`Self::budget`] can open
+    /// a non-zero [`Budget`] from. Checked here rather than in `budget` because a value that fails
+    /// this refuses at startup, naming the margin - `budget` is then infallible.
     pub const fn parse(seconds: u64) -> Result<Self, InvalidBound> {
         if seconds == 0 {
             return Err(InvalidBound::Zero {
                 name: "server.request_timeout_seconds",
+            });
+        }
+        if seconds <= Self::REPLY_MARGIN.as_secs() {
+            return Err(InvalidBound::CannotAffordReplyMargin {
+                name: "server.request_timeout_seconds",
+                found: seconds,
+                margin_seconds: Self::REPLY_MARGIN.as_secs(),
             });
         }
         if seconds > Self::MAX_SECONDS {
@@ -165,6 +210,21 @@ impl RequestTimeout {
     #[inline]
     pub const fn seconds(self) -> u64 {
         self.0.as_secs()
+    }
+
+    /// The execution port's budget: this timeout minus [`Self::REPLY_MARGIN`], computed once here so
+    /// every caller reads the same number rather than re-deriving it.
+    ///
+    /// **Infallible, and that is [`Self::parse`]'s floor read back rather than a fallible
+    /// conversion.** A [`RequestTimeout`] only exists at all once `parse` has refused a value that
+    /// cannot afford the margin, so what is left here is never zero.
+    #[expect(
+        clippy::expect_used,
+        reason = "parse refuses a timeout that cannot afford the margin, so what is left is never zero"
+    )]
+    pub fn budget(self) -> Budget {
+        Budget::parse(self.0.saturating_sub(Self::REPLY_MARGIN))
+            .expect("parse refuses a timeout that cannot afford the margin, so this is never zero")
     }
 }
 
@@ -344,6 +404,8 @@ impl ServerSettings {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::{BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, TlsMaterial};
 
     #[test]
@@ -410,6 +472,49 @@ mod tests {
     }
 
     #[test]
+    fn a_request_timeout_that_cannot_afford_the_reply_margin_is_refused() {
+        // The floor moves from one second to two: `docs/adr/0029` reserves the reply margin out of
+        // the timeout for the port's own budget, and one second cannot afford a one-second margin.
+        // Zero stays `InvalidBound::Zero` - a different arithmetic fault - which is why this is a
+        // second variant rather than a widened `Zero`.
+        let error = RequestTimeout::parse(1).expect_err("one second cannot afford a one-second margin");
+        assert_eq!(
+            error,
+            InvalidBound::CannotAffordReplyMargin {
+                name: "server.request_timeout_seconds",
+                found: 1,
+                margin_seconds: 1,
+            }
+        );
+        assert!(
+            error.to_string().contains("reply margin"),
+            "the message should name the margin: {error}"
+        );
+    }
+
+    #[test]
+    fn the_budget_and_the_reply_margin_are_the_request_timeout() {
+        // The arithmetic `docs/adr/0029` fixes: the port's budget plus the fixed margin adds back up
+        // to the configured timeout, for the smallest accepted value and for the shipped default.
+        for seconds in [2, 29, 30, RequestTimeout::MAX_SECONDS] {
+            let timeout = RequestTimeout::parse(seconds).expect("a valid timeout");
+            assert_eq!(
+                timeout.budget().duration() + RequestTimeout::REPLY_MARGIN,
+                timeout.duration(),
+                "budget + margin should equal the timeout for {seconds}s"
+            );
+        }
+        // The smallest legal timeout opens the smallest legal budget: one second, never zero.
+        assert_eq!(
+            RequestTimeout::parse(2)
+                .expect("two seconds is the floor")
+                .budget()
+                .duration(),
+            Duration::from_secs(1)
+        );
+    }
+
+    #[test]
     fn a_bound_above_the_ceiling_is_refused_and_names_both_numbers() {
         let error =
             RequestTimeout::parse(RequestTimeout::MAX_SECONDS.saturating_add(1)).expect_err("above the ceiling is not a timeout");
@@ -441,7 +546,12 @@ mod tests {
                 .seconds(),
             RequestTimeout::MAX_SECONDS
         );
-        assert_eq!(RequestTimeout::parse(1).expect("one second is a timeout").seconds(), 1);
+        assert_eq!(
+            RequestTimeout::parse(2)
+                .expect("two seconds affords the reply margin")
+                .seconds(),
+            2
+        );
         assert_eq!(
             BodyLimit::parse(BodyLimit::MAX_BYTES)
                 .expect("the ceiling is a body limit")

@@ -48,7 +48,8 @@ use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
 use governor::middleware::StateInformationMiddleware;
-use sutura_config::Quota;
+use sutura_config::{Quota, RequestTimeout};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::metrics::Label;
 use tower_governor::GovernorLayer;
 use tower_governor::governor::{GovernorConfig, GovernorConfigBuilder};
@@ -445,7 +446,17 @@ fn layer(metrics: &Metrics, quota: Quota, tier: Label, key: ClientAddress) -> Bu
 /// It bounds *the response*, which is what a caller experiences, and not the work: a question
 /// already handed to the blocking pool keeps running until the data system answers it. Cancelling
 /// that needs a cancellation token the `Warehouse` port does not have.
-pub async fn enforce_timeout(State(bound): State<Duration>, request: Request, next: Next) -> Response {
+///
+/// **Also where the port's [`Deadline`] is opened**, at the instant this layer is reached - before
+/// admission, so the wait for a concurrency slot sits inside the caller's own bound rather than
+/// adds to it (`docs/adr/0029`). Inserted as a request extension, which is what lets the route
+/// handler read it with no state of its own to thread it through: `crate::inbound::VerifiedCaller`
+/// reaches the handler the same way, for the same reason.
+pub async fn enforce_timeout(State(request_timeout): State<RequestTimeout>, mut request: Request, next: Next) -> Response {
+    let bound = request_timeout.duration();
+    request
+        .extensions_mut()
+        .insert(Deadline::opened_at(Instant::now(), request_timeout.budget()));
     match tokio::time::timeout(bound, next.run(request)).await {
         Ok(response) => response,
         Err(_elapsed) => {

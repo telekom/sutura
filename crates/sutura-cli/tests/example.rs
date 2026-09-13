@@ -446,6 +446,14 @@ mod tests {
         ))
     }
 
+    /// A generous deadline for every answer in this suite, since none of it is about time.
+    fn deadline() -> sutura_domain::warehouse::deadline::Deadline {
+        sutura_domain::warehouse::deadline::Deadline::opened_at(
+            std::time::Instant::now(),
+            sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(30)).expect("30s"),
+        )
+    }
+
     #[test]
     fn every_declared_anchor_in_the_example_reproduces_its_number() {
         // The bug this prevents: an example whose numbers are aspirational. An anchor is a figure
@@ -505,7 +513,15 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let answered = sutura_app::answer(&validated, &question, &a_caller(), &single_user_broker(), &warehouse, 1 << 30);
+            let answered = sutura_app::answer(
+                &validated,
+                &question,
+                &a_caller(),
+                &single_user_broker(),
+                &warehouse,
+                1 << 30,
+                deadline(),
+            );
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match answered.map(sutura_app::Answered::into_outcome) {
                 Ok(sutura_domain::query::ToolOutcome::Refusal { ref reason }) => {

@@ -311,6 +311,24 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                 postures.iter().copied().collect::<Vec<&str>>().join(" and ")
             ),
         ),
+        // 422, for `ResourcesExhausted`'s exact reason: this used to be a data-system failure and
+        // leave as a retryable `503`, and a deadline is a configured bound the deployment decided
+        // and the data system enforced - something WAS judged. Retrying spends the whole budget at
+        // the data system again, and on a networked adapter bills again; 422's own definition -
+        // "repeating the request without modification will fail with the same error" - is what is
+        // true here, load permitting. `docs/adr/0029` argues both directions once.
+        //
+        // The sentence names the configured budget and nothing about how long the question would
+        // have taken, which nobody knows, and nothing about which leg spent it if this was a
+        // federated answer - see the domain variant for why.
+        RefusalReason::DeadlineExceeded { budget_seconds } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "this deployment stopped the question after {budget_seconds} seconds, its configured \
+                 budget for one answer; narrow the period, group by fewer dimensions or add a filter \
+                 and ask again. Retrying it unchanged returns this same refusal"
+            ),
+        ),
     };
     (
         status,
@@ -503,6 +521,11 @@ mod tests {
                 },
                 StatusCode::CONFLICT,
                 "legs_decide_identity_differently",
+            ),
+            (
+                RefusalReason::DeadlineExceeded { budget_seconds: 29 },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "deadline_exceeded",
             ),
         ]
     }
