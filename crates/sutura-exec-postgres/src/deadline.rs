@@ -49,7 +49,12 @@ impl PostgresWarehouse {
     /// LOCAL` (an out-of-range value, say) still opens the transaction it rode beside, leaving the
     /// connection ABORTED for every later caller otherwise (finding NIT 6). `SET LOCAL` needs a
     /// transaction block to take effect at all, and there is nothing here to commit - a certified
-    /// plan only ever `SELECT`s - so discarding it either way is exact.
+    /// plan only ever `SELECT`s - so discarding it either way is exact. **That failure arm is
+    /// unexercised by any cell**: a refused `SET LOCAL` needs a value over `i32::MAX`, reachable
+    /// only with a disabled ceiling (`SUTURA_DEV_STATEMENT_TIMEOUT_MS=0`) and a `Budget` over
+    /// ~24.8 days - unreachable from production configuration (`RequestTimeout::MAX_SECONDS`
+    /// bounds it to 300 s), so this is held by reading (`telekom/sutura#687`'s round-2 review,
+    /// finding 2).
     pub(crate) fn run_with_deadline(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<RowSet, PostgresError> {
         let _guard = lock_execution(&self.execution_lock);
         refuse_if_spent(deadline)?;

@@ -299,4 +299,25 @@ mod deadline_statement_timeout {
         assert_eq!(deadline_statement_timeout_ms(15_000, deadline).get(), 1);
         assert_eq!(deadline_statement_timeout_ms(0, deadline).get(), 1);
     }
+
+    /// **The overflow fallback saturates at `i32::MAX`, not `u32::MAX`** (`telekom/sutura#687`'s
+    /// round-2 review, finding 2/1b): Postgres's own `statement_timeout` GUC is a signed `int`, and
+    /// a fifty-day budget's milliseconds do not fit a `u32` (`50 * 86_400_000 > u32::MAX`), so with
+    /// no ceiling to clamp it this drives `unwrap_or(POSTGRES_TIMEOUT_MAX_MS)` directly.
+    #[test]
+    fn an_overflowing_remaining_saturates_at_i32_max_not_u32_max() {
+        let fifty_days = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_hours(1200)).expect("fifty days is a budget"),
+        );
+        assert_eq!(deadline_statement_timeout_ms(0, fifty_days).get(), 0x7FFF_FFFF);
+    }
+}
+
+/// `crate::deadline::deadline_exceeded`'s `DeadlineSpent` arm, hermetic - the tier cell in
+/// `tests/deadline.rs` (`a_caller_spent_while_waiting_for_the_lock_is_refused_locally`) is what
+/// proves a spent deadline actually reaches this variant; this is only the mapping.
+#[test]
+fn a_local_deadline_spent_refusal_is_deadline_exceeded() {
+    assert!(crate::deadline::deadline_exceeded(&PostgresError::DeadlineSpent));
 }

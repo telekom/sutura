@@ -34,8 +34,8 @@ mod deadline {
     use sutura_domain::raw::RawStatement;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{ParamValue, Value, Warehouse as _};
-    use sutura_exec_postgres::PostgresWarehouse;
     use sutura_exec_postgres::fixture::FixtureCredential;
+    use sutura_exec_postgres::{PostgresError, PostgresWarehouse};
 
     const SERVICE: &str = "postgres";
 
@@ -382,6 +382,66 @@ mod deadline {
         assert!(
             elapsed < Duration::from_secs(1),
             "stopped at ~300ms plus tolerance, not left blocked on the lock: {elapsed:?}"
+        );
+    }
+
+    /// **A budget spent DURING the wait for `execution_lock`, not before it.** A raw `pg_sleep(1.5)`
+    /// on a scoped thread holds the connection (and its lock) for 1.5s; a certified `execute` on a
+    /// 300ms budget starts 100ms later, on the SAME connection, so it must wait roughly 1.4s for the
+    /// lock before it can even ask what is left - long past its own budget. `sutura_app::answer`'s
+    /// own pre-call check ran before either wait started and cannot see this: the check this proves
+    /// is `deadline.rs`'s own re-check AFTER the lock is acquired, refusing locally as
+    /// `PostgresError::DeadlineSpent` rather than sending a statement the server would just answer
+    /// (`telekom/sutura#687`'s round-2 review, finding 1 - the probe that found this untested).
+    #[test]
+    fn a_caller_spent_while_waiting_for_the_lock_is_refused_locally() {
+        let Some((warehouse, _schema)) = open("lockwait") else {
+            return;
+        };
+        let table = corpus::table();
+        let metric = MetricName::parse("lockwait_probe").expect("a test metric name is a name");
+        let (range, bindings) = range_over(
+            Date::new(2000, 1, 1).expect("year 2000 is in range"),
+            Date::new(2099, 12, 31).expect("year 2099 is in range"),
+            &table,
+        );
+        let plan = QueryPlan::new(
+            corpus::source(),
+            metric.clone(),
+            StatementTables::only(table.clone()),
+            PlanBucket::new(ResultLabel::bucket(), Grain::Day, column(&table, "day")),
+            Vec::new(),
+            PlanMeasure::Simple {
+                term: PlanTerm::Aggregate {
+                    aggregate: Aggregate::Sum,
+                    column: column(&table, "amount_cents"),
+                },
+            },
+            ResultLabel::measure(&metric),
+            bindings,
+            range,
+        );
+        let deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
+        );
+
+        let outcome = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                drop(warehouse.execute_raw(&statement("select pg_sleep(1.5)"), &corpus::presented()));
+            });
+            std::thread::sleep(Duration::from_millis(100));
+            warehouse.execute(Executable::Query(&plan), &corpus::presented(), deadline)
+        });
+
+        let error = outcome.expect_err("a budget spent waiting for the lock must not answer with rows");
+        assert!(
+            matches!(error, PostgresError::DeadlineSpent),
+            "expected DeadlineSpent, got {error:?}"
+        );
+        assert!(
+            warehouse.deadline_exceeded(&error),
+            "DeadlineSpent must classify as deadline_exceeded too: {error}"
         );
     }
 }
