@@ -2997,23 +2997,28 @@ call.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CompileFailure</span>
 </span></code></pre></div>
 <p>Why compiling failed, which is never why a question was refused.</p>
-<p><strong>Two arms rather than one bundle error, and <code>telekom/sutura#338</code> is the report.</strong> A question the
-deployment declines comes back as <code>Compiled::Refused</code>; what reaches this type is our own side
-being wrong. Those are the two ways that can happen: the pinned bundle names something it does not
-hold, and the splitter built a two-source plan that
-<code>FederatedPlan::new</code> then rejected. The second used to
+<p><strong>Three arms rather than one bundle error, and <code>telekom/sutura#338</code> is the report.</strong> A question
+the deployment declines comes back as <code>Compiled::Refused</code>; what reaches this type is our own
+side being wrong. Those are the ways that can happen: the pinned bundle names something it does
+not hold, the splitter built a two-source plan that
+<code>FederatedPlan::new</code> then rejected, and a producer
+built a plan whose predicates and parameters did not resolve each other. The second used to
 be flattened into <code>RefusalReason::FederationNotExecutable</code>, which is what a build whose adapter
 type does not declare <code>Warehouse::EXECUTES_LEGS</code> is told - so a wiring defect and a statement
 about the build's own capability arrived as one value, and a caller could not tell which it had.</p>
 <p><strong>The limit, next to the claim:</strong> nothing provokes <code>NotAssembled</code>
-today. Every <code>FederatedPlanError</code> variant is structurally unreachable from the splitter as it
-stands - <code>crate::plan::PlanError</code> enumerates why, one variant at a time - so what this arm buys is
-that a future edit which makes one reachable surfaces as a failure rather than as a refusal a
-caller would retry.</p>
+or <code>NotBound</code> today. Every <code>FederatedPlanError</code> variant is
+structurally unreachable from the splitter as it stands, and every
+<code>IncoherentBindings</code> variant is unreachable from the
+two functions that build a binding set, because both mint each parameter index from the position
+the value was pushed to - <code>crate::plan::PlanError</code> enumerates why, one variant at a time - so what
+these arms buy is that a future edit which makes one reachable surfaces as a failure rather than
+as a refusal a caller would retry.</p>
 <h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>Bundle</code> - The pinned bundle names a model or a relationship it does not hold.</li>
 <li><code>NotAssembled</code> - A two-source plan this workspace compiled and could not then assemble.</li>
+<li><code>NotBound</code> - A plan this workspace compiled whose predicates and parameters did not resolve each other.</li>
 </ul>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
