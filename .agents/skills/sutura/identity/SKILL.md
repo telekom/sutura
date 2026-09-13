@@ -117,6 +117,17 @@ directions. The non-obvious parts:
   key's `kid` is one the cache holds, so nothing fires. That is why both triggers exist, and why the
   age re-read is armed from the lookup path as well as from a timer - forgetting the timer must not
   leave a serving deployment stale.
+- **That age bound EXCLUDES a failing refresh, and the exclusion is not small.** A read that fails
+  and a document the cache refuses both keep the previous keys verifying, while the reservation
+  stamps the *attempt* - so while refresh is unavailable the bound bounds nothing, and the cached
+  signing keys are retained for as long as it stays that way. It bypasses neither the signature nor
+  the token's own expiry; what it permits is continued trust in keys an earlier refresh established.
+  `KeySetCache::stale_for` is the measurement - last **success**, never last attempt - and there is
+  no ceiling on it: refusing is an availability-breaking policy, and no record has decided a
+  deployment should degrade that way (the issue that was to decide it closed without doing so). The
+  bound, stated whole: **a removed key stops verifying within `MAX_KEY_SET_AGE` plus one read while
+  refresh works, and after no bounded time while it does not.** **Do not cite the age bound without
+  the exclusion.**
 - **One write-lock acquisition compares and stamps the window**, so a forged `kid` cannot turn every
   request into an outbound call at any concurrency, and the bound is measured from the last
   *attempt* so a dead source is limited too. **The wording was right and the code was wrong against

@@ -467,3 +467,42 @@ unaffected: the agent surface still answers `Subject::TheDeploymentItself`, noth
 `sutura_http::inbound` is reachable from it, and wiring a caller identity to it still needs the two
 decisions this section names. Only the "without a binary" half is spent, so the sentence is amended
 rather than the section rewritten.
+
+## Second amendment, 2026-09-12: the age bound excludes a failing refresh, and where the read runs
+
+**Status of the amendment: accepted.** The *What is built* row above reads *"**Removed** → re-read
+once per `MAX_KEY_SET_AGE`"* and states the rate limit is measured from the last attempt "so a
+failing source is limited too". Both halves are true and together they read as a revocation bound
+that holds unconditionally. It does not, and the row is amended rather than the section rewritten:
+
+- **The bound covers a refresh that WORKS.** A read that fails and a document the cache refuses both
+  keep the previous keys verifying, and the reservation stamps the *attempt* - which is exactly what
+  the rate limit needs, and is not a record that anything confirmed the keys. So while refresh is
+  unavailable, `MAX_KEY_SET_AGE` bounds nothing and the cached signing keys are retained for as long
+  as it stays that way. **What that permits is continued trust in signing keys an earlier refresh
+  established. It bypasses neither the signature check nor the token's own expiry.**
+- **The measurement now exists and there is no ceiling on it, and no record owns that decision.**
+  `KeySetCache::stale_for` is how long since a look last came back with a document this deployment
+  could use - the last **success**, which `last_attempt` could never be. Nothing refuses on it:
+  refusing is an availability-breaking policy, and a sidecar part-way through rewriting a mounted key
+  set would take a deployment's whole authentication down with it. Which way that default points
+  was to be decided with degradation per dependency under
+  [#141](https://github.com/telekom/sutura/issues/141); that issue was closed by
+  [#637](https://github.com/telekom/sutura/pull/637) without taking it, and as of this amendment no
+  issue or record does. So the bound and its limit, stated together: **a removed key stops verifying
+  within `MAX_KEY_SET_AGE` plus one read while refresh works, and after no bounded time while it does
+  not.** The staleness is on a `WARN` for every look that could not confirm the keys, and refused on
+  by nothing.
+- **Where the read runs was also not what this record implied.** *"One small read per minute"* ran
+  inline on the async worker thread that was serving requests, from the timer as much as from a
+  caller, over a document read with no size bound at all. The read and the parse now go to the
+  blocking pool through `sutura_runtime::spawn_carrying_span`, the file source refuses a document
+  over `MAX_KEY_SET_BYTES`, and a look already in flight loses the reservation - which is what keeps
+  a source slower than its own window from accumulating detached reads, and what makes two of them
+  completing out of order unreachable rather than merely unlikely. The reservation is a value with
+  a `Drop` (`InFlight`) and not a flag, because the look is awaited on the request task and a
+  request that timed out or disconnected mid-look would otherwise have held the reservation for the
+  life of the process. **A blocking task still cannot be aborted**, so a read whose awaiter left runs
+  to its end on the pool and nothing installs its result; a look that never returns under an awaiter
+  that stays - the timer's - holds refresh for as long as it hangs, visible as a staleness that only
+  grows.

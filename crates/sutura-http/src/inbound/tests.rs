@@ -852,5 +852,15 @@ mod review;
 
 /// Leg 1 against an issuer that PUBLISHES its key set, so the rotation bound faces a source that changes.
 mod published;
+/// Where a refresh runs, what bounds it, and what the revocation bound does not cover - the cases
+/// that need a look which is slow, that fails, or that hands back something this deployment refuses.
+///
+/// `#[cfg(test)]` here is redundant under this file's own gate and present anyway: `xtask
+/// test-causality` reverts a file that adds no `#[test]` of its own, and a bare `mod refresh;`
+/// declares nothing the scan reads as one - so a later diff dropping only that line back to base
+/// would orphan this module rather than fail loud. The attribute makes the declaration itself read
+/// as `TestModule`, which the gate holds.
+#[cfg(test)]
+mod refresh;
 /// Leg 1 through the assembled router, which is what says the layer is installed at all.
 mod router;
