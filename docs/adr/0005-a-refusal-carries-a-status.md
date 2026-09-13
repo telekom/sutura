@@ -70,8 +70,13 @@ states the status without one.
 the match that decides it - the registered entry forbids the WRONG figure and the test beside it says
 in its own words that it "says nothing about the COUNT". So
 `crates/sutura-http/src/wire/refusal.rs`, which spells the number in two of its own comments, and
-`docs/serving.md`, which spells it once, are correct as written and held by adjacency and review
-rather than by a mechanism. That entry could not reach `refusal.rs` in any case: `check-guidance`'s
+`docs/serving.md`, which spells it once, are held by adjacency and review rather than by a mechanism.
+That is not hypothetical. Those sites went stale again on 2026-09-13, under two hours after the entry
+was registered: the deadline refusal arrived as another arm of the same match sending another code to
+`422`, the wire's own status table gained its row because the exhaustive match forced one, and not a
+single sentence that counts the codes moved with it. The number is deliberately not restated here -
+this paragraph is about a count nothing derives, and writing one would be the defect it describes.
+That entry could not reach `refusal.rs` in any case: `check-guidance`'s
 claim scope is `md`, `nix`, `yml`, `yaml`, `toml` and `sh`, so a count written in a Rust comment is
 outside every wording it registers.
 
