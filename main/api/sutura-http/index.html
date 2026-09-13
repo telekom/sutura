@@ -2681,11 +2681,18 @@ in <code>crate::openapi</code> compares it against the generated document's oper
 <h2 id="use-permitted_for"><code>use permitted_for</code><a class="headerlink" href="#use-permitted_for" title="Permanent link">&para;</a></h2>
 <p>What this request's caller may do.</p>
 <p>See the module documentation for the two cases and for why the second is not a fallback.</p>
+<p><code>run_sql_enabled</code> narrows the result AFTER either case, and deliberately not inside them: a
+deployment-level switch and a caller's own scope are two different reasons a capability is
+absent, and <code>Permitted::without</code> is what applies the first without <code>Permitted</code> growing a
+second notion of what a scope is. <code>docs/adr/0013</code>'s off-by-default raw SQL tool is the first
+capability this applies to; a second one gains a parameter here rather than a widened boolean.</p>
 <h2 id="use-require_capability"><code>use require_capability</code><a class="headerlink" href="#use-require_capability" title="Permanent link">&para;</a></h2>
 <p>Refuses a request for a capability this caller was not granted.</p>
 <p>A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
 handler to forget. Installed INSIDE <code>crate::inbound::gate::require_verified_caller</code>, which is what
 makes the extension available here - see <code>crate::router</code> for the whole order.</p>
+<p>Takes the state now, for one reading: <code>settings.tools().run_sql_enabled()</code>. <code>docs/adr/0013</code>'s tool
+must be absent for every caller when a deployment never turned it on - see <code>permitted_for</code>.</p>
 <h2 id="use-clientaddress"><code>use ClientAddress</code><a class="headerlink" href="#use-clientaddress" title="Permanent link">&para;</a></h2>
 <p>Where a bucket's key comes from, as a value the limiter layer is built with.</p>
 <p><code>Clone</code> because <code>KeyExtractor</code> requires it and the layer clones it per connection; the trusted
@@ -2869,7 +2876,7 @@ fields with accessors, which is the rule for a <code>pub struct</code> in a libr
 <h4 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code></p>
 <h3 id="fn-governed"><code>fn governed</code><a class="headerlink" href="#fn-governed" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">governed</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">[</span><span class="n">GovernedRoute</span><span class="p">;</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">governed</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">[</span><span class="n">GovernedRoute</span><span class="p">;</span><span class="w"> </span><span class="mi">3</span><span class="p">]</span>
 </span></code></pre></div>
 <p>Every route this crate governs.</p>
 <p>Built as a function rather than a <code>const</code> because the paths are composed from <code>API_V1_PREFIX</code>
@@ -2884,17 +2891,24 @@ in <code>crate::openapi</code> compares it against the generated document's oper
 layer is installed on the versioned subtree only, and assembly proved every route in it has a row
 - and the layer still refuses rather than passing, because "cannot happen" is not a control.</p>
 <h3 id="fn-permitted_for"><code>fn permitted_for</code><a class="headerlink" href="#fn-permitted_for" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">permitted_for</span><span class="p">(</span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">permitted_for</span><span class="p">(</span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">,</span><span class="w"> </span><span class="n">run_sql_enabled</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span>
 </span></code></pre></div>
 <p>What this request's caller may do.</p>
 <p>See the module documentation for the two cases and for why the second is not a fallback.</p>
+<p><code>run_sql_enabled</code> narrows the result AFTER either case, and deliberately not inside them: a
+deployment-level switch and a caller's own scope are two different reasons a capability is
+absent, and <code>Permitted::without</code> is what applies the first without <code>Permitted</code> growing a
+second notion of what a scope is. <code>docs/adr/0013</code>'s off-by-default raw SQL tool is the first
+capability this applies to; a second one gains a parameter here rather than a widened boolean.</p>
 <h3 id="fn-require_capability"><code>fn require_capability</code><a class="headerlink" href="#fn-require_capability" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">require_capability</span><span class="p">(</span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">middleware</span><span class="p">::</span><span class="n">Next</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">response</span><span class="p">::</span><span class="n">Response</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">require_capability</span><span class="p">(</span><span class="n">__arg0</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">State</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">state</span><span class="p">::</span><span class="n">ServiceState</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">middleware</span><span class="p">::</span><span class="n">Next</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">response</span><span class="p">::</span><span class="n">Response</span>
 </span></code></pre></div>
 <p>Refuses a request for a capability this caller was not granted.</p>
 <p>A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
 handler to forget. Installed INSIDE <code>crate::inbound::gate::require_verified_caller</code>, which is what
 makes the extension available here - see <code>crate::router</code> for the whole order.</p>
+<p>Takes the state now, for one reading: <code>settings.tools().run_sql_enabled()</code>. <code>docs/adr/0013</code>'s tool
+must be absent for every caller when a deployment never turned it on - see <code>permitted_for</code>.</p>
 <h2 id="module-client_address">Module <code>client_address</code><a class="headerlink" href="#module-client_address" title="Permanent link">&para;</a></h2>
 <p>The address a rate-limit bucket is counted against, and why it is not simply the peer.</p>
 <h1 id="the-bug-this-module-exists-to-fix">The bug this module exists to fix<a class="headerlink" href="#the-bug-this-module-exists-to-fix" title="Permanent link">&para;</a></h1>
@@ -2973,6 +2987,8 @@ one path that is not behind the access token, because a probe has no credential 
 <p>What this catalog defines.</p>
 <h4 id="constant-query"><code>constant QUERY</code><a class="headerlink" href="#constant-query" title="Permanent link">&para;</a></h4>
 <p>Asking one certified question.</p>
+<h4 id="constant-run_sql"><code>constant RUN_SQL</code><a class="headerlink" href="#constant-run_sql" title="Permanent link">&para;</a></h4>
+<p>Running one raw SQL statement - <code>docs/adr/0013</code>'s tool, off by default.</p>
 <h2 id="module-correlation">Module <code>correlation</code><a class="headerlink" href="#module-correlation" title="Permanent link">&para;</a></h2>
 <p>One identifier per request, so a request's lines can be found together.</p>
 <h1 id="what-this-is-and-the-limits-of-it">What this is, and the limits of it<a class="headerlink" href="#what-this-is-and-the-limits-of-it" title="Permanent link">&para;</a></h1>
@@ -4351,7 +4367,7 @@ or a request body; anything reachable from one of them is pulled in by the deriv
 <h4 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h4>
 <p><code>OpenApi</code></p>
 <h3 id="fn-document"><code>fn document</code><a class="headerlink" href="#fn-document" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-99-1"><a id="__codelineno-99-1" name="__codelineno-99-1" href="#__codelineno-99-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">document</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">utoipa</span><span class="p">::</span><span class="n">openapi</span><span class="p">::</span><span class="n">OpenApi</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-99-1"><a id="__codelineno-99-1" name="__codelineno-99-1" href="#__codelineno-99-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">document</span><span class="p">(</span><span class="n">run_sql_enabled</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">utoipa</span><span class="p">::</span><span class="n">openapi</span><span class="p">::</span><span class="n">OpenApi</span>
 </span></code></pre></div>
 <p>The whole document: the derived shell plus one fragment per version.</p>
 <p>A <code>v2</code> adds one line here and nothing else, which is what makes versioning additive: the
@@ -4363,8 +4379,16 @@ document lists becomes a tool a client such as a chat interface may offer its mo
 that list is a tool nothing should call. The set is exhaustive in both directions - a route the
 document describes that <code>crate::capability::governed</code> does not name, and a governed route it
 omits, are each a failure (<code>tests/operations.rs</code>).</p>
+<p><strong><code>run_sql_enabled</code> decides whether <code>/sql/run</code> is in the set at all.</strong> The same absence
+<code>sutura_mcp</code>'s <code>tools/list</code> gives a deployment that never turned the raw tool on: a route this
+deployment answers <code>403</code> for every caller of, forever, is not a "governed operation" in the
+sense this document's own header claims - it is a switch nobody may use, and listing it invites
+a client generator to build a call nothing here will ever accept. The path is removed from the
+assembled document rather than never merged, because <code>#[utoipa::path]</code> has no per-deployment
+condition to attach to - the generator's own output is unconditional, and this is the one place
+the deployment's own setting can still act on it.</p>
 <h3 id="fn-document_json"><code>fn document_json</code><a class="headerlink" href="#fn-document_json" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-100-1"><a id="__codelineno-100-1" name="__codelineno-100-1" href="#__codelineno-100-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">document_json</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">serde_json</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-100-1"><a id="__codelineno-100-1" name="__codelineno-100-1" href="#__codelineno-100-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">document_json</span><span class="p">(</span><span class="n">run_sql_enabled</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">serde_json</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The document as JSON.</p>
 <p>One function, used by the route that serves it and by any tooling that dumps it, so the two
@@ -4407,6 +4431,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
 <ul>
 <li><code>Unauthorized</code> - A credential is required and was absent, malformed or wrong.</li>
 <li><code>InsufficientScope</code> - The caller is authenticated and was not granted the capability this route needs.</li>
+<li><code>ToolNotEnabled</code> - The capability exists on this surface, but this DEPLOYMENT never turned it on - distinct from <code>Self::InsufficientScope</code>, where the caller's own credential is what is missing.</li>
 <li><code>NotAQuestion</code> - The body is not a question. Carries a message naming the field.</li>
 <li><code>TooLarge</code> - The body is larger than the configured bound.</li>
 <li><code>RateLimited</code> - Too many requests from this address, too quickly.</li>
@@ -5072,6 +5097,86 @@ bundle rather than an input to one.</p>
 typed refusals were identical - kept equal only by review - so the parse moved inward of both;
 this alias is what every existing reference to <code>crate::wire::MalformedQuestion</code> in this crate
 keeps meaning.</p>
+<h3 id="use-rawmalformedstatement"><code>use RawMalformedStatement</code><a class="headerlink" href="#use-rawmalformedstatement" title="Permanent link">&para;</a></h3>
+<p>Why a <code>run_sql</code> request body was not a statement.</p>
+<h3 id="use-rawoutcomebody"><code>use RawOutcomeBody</code><a class="headerlink" href="#use-rawoutcomebody" title="Permanent link">&para;</a></h3>
+<p>What running a raw statement produced.</p>
+<p>Tagged so it cannot be mistaken for a certified answer's <code>super::OutcomeBody</code> - see the module
+documentation.</p>
+<p><strong>The variant NAMES carry no <code>Raw</code> prefix</strong> (<code>clippy::enum_variant_names</code> over this
+already-<code>Raw</code>-prefixed type) - only their serialized tags do, pinned by an explicit
+<code>#[serde(rename)]</code> on each: <code>Refusal</code> alone would serialize exactly the certified path's own
+<code>outcome: "refusal"</code>, the one collision <code>docs/adr/0013</code> forbids.</p>
+<h3 id="use-runsqlbody"><code>use RunSqlBody</code><a class="headerlink" href="#use-runsqlbody" title="Permanent link">&para;</a></h3>
+<p>One raw statement, as the request body.</p>
+<h3 id="use-runsqloutcome"><code>use RunSqlOutcome</code><a class="headerlink" href="#use-runsqloutcome" title="Permanent link">&para;</a></h3>
+<p>A raw outcome, and the status the transport says it with.</p>
+<p><code>super::Outcome</code>'s shape, over <code>RawOutcome</code> instead of a certified
+<code>sutura_domain::query::ToolOutcome</code>.</p>
+<h3 id="module-raw">Module <code>raw</code><a class="headerlink" href="#module-raw" title="Permanent link">&para;</a></h3>
+<p>The raw SQL tool's own wire shape, kept apart from every certified shape above for the reason
+its own module documentation gives.
+The raw SQL tool's wire shape: what <code>POST /v1/sql/run</code> takes, and what it answers.</p>
+<p>Its own module for the reason <code>wire/refusal.rs</code> has one: a seam the thousand-line limit on
+<code>wire.rs</code> does not have room for.</p>
+<p>It shares the discriminator's NAME (<code>outcome</code>), the <code>columns</code>/<code>rows</code> keys a row-carrying body
+needs whichever tool produced it, and the same content-negotiation <code>axum::Json</code> gives every
+response here - never the discriminator's VALUE, and never a provenance-shaped key. See below.</p>
+<h1 id="the-discriminant-restated-for-this-transport">The discriminant, restated for this transport<a class="headerlink" href="#the-discriminant-restated-for-this-transport" title="Permanent link">&para;</a></h1>
+<p><code>docs/adr/0013</code> requires no shared discriminant VALUE and no provenance-shaped key with a
+certified answer's - WEAKER than "no field name in common": <code>columns</code> and <code>rows</code> are the same
+two keys on both bodies, because both carry rows and need the same two labels for them.</p>
+<p><code>RawOutcomeBody</code> tags <code>outcome: "raw_rows"</code> / <code>outcome: "raw_refusal"</code> - never <code>"answer"</code> or
+<code>"refusal"</code> - and carries no <code>provenance</code> or <code>definition_digest</code> key at any depth, matching
+<code>sutura_mcp::wire::raw::RawContent</code>'s shape on the other transport.</p>
+<p>The two are kept equal by review, the same limit <code>super::OutcomeBody</code>'s own module
+documentation states for the certified pair.</p>
+<h4 id="struct-runsqlbody"><code>struct RunSqlBody</code><a class="headerlink" href="#struct-runsqlbody" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-151-1"><a id="__codelineno-151-1" name="__codelineno-151-1" href="#__codelineno-151-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlBody</span>
+</span></code></pre></div>
+<p>One raw statement, as the request body.</p>
+<h5 id="implements_47">Implements<a class="headerlink" href="#implements_47" title="Permanent link">&para;</a></h5>
+<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
+<h4 id="enum-malformedstatement"><code>enum MalformedStatement</code><a class="headerlink" href="#enum-malformedstatement" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-152-1"><a id="__codelineno-152-1" name="__codelineno-152-1" href="#__codelineno-152-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
+</span></code></pre></div>
+<p>Why a <code>run_sql</code> request body was not a statement.</p>
+<h5 id="variants_15">Variants<a class="headerlink" href="#variants_15" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Statement</code></li>
+</ul>
+<h5 id="implements_48">Implements<a class="headerlink" href="#implements_48" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h4 id="enum-rawoutcomebody"><code>enum RawOutcomeBody</code><a class="headerlink" href="#enum-rawoutcomebody" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-153-1"><a id="__codelineno-153-1" name="__codelineno-153-1" href="#__codelineno-153-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawOutcomeBody</span>
+</span></code></pre></div>
+<p>What running a raw statement produced.</p>
+<p>Tagged so it cannot be mistaken for a certified answer's <code>super::OutcomeBody</code> - see the module
+documentation.</p>
+<p><strong>The variant NAMES carry no <code>Raw</code> prefix</strong> (<code>clippy::enum_variant_names</code> over this
+already-<code>Raw</code>-prefixed type) - only their serialized tags do, pinned by an explicit
+<code>#[serde(rename)]</code> on each: <code>Refusal</code> alone would serialize exactly the certified path's own
+<code>outcome: "refusal"</code>, the one collision <code>docs/adr/0013</code> forbids.</p>
+<h5 id="variants_16">Variants<a class="headerlink" href="#variants_16" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Rows</code></li>
+<li><code>Refusal</code></li>
+</ul>
+<h5 id="implements_49">Implements<a class="headerlink" href="#implements_49" title="Permanent link">&para;</a></h5>
+<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
+<h4 id="struct-runsqloutcome"><code>struct RunSqlOutcome</code><a class="headerlink" href="#struct-runsqloutcome" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-154-1"><a id="__codelineno-154-1" name="__codelineno-154-1" href="#__codelineno-154-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlOutcome</span>
+</span></code></pre></div>
+<p>A raw outcome, and the status the transport says it with.</p>
+<p><code>super::Outcome</code>'s shape, over <code>RawOutcome</code> instead of a certified
+<code>sutura_domain::query::ToolOutcome</code>.</p>
+<h5 id="methods_21">Methods<a class="headerlink" href="#methods_21" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-155-1"><a id="__codelineno-155-1" name="__codelineno-155-1" href="#__codelineno-155-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RawOutcomeBody</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-156-1"><a id="__codelineno-156-1" name="__codelineno-156-1" href="#__codelineno-156-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">StatusCode</span>
+</span></code></pre></div>
+<h5 id="implements_50">Implements<a class="headerlink" href="#implements_50" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>IntoResponse</code></p>
 
 
 

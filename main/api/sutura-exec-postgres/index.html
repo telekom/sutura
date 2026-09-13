@@ -3037,6 +3037,7 @@ through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here i
 <li><code>FixtureSchema</code> - The shared conformance fixture schema could not be inferred.</li>
 <li><code>InvalidSchemaName</code> - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.</li>
 <li><code>InvalidStatementTimeout</code> - The dev-only <code>statement_timeout</code> tuning value is not a <code>u32</code> millisecond count.</li>
+<li><code>RawTransaction</code> - The raw SQL tool's own <code>BEGIN READ ONLY</code> or <code>ROLLBACK</code> did not run - sutura's own fixed text on the simple query protocol (<code>docs/adr/0013</code>), never the caller's.</li>
 <li><code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</li>
 <li><code>PresentedDisagreesWithPosture</code></li>
 <li><code>LegWithoutCombiner</code> - A leg without a combiner.</li>

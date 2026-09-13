@@ -3379,6 +3379,12 @@ makes every line from this deployment unattributable.</p>
 <p>Everything about the log.</p>
 <h2 id="use-unknownlogformat"><code>use UnknownLogFormat</code><a class="headerlink" href="#use-unknownlogformat" title="Permanent link">&para;</a></h2>
 <p>The string was neither format.</p>
+<h2 id="use-toolssettings"><code>use ToolsSettings</code><a class="headerlink" href="#use-toolssettings" title="Permanent link">&para;</a></h2>
+<p>What this deployment turned on beside the certified tool.</p>
+<p>Infallible to build, like the other settings groups: an unset key is <code>false</code>, and there is no
+combination of booleans here that is wrong on its own - <code>tools.run_sql.enabled</code> is checked
+against <code>security.identity</code> in <code>Settings::refusals</code>, which is a cross-group rule and belongs
+there rather than in this type.</p>
 <h2 id="module-api">Module <code>api</code><a class="headerlink" href="#module-api" title="Permanent link">&para;</a></h2>
 <p>Whether the generated documentation is served, and why the default differs by environment.</p>
 <p>The <code>OpenAPI</code> document and the browser UI over it are generated from the handlers, so they are
@@ -5720,6 +5726,30 @@ consumer, and the one that forgets produces a log line that does not parse.</p>
 </span></code></pre></div>
 <h4 id="implements_78">Implements<a class="headerlink" href="#implements_78" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-tools">Module <code>tools</code><a class="headerlink" href="#module-tools" title="Permanent link">&para;</a></h2>
+<p>The tool surface's own settings: which of the capabilities beside the certified one this
+deployment turned on.</p>
+<p>One tool exists here today - <code>docs/adr/0013</code>'s raw SQL tool - and this module is where a second
+one's own key would arrive, per tool, off by default: there is deliberately no group-wide switch,
+because a tool this deployment never turns on should never be a line item in an operator's
+decision about a different one.</p>
+<h3 id="struct-toolssettings"><code>struct ToolsSettings</code><a class="headerlink" href="#struct-toolssettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-254-1"><a id="__codelineno-254-1" name="__codelineno-254-1" href="#__codelineno-254-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ToolsSettings</span>
+</span></code></pre></div>
+<p>What this deployment turned on beside the certified tool.</p>
+<p>Infallible to build, like the other settings groups: an unset key is <code>false</code>, and there is no
+combination of booleans here that is wrong on its own - <code>tools.run_sql.enabled</code> is checked
+against <code>security.identity</code> in <code>Settings::refusals</code>, which is a cross-group rule and belongs
+there rather than in this type.</p>
+<h4 id="methods_50">Methods<a class="headerlink" href="#methods_50" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-255-1"><a id="__codelineno-255-1" name="__codelineno-255-1" href="#__codelineno-255-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">run_sql_enabled</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-256-1"><a id="__codelineno-256-1" name="__codelineno-256-1" href="#__codelineno-256-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">run_sql_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether <code>docs/adr/0013</code>'s raw SQL tool is turned on. Off unless an operator wrote
+<code>tools.run_sql.enabled: true</code>.</p>
+<h4 id="implements_79">Implements<a class="headerlink" href="#implements_79" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 
 
 

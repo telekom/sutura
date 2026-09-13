@@ -3177,6 +3177,23 @@ nothing to filter or select: send an empty object.</p>
 <p>One dimension of one metric.</p>
 <h3 id="use-metriccontent"><code>use MetricContent</code><a class="headerlink" href="#use-metriccontent" title="Permanent link">&para;</a></h3>
 <p>One metric, as much of it as a caller needs to ask a valid question.</p>
+<h3 id="use-malformedstatement"><code>use MalformedStatement</code><a class="headerlink" href="#use-malformedstatement" title="Permanent link">&para;</a></h3>
+<p>Why a <code>run_sql</code> call's arguments were not a statement.</p>
+<h3 id="use-rawcontent"><code>use RawContent</code><a class="headerlink" href="#use-rawcontent" title="Permanent link">&para;</a></h3>
+<p>What the raw SQL tool produced, as the tool's structured content.</p>
+<p><strong>The load-bearing shape.</strong> No field here is named <code>provenance</code>, <code>definition_version</code> or
+<code>definition_digest</code>, at any depth - there is nowhere on this type to put one, which is what makes
+a raw answer unable to be rendered as certified rather than merely undecorated as one.</p>
+<p><strong>The two variant NAMES deliberately do not carry a <code>Raw</code> prefix</strong> (<code>clippy::enum_variant_names</code>
+over the type's own already-<code>Raw</code>-prefixed name) - only their SERIALIZED tags do, pinned by an
+explicit <code>#[serde(rename)]</code> on each rather than derived from the Rust identifier: <code>Rows</code> would
+otherwise serialize <code>outcome: "rows"</code> and <code>Refusal</code> would serialize exactly the certified path's
+own <code>outcome: "refusal"</code> - the one collision <code>docs/adr/0013</code> forbids.</p>
+<h3 id="use-runsqlargs"><code>use RunSqlArgs</code><a class="headerlink" href="#use-runsqlargs" title="Permanent link">&para;</a></h3>
+<p>One raw statement, as a tool call carries it.</p>
+<p>One field, bounded by <code>RawStatement::parse</code> on the way in - <code>deny_unknown_fields</code> is what keeps
+this tool from ever growing a second field a caller could smuggle a table name or a row-id list
+through, the same governance boundary <code>super::AskArgs</code> holds for the certified tool.</p>
 <h3 id="module-catalog">Module <code>catalog</code><a class="headerlink" href="#module-catalog" title="Permanent link">&para;</a></h3>
 <p>The catalog tool's wire shape: what <code>describe_catalog</code> takes, what it answers, and the text half
 of that answer.</p>
@@ -3233,6 +3250,58 @@ both rather than an <code>else</code> arm here.</p>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
 <h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h3 id="module-raw">Module <code>raw</code><a class="headerlink" href="#module-raw" title="Permanent link">&para;</a></h3>
+<p>The raw SQL tool's wire shape: what <code>run_sql</code> takes, and what it answers.</p>
+<p>Its own module for the reason <code>wire/catalog.rs</code> has one - one whole tool, sharing nothing with
+<code>ask</code>'s shapes but <code>sutura_domain::warehouse::Value::render</code>.</p>
+<h1 id="the-discriminant-and-why-it-cannot-be-mistaken-for-a-certified-answers">The discriminant, and why it cannot be mistaken for a certified answer's<a class="headerlink" href="#the-discriminant-and-why-it-cannot-be-mistaken-for-a-certified-answers" title="Permanent link">&para;</a></h1>
+<p><code>docs/adr/0013</code> requires that a raw result's wire shape share no discriminant VALUE and no
+provenance-shaped key with <code>crate::wire::OutcomeContent::Answer</code>'s - a WEAKER claim than "no
+field name in common", and the one this module's own test asserts. <code>columns</code> and <code>rows</code> ARE
+shared field names (both walk the same rows, so both need the same two labels for them); what
+neither shares is the VALUE at <code>outcome</code> - that type tags with <code>outcome: "answer"</code> /
+<code>outcome: "refusal"</code>, <code>RawContent</code> with <code>outcome: "raw_rows"</code> / <code>outcome: "raw_refusal"</code> - and
+neither raw variant carries a <code>provenance</code> or a <code>definition_digest</code> key at any depth, which is
+the property that actually keeps a raw result from being rendered as certified.</p>
+<h4 id="struct-runsqlargs"><code>struct RunSqlArgs</code><a class="headerlink" href="#struct-runsqlargs" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlArgs</span>
+</span></code></pre></div>
+<p>One raw statement, as a tool call carries it.</p>
+<p>One field, bounded by <code>RawStatement::parse</code> on the way in - <code>deny_unknown_fields</code> is what keeps
+this tool from ever growing a second field a caller could smuggle a table name or a row-id list
+through, the same governance boundary <code>super::AskArgs</code> holds for the certified tool.</p>
+<h5 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
+<h4 id="enum-malformedstatement"><code>enum MalformedStatement</code><a class="headerlink" href="#enum-malformedstatement" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
+</span></code></pre></div>
+<p>Why a <code>run_sql</code> call's arguments were not a statement.</p>
+<h5 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>NotAnObject</code></li>
+<li><code>Statement</code></li>
+</ul>
+<h5 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h4 id="enum-rawcontent"><code>enum RawContent</code><a class="headerlink" href="#enum-rawcontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawContent</span>
+</span></code></pre></div>
+<p>What the raw SQL tool produced, as the tool's structured content.</p>
+<p><strong>The load-bearing shape.</strong> No field here is named <code>provenance</code>, <code>definition_version</code> or
+<code>definition_digest</code>, at any depth - there is nowhere on this type to put one, which is what makes
+a raw answer unable to be rendered as certified rather than merely undecorated as one.</p>
+<p><strong>The two variant NAMES deliberately do not carry a <code>Raw</code> prefix</strong> (<code>clippy::enum_variant_names</code>
+over the type's own already-<code>Raw</code>-prefixed name) - only their SERIALIZED tags do, pinned by an
+explicit <code>#[serde(rename)]</code> on each rather than derived from the Rust identifier: <code>Rows</code> would
+otherwise serialize <code>outcome: "rows"</code> and <code>Refusal</code> would serialize exactly the certified path's
+own <code>outcome: "refusal"</code> - the one collision <code>docs/adr/0013</code> forbids.</p>
+<h5 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Rows</code> - The statement executed.</li>
+<li><code>Refusal</code> - The statement was refused. Still an <code>Ok</code> and still a tool result, for <code>ServerHandler::call_tool</code>'s reason: a governance outcome is not a fault.</li>
+</ul>
+<h5 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
 
 
