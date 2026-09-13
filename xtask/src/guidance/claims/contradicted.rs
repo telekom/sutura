@@ -602,4 +602,61 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
         ],
     },
+    Contradicted {
+        // github.com/telekom/sutura#159. `CredentialBroker` shipped as a port
+        // (`crates/sutura-domain/src/identity/credential.rs`) with a static implementor
+        // (`sutura-config`), and ADR 0003's guarantee table still names it absent - the row this
+        // record's own local-file path never needed, so nobody read it again after it went stale.
+        name: "CredentialBroker does not exist",
+        wordings: &["CredentialBroker` is still absent"],
+        evidence: &[Evidence {
+            path: "crates/sutura-domain/src/identity/credential.rs",
+            holds: "pub trait CredentialBroker",
+        }],
+        instead: "`CredentialBroker` is a port in `sutura-domain`, with `sutura-config`'s \
+                  `StaticCredentialBroker` as one implementor. A local file still has no login, so \
+                  the guarantee's substance - nobody else to be, on this path - is unchanged; only \
+                  the trait's existence is",
+        only: &[],
+        // 0003 states the old value in its guarantee table and amends it in place below the table.
+        except: &["docs/adr/0003-datafusion-for-local-execution.md"],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159. The conformance packs record's own *Consequences* section
+        // asks for the gate this evidence names, which then shipped: `xtask/src/conformance.rs`
+        // holds every registered data system to the packs or requires it declared unbound. Three
+        // adapters (`duckdb`, `postgres`, the `datafusion` engine) bind `execute_packs!` today.
+        name: "the conformance packs are unbuilt",
+        wordings: &["accepted as the shape. None of it is built."],
+        evidence: &[Evidence {
+            path: "xtask/src/conformance.rs",
+            holds: "Every registered data system is held to the conformance packs",
+        }],
+        instead: "`crates/sutura-conformance` and `execute_packs!` exist, three data systems bind \
+                  them, and `xtask/src/conformance.rs` (`check-conformance-bindings`) holds the \
+                  registration in step. What is still unbuilt: a per-pack timing aggregate, the \
+                  `cargo-insta` unreferenced-snapshot check, and a fourth bound adapter",
+        only: &[],
+        // 0012 states the old status line and amends it directly below.
+        except: &["docs/adr/0012-conformance-packs-for-inputs-and-adapters.md"],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159, and the blocking dependency a 2026-09-06 comment on it
+        // named: `crates/sutura-http/src/wire/refusal.rs` used to carry the same stale count in
+        // its own comments (`:29`, `:500`, "four variants are `422`") and has since been corrected
+        // to five there - only `docs/serving.md` did not move with it. `COUNTS` cannot hold this
+        // claim: its `trailing_number` parses ASCII digits and this prose spells the number as a
+        // word, which is why this is registered rather than derived.
+        name: "four refusal reasons map to 422",
+        wordings: &["four of the codes above land"],
+        evidence: &[Evidence {
+            path: "crates/sutura-http/src/wire/refusal.rs",
+            holds: "five variants are `422`",
+        }],
+        instead: "five: `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, \
+                  `duplicate_dimension` and `resources_exhausted`. `docs/serving.md`'s own table \
+                  two lines above the sentence lists all five",
+        only: &[],
+        except: &[],
+    },
 ];
