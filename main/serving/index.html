@@ -784,6 +784,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#the-raw-sql-tool-over-the-postgres-source-above" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The raw SQL tool, over the postgres source above
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#address-families" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3091,6 +3102,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#the-raw-sql-tool-over-the-postgres-source-above" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The raw SQL tool, over the postgres source above
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#address-families" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4267,6 +4289,11 @@ selects which file is layered, so a file that could change it would be self-refe
 <td>The identity that re-runs that source's anchors. Only on an impersonating source</td>
 </tr>
 <tr>
+<td><code>tools.run_sql.enabled</code></td>
+<td><code>false</code></td>
+<td><code>docs/adr/0013</code>'s raw SQL tool. Refused at boot with a shared source in <code>multi-user</code> mode - see <a href="#the-raw-sql-tool-over-the-postgres-source-above">The raw SQL tool</a></td>
+</tr>
+<tr>
 <td><code>runtime.max_concurrent_queries</code></td>
 <td><code>8</code></td>
 <td>How many questions execute at once. See <a href="#capacity">Capacity</a></td>
@@ -4459,6 +4486,69 @@ answer. Three or more sources refuse at plan time as <code>plan_spans_too_many_s
 <p><em>The limit, because it decides what is worth configuring today:</em> the default build links only the
 in-process engine. Builds enabling <code>bigquery</code> or <code>postgres</code> add that one network adapter, and one
 process still opens one KIND of data system at a time.</p>
+<h3 id="the-raw-sql-tool-over-the-postgres-source-above">The raw SQL tool, over the postgres source above<a class="headerlink" href="#the-raw-sql-tool-over-the-postgres-source-above" title="Permanent link">&para;</a></h3>
+<p><a href="../adr/0013-a-raw-sql-tool-off-by-default/"><code>docs/adr/0013</code></a> is the record; this is the settings key
+and the split between what this service enforces, what the connecting role enforces, and what
+neither does. <code>examples/raw-sql/README.md</code> is the worked showcase - a settings snippet, a role grant,
+one question with no certified metric, over the same Postgres source declared above.</p>
+<p><strong><code>tools.run_sql.enabled</code>, off by default, per deployment.</strong> An absent <code>tools:</code> key is the ordinary
+case <code>docs/adr/0013</code> calls normal, not a narrower mode of it: <code>run_sql</code> does not appear in <code>tools/list</code>
+or the served OpenAPI document, and calling it by name is refused as <code>tool_not_enabled</code> - a different
+code from <code>insufficient_scope</code>, because obtaining <code>sutura:sql.run</code> could not help a caller a
+deployment switch refused. Turning it on is one line an operator writes and a reviewer sees.</p>
+<p><strong>Enforced by this service, once the switch is on:</strong></p>
+<ul>
+<li>A caller still needs <code>sutura:sql.run</code> beside the deployment switch - two independent gates, and the
+  switch alone does not widen anyone's scope.</li>
+<li>The result's wire shape has no field for a definition version, a digest or provenance of any kind -
+  <code>RawOutcome</code> cannot be rendered as a certified answer because there is nowhere on the type to put
+  one, not because a check catches it trying.</li>
+<li>The row cap (<code>MAX_ROWS</code>) applies exactly as it does to a certified answer, enforced by reading no
+  more than that many rows past the limit off a STREAMED result rather than materialising the whole
+  answer first.</li>
+<li>One statement per call. The extended query protocol this adapter uses cannot carry a second command
+  in the same <code>Parse</code> message, so <code>select 1; drop table t</code> is refused by the SERVER as a syntax error
+  before either half runs - sutura reads no keyword out of the text to decide this.</li>
+<li><strong>A boot refusal</strong>, reusing the same <code>security.identity</code> mechanism the shared-source acknowledgement
+  above already uses: <code>tools.run_sql.enabled: true</code> with <code>security.identity: multi-user</code> does not
+  start. Abridged: <em>"tools.run_sql.enabled is true and security.identity is <code>multi-user</code>. The raw SQL
+  tool executes under one shared identity for every caller... it may run only where the deployment is
+  single-user or a source executes as the asking subject."</em> Today's Postgres adapter cannot execute as
+  the asking subject, so this refuses on the declared mode alone - stated as the limit it is: a
+  boot-time check over a written word, not a runtime measurement that callers are actually one person.</li>
+<li><strong>A minimal audit record per call, refusal included</strong>, carrying the chain, the row count or the
+  refusal, and the statement text as an audit-only field this service never returns to a caller.</li>
+</ul>
+<p><strong>Enforced by the connecting role, and by nothing else:</strong></p>
+<ul>
+<li><strong>What the statement may read or write.</strong> Every call runs inside a transaction this adapter opens
+  <code>BEGIN READ ONLY</code> and always rolls back - a real, server-enforced second control beside the role,
+  closing the session-level escape (<code>SET TRANSACTION READ WRITE</code>, <code>default_transaction_read_only</code>)
+  <a href="../adr/0013-a-raw-sql-tool-off-by-default/"><code>docs/adr/0013</code></a> already rejects as undoable by the
+  caller's own next statement. But that transaction bounds SQL-visible writes for the DURATION of one
+  call; it says nothing about what the role could otherwise do, and nothing about a VOLATILE
+  function's own side effects (a file write, a network call through an extension) once the role may
+  call one at all. <code>docs/serving.md</code>'s general Postgres guidance above - <code>SELECT</code> on the named tables,
+  never an owner, a superuser, a creator or <code>BYPASSRLS</code> - is what actually bounds this, and it is an
+  operator's <code>GRANT</code>, not a setting sutura reads or verifies.</li>
+<li><strong>How long a statement may run.</strong> The connect-time <code>statement_timeout</code> this source's connection
+  already carries is the ceiling. It is one number for every caller today, not narrowed per request -
+  <a href="../adr/0013-a-raw-sql-tool-off-by-default/"><code>docs/adr/0013</code></a> names the caller-derived deadline as a
+  prerequisite this build does not yet carry for the raw path.</li>
+</ul>
+<p><strong>What neither enforces, stated because an overstated control is the defect this repository names
+directly:</strong></p>
+<ul>
+<li><strong>The intent boundary.</strong> The scope gate bounds WHO may call <code>run_sql</code>; the role bounds WHAT it may
+  read or write. Neither bounds what a prompt-injected instruction can talk the calling agent into
+  SENDING as the statement - <code>docs/adr/0013</code>'s own accounting of what this tool spends, restated here
+  because an operator reading only this page should still see it.</li>
+<li><strong>Whether the connecting role is actually narrowed to <code>SELECT</code>.</strong> Sutura reads no privilege off the
+  source; the <code>GRANT</code>s above are the only source of truth for what the role can do, exactly as they
+  are for the certified path's own source credential.</li>
+<li><strong>Which of several open sources a statement runs against.</strong> This build targets the sole registered
+  data system and refuses rather than guesses where more than one is open; naming one is future work.</li>
+</ul>
 <h3 id="address-families">Address families<a class="headerlink" href="#address-families" title="Permanent link">&para;</a></h3>
 <p><code>server.host</code> takes an address of either family. <code>127.0.0.1</code> and <code>::1</code> are both recognised as
 loopback, so neither of them trips the off-host refusal above, and <code>::1</code> may be written bracketed or

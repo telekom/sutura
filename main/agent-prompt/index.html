@@ -2775,11 +2775,11 @@ pinned bundle, or from a file an operator named.</p>
 </tr>
 <tr>
 <td>What this surface has no field for</td>
-<td>Fixed text, and deliberately short - see below</td>
+<td>Fixed text, and deliberately short - see below. Gains one sentence, only where a deployment turned on <code>docs/adr/0013</code>'s raw SQL tool, pointing at the exception rather than leaving the fixed text to contradict the operations list</td>
 </tr>
 <tr>
 <td>The operations you have</td>
-<td><strong>The tool list</strong>, rendered from the same slice the workflow was composed from</td>
+<td><strong>The tool list</strong>, rendered from the same slice the workflow was composed from. <code>run_sql</code> appears here, framed as ungoverned and never as certified, only where a deployment set <code>tools.run_sql.enabled: true</code> - see below</td>
 </tr>
 <tr>
 <td>What this deployment records about its own definitions</td>
@@ -2821,14 +2821,22 @@ does not compile until somebody has written what an agent should do about it.</s
 force is the list of instances the assertion walks, so the set equality it checks is a second net
 rather than the first.</p>
 <h2 id="what-it-deliberately-does-not-say">What it deliberately does not say<a class="headerlink" href="#what-it-deliberately-does-not-say" title="Permanent link">&para;</a></h2>
-<p><strong>Nothing about composing SQL.</strong> The reference implementation this design is modelled on spends most
-of its length teaching an agent to write SQL against semantic model names, to avoid raw database
-tables, and to dry-plan a complex statement before running it. None of that transfers. A question
-here names a metric, a grain, a bounded period, up to four dimensions and equality filters over
-declared values, and there is no field for anything else - so the guidance would teach an agent to
-attempt something the surface refuses by construction. What replaces it is one short section saying
-the field does not exist and that there is no way to widen it. A long section about what is absent
-would hand an agent a long list of things to try.</p>
+<p><strong>Nothing about composing SQL against the certified surface.</strong> The reference implementation this
+design is modelled on spends most of its length teaching an agent to write SQL against semantic
+model names, to avoid raw database tables, and to dry-plan a complex statement before running it.
+None of that transfers to <code>query</code>: a question there names a metric, a grain, a bounded period, up to
+four dimensions and equality filters over declared values, and there is no field for anything else -
+so the guidance would teach an agent to attempt something that surface refuses by construction. What
+replaces it is one short section saying the field does not exist and that there is no way to widen
+it. A long section about what is absent would hand an agent a long list of things to try.</p>
+<p><strong>The one deliberate exception.</strong> Where a deployment turned on <code>docs/adr/0013</code>'s off-by-default
+<code>run_sql</code> tool, the document DOES say something about SQL: one paragraph under "The operations you
+have", framed as ungoverned - it runs under the deployment's own role, never the caller's, and its
+result carries no provenance of the kind a <code>query</code> answer carries. It is never framed as certified,
+in either direction. "What this surface has no field for" gains one sentence pointing at this
+exception rather than staying silent about it, because a document that both said "there is no way in"
+and separately advertised <code>run_sql</code> would be internally inconsistent - worse than either sentence
+alone.</p>
 <p><strong>No column, table, model or measure expression.</strong> Of what a metric <em>is</em>, the prompt renders what
 <code>GET /v1/catalog</code> renders and no further field: a caller needs a metric's name, prose, grains,
 dimensions and permitted values to ask a valid question; it needs no column name to do it, and a
