@@ -479,8 +479,10 @@ jobs:
       # ONLY THE GRAPH ROOTS OF STAGE 1 ARE CLOSURE-FREE - the claim is about the roots, not about
       # a region of the file. `Workflow static analysis` reaches `packages.xtask` (20-21 s measured
       # on the runs that selected it) and `Supply chain` fetches an advisory database, so neither
-      # belongs in stage 1 at all: both sit after `Clippy`, which is where they were before this
-      # change, and the paragraph below says why that placement is not a preference.
+      # belongs in stage 1 at all: both MOVE to sit after `Clippy` - at the base this branch diffs
+      # against (#667, `70d5665f`) both sat BEFORE `Clippy`, at line 527 and 537 against 564, so this
+      # is a relocation and not a restatement of where they already were. The paragraph below says
+      # why the new placement is correct rather than a preference.
       #
       # **WHAT ORDER ALONE CAN COST, AUDITED RATHER THAN ASSUMED - BECAUSE A FAILED STEP ENDS THE
       # JOB.** No step's `if:` moved here; the reorder was a pure text move, and every condition
