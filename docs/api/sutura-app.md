@@ -1433,14 +1433,14 @@ root that composed the adapter is the one that can flatten it.
 #### Methods
 
 ```rust
-pub fn boot_policy(self) -> Result<Notice<E>, Refusal<E>>
+pub fn boot_policy(self) -> BootPolicy<E>
 ```
 
 Splits this verdict the one way both composition roots split it.
 
-Exhaustive over `Verdict`, so a variant added to the port's answer is a compile error here
-- at the one place that has to decide which side of the boot policy it falls on - rather
-than a silently-served outcome in whichever root forgot it.
+Exhaustive over `Verdict`, so a variant added to the port's answer is a compile error
+here - at the one place that has to decide which side of the boot policy it falls on -
+rather than a silently-served outcome in whichever root forgot it.
 
 # Errors
 
@@ -1511,9 +1511,9 @@ same fact rather than the same intention.
 
 **`Err` for a refusal here, and that is not the query path's rule inverted.** A governance
 refusal lives inside the `Ok` where a CALLER could mistake it for a hiccup and retry; this is
-boot, the outcome is that the process does not start, and both roots already returned
-`Result<(), String>` with exactly these four outcomes in the `Err`. What changed is that the
-four are now a type.
+boot, the outcome is that the process does not start, and both roots already answered `Err` for
+exactly these four outcomes, carrying a rendered sentence. What changed is that the four are now
+a type rather than prose a caller would have had to parse.
 
 **The limit, stated with the claim.** This is a type saying which outcomes refuse. It does not
 confine a root to asking: `Verdict` is still public, because *what the data system answered*
@@ -1694,3 +1694,12 @@ apart, and whatever else moved with it is the part nobody has looked at.
 # Errors
 
 Either set holding a table the other does not, as a `TablesChanged` carrying both differences.
+
+### `type_alias BootPolicy`
+
+The two sides of the boot policy: a notice this deployment serves with, or a refusal it stops on.
+
+A named alias because `clippy::type_complexity` refuses the bare `Result` at this arity, and the
+name is the better half of that trade rather than a suppression: the split IS the decision, so a
+signature that says *boot policy* reads as the thing being returned and not as two halves a
+caller has to recombine. It stays a `Result` so `?` in a composition root keeps working.

@@ -51,8 +51,10 @@ pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
 /// constructors** - which is what issue 121 asks for by "one composition per adapter, shared by both
 /// roots". It is a copy rather than a shared function because the two composition roots are separate
 /// binaries and neither may depend on the other; what is genuinely shared is
-/// `sutura-exec-bigquery`'s own constructors, so a fix to the credential path lands once. The same
-/// argument `crate::sources::refuse_unattached` carries.
+/// `sutura-exec-bigquery`'s own constructors, so a fix to the credential path lands once.
+/// `refuse_unattached` was cited here as carrying the same argument and no longer does: it held no
+/// word an operator reads, so it is shared in `sutura-app` now - this paragraph's counter-example
+/// rather than its precedent.
 ///
 /// # Errors
 ///

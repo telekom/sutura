@@ -173,9 +173,9 @@ impl fmt::Display for AbsentBehind {
 ///
 /// **`Err` for a refusal here, and that is not the query path's rule inverted.** A governance
 /// refusal lives inside the `Ok` where a CALLER could mistake it for a hiccup and retry; this is
-/// boot, the outcome is that the process does not start, and both roots already returned
-/// `Result<(), String>` with exactly these four outcomes in the `Err`. What changed is that the
-/// four are now a type.
+/// boot, the outcome is that the process does not start, and both roots already answered `Err` for
+/// exactly these four outcomes, carrying a rendered sentence. What changed is that the four are now
+/// a type rather than prose a caller would have had to parse.
 ///
 /// **The limit, stated with the claim.** This is a type saying which outcomes refuse. It does not
 /// confine a root to asking: [`Verdict`] is still public, because *what the data system answered*
@@ -232,19 +232,27 @@ pub enum Notice<E> {
     },
 }
 
+/// The two sides of the boot policy: a notice this deployment serves with, or a refusal it stops on.
+///
+/// A named alias because `clippy::type_complexity` refuses the bare `Result` at this arity, and the
+/// name is the better half of that trade rather than a suppression: the split IS the decision, so a
+/// signature that says *boot policy* reads as the thing being returned and not as two halves a
+/// caller has to recombine. It stays a `Result` so `?` in a composition root keeps working.
+pub type BootPolicy<E> = Result<Notice<E>, Refusal<E>>;
+
 impl<E> Verdict<E> {
     /// Splits this verdict the one way both composition roots split it.
     ///
-    /// Exhaustive over [`Verdict`], so a variant added to the port's answer is a compile error here
-    /// - at the one place that has to decide which side of the boot policy it falls on - rather
-    /// than a silently-served outcome in whichever root forgot it.
+    /// Exhaustive over [`Verdict`], so a variant added to the port's answer is a compile error
+    /// here - at the one place that has to decide which side of the boot policy it falls on -
+    /// rather than a silently-served outcome in whichever root forgot it.
     ///
     /// # Errors
     ///
     /// The four outcomes this deployment does not start on: a refused listing, a table the data
     /// system does not hold, an unreadable inventory, and an inventory that did not account for
     /// itself.
-    pub fn boot_policy(self) -> Result<Notice<E>, Refusal<E>> {
+    pub fn boot_policy(self) -> BootPolicy<E> {
         match self {
             Self::Present { asked } => Ok(Notice::Present { asked }),
             Self::NotReported { asked } => Ok(Notice::NotReported { asked }),
@@ -484,6 +492,11 @@ mod tests {
         asked: RefCell<Vec<usize>>,
         refused: bool,
     }
+
+    /// One boot-policy case: a registry that answers, whether the policy refuses, and the
+    /// wording for the assertion. Named because `clippy::type_complexity` refuses the tuple
+    /// inline, and the name carries which `bool` it is.
+    type PolicyCase = (Warehouses<Answers>, bool, &'static str);
 
     /// What a test hands the fake to answer a pre-flight with.
     type Answering = fn(&BTreeSet<QualifiedTable>) -> Result<TablesPresent, CouldNotAsk>;
@@ -852,7 +865,7 @@ mod tests {
     fn the_boot_policy_refuses_the_four_outcomes_and_serves_the_others() {
         // The registries are owned by the array for the whole loop, because an answer BORROWS the
         // source name off the registry it came from.
-        let cases: [(Warehouses<Answers>, bool, &str); 7] = [
+        let cases: [PolicyCase; 7] = [
             (opened(|_asked| Ok(TablesPresent::All)), false, "every table present"),
             (
                 opened(|_asked| Ok(TablesPresent::NotAsked)),
