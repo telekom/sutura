@@ -1,10 +1,11 @@
-//! [`Warehouse::execute_raw`]'s own types - split out of `warehouse.rs` because that file hit the
-//! thousand-line limit `cargo xtask max-lines` enforces.
+//! [`Warehouse::execute_raw`](crate::warehouse::Warehouse::execute_raw)'s own types - split out of
+//! `warehouse.rs` because that file hit the thousand-line limit `cargo xtask max-lines` enforces.
 
 use super::Value;
 
-/// What [`Warehouse::execute_raw`] answers: `None` where the adapter does not accept raw text at
-/// all, otherwise the same result [`execute`](Warehouse::execute) would have carried.
+/// What [`Warehouse::execute_raw`](crate::warehouse::Warehouse::execute_raw) answers: `None` where
+/// the adapter does not accept raw text at all, otherwise the same result
+/// [`execute`](crate::warehouse::Warehouse::execute) would have carried.
 ///
 /// Named so the port's own signature reads as one type rather than as a shape a reader has to
 /// re-derive at the call site.
@@ -13,11 +14,12 @@ pub type RawExecution<E> = Option<Result<RawRows, E>>;
 /// What a raw statement's execution produced, before the application layer turns it into a
 /// [`crate::raw::RawOutcome`].
 ///
-/// A plain pair rather than a [`RowSet`]: `RowSet::new` refuses a ragged result, which is a
-/// certified-answer guarantee about a plan the compiler shaped, and a raw statement's own adapter is
-/// the only thing that has already checked its rows are rectangular - the driver's own row type
-/// carries one value per declared column by construction. Building a `RowSet` here would ask that
-/// type's constructor to re-verify a shape only the adapter could have gotten wrong.
+/// A plain pair rather than a [`RowSet`](crate::warehouse::RowSet): `RowSet::new` refuses a ragged
+/// result, which is a certified-answer guarantee about a plan the compiler shaped, and a raw
+/// statement's own adapter is the only thing that has already checked its rows are rectangular -
+/// the driver's own row type carries one value per declared column by construction. Building a
+/// `RowSet` here would ask that type's constructor to re-verify a shape only the adapter could have
+/// gotten wrong.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawRows {
     columns: Vec<String>,

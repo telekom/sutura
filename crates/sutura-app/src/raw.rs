@@ -16,11 +16,12 @@ use crate::{exceeds_row_cap, now_in_unix_seconds};
 
 /// Why running a raw statement did not produce an outcome.
 ///
-/// **Deliberately not [`ServiceError`].** That type's `Compile` and `Federated` arms describe the
-/// compiler and the splitter, neither of which this path touches - a raw statement is unparsed text,
-/// end to end. What is left is the credential half [`answer`] also has, plus one arm of its own for a
-/// state the boot refusal is supposed to make unreachable: the raw tool turned on over an adapter
-/// that does not accept raw text at all.
+/// **Deliberately not [`ServiceError`](crate::ServiceError).** That type's `Compile` and
+/// `Federated` arms describe the compiler and the splitter, neither of which this path touches - a
+/// raw statement is unparsed text, end to end. What is left is the credential half
+/// [`answer`](crate::answer) also has, plus one arm of its own for a state the boot refusal is
+/// supposed to make unreachable: the raw tool turned on over an adapter that does not accept raw
+/// text at all.
 #[derive(Debug, thiserror::Error)]
 pub enum RunSqlError<M> {
     /// The credential broker did not answer.
@@ -55,8 +56,9 @@ pub enum RunSqlError<M> {
 /// What running a raw statement produced, or why it could not.
 pub type RunningRaw<B> = Result<AnsweredRaw, RunSqlError<<B as CredentialBroker>::Error>>;
 
-/// One raw call's result: what the caller is told, and what it ran under - the [`Answered`] of the
-/// raw path, over [`sutura_domain::raw::RawOutcome`] rather than [`ToolOutcome`].
+/// One raw call's result: what the caller is told, and what it ran under - the
+/// [`Answered`](crate::Answered) of the raw path, over [`sutura_domain::raw::RawOutcome`] rather
+/// than [`ToolOutcome`](sutura_domain::query::ToolOutcome).
 #[derive(Debug)]
 pub struct AnsweredRaw {
     outcome: sutura_domain::raw::RawOutcome,
@@ -106,13 +108,13 @@ impl AnsweredRaw {
 /// deployment naming which of several sources the raw tool may run over is future work, not a
 /// decision this function makes by omission - a second source is refused rather than guessed at.
 ///
-/// # Otherwise, this mirrors [`answer`]'s credential handling exactly
+/// # Otherwise, this mirrors [`answer`](crate::answer)'s credential handling exactly
 ///
 /// Mint once, check the grant agrees with the request, check the presented leg agrees with the
 /// adapter's declared posture - the same three findings behind the same one guard, for the same
 /// reason: a broker is an adapter outside the hexagon, and its answer is input.
 ///
-/// # What is different from [`answer`] on the way out, and why
+/// # What is different from [`answer`](crate::answer) on the way out, and why
 ///
 /// **Every failure to execute becomes a refusal, never a [`RunSqlError`].** The statement is the
 /// caller's own text, so a syntax error, a statement timeout, or the server refusing a write inside

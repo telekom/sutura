@@ -75,7 +75,8 @@ pub enum RawContent {
         rows: Vec<Vec<String>>,
     },
     /// The statement was refused. Still an `Ok` and still a tool result, for
-    /// [`crate::server::AgentSurface::call_tool`]'s reason: a governance outcome is not a fault.
+    /// [`ServerHandler::call_tool`](rmcp::ServerHandler::call_tool)'s reason: a governance outcome
+    /// is not a fault.
     #[serde(rename = "raw_refusal")]
     Refusal { code: &'static str, detail: String },
 }

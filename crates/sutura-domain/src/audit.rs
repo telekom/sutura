@@ -184,7 +184,7 @@ impl<'a> CallRecord<'a> {
     ///
     /// `statement` is `docs/adr/0013`'s "audit-only field never returned to the caller" - it rides
     /// on the record and nowhere else. Taken separately from `outcome` rather than read off it,
-    /// because [`sutura_domain::raw::RawOutcome`] itself carries no statement text at all: the
+    /// because [`RawOutcome`] itself carries no statement text at all: the
     /// caller's own text is not something the OUTCOME needed to hold, and giving it a field there
     /// would be a second place a wire type could reach for it.
     #[must_use]
