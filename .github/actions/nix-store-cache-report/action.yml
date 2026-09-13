@@ -35,10 +35,11 @@
 # and this action runs after the gates reading a count off `nix path-info --all`; there is no cheap
 # source for it here. A log parser for it would be a second, harder thing to keep true, and #487's
 # ~94% had to be obtained exactly that way - by hand, once.
-# A SEPARATE ACTION RATHER THAN A STEP IN `ci.yml`, and not for tidiness: that file now stands ONE
-# line under the 1000-line cap `cargo xtask max-lines` holds, which is a cap `.github/**` could be
-# exempted from and has not been. Anything added to the `ci` job from here needs a line taken out
-# of it first, or needs to arrive as an action like this one.
+# A SEPARATE ACTION RATHER THAN A STEP IN `ci.yml`, and not for tidiness: that file was ONE line
+# under the 1000-line cap `cargo xtask max-lines` holds when this was written. It is over the cap
+# now and carries a `[warn]` entry in `devco/max-lines-ignore`, so a line added to the `ci` job
+# prints a WARN rather than failing - which is a weaker reason to put a block here than the one
+# above, and still a reason. `devco/max-lines-ignore` names the seam a split should follow.
 name: nix-store-cache-report
 description: Print what the Actions cache carried into this run. Reports; never fails.
 

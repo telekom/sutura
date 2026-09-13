@@ -31,8 +31,14 @@
 // `#[path]` because this file is itself loaded by one, and that changes where a child is looked for:
 // measured, `E0583` asked for `served/reading.rs` rather than `served/harness/reading.rs`. The
 // directory is named explicitly so the layout matches the module tree instead of flattening it.
+#[cfg(feature = "postgres")]
+#[path = "harness/postgres.rs"]
+mod postgres;
 #[path = "harness/reading.rs"]
 pub(crate) mod reading;
+
+#[cfg(feature = "postgres")]
+pub(crate) use postgres::settings as postgres_settings;
 
 use core::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};

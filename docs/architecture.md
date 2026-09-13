@@ -166,15 +166,15 @@ against.
 
 ### What can be plugged in today, and what the shipped binary actually uses
 
-Three adapters exist. **They are chosen at compile time, in the composition root - there is no
-configuration that names one.** If you are looking for a setting to point sutura at a different
-catalogue or a different data system, there is not one yet.
+The adapters below exist. Which ones a binary can open is chosen at compile time in its composition
+root; within that set, a deployment selects a data system by writing `sources.<alias>.kind`.
 
-| Port              | Adapter                  | What it is                                                                                            | In the shipped binary?                           |
-| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                | **Yes.** The only catalogue adapter there is     |
-| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL | **Yes**, and it is what `sutura query` runs      |
-| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                       | **No.** A development dependency of `sutura-app` |
+| Port              | Adapter                  | What it is                                                                                                            | In the shipped binary?                                             |
+| ----------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                                | **Yes.** The only catalogue adapter there is                       |
+| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL                 | **Yes**, and it is what `sutura query` runs                        |
+| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                                       | **No.** A development dependency of `sutura-app`                   |
+| `Warehouse`       | `sutura-exec-postgres`   | A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify | **No.** A default-off `postgres` feature on both composition roots |
 
 So the combination a PUBLISHED binary supports is **local markdown with YAML frontmatter for the
 metadata, and the in-process engine over the CSV or Parquet files in a directory**. `sutura query
@@ -215,6 +215,17 @@ building: nixpkgs has no musl `libduckdb`, and the binary never asks for one.
 statement for `DuckDB`, Postgres, `ClickHouse` or `BigQuery`, and the goldens parse-check each one.
 Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere, and there is no
 `ClickHouse` adapter: the port takes a plan, and rendering is one adapter's private business.
+
+**`kind: postgres` is openable behind its own default-off `postgres` feature, and the CHANNEL is the
+part that is new.** A Postgres source declares `plaintext`, `verified` or `mutual`; a TLS mode must
+name its trust store, because there is no default to inherit, and a source with no transport security
+and a host that is not a loopback literal is a startup refusal naming the key rather than a
+connection. `sutura-exec-postgres` connects over `rustls` with the declared anchors and the handshake
+mandatory. The tier proves a chain is verified, an untrusted issuer is refused, and a
+certificate-authenticated role rejects a client with no certificate. Its served cell loads the
+single-player corpus into the tier, starts the composed binary over verified loopback TLS and pins
+the certified answer and shared-identity provenance. That is a local real-server deployment; it is
+not evidence about a particular external Postgres installation or per-subject execution.
 
 **`BigQuery` is the one where that distinction has a nearer edge, so it is worth stating - and the
 edge moved once, without the distinction moving with it.** A `BigQuery` adapter *does* exist,

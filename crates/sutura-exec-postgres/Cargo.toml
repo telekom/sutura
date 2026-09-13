@@ -20,11 +20,20 @@ sutura-sql = { workspace = true }
 # first source whose driver does not pull a native library, so the cross-build matrix survives it.
 tokio = { workspace = true, features = ["rt-multi-thread", "time", "net", "io-util", "sync", "macros"] }
 tokio-postgres = { workspace = true }
+# TLS for a Postgres SOURCE connection. Behind no feature, because when this crate is linked at all
+# (by a served deployment) the channel either verifies or refuses - and the pure-Rust driver keeps
+# these out of the musl cross builds the same way `tokio-postgres` itself does. See
+# `sutura_config::sources::transport`, which owns the three-state declaration this code turns into a
+# `rustls::ClientConfig` per connection.
+tokio-postgres-rustls = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+# (This crate's `tls` module reads the anchor bundle and client identity off disk with rustls's own
+#  `PemObject` reader and builds the `ClientConfig` for [`connect_secured`] to connect with.)
 # The wire buffer a `ToSql` impl hands bytes to, and the `Sink` item a text `COPY` drives.
 bytes = { workspace = true }
 futures-util = { workspace = true }
 thiserror = { workspace = true }
-
 # The conformance packs, which `tests/conformance.rs` binds this adapter to, and the developer
 # workflow crate that answers where this worktree's Postgres is listening.
 #
@@ -38,7 +47,10 @@ thiserror = { workspace = true }
 [dev-dependencies]
 sutura-conformance = { workspace = true }
 sutura-dev = { workspace = true }
-
+# A generated self-signed pair, for the in-crate tests that exercise the TLS construction refusals
+# against real anchor/identity material. The same crate `sutura-http` rests its own TLS tests on, so
+# no new crate enters the dev graph.
+rcgen = { workspace = true }
 # THE FIXTURE-TIER CREDENTIAL, AND THE CONNECTION CONFIG OVER IT. Default-off, and the reason is the
 # ARTEFACT rather than build time: `nix/shipped.nix` builds cargo's DEFAULT feature set, so nothing a
 # release publishes contains `src/fixture.rs` or `PostgresWarehouse::local_config`. Both callers are

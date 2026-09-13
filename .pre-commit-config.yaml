@@ -187,7 +187,7 @@ repos:
         pass_filenames: true
 
       # Fuzz WHAT THE GIT DELTA REACHES, and only the DETERMINISTIC half. A commit that touches
-      # none of the surface below pays nothing - `files:` scopes this to the two targets' reach
+      # none of the surface below pays nothing - `files:` scopes this to the three targets' reach
       # (`fuzz/`, the harness, and the crates each target header names). What runs is `fuzz-smoke`:
       # replay every committed seed once, mutating nothing, so the verdict is a function of the
       # committed files rather than a fresh random path - the only fuzz half that belongs anywhere
@@ -195,13 +195,13 @@ repos:
       # release and on a manual dispatch, and nowhere else - this hook and `check-fuzz` are the
       # regression half in full. This hook is not per-target tuned because the
       # file->target map is a review claim written in each target's header, and a hand-table would
-      # rot; when the delta lands in a shared crate it replays both (there are two) targets.
+      # rot; when the delta lands in a shared crate it replays every target that reaches it.
       # `require_serial` so two simultaneous prek partitions do not both build the one harness.
       - id: fuzz
         name: fuzz (git delta)
         entry: bash nix/run-fuzz.sh smoke
         language: system
-        files: ^(fuzz/|nix/fuzz\.nix|nix/run-fuzz\.sh|crates/sutura-domain/src/query\.rs|crates/sutura-domain/src/model/|crates/sutura-http/src/wire|crates/sutura-sql/|crates/sutura-semantic/)
+        files: ^(fuzz/|nix/fuzz\.nix|nix/run-fuzz\.sh|crates/sutura-domain/src/query\.rs|crates/sutura-domain/src/model/|crates/sutura-domain/src/identity\.rs|crates/sutura-domain/src/identity/|crates/sutura-http/src/wire|crates/sutura-http/src/inbound/token\.rs|crates/sutura-sql/|crates/sutura-semantic/)
         pass_filenames: false
         require_serial: true
 
