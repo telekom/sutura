@@ -446,10 +446,7 @@ fn a_note_name_shares_the_one_identifier_parser() {
     // The macro is `crate::model`'s, and this is what says so: the same input produces the same
     // error as it does for a metric name, so there is no second parser to drift.
     assert_eq!(note_name("usage_join_grain").as_str(), "usage_join_grain");
-    let expected = InvalidIdentifier::IllegalCharacter {
-        value: String::from("a b"),
-        offending: ' ',
-    };
+    let expected = InvalidIdentifier::IllegalCharacter { offending: ' ' };
     assert_eq!(NoteName::parse("a b").unwrap_err(), expected);
     assert_eq!(MetricName::parse("a b").unwrap_err(), expected);
 }

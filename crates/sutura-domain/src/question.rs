@@ -43,9 +43,28 @@ impl<'a> RawFilter<'a> {
 
 /// Why a caller's raw fields did not become a [`Query`].
 ///
-/// Every variant names the field, and none of them echoes the caller's value back except where the
-/// value is the thing that failed to parse as an identifier - which is a bounded character set, not
-/// free text.
+/// **Every variant names the field, and neither a variant's own sentence nor any link of its cause
+/// chain carries the caller's own text.** The chain is the half that has to be said out loud,
+/// because both transports render this failure by walking `source()` to the end and handing the
+/// result straight to whoever asked - the RFC 7807 `detail` on the HTTP surface, an
+/// `invalid_params` message in a model's context on the agent one. So
+/// [`crate::model::InvalidIdentifier`] and [`crate::calendar::InvalidDate`] report the rule that
+/// was broken, the one offending character, and the measured length against the limit, and echo
+/// nothing they rejected; `FilterValue` drops its cause outright, for the reason its own note
+/// gives.
+///
+/// **The one value that does come back is one that already parsed.** `Range`'s cause is
+/// [`crate::calendar::InvalidTimeRange::Empty`], which names both endpoints - and they are
+/// [`crate::calendar::Date`]s by then, so what renders is ten characters of digits and hyphens in
+/// the single layout that type accepts, not the text a caller sent. That is the distinction this
+/// whole note turns on, and the one an earlier version of it got backwards: a parse's OUTPUT is
+/// bounded by the type that produced it, and its INPUT is bounded by nothing whatever.
+///
+/// **The limit.** This is a property of `Display` and `source()` across these enums, held by their
+/// carrying no field a renderer could reach for - not by a gate, and not by either transport, which
+/// walk whatever chain they are given. `crates/sutura-mcp/tests/shared_question_conversion.rs`
+/// asserts it over every caller-controlled field against both transports' rendering, and is what
+/// reddens if one of those sentences is widened again.
 #[derive(Debug, thiserror::Error)]
 pub enum MalformedQuestion {
     #[error("`metric` is not a metric name")]
@@ -87,13 +106,14 @@ pub enum MalformedQuestion {
     /// longer than `crate::catalog::MAX_DIMENSION_VALUE_CHARS`.
     ///
     /// **The one variant with no `#[source]`, and the omission is the point.** Every other cause in
-    /// this enum either carries no caller text or carries text that already failed an identifier
-    /// parse, which is a few dozen ASCII bytes. `crate::catalog::DimensionValue`'s own parse error
-    /// carries the offending input, because it exists for the author of a catalog - and a transport
-    /// error reaches a log, a UI and an agent's context, which is the one place
+    /// this enum reports the rule it applied and not the input it rejected, so its chain is safe to
+    /// walk. `crate::catalog::DimensionValue`'s own parse error is the exception: it carries the
+    /// offending input, because it exists for the author of a catalog - and a transport error
+    /// reaches a log, a UI and an agent's context, which is the one place
     /// [`crate::query::RefusalReason`] is explicit that a caller's own text must not arrive. So the
-    /// field and the index are reported and the cause is dropped: the same answer
-    /// `DimensionValueNotAllowed` gives, at the boundary that now catches it earlier.
+    /// field and the index are reported and the cause is dropped rather than reported and trusted:
+    /// the same answer `DimensionValueNotAllowed` gives, at the boundary that now catches it
+    /// earlier.
     #[error("`filters[{index}].value` is not a value this catalog could declare")]
     FilterValue { index: usize },
 }

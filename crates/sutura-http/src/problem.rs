@@ -72,6 +72,16 @@ pub enum Failure {
     /// is the reason a caller with every scope this surface issues still cannot reach the route.
     ToolNotEnabled { capability: &'static str },
     /// The body is not a question. Carries a message naming the field.
+    ///
+    /// **The one `String` in this enum, two lines under the rule that warns about one**, so the
+    /// reason is here rather than left as an exception a reader has to reconstruct. `detail` is not
+    /// free-form: it is `describe()`'s walk of one
+    /// `sutura_domain::question::MalformedQuestion`'s cause chain, and that type's own note is
+    /// where the property this relies on is stated and asserted - no variant of it, and no link of
+    /// any variant's chain, carries the caller's own value. So this holds a rendered sentence about
+    /// which field was wrong, never the field's contents. A cause chain that started carrying them
+    /// again would reach a caller through here, which is why the assertion lives beside the chain
+    /// and not beside this variant.
     NotAQuestion { detail: String },
     /// The body is larger than the configured bound.
     ///
