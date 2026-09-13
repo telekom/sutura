@@ -212,3 +212,71 @@ fn a_statement_timeout_is_a_u32_ceiling_or_it_is_refused() {
         Err(PostgresError::InvalidStatementTimeout { .. })
     ));
 }
+
+/// `deadline::deadline_statement_timeout_ms`'s clamp, hermetic - no tier, no connection: the
+/// arithmetic is pure, and `crates/sutura-exec-postgres/tests/deadline.rs` is where the server's own
+/// `57014` is measured instead of assumed.
+mod deadline_statement_timeout {
+    use std::time::{Duration, Instant};
+
+    use sutura_domain::warehouse::deadline::{Budget, Deadline};
+
+    use crate::deadline::deadline_statement_timeout_ms;
+
+    fn deadline(millis_left: u64) -> Deadline {
+        Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(millis_left)).expect("a positive budget parses"),
+        )
+    }
+
+    /// A budget under the ceiling narrows it - `docs/adr/0029`'s row: the request's own bound is
+    /// what a caller configured, and a connection with a generous dev ceiling must not widen it back.
+    ///
+    /// **A range, not an exact value.** `deadline_statement_timeout_ms` reads `Instant::now()`
+    /// itself, after this test already read it once to open the deadline - real, if tiny, elapsed
+    /// time between the two, which `as_millis` truncates rather than rounds. An exact `300` is
+    /// therefore not guaranteed; what the claim needs is *narrowed to close to the budget*, not to
+    /// the ceiling.
+    #[test]
+    fn a_budget_under_the_ceiling_is_the_value_sent() {
+        let sent = deadline_statement_timeout_ms(15_000, deadline(300));
+        assert!((295..=300).contains(&sent), "expected close to 300ms, got {sent}ms");
+    }
+
+    /// The connect-time ceiling is the outer bound: a budget wider than it does not widen the
+    /// per-statement value past what the deployment configured at connect.
+    #[test]
+    fn a_budget_over_the_ceiling_is_clamped_to_it() {
+        assert_eq!(deadline_statement_timeout_ms(300, deadline(60_000)), 300);
+    }
+
+    /// A ceiling of zero is the tuning value's own *disabled* spelling (`parse_statement_timeout`
+    /// accepts `"0"`), read as no ceiling at all - the request's own budget governs alone, and the
+    /// clamp does not panic on a zero-to-zero range. A range, not an exact value, for
+    /// `a_budget_under_the_ceiling_is_the_value_sent`'s reason.
+    #[test]
+    fn a_disabled_ceiling_does_not_narrow_the_budget() {
+        let sent = deadline_statement_timeout_ms(0, deadline(300));
+        assert!((295..=300).contains(&sent), "expected close to 300ms, got {sent}ms");
+    }
+
+    /// Never zero, even for a deadline already spent: zero reads as *no timeout at all* to the
+    /// server, the one value further away from *stopped* than every other. `sutura_app::answer` and
+    /// `federated::execute_leg` already refuse a spent budget before this is ever reached, so what
+    /// this proves is that the fallback cannot accidentally widen a spent budget into an unbounded
+    /// statement if it ever is - opened ten seconds in the past on a one-millisecond budget, so
+    /// `remaining_at(Instant::now())` reads `None` with no sleep needed to get there.
+    #[test]
+    fn a_deadline_already_spent_is_never_a_zero_timeout() {
+        let spent = Deadline::opened_at(
+            Instant::now()
+                .checked_sub(Duration::from_secs(10))
+                .expect("ten seconds ago is representable"),
+            Budget::parse(Duration::from_millis(1)).expect("one ms is a budget"),
+        );
+        assert_eq!(spent.remaining_at(Instant::now()), None, "the fixture must already be spent");
+        assert_ne!(deadline_statement_timeout_ms(15_000, spent), 0);
+        assert_ne!(deadline_statement_timeout_ms(0, spent), 0);
+    }
+}

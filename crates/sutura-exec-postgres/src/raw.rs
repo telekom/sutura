@@ -21,9 +21,15 @@ impl PostgresWarehouse {
     /// The raw SQL tool's own execution path: one caller statement, run through the extended query
     /// protocol inside a transaction this adapter opens `READ ONLY` and always rolls back.
     ///
-    /// **`docs/adr/0013`'s amendment is the record for every decision here.** Three properties, and
+    /// **`docs/adr/0013`'s amendment is the record for every decision here.** Four properties, and
     /// none of them is a session-level setting the base ADR already rejects:
     ///
+    /// - **`SET LOCAL statement_timeout`, inside this same transaction** - `docs/adr/0029`'s
+    ///   Postgres row. `LOCAL` rather than the session-level `SET` because it resets itself at
+    ///   `ROLLBACK` rather than outliving this one call on a connection every caller shares. The
+    ///   value is the connect-time ceiling (`statement_timeout_ceiling_ms`), not a request's own
+    ///   budget: `Warehouse::execute_raw` carries no [`sutura_domain::warehouse::deadline::Deadline`]
+    ///   to narrow it with - the limit `docs/adr/0029` states next to this row.
     /// - **One statement, over the extended protocol.** `self.client.prepare` then `self.client.query`
     ///   is `Parse`/`Bind`/`Execute` on the wire, and Postgres refuses more than one command in a
     ///   `Parse` message - so `SELECT 1; DROP TABLE t` is refused by the SERVER as a syntax error,
@@ -55,9 +61,16 @@ impl PostgresWarehouse {
         // without this a concurrent caller's own exchange interleaves on the wire mid-transaction
         // - see `PostgresWarehouse::execution_lock` for what was measured without it.
         let _guard = crate::lock_execution(&self.execution_lock);
+        // `SET LOCAL statement_timeout`, scoped to this one call's own transaction - `docs/adr/0029`.
+        // **The limit, stated where the value comes from:** `Warehouse::execute_raw` carries no
+        // per-request `Deadline` (unlike `dry_run`/`execute`), so this is always the connect-time
+        // ceiling (`statement_timeout_ceiling_ms`), never a request's own narrower budget. A caller
+        // statement is still stopped - `telekom/sutura#129`'s cancellation prerequisite for the raw
+        // tool, discharged to that ceiling - just not to whatever is left of the asker's own request.
+        let ceiling_ms = self.statement_timeout_ceiling_ms;
         self.runtime.block_on(async {
             self.client
-                .batch_execute("BEGIN READ ONLY")
+                .batch_execute(&format!("BEGIN READ ONLY; SET LOCAL statement_timeout = {ceiling_ms}"))
                 .await
                 .map_err(|cause| PostgresError::RawTransaction { cause })?;
             let outcome = self.run_raw_statement(sql).await;
