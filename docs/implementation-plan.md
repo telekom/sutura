@@ -1024,7 +1024,7 @@ from what is specified below, and each is written where the code is rather than 
    nothing and what a caller loses is the join. `Descriptions` is observed as *some description is
    non-empty*, because a bundle of `Description::default()` carries no prose whatever its fields are.
 3. **No narrow adapter was registered to exercise declaration fidelity, and none was invented.**
-   `tests/adapters/mod.rs` registers only what somebody could deploy, so the declaring case is
+   `crates/sutura-app/tests/adapters/adapters.rs` registers only what somebody could deploy, so the declaring case is
    exercised over the two narrow fakes the suite already had - `HandWrittenCatalog`, which carries no
    prose, and `TwoSourceCatalog`, which carries five fewer kinds. Each now declares that, and the
    fidelity test is what holds it. Both fidelity directions also expand over every registered catalog,

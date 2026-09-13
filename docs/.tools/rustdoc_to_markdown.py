@@ -617,7 +617,8 @@ def selftest_fixture() -> dict:
 
 
 def selftest() -> None:
-    """The behavioral fixture: a public re-export renders its name and its target's docs.
+    """The behavioral fixture: a public re-export renders its name and target docs, and a
+    variant's prose publishes in full rather than its first paragraph alone.
 
     Fails on the broken renderer - which prints `use None` for an item with null outer name and
     docs and never reaches the target - and passes once the re-export is wired to `inner.use`.
@@ -637,7 +638,8 @@ def main(argv: list[str]) -> int:
     if "--self-test" in argv:
         selftest()
         print(
-            "rustdoc_to_markdown: ok - a public re-export renders its name and target docs"
+            "rustdoc_to_markdown: ok - a public re-export renders its name and target docs, "
+            "and a variant's prose publishes in full"
         )
         return 0
     if len(argv) < 2:

@@ -241,7 +241,7 @@ where
 
 /// The marker that separates a **golden** catalog from a declaring one in this target.
 ///
-/// Living here rather than in `tests/adapters/mod.rs` because that module is shared by every test
+/// Living here rather than in `tests/adapters/adapters.rs` because that module is shared by every test
 /// target and `dead_code` is `deny` - a marker only the golden cell functions use would be dead in
 /// every other target that includes the registry. It is defined so a golden-only cell can be bound
 /// on it (see the [`golden`] macro below): a cell bound on this marker compiles for an adapter only
@@ -510,7 +510,7 @@ fn changing_what_a_definition_means_moves_the_digest() {
 //
 // A **declaring** adapter - one that supplies part of the model this port defines - is measured
 // against its own declaration rather than against the reference bundle. There is no such adapter in
-// the registry, and there deliberately is not one: `tests/adapters/mod.rs` registers only what
+// the registry, and there deliberately is not one: `tests/adapters/adapters.rs` registers only what
 // somebody could deploy, and inventing a narrow fake to register would put a cell in the matrix that
 // cannot execute the corpus - which that module already argues at length.
 //
