@@ -84,7 +84,7 @@ pub(super) fn instructed_lines(text: &str) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::instructed_lines;
+    use super::{instructed_lines, offered};
 
     /// The fixture spells the needle from DIFFERENT parts than [`super::instructed`] does, so the
     /// two spellings have to agree - and neither leaves the contiguous phrase in this file, which
@@ -96,6 +96,21 @@ mod tests {
             concat!("git ", "stash")
         );
         assert_eq!(instructed_lines(&text), vec![2], "the line a reader would open");
+    }
+
+    /// [`offered`] is the other side of [`super::super::Inspected::of`]'s conservation law, and
+    /// every caller in `worktree_state.rs`'s own tests passes it a literal that already agrees
+    /// with `instructed.len()` - so a narrowed `offered` (`.count().saturating_mul(0)`, reads
+    /// kept) never disagreed with anything there. This calls it directly over text carrying two
+    /// occurrences, which a narrowing cannot pass by accident.
+    #[test]
+    fn offered_counts_by_its_own_expression_not_by_agreement_with_a_caller() {
+        let text = format!("one: {stash}\ntwo: {stash}\n", stash = concat!("git ", "stash"));
+        assert_eq!(
+            offered(&text),
+            2,
+            "two occurrences, counted independently of instructed_lines"
+        );
     }
 
     #[test]
