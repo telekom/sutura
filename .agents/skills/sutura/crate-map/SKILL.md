@@ -48,8 +48,18 @@ script, so the two cannot drift.
 `telekom/sutura#124`/`#125` landed as one change, `sutura-exec-postgres` is also an optional,
 default-off `postgres` dependency of both composition roots: the corpus path reaches it as a
 dev-dependency, and a deployment that writes `kind: postgres` pays the link only when it asks for
-the feature. Nothing a release publishes links it, which is the assertion `checks.shipped-features`
-makes of the artefact.
+the feature.
+
+**Nothing a release publishes links it, and `checks.shipped-features` holds that only by PROXY.**
+That gate's `forbidden` list is `ring` and `ureq`; it never names `sutura-exec-postgres`. What makes
+the ban reach this adapter is that `rustls` is a **non-optional** dependency of it and the workspace
+pins rustls to the `ring` provider - `sutura-exec-postgres` -> `rustls` -> `ring`, readable in
+`Cargo.lock` and in neither edge optional - so a published binary linking the adapter would carry
+`ring` in its `cargo auditable` section and the ban would fire. **The limit, and it is the whole
+reason to cite the mechanism rather than the sentence:** the day that rustls dependency goes behind
+a feature, or the provider pin moves off `ring`, the gate stays green over a published binary that
+links the adapter, and nothing says so. A direct assertion would have to name the adapter in that
+list.
 
 ## Why a networked adapter hides behind a default-off feature
 

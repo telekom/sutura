@@ -4234,6 +4234,12 @@ There is deliberately no `Verified`-without-anchors shape: a source asking for T
 trust store is a refusal at load, naming the source (ADR 0010 rule 2). `TrustAnchors` has no
 default, so there is no value the loader could have filled in on the operator's behalf.
 
+And `Verified` deliberately has no client identity either, which makes a written one a refusal
+rather than a field: `verified` verifies the source's chain and presents nothing, so a
+`client_certificate` on it is a control the mode cannot carry. Giving `Verified` the fields
+instead would collapse the distinction the block above is drawn on - the mode that presents a
+certificate is `Mutual`, and a superset would leave two spellings for one state.
+
 And there is deliberately no way to ask for TLS without verification. Every library in this
 space offers the escape hatch - `danger_accept_invalid_certs`, `sslmode=require` - and each one
 is an encrypted channel with an unknown peer. A `bool` named `verify` would make that reachable
@@ -4288,8 +4294,10 @@ pub struct ClientIdentity
 
 The client certificate and key this deployment presents to a source.
 
-A pair - a certificate with no key, or a key with no certificate, is refused at load naming the
-missing half. The paths are read by the adapter at boot; only the paths live in configuration.
+A pair - in a `mutual` declaration, a certificate with no key or a key with no certificate is
+refused at load naming the missing half. Only `mutual` builds one: on any other mode a written
+half is refused for being unread, before this type is reached. The paths are read by the adapter
+at boot; only the paths live in configuration.
 
 ##### Methods
 
@@ -4362,7 +4370,7 @@ value that would be cloned is a path, which is fine to own here.
 ##### Variants
 
 - `UnknownTransport`
-- `PlaintextWithMaterial` - A `plaintext` channel also named anchors or a client identity, which nothing would read.
+- `KeyNotReadByMode` - A key was written that the declared mode does not read, so nothing would honour it.
 - `TlsWithoutAnchors` - A source declared TLS and named no trust anchors.
 - `MissingHalf` - A client certificate was written without its key, or the reverse.
 - `MutualWithoutIdentity` - A `mutual` channel declared no client identity at all.
@@ -4383,7 +4391,12 @@ a closed type must refuse.
 
 `mode` is the `transport_mode` word. `anchors` is the written `transport_anchors` value (a path or
 the word `system`). `client_certificate`/`client_key` are the optional identity pair. `plaintext`
-is the one way to declare no TLS; a `plaintext` declaration that also names material is refused.
+is the one way to declare no TLS.
+
+**A mode is refused a key it would not read, and the two modes that discard something share one
+refusal.** `plaintext` reads no anchors and no client identity; `verified` verifies the source's
+chain and presents nothing, so it reads no client identity either. `mutual` is the only mode
+that reads all three, so it is the only one nothing is refused on for being unread.
 
 #### `fn host_is_loopback`
 
