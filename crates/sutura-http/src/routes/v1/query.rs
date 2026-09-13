@@ -18,9 +18,9 @@
 //! retry" - a transport condition, not a status. `axios` retries nothing on its own, and
 //! `axios-retry` defaults to "a network error or a 5xx error on an idempotent request". Go's
 //! `net/http` reference documents no status-driven retry anywhere. The statuses that *are* retried by
-//! convention are `429` and `408`, and no refusal maps to either. `422` - where four of them land -
-//! is documented the other way round: "Clients that receive a `422` response should expect that
-//! repeating the request without modification will fail with the same error."
+//! convention are `429` and `408`, and no refusal maps to either. `422` is documented the other way
+//! round: "Clients that receive a `422` response should expect that repeating the request without
+//! modification will fail with the same error."
 //!
 //! **What the `200` actually cost is what nobody priced.** A refusal answered `200` is
 //! indistinguishable from an answer to everything that reads a status and not a body: an ingress

@@ -58,11 +58,27 @@ clients receiving a `422` "should expect that repeating the request without modi
 with the same error".
 
 **Corrected:** this said *"four of the eleven refusal codes"*. Both numbers had gone stale - the
-codes are named rather than counted now, because nothing in this repository derives either number
-and a count nobody derives is a count that goes stale again. `crates/sutura-http/src/wire/refusal.rs`
-still carries the same stale figure in two of its own comments; correcting them is held against the
-entry in `check-guidance`'s contradicted-claims table that currently keys on one of them, so the two
-have to move in the same change as that table and did not move here.
+codes are named rather than counted here, because nothing in this repository derives either number
+and a count nobody derives is a count that goes stale again. Where the count is still written it is
+registered rather than remembered: `check-guidance`'s contradicted-claims entry now forbids the stale
+figure and prescribes the true one, and `xtask/src/guidance/claims.rs`'s
+`no_live_rule_forbids_the_true_count_of_422_refusals` holds that no live rule forbids the sentence
+this repository can now write. `docs/serving.md` states the count; the transport's own route module
+states the status without one.
+
+**The residual, stated because it is not held by anything.** None of the above compares the count to
+the match that decides it - the registered entry forbids the WRONG figure and the test beside it says
+in its own words that it "says nothing about the COUNT". So
+`crates/sutura-http/src/wire/refusal.rs`, which spells the number in two of its own comments, and
+`docs/serving.md`, which spells it once, are held by adjacency and review rather than by a mechanism.
+That is not hypothetical. Those sites went stale again on 2026-09-13, under two hours after the entry
+was registered: the deadline refusal arrived as another arm of the same match sending another code to
+`422`, the wire's own status table gained its row because the exhaustive match forced one, and not a
+single sentence that counts the codes moved with it. The number is deliberately not restated here -
+this paragraph is about a count nothing derives, and writing one would be the defect it describes.
+That entry could not reach `refusal.rs` in any case: `check-guidance`'s
+claim scope is `md`, `nix`, `yml`, `yaml`, `toml` and `sh`, so a count written in a Rust comment is
+outside every wording it registers.
 
 **And the `200` cost something the argument never priced.** A governance refusal answered `200` is
 indistinguishable from an answer to everything that reads a status and not a body:

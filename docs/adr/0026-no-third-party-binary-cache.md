@@ -1,15 +1,27 @@
 ---
 title: No third-party binary cache
-description: Why the secret-gated Cachix wiring in ci.yml and cross-link.yml was deleted rather than provisioned, what the GitHub Actions cache does and does not carry in its place, what the deleted step was measured to be doing (nothing, silently, on every main push), and which gate now refuses its return.
+description: Superseded by 0027 - why the secret-gated Cachix wiring in ci.yml and cross-link.yml was deleted rather than provisioned, what the GitHub Actions cache does and does not carry in its place, what the deleted step was measured to be doing (nothing, silently, on every main push), and which one of this record's refusals still stands now that the decision has been reversed.
 ---
 
 # No third-party binary cache
 
-Status: **accepted**, 2026-09-09. Supersedes the binary-cache half of `#472`'s Proposal 2 and the
-wiring `#477` added for it. `docs/adr/0025` is the neighbouring case: a control this repository
-publishes has to be held by a mechanism, or it is an overstated control.
+Status: **superseded by [`docs/adr/0027`](0027-an-oss-binary-cache-for-this-repositorys-own-paths.md)**.
+Accepted 2026-09-09, reversed the next day; that record is the re-decision and carries what changed.
+Superseded the binary-cache half of `#472`'s Proposal 2 and the wiring `#477` added for it.
+`docs/adr/0025` is the neighbouring case: a control this repository publishes has to be held by a
+mechanism, or it is an overstated control.
 
-## The decision
+**What no longer holds** is the decision in the next section: a store outside this repository is
+trusted now, and `0027` names it, bounds it and states what bounds it. **What still holds from here**
+is the narrower refusal this record actually found - a step in ordinary CI may not decide itself on
+repository state a workflow cannot observe - and the measurements below, which `0027` starts from
+rather than repeats.
+
+**This file may not be emptied or deleted.** `xtask/src/workflows/cache_scope/retired.rs` reads it by
+path and fails when it is missing or blank, for the reason a refusal that names a record needs the
+record to exist.
+
+## The decision, as taken on 2026-09-09 and since reversed
 
 **The GitHub Actions cache is the only store this repository carries between runs.** No hosted or
 third-party Nix binary cache is configured, and none is trusted as a substituter. `#472` asked for
@@ -69,7 +81,8 @@ that is blind is worse than a check that is absent, because it looks like covera
 a push to `main` (`#490`, `#487`). That asymmetry is pinned token for token by
 `xtask::workflows::cache_scope`, and the run reports what it carried rather than asserting it worked.
 `cache-prune.yml` is unchanged and stays: with pull requests no longer writing, the entries it spares
-are exactly what a pull request restores from, and there is no second carrier standing behind them.
+are exactly what a pull request restores from. The second carrier this line said there was none of is
+`0027`'s.
 
 ## What this record does NOT say
 
@@ -92,8 +105,12 @@ are exactly what a pull request restores from, and there is no second carrier st
 
 `cargo xtask check-workflows` refuses, over the whole `.github` tree:
 
-- any step naming a hosted binary-cache publisher (`cachix/cachix-action`,
-  `DeterminateSystems/flakehub-cache-action`) while this record stands;
+- a hosted binary-cache publisher, and **this is the half `0027` narrowed rather than deleted**:
+  `cachix/cachix-action` was refused everywhere while this record stood and is now permitted in a
+  named file and in one pull-request job, which the gate identifies by the environment that job
+  declares rather than by its name, while `DeterminateSystems/flakehub-cache-action` is
+  still refused wherever it appears. `xtask/src/workflows/cache_scope/retired.rs` is where the
+  current permission is written; do not read it off this record;
 - any step in ordinary CI whose `if:` or `save:` reads `secrets.` or `vars.` - repository state the
   workflow cannot observe, so the step's own skip is invisible. `secrets` is not even available to an
   `if:`, and a `vars` test in one is the exact shape that was silently green here;
@@ -101,4 +118,6 @@ are exactly what a pull request restores from, and there is no second carrier st
   wrote down is a rule with no reason.
 
 **Adding a binary cache later is a good change, and it makes this record wrong the moment it lands.**
-So the gate refuses the combination rather than the tool, and its message names this file to edit.
+It landed the next day. The gate refused the combination rather than the tool and its message named
+this file to edit, which is why `0027` could narrow the refusal instead of deleting it - and why this
+record is superseded rather than removed.
