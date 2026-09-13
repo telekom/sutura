@@ -102,8 +102,16 @@ Registration has headroom again. `TASKS` lives in `xtask/src/task_table.rs` sinc
 `max-lines` enforces - a cap `crates/` and `xtask/` cannot be exempted from, because
 `UNEXEMPTABLE_PREFIXES` is exactly those two. **No line count is repeated here**, because a
 measurement copied into prose rots: three files carried 999 against a tree measuring 992. `just
-hygiene` reports the cap's verdict, and it is the only current answer. **What it does not report is
-how close any file is to refusing**, so the next near-cap file is as invisible as that one was.
+hygiene` reports the cap's verdict, and it is the only current answer. **Its `ok` line also names
+the files closest to the cap and how much each has left** - `github.com/telekom/sutura#626`, filed
+because a binary gate says nothing until it refuses, so the next near-cap file was as invisible as
+that one had been. A READOUT AND NOT A WARNING: nothing fails or warns below the cap, and the
+figures are computed on every run instead of written here. The defect recurred while that readout
+was being built - a six-line test fixture took `crates/sutura-exec-datafusion/src/lib.rs` over the
+cap, refusing a commit mid-slice, and counted at `a96440c8` THREE files were tighter than it was.
+That is why the readout names five rather than one, and it is a count at a named commit rather than
+a rank for the reason #626's own correction gives: a rank is a function of every other file's
+length, so it rots without anything editing the file it describes.
 
 **And when a new gate reads `flake.nix` for a name, LEX it - do not search the text.** `flake.nix`
 declares `apps.<name>` and `checks.<name>` for overlapping sets of names, so *does the file mention
