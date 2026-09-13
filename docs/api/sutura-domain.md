@@ -10401,11 +10401,9 @@ pub struct NoBudget
 
 Why a duration is not a budget: it is zero.
 
-**Declared last in this file, deliberately.** `xtask check-boundaries`'s pub-field scan treats a
-semicolon-terminated unit struct as "awaiting a body" until the next unmatched `{` opens
-anywhere below it, which misreads the following item's own `pub` methods as this struct's
-fields - measured against `impl Budget` above. Nothing follows this declaration but `mod tests`,
-which opens no such brace, so there is nothing left to misattribute.
+Declared last in this file: `xtask check-boundaries`'s pub-field scan misreads a unit struct
+followed by an `impl` block as the struct's own fields, a gate defect noted as a PR follow-up
+rather than worked around with more prose here.
 
 ##### Implements
 
