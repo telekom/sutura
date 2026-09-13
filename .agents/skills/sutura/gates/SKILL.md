@@ -657,7 +657,11 @@ panic-free.
   there rather than per gate**: every door returns a `Census` and the walk RECORDS what it could
   not reach instead of returning a shorter list. Measured on this branch with `chmod 000 docs/adr`
   - the directory holding the ADR this gate's own remedies cite - `check-shipped-binaries` and
-  `check-docs` both refuse at exit 1 naming `docs/adr`, where both were exit 0 and silent.
+  `check-docs` both refuse at exit 1 naming `docs/adr`. **That is not this change's delta**: the
+  same seal against the PR's base, `70d5665f`, already refuses byte-for-byte identically, because
+  neither `xtask/src/docs.rs` nor `xtask/src/shipped/documented.rs` is touched here - both gates
+  route through the same `repo::collect_files(...).into_listing(...)` this fix changed, and were
+  already fail-closed on it before this branch existed.
 - **A FLOOR COMPUTED INSIDE THE THING IT POLICES IS NOT A FLOOR.** The same gate grew a substring
   sighting of its key, subtracted from the lines its parser accounted for, so a spelling the
   parser does not recognise is a verdict rather than a silence - which is what reached

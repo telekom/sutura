@@ -433,9 +433,14 @@ pub(crate) fn looks_like_text(bytes: &[u8]) -> bool {
 /// continue; }` is three lines, reads as caution, and takes the file out of the scan while leaving
 /// it in the count the verdict prints. `github.com/telekom/sutura#619` measured it in three gates;
 /// `check-guidance` then had it in some of its own checks and not others, because each check made
-/// the decision again. **The shape is no longer spellable in one line** - the only failure path
-/// here writes into the caller's own findings, so a gate that wants to drop a subject has to write
-/// a visible discard for a `Vec` it throws away.
+/// the decision again. **The shape is still spellable in one line**: `let Some(text) =
+/// read_subject(root, rel, &mut Vec::new()) else { continue; };` compiles and `just lint` exits 0
+/// over it. It is not the silent drop it replaces, because the throwaway `Vec` is visible at the
+/// call site rather than absent from it - but nothing stops a caller from writing exactly that. No
+/// gate polices the shape: every live caller instead threads its own findings `Vec` through (e.g.
+/// `versions::comment_versions`), so a sealed subject still refuses there, and a rule that would
+/// forbid the one-liner would be defeated by a differently-named throwaway anyway. The remedy is
+/// this doc, not a rule with no mechanism behind it.
 ///
 /// **Lossy, so textness is never conflated with reachability.** Scope is a path decision the
 /// caller has already made; these bytes are in scope, so a decode failure must not become an
