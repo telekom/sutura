@@ -29,7 +29,8 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::federation::{Carried, Federation};
-use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::measure::Measure;
+use sutura_domain::model::{MetricName, SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     FederatedPlan, FederatedPlanError, InternalLabel, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate,
@@ -82,6 +83,8 @@ pub(crate) enum Plan {
 pub(crate) enum PlanError {
     #[error("the question was refused")]
     Refused(RefusalReason),
+    #[error("metric {metric} uses authored SQL, which this plan shape does not carry")]
+    AuthoredSqlNotPlanned { metric: MetricName },
     #[error(transparent)]
     NotAssembled(#[from] FederatedPlanError),
 }
@@ -103,6 +106,11 @@ impl From<RefusalReason> for PlanError {
 /// function's discipline: a whole-answer plan and a fact leg each take their tables as a
 /// [`StatementTables`], so neither can be built without the answer.
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
+    let Some(measure) = resolution.metric.measure() else {
+        return Err(PlanError::AuthoredSqlNotPlanned {
+            metric: resolution.metric.name().clone(),
+        });
+    };
     // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
     // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
     // drop a source here.
@@ -111,8 +119,8 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
         .collect();
 
     match remote.len() {
-        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution)?))),
-        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution)?))),
+        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
+        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?))),
         // Two are served; three or more refused, because each source is a separate identity.
         _ => Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
             sources: 1 + remote.len(),
@@ -133,7 +141,7 @@ fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
 }
 
 /// A question confined to one data system: exactly the plan this module already built.
-fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
+fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan, RefusalReason> {
     let metric = resolution.metric;
     let model = resolution.model;
     // Two readings of "the table", and both are used below. `own_path` is what the `FROM` names -
@@ -179,7 +187,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
         .map(|key| PlanKey::new(ResultLabel::dimension(key.dimension.name()), column_of(key, own_table)))
         .collect();
 
-    let measure = plan_measure(metric.measure(), |column| PlanColumn::new(own_table.clone(), column.clone()));
+    let measure = plan_measure(closed, |column| PlanColumn::new(own_table.clone(), column.clone()));
 
     // **Where the statement's tables stop being a list and become a checked set.** Two tables whose
     // paths end in the same name render under one implicit alias, so a column qualified by it names
@@ -216,7 +224,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
 // The splitter builds both legs, their keys, their filters and the link in one pass over the
 // resolution; it is a single act of splitting a resolved question, and it returns Err from several
 // places that far apart to make a reviewer see the splitter's refusals together.
-fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanError> {
+fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<FederatedPlan, PlanError> {
     let metric = resolution.metric;
     let model = resolution.model;
     // Two readings of "the table", for the reason `mono_plan` gives: the path is what a leg's `FROM`
@@ -224,7 +232,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, PlanErro
     let own_path = model.table();
     let own_table = model.table_name();
 
-    let federation = Federation::of(metric.measure());
+    let federation = Federation::of(closed);
     // The combiner cannot re-count a distinct aggregate, so a measure that needs that is refused.
     if let Some(keys) = federation.carried().iter().find_map(|leaf| match **leaf {
         Carried::Keys { pulled, .. } => Some(pulled.above()),

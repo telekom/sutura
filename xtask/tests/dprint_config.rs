@@ -1,11 +1,11 @@
 //! The dprint exclusion list is pinned, because a formatter's blind spot grows in silence.
 //!
-//! SEVEN PATHS ARE EXCLUDED AND EACH NAMES A MECHANISM a reformat would break: `check-api-docs`
+//! EIGHT PATHS ARE EXCLUDED AND EACH NAMES A MECHANISM a reformat would break: `check-api-docs`
 //! byte-compares the generated pages against a fresh generation, `check-skills` reads
 //! content-hash-locked imports and reported 23 as local forks the one time dprint saw them,
 //! `check-gate-classification` and `check-venues` match table rows as exact lines that cell padding
-//! defeats, a digest pins the catalog fixture, and a vendored tree's whole value is a readable diff
-//! against upstream. `dprint.json` argues each in place.
+//! defeats, a digest pins each of the two catalog fixtures, and a vendored tree's whole value is a
+//! readable diff against upstream. `dprint.json` argues each in place.
 //!
 //! THE SIX THAT WERE DEFERRED WORK ARE GONE, by the owner's decision. `dprint.json` called them
 //! "work in flight" and "a follow-up, not a policy" - a rule with no mechanism - and they hid 32
@@ -33,6 +33,7 @@ const EXCLUDED: &[&str] = &[
     ".agents/**",
     "docs/api/**",
     "examples/single-player/catalog/**",
+    "examples/authored-sql/catalog/**",
     "docs/implementation-plan-identity-and-services.md",
     "docs/where-identity-is-proven.md",
     "test-infra/README.md",

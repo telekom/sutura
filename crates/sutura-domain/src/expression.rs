@@ -18,14 +18,24 @@
 //! metric is free-text SQL" is invisible in a diff.
 //!
 //! **Nothing here parses.** A [`SqlFragment`] is checked for being *a plausible fragment* - present,
-//! bounded, and free of the characters that make the text a reviewer reads differ from the text
-//! that compiles - and nothing more. Whether it is one SQL expression, over
-//! columns this model declares, reaching no table it was not given, is decided by `sutura_sql`, at
-//! catalog-compile time, and a fragment that fails is a **load failure naming line and column**. The
-//! domain may not do that work: it holds no SQL parser and `cargo xtask check-boundaries` keeps it
-//! that way. The consequence is worth stating plainly - **a `Computation::AuthoredSql` that has not
-//! been through `sutura_sql::expression::compile` is unvalidated**, and the composition root is what
-//! must not skip it.
+//! bounded, one fragment rather than a script, and free of the characters that make the text a
+//! reviewer reads differ from the text that compiles - and nothing more. Whether it is one SQL
+//! expression, over columns this model declares, reaching no table it was not given, is decided by
+//! `sutura_sql::expression::compile`, and the domain may not do that work: it holds no SQL parser
+//! and `cargo xtask check-boundaries` keeps it that way.
+//!
+//! **Stored, not compiled - and that is the state of the tree, not a transitional note.** A
+//! [`Computation::AuthoredSql`] is loaded, pinned and put under the definition digest exactly as
+//! written, and nothing published compiles it: not the catalog adapter that loads it - the same
+//! boundary gate forbids a catalog adapter reaching `sutura-sql`, because a SQL generator in a
+//! metadata crate's tree is a generator in every shipped binary's - and not the composition root.
+//! The compile belongs to the first execution adapter that declares
+//! `Warehouse::EXECUTES_AUTHORED_SQL`, beside the renderer for its own dialect. Until one does, every
+//! adapter takes that constant's `false` default and `sutura_app::verify_and_validate` refuses a
+//! bundle carrying an authored metric at startup, naming the metric. So the consequence, plainly:
+//! **a `Computation::AuthoredSql` is unvalidated SQL text, and the only thing that makes that safe
+//! today is that nothing executes it** - the refusal is the mechanism, and `docs/adr/0004` records
+//! why a witness type was not available instead.
 //!
 //! **It is a provider CAPABILITY, not a feature every provider has.** A wren-style directory has
 //! authored SQL because a person wrote the file. A metadata service that stores no executable SQL
@@ -47,7 +57,8 @@ use crate::text::first_invisible;
 /// The longest authored fragment accepted.
 ///
 /// A bound rather than a judgement about style: the fragment is handed to a recursive-descent parser
-/// at load, and an unbounded string out of a file is an unbounded amount of work and stack.
+/// by whichever adapter compiles it, and an unbounded string out of a file is an unbounded amount of
+/// work and stack. Counted in characters, not bytes.
 /// Generous enough for the conditional sums and guarded ratios this exists for; anything longer is a
 /// derived column that belongs upstream, which is what `docs/adr/0001` says about the whole class.
 pub const MAX_FRAGMENT_LEN: usize = 1024;
@@ -90,6 +101,14 @@ pub enum InvalidFragment {
     /// three of the seven ranges - which is the whole argument for the module that now owns it.
     #[error("an authored expression may not contain the invisible or direction-changing character {code:#06x}")]
     InvisibleCharacter { code: u32 },
+    /// A `;` anywhere in the text. An authored computation is ONE expression that a generator
+    /// splices into a statement it composes; a semicolon is the one character that can end that
+    /// statement and begin another, which turns a metric definition into a script. Refused
+    /// textually - inside a string literal too - because nothing here parses, and a rule that
+    /// depended on tokenising would be a parser by another name. A literal that needs one is
+    /// the derived-column case `docs/adr/0001` sends upstream.
+    #[error("an authored expression is one fragment, not a script: `;` is refused")]
+    StatementTerminator,
 }
 
 /// Why a dialect word is not one.
@@ -109,6 +128,10 @@ pub enum InvalidDialectTag {
 /// them cannot be confused with a string that did not. Deliberately **not** an identifier newtype:
 /// the character set of SQL is not the character set of a name, and narrowing it here would reject
 /// the quotes, parentheses and commas the whole feature exists to allow.
+///
+/// Held exactly as written past the surrounding trim, so the digest covers the author's text. The
+/// derived `Debug` prints it, and that is fine: it is operator-authored catalog content, not a
+/// secret. What must not print it is [`AuthoredSql`]'s `Display`, whose doc says why.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "String")]
 pub struct SqlFragment(String);
@@ -136,6 +159,9 @@ impl SqlFragment {
             return Err(InvalidFragment::InvisibleCharacter {
                 code: u32::from(offending),
             });
+        }
+        if trimmed.contains(';') {
+            return Err(InvalidFragment::StatementTerminator);
         }
         Ok(Self(String::from(trimmed)))
     }
@@ -401,8 +427,9 @@ pub enum Computation {
     /// The closed vocabulary, and the ordinary case. Every metadata provider can produce this, and
     /// nothing about it is optional or degraded.
     Measure(Measure),
-    /// SQL somebody wrote in the catalog, compiled at load. The exception, named so that it reads as
-    /// one.
+    /// SQL somebody wrote in the catalog, stored as written. The exception, named so that it reads
+    /// as one - and, today, one no published adapter executes: the module doc says what holds
+    /// instead.
     AuthoredSql(AuthoredSql),
 }
 
@@ -435,8 +462,9 @@ impl Computation {
     /// The closed measure, if this metric uses the closed vocabulary.
     ///
     /// Every consumer that walks columns, resolves terms or renders an aggregate reads this, and a
-    /// `None` is the signal that the number comes from a compiled fragment instead. An adapter that
-    /// cannot execute one has to **refuse** on that `None` rather than skip the metric.
+    /// `None` is the signal that the number would come from an authored fragment instead. A
+    /// consumer that cannot execute one has to **refuse** on that `None`, naming the metric, rather
+    /// than skip it - `sutura_semantic::plan` does, and so does the startup check.
     #[inline]
     pub const fn measure(&self) -> Option<&Measure> {
         match *self {
@@ -464,6 +492,12 @@ impl Computation {
             Self::Measure(_) => "measure",
             Self::AuthoredSql(_) => "authored_sql",
         }
+    }
+}
+
+impl From<Measure> for Computation {
+    fn from(measure: Measure) -> Self {
+        Self::Measure(measure)
     }
 }
 
@@ -596,6 +630,37 @@ mod tests {
             let benign = char::from_u32(code).expect("a listed code point is a character");
             assert!(!is_invisible(benign), "{code:#06x} is not one of the invisible ones");
         }
+    }
+
+    #[test]
+    fn a_semicolon_is_refused_wherever_it_sits_because_one_fragment_is_not_a_script() {
+        // The character that ends the statement the generator composes and begins one of the
+        // author's own. `InvalidFragment::StatementTerminator` does not exist on base, so this
+        // file does not compile there; the compiled mutation is deleting the `contains(';')` arm
+        // in `SqlFragment::parse`, under which exactly this test goes red.
+        assert_eq!(
+            SqlFragment::parse("SUM(amount_cents); DROP TABLE orders"),
+            Err(InvalidFragment::StatementTerminator)
+        );
+        // A trailing one - the habit a SQL console teaches - is the same refusal, not trimmed away.
+        assert_eq!(
+            SqlFragment::parse("SUM(amount_cents);"),
+            Err(InvalidFragment::StatementTerminator)
+        );
+        // Inside a string literal too. Nothing here tokenises, so the rule is textual and says so
+        // rather than being a parser by another name.
+        assert_eq!(
+            SqlFragment::parse("SUM(CASE WHEN note = 'a;b' THEN 1 END)"),
+            Err(InvalidFragment::StatementTerminator)
+        );
+        // And on the deserialize path, which is the only one a catalog file takes.
+        let err = serde_json::from_str::<SqlFragment>("\"SUM(amount_cents);\"").expect_err("a script is not a fragment");
+        assert!(err.to_string().contains("not a script"), "{err}");
+        // The neighbours are not refused: the punctuation an expression is made of survives.
+        assert_eq!(
+            fragment("SUM(CASE WHEN status IN ('a', 'b') THEN mrr_eur ELSE 0 END)").as_str(),
+            "SUM(CASE WHEN status IN ('a', 'b') THEN mrr_eur ELSE 0 END)"
+        );
     }
 
     #[test]

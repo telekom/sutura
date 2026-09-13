@@ -19,7 +19,7 @@ mod unbounded;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use sutura_domain::expression::{AuthoredSql, DialectTag, SqlFragment};
+use sutura_domain::expression::{AuthoredSql, DialectTag, InvalidFragment, SqlFragment};
 use sutura_domain::model::{ColumnName, TableName};
 
 use super::refusal::{Construct, ExpressionError, Shape};
@@ -215,17 +215,14 @@ fn empty_whitespace_and_comment_only_input_is_refused_and_does_not_panic() {
             "{raw:?}: {err}"
         );
     }
-    // The wrapper's projection count is still the backstop for an input that tokenizes to nothing
-    // for a reason that is not a comment, and this is the one the parser sees: a bare `;` is one
-    // statement in the authoring dialect and its projection list is empty.
-    let fragment = SqlFragment::parse(";").expect("a semicolon is text");
-    let err = compile(
-        &AuthoredSql::new(BTreeMap::from([(DialectTag::portable(), fragment)])).expect("one fragment"),
-        &table(),
-        &columns(),
-    )
-    .expect_err("a semicolon is not an expression");
-    assert!(matches!(err, ExpressionError::NotOneExpression { .. }), "{err}");
+    // The wrapper's projection count was the backstop for a bare `;`: one statement in the
+    // authoring dialect, wrapped as `SELECT ;`, with an empty projection list. That input cannot
+    // reach here any more - `SqlFragment::parse` now refuses every `;` as
+    // `InvalidFragment::StatementTerminator` (held in `sutura_domain::expression`, and asserted by
+    // that crate's own `a_semicolon_is_refused_wherever_it_sits_because_one_fragment_is_not_a_script`)
+    // - and no other legal fragment is known to tokenize to zero projections without one, so the
+    // guard this backstops is defence in depth rather than a reachable case.
+    assert!(matches!(SqlFragment::parse(";"), Err(InvalidFragment::StatementTerminator)));
 }
 
 #[test]
@@ -234,12 +231,12 @@ fn a_fragment_that_escapes_its_own_parentheses_is_refused_naming_a_position() {
     // measured, ClickHouse's parser ACCEPTS `SUM(x))` and `x) FROM secret --`, silently dropping
     // the tail. DuckDB rejects both, and the reported column is moved back off the `SELECT `
     // wrapper so it points into the author's own line.
-    for raw in [
-        "x) FROM secret_table --",
-        "SUM(mrr_eur))",
-        "SUM(mrr_eur) garbage garbage",
-        "1; DROP TABLE fact_subscription",
-    ] {
+    //
+    // A fourth case used to sit here, `1; DROP TABLE fact_subscription`, demonstrating that the
+    // `ManyStatements` shape refuses it. It no longer reaches `portable` at all:
+    // `SqlFragment::parse` refuses every `;` as `InvalidFragment::StatementTerminator` before a
+    // fragment can be built, which the domain's own suite holds.
+    for raw in ["x) FROM secret_table --", "SUM(mrr_eur))", "SUM(mrr_eur) garbage garbage"] {
         match portable(raw) {
             Err(ExpressionError::Unparsable { line, column, .. }) => {
                 assert_eq!(line, 1, "{raw:?}");

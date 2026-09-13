@@ -136,10 +136,10 @@ fn the_bundle_of_models_and_one_certified_metric_loads_and_validates() {
         .expect("the certified metric is in the bundle");
     assert_eq!(
         revenue.measure(),
-        &Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+        Some(&Measure::Simple(Term::Aggregate(AggregatedColumn::new(
             Aggregate::Sum,
             ColumnName::parse("amount_cents").expect("a test column is a column"),
-        )))
+        ))))
     );
 }
 

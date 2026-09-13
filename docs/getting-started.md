@@ -482,7 +482,9 @@ Four things matter before you write one:
 - **A measure is a shape and terms from a closed vocabulary, not an expression.** There is no field
   for `sum(price * quantity)`, and [the closed vocabulary for measures](adr/0002-a-closed-vocabulary-for-measures.md) argues why: a string field is an escape
   hatch, and an escape hatch on the query path is the thing being defended against. What the
-  vocabulary cannot say belongs in a statement rendered upstream. `zero_denominator` is required
+  vocabulary cannot say can be declared under the explicitly named `authored_sql:` sibling, and
+  today that declaration loads and pins and nothing more: no published adapter compiles or executes
+  the fragment, so a bundle carrying one is refused at startup. `zero_denominator` is required
   rather than defaulted, because "a rate over an empty period is null" and "is an error" are both
   defensible and a definition should say which - which is also why it is a word (`yields_null` or
   `fails`) rather than a boolean that records only that somebody thought about it.

@@ -10,10 +10,10 @@
 //! one the author wrote: `colums:` yields a model with no columns, which then refuses every question
 //! about it for a reason that says nothing about a typo.
 //!
-//! [`sutura_domain::measure`] is the one exception, and the `measure` field of [`MetricDoc`] argues
-//! for it where a reader will be standing when they wonder. In short: those types already carry
-//! exactly this format's representation, and mirroring its variants here would buy nothing but a
-//! place to forget the next one.
+//! [`sutura_domain::measure`] and [`AuthoredSql`] are the exceptions, and the computation fields of
+//! [`MetricDoc`] argue for them where a reader will be standing when they wonder. In short: those
+//! types already carry exactly this format's representation, and mirroring their variants here
+//! would buy nothing but a place to forget the next one.
 
 use std::collections::BTreeSet;
 
@@ -22,6 +22,7 @@ use sutura_domain::catalog::{
     Anchor, AnchorValue, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, Metric, Model,
     Relationship,
 };
+use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
@@ -289,8 +290,18 @@ pub struct MetricDoc {
     /// `try_from` struct, and `zero_denominator` is a unit variant, which `serde_norway` already
     /// spells as a plain scalar. `singleton_map_recursive` would reach into both and is not needed
     /// by either.
-    #[serde(with = "serde_norway::with::singleton_map")]
-    measure: Measure,
+    /// Optional only while the sibling `authored_sql` key is considered. [`Computation::assemble`]
+    /// refuses both absence and coexistence before a domain metric exists.
+    #[serde(default, with = "serde_norway::with::singleton_map")]
+    measure: Option<Measure>,
+    /// The named escape hatch, kept as a sibling of `measure` so a review can see which path a
+    /// metric chose. **This adapter stores the fragment and does not compile it**: it may not reach
+    /// `sutura-sql` (`cargo xtask check-boundaries` forbids the edge, because a SQL generator in a
+    /// metadata crate's tree is one in every shipped binary's), so what is checked here is what
+    /// [`sutura_domain::expression::SqlFragment::parse`] checks and nothing more. A bundle carrying
+    /// one is refused at startup by every adapter this workspace ships; `docs/adr/0004` is the record.
+    #[serde(default)]
+    authored_sql: Option<AuthoredSql>,
     /// Predicates that are part of the definition, applied to every question about the metric.
     ///
     /// Defaulted to empty, because most metrics have none and requiring the key on every document
@@ -313,7 +324,7 @@ pub struct MetricDoc {
 
 /// Why a metric document cannot become a metric.
 ///
-/// Only what belongs to the DOCUMENT: the two conversions this file performs that the domain's own
+/// Only what belongs to the DOCUMENT: the conversions this file performs that the domain's own
 /// constructors can refuse. Everything about whether a metric holds together is checked in
 /// [`sutura_domain::catalog`], once, for every adapter - **including the duplicated dimension this
 /// enum used to carry.** That variant existed because `Metric::new` took a map, so the domain could
@@ -323,6 +334,9 @@ pub struct MetricDoc {
 /// happened.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidMetricDocument {
+    /// The document wrote neither computation key, or wrote both.
+    #[error(transparent)]
+    Computation(InvalidComputation),
     /// The domain refused the metric this document describes.
     ///
     /// Transparent, because the domain's own message names the metric and the fault and this layer
@@ -373,10 +387,11 @@ impl MetricDoc {
                 metric: self.name.clone(),
                 cause,
             })?;
+        let computation = Computation::assemble(self.measure, self.authored_sql).map_err(InvalidMetricDocument::Computation)?;
         Metric::new(
             self.name,
             self.model,
-            self.measure,
+            computation,
             self.required_filters,
             self.time_column,
             self.grains,
@@ -392,6 +407,7 @@ impl MetricDoc {
 mod tests {
     use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
     use sutura_domain::catalog::{DimensionValue, InconsistentDefinitions, InvalidDimensionValue};
+    use sutura_domain::expression::InvalidComputation;
     use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
@@ -441,11 +457,52 @@ grains: [month]
             .into_domain(description("Net revenue."))
             .expect("no dimensions cannot be duplicated");
         assert_eq!(metric.name(), &MetricName::parse("revenue").expect("a name"));
-        assert_eq!(metric.measure(), &Measure::Simple(aggregated(Aggregate::Sum, "amount_cents")));
+        assert_eq!(
+            metric.measure(),
+            Some(&Measure::Simple(aggregated(Aggregate::Sum, "amount_cents")))
+        );
         assert!(metric.supports_grain(Grain::Month));
         assert!(!metric.supports_grain(Grain::Day));
         assert_eq!(metric.description(), "Net revenue.");
         assert!(metric.anchor().is_none());
+    }
+
+    #[test]
+    fn authored_sql_is_the_other_computation_a_metric_document_can_choose() {
+        let yaml = "
+kind: metric
+name: spread
+model: orders
+authored_sql:
+  portable: MAX(amount_cents) - MIN(amount_cents)
+time_column: order_date
+grains: [month]
+";
+        let metric = metric_doc(yaml)
+            .expect("authored_sql is a metric field")
+            .into_domain(Description::default())
+            .expect("exactly one computation is present");
+        assert_eq!(metric.computation().kind(), "authored_sql");
+        assert!(metric.measure().is_none());
+    }
+
+    #[test]
+    fn a_metric_document_must_choose_exactly_one_computation() {
+        let without = "kind: metric\nname: revenue\nmodel: orders\ntime_column: order_date\ngrains: [month]\n";
+        assert_eq!(
+            metric_doc(without)
+                .expect("the document shape is readable")
+                .into_domain(Description::default()),
+            Err(InvalidMetricDocument::Computation(InvalidComputation::Nothing))
+        );
+
+        let both = format!("{MINIMAL_METRIC}authored_sql:\n  portable: SUM(amount_cents)\n");
+        assert_eq!(
+            metric_doc(&both)
+                .expect("both keys are individually readable")
+                .into_domain(Description::default()),
+            Err(InvalidMetricDocument::Computation(InvalidComputation::Both))
+        );
     }
 
     #[test]
@@ -541,9 +598,9 @@ colums: [amount_cents]
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
-            &Measure::Simple(Term::CountIf {
+            Some(&Measure::Simple(Term::CountIf {
                 column: column("churned_in_month"),
-            })
+            }))
         );
     }
 
@@ -564,11 +621,11 @@ colums: [amount_cents]
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
-            &Measure::Ratio {
+            Some(&Measure::Ratio {
                 numerator: aggregated(Aggregate::Sum, "mrr_eur"),
                 denominator: aggregated(Aggregate::CountDistinct, "customer_key"),
                 zero_denominator: ZeroDenominator::Null,
-            }
+            })
         );
     }
 
@@ -590,13 +647,13 @@ colums: [amount_cents]
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
-            &Measure::Ratio {
+            Some(&Measure::Ratio {
                 numerator: Term::CountIf {
                     column: column("churned_in_month"),
                 },
                 denominator: aggregated(Aggregate::CountDistinct, "subscription_key"),
                 zero_denominator: ZeroDenominator::Null,
-            }
+            })
         );
     }
 
@@ -684,11 +741,11 @@ colums: [amount_cents]
                 .expect("no dimensions to duplicate");
             assert_eq!(
                 metric.measure(),
-                &Measure::Ratio {
+                Some(&Measure::Ratio {
                     numerator: aggregated(Aggregate::Sum, "mrr_eur"),
                     denominator: aggregated(Aggregate::CountDistinct, "customer_key"),
                     zero_denominator: expected,
-                }
+                })
             );
         }
         // And the spelling that would have been the trap: refused, rather than read as the variant

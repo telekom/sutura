@@ -41,6 +41,8 @@
     // and the snapshot beside it is what an agent is told. Excluded rather than re-pinned: a
     // formatter must not change what the prompt renders from.
     "examples/single-player/catalog/**",
+    // The same class: a catalog a `SemanticCatalog` reads, whose bytes the load test digests.
+    "examples/authored-sql/catalog/**",
     // THESE THREE PAGES HAVE TABLE ROWS THAT A GATE MATCHES AS AN EXACT LINE -
     // `check-gate-classification` over the first, `check-venues` over the other two, and all
     // three fail CLOSED when they cannot find the row. dprint pads table cells to align the
