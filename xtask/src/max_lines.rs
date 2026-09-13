@@ -8,6 +8,10 @@
 //! Generated and vendored output is exempt via `devco/max-lines-ignore`. Hand-written source
 //! is not exemptable at all - see [`UNEXEMPTABLE_PREFIXES`].
 //!
+//! **The `ok` verdict names the files closest to the cap**, because a binary gate is silent until it
+//! refuses and the refusal arrives mid-change, after the work is written. See [`headroom`] for what
+//! that readout is derived from and what it does not prove.
+//!
 //! # An exemption that exempts nothing
 //!
 //! The ignore file's own header calls a `[warn]` entry *a promise to split, not a way to silence
@@ -39,6 +43,20 @@ const DEFAULT_MAX_LINES: usize = 1000;
 /// Ignore patterns live in a file, not in this source, so adding an exemption is a
 /// reviewable one-line diff next to the reason for it.
 const IGNORE_FILE: &str = "devco/max-lines-ignore";
+
+/// How many near-cap files the `ok` verdict names.
+///
+/// Five, and the number is MEASURED rather than chosen. One name hides the file behind it, and
+/// `github.com/telekom/sutura#626` found a whole column within ten lines of the cap with one at
+/// zero - so the window has to be wider than the tightest file. It was set to three until the
+/// defect recurred while this was being written: a six-line test fixture took
+/// `crates/sutura-exec-datafusion/src/lib.rs` from 995 lines to 1001, refusing a commit mid-slice
+/// and truncating the rest of the sweep. **Counted at `a96440c8`, THREE files were tighter than it
+/// was**, so a three-name readout would not have reached it - a count at a named commit and not a
+/// rank, because #626's own correction is that a rank moves with every other file's length.
+/// Printing every file under the cap instead is a page on every green run, and a success verdict
+/// nobody reads is the silence this replaces.
+const NEAR_CAP_REPORTED: usize = 5;
 
 /// Hand-written source. An ignore pattern pointing here is rejected outright and the gate
 /// fails: the fix for a 1200-line module is to split it, and an exemption list that can
@@ -119,9 +137,11 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let mut violations: Vec<(String, usize)> = Vec::new();
     let mut warnings: Vec<(String, usize)> = Vec::new();
     let mut over_cap: Vec<String> = Vec::new();
+    let mut under_cap: Vec<(&str, usize)> = Vec::new();
     for rel in &files {
         let lines = count_lines(&root.join(rel));
         if lines <= max {
+            under_cap.push((rel, lines));
             continue;
         }
         over_cap.push(rel.clone());
@@ -133,7 +153,48 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     }
 
     let inert = inert_entries(&ignores, &files, &over_cap);
-    report(&files, &violations, &warnings, &inert, max)
+    let near_cap = headroom(&under_cap, &ignores, max, NEAR_CAP_REPORTED);
+    report(&files, &violations, &warnings, &inert, &near_cap, max)
+}
+
+/// The files closest to the cap, tightest first, as the lines the `ok` verdict prints.
+///
+/// **Computed every run, because a transcribed number rots.** `github.com/telekom/sutura#626`: the
+/// cap said nothing until it refused, so the headroom was invisible until a commit was rejected
+/// mid-change and the only figures anyone could cite had been typed into prose - where they were
+/// found stale, one of them asserting a table entry *"is not available"* that a later refactor had
+/// made false. The issue arguing that then carried a RANK of its own which was wrong the day it was
+/// written, a rank being a function of two lengths that both move. The loop above already knows
+/// every file's length, so this is a formatting question and not a measurement one.
+///
+/// **The figure is [`count_lines`]' definition of a line, not `wc -l`'s.** A file whose last line
+/// has no terminator counts as a line here and not there, so the two disagree by one on it - the
+/// committed fuzz corpus seeds are the measured instance. It is the same counter the cap itself is
+/// applied with, which is the property that matters: the headroom printed is the headroom the
+/// refusal will use.
+///
+/// **An exempted file is not on the wall, in either section.** The cap does not refuse it, so
+/// printing its headroom would claim a limit that is not there - and the `[silent]` globs cover the
+/// published prose, where the longest files in the tree live.
+///
+/// **What it cannot see is the walk that fed it.** These lines are derived from the same listing the
+/// verdict's file count is, so a narrowed walk moves both together and this readout would report the
+/// tightest file of a smaller tree without saying so - `github.com/telekom/sutura#414`'s shape,
+/// which the `Unmigrated::MaxLines` door above is the record of. It makes the cap's remaining
+/// headroom visible; it is not evidence about which files were read.
+fn headroom(under_cap: &[(&str, usize)], ignores: &Ignores, max: usize, keep: usize) -> Vec<String> {
+    let mut near: Vec<(&str, usize)> = under_cap
+        .iter()
+        .copied()
+        .filter(|(rel, _)| !ignores.all().any(|pattern| repo::matches(pattern, rel)))
+        .collect();
+    // Stable, over a path-sorted listing, so equal headroom prints in path order rather than in
+    // whatever order the walk happened to reach two files in.
+    near.sort_by_key(|&(_, lines)| std::cmp::Reverse(lines));
+    near.iter()
+        .take(keep)
+        .map(|&(path, lines)| format!("  {} lines left: {path}", max.saturating_sub(lines)))
+        .collect()
 }
 
 /// Exemptions that exempt nothing, each with the sentence saying why.
@@ -181,12 +242,14 @@ fn is_literal(pattern: &str) -> bool {
 /// **BOTH, and the early return is why that needed saying.** The inert-exemption block returned
 /// before the violations report, so with one stale `[warn]` entry a 1200-line file was not named -
 /// measured in review: the exit code was right and the report was half of what the gate knew. A
-/// gate that knows two numbers and prints one is this commit's own subject.
+/// gate that knows two numbers and prints one is this commit's own subject. The `ok` verdict carries
+/// a THIRD number for the same reason - see [`headroom`], which is `#626` arriving at this function.
 fn report(
     files: &[String],
     violations: &[(String, usize)],
     warnings: &[(String, usize)],
     inert: &[String],
+    near_cap: &[String],
     max: usize,
 ) -> Verdict {
     for (path, lines) in warnings {
@@ -218,6 +281,9 @@ fn report(
             files.len(),
             warnings.len()
         );
+        for line in near_cap {
+            println!("{line}");
+        }
         return Verdict::Pass;
     }
     Verdict::Fail
@@ -250,7 +316,9 @@ fn count_lines(path: &Path) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_MAX_LINES, Ignores, inert_entries, is_literal, is_unexemptable, parse_max_lines};
+    use super::{
+        DEFAULT_MAX_LINES, Ignores, NEAR_CAP_REPORTED, headroom, inert_entries, is_literal, is_unexemptable, parse_max_lines,
+    };
     use crate::Verdict;
 
     #[test]
@@ -295,15 +363,27 @@ mod tests {
         assert!(!is_literal("docs/adr/000?.md"));
     }
 
-    #[test]
-    fn the_committed_ignore_file_has_no_inert_entry() {
-        // Over the REAL file and the REAL tree, because the fixtures above prove the rule and not
-        // the configuration. This is the assertion that reddens the day an entry's promise is kept.
+    /// The committed ignore file and the listing the gate itself walks, for the tests that assert
+    /// over the real tree rather than a fixture.
+    ///
+    /// **One function because [`crate::repo::Census::into_listing`] is the transitional door
+    /// `UNMIGRATED_DOORS` counts.** A second copy of this read raises that ratchet - measured, `51
+    /// call site(s) ... 50 declared` - and the number is meant to fall as gates migrate, not rise
+    /// for a duplicated read. So the two live-tree tests below share one door.
+    fn committed_tree() -> (std::path::PathBuf, Ignores, Vec<String>) {
         let root = crate::repo::root().expect("the repo root");
         let ignores = Ignores::parse(&std::fs::read_to_string(root.join(super::IGNORE_FILE)).expect("the ignore file"));
         let (_root, files) = crate::repo::collect_text_files(&root, &root)
             .into_listing(crate::repo::Unmigrated::MaxLines)
             .expect("the tests run inside the repo");
+        (root, ignores, files)
+    }
+
+    #[test]
+    fn the_committed_ignore_file_has_no_inert_entry() {
+        // Over the REAL file and the REAL tree, because the fixtures above prove the rule and not
+        // the configuration. This is the assertion that reddens the day an entry's promise is kept.
+        let (root, ignores, files) = committed_tree();
         let over_cap: Vec<String> = files
             .iter()
             .filter(|rel| super::count_lines(&root.join(rel)) > DEFAULT_MAX_LINES)
@@ -321,12 +401,72 @@ mod tests {
         let over = [(String::from("BIGFILE.md"), 1200_usize)];
         let inert = [String::from("`[warn]` `README.md` is under the cap, so it prints nothing")];
         let files = [String::from("BIGFILE.md"), String::from("README.md")];
-        assert_eq!(super::report(&files, &over, &[], &inert, DEFAULT_MAX_LINES), Verdict::Fail);
+        assert_eq!(
+            super::report(&files, &over, &[], &inert, &[], DEFAULT_MAX_LINES),
+            Verdict::Fail
+        );
         // Each half on its own is still a failure, and neither is a pass.
-        assert_eq!(super::report(&files, &over, &[], &[], DEFAULT_MAX_LINES), Verdict::Fail);
-        assert_eq!(super::report(&files, &[], &[], &inert, DEFAULT_MAX_LINES), Verdict::Fail);
+        assert_eq!(super::report(&files, &over, &[], &[], &[], DEFAULT_MAX_LINES), Verdict::Fail);
+        assert_eq!(super::report(&files, &[], &[], &inert, &[], DEFAULT_MAX_LINES), Verdict::Fail);
         // AND THE ARM THAT STILL FIRES: neither half, and the success line is printed.
-        assert_eq!(super::report(&files, &[], &[], &[], DEFAULT_MAX_LINES), Verdict::Pass);
+        assert_eq!(super::report(&files, &[], &[], &[], &[], DEFAULT_MAX_LINES), Verdict::Pass);
+    }
+
+    #[test]
+    fn the_ok_verdict_names_the_files_closest_to_the_cap() {
+        // `github.com/telekom/sutura#626`: the gate was binary, so a file creeping from 700 to 999
+        // was invisible and the wall was met by whoever was unlucky. Five claims, and the fixture
+        // is what makes each of them falsifiable on its own - tightest FIRST, the arithmetic, the
+        // truncation, that an exempted file is not on the wall in EITHER section, and that the
+        // counter holds at both ends: a file AT the cap reports zero left, an EMPTY one reports the
+        // whole cap and sorts last rather than dividing by a length nobody has.
+        let ignores = Ignores::parse("[silent]\ndocs/*.md\n\n[warn]\nflake.nix\n");
+        let under_cap = [
+            ("crates/sutura-domain/src/a.rs", 1000),
+            ("crates/sutura-domain/src/b.rs", 900),
+            ("docs/prose.md", 999),
+            ("flake.nix", 998),
+            ("xtask/src/c.rs", 997),
+            ("xtask/src/d.rs", 10),
+            ("xtask/src/empty.rs", 0),
+        ];
+        assert_eq!(
+            headroom(&under_cap, &ignores, DEFAULT_MAX_LINES, 3),
+            [
+                "  0 lines left: crates/sutura-domain/src/a.rs",
+                "  3 lines left: xtask/src/c.rs",
+                "  100 lines left: crates/sutura-domain/src/b.rs",
+            ]
+        );
+        // The same fixture with room for every non-exempt file: the truncation above is the only
+        // thing that hid the last two, and the order runs to the end without the two exempt files
+        // appearing anywhere in it.
+        assert_eq!(
+            headroom(&under_cap, &ignores, DEFAULT_MAX_LINES, 6),
+            [
+                "  0 lines left: crates/sutura-domain/src/a.rs",
+                "  3 lines left: xtask/src/c.rs",
+                "  100 lines left: crates/sutura-domain/src/b.rs",
+                "  990 lines left: xtask/src/d.rs",
+                "  1000 lines left: xtask/src/empty.rs",
+            ]
+        );
+        // A tree with nothing to report prints nothing, rather than a line about no file.
+        assert_eq!(headroom(&[], &ignores, DEFAULT_MAX_LINES, 3), [] as [String; 0]);
+
+        // AND OVER THE REAL TREE, because the fixture proves the arithmetic and not that the
+        // readout survives the walk the gate actually does. This is the assertion that reddens if
+        // the exemption filter ever matches everything: the verdict would still say `ok`, the
+        // readout would be empty, and the wall would be invisible again with nobody told.
+        let (root, committed, files) = committed_tree();
+        let lengths: Vec<(&str, usize)> = files
+            .iter()
+            .map(|rel| (rel.as_str(), super::count_lines(&root.join(rel))))
+            .filter(|&(_, lines)| lines <= DEFAULT_MAX_LINES)
+            .collect();
+        let live = headroom(&lengths, &committed, DEFAULT_MAX_LINES, NEAR_CAP_REPORTED);
+        assert_eq!(live.len(), NEAR_CAP_REPORTED, "{live:?}");
+        assert!(live.iter().all(|line| line.contains(" lines left: ")), "{live:?}");
     }
 
     #[test]
