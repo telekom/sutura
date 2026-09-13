@@ -172,8 +172,9 @@ pub enum PostgresError {
         #[source]
         cause: tokio_postgres::Error,
     },
-    /// The deadline was already spent once [`Self::execution_lock`] was acquired - refused locally,
-    /// no round trip: that unbounded wait is outside `sutura_app`'s own pre-call check.
+    /// The deadline was already spent once [`PostgresWarehouse::execution_lock`] was acquired -
+    /// refused locally, no round trip: that unbounded wait is outside `sutura_app`'s own pre-call
+    /// check.
     #[error("the deadline was already spent by the time the connection's lock was acquired")]
     DeadlineSpent,
     /// The credential broker handed this adapter subject material it has nowhere to put.
