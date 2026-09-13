@@ -123,14 +123,17 @@ is prose.
 Exists, is tested, has no caller from any binary. Three invariant rows once stated this as enforced;
 they were **deleted rather than demoted**, which is the table's own rule applied to itself.
 
-- **The authored-SQL hatch** (`docs/adr/0004`) is complete and unreachable: the metric type holds no
-  computation, the document shape has no key for it, and `compile` has no production caller. **The
-  gap that is not wiring:** no shipped binary could execute an authored expression even with the load
-  path in place - the engine generates no SQL, and the renderer-backed adapter is a dev-dependency.
-  Wiring the load alone would move a refusal from load time to query time. **The engine executing a
-  leg does not narrow this**, and the reason is the same fact read the other way: that path builds a
-  logical plan and renders nothing, so there is still no statement for an authored expression to be
-  part of.
+- **The authored-SQL hatch** (`docs/adr/0004`): the LOAD is wired and the compile is not. A local
+  metric document writes `authored_sql:`, the fragment is admitted as text and pinned under the digest
+  as written, and `sutura_sql::expression::compile` still has no production caller - a catalog adapter
+  may not reach `sutura-sql` (`FORBIDDEN_EDGES`), so the fragment is stored, not checked. What holds:
+  every shipped adapter takes `Warehouse::EXECUTES_AUTHORED_SQL = false` and `verify_and_validate`
+  refuses the bundle at boot, naming the metric (the invariants table has the row). **The gap that is
+  not wiring:** no shipped binary could execute an authored expression - the engine generates no SQL,
+  and the renderer-backed adapter is a dev-dependency - so the compile belongs to the first adapter
+  that executes it. **The engine executing a leg does not narrow this**, and the reason is the same
+  fact read the other way: that path builds a logical plan and renders nothing, so there is still no
+  statement for an authored expression to be part of.
 - **The DataHub catalog adapter decides a whole metric, and nothing reads or serves it.**
   `sutura-catalog-datahub` provides `Structure`, `Descriptions` and `Relationships` unconditionally
   and declares the metric kinds as **declared-and-empty may-provide** kinds

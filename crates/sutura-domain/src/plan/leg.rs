@@ -41,7 +41,7 @@
 
 use crate::calendar::TimeRange;
 use crate::model::{MetricName, QualifiedTable, SourceName, TableName};
-use crate::plan::{PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, ResultLabel, StatementTables};
+use crate::plan::{PlanBindings, PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, ResultLabel, StatementTables};
 use crate::warehouse::ParamValue;
 
 /// One number a leg computes, and the label it is projected under.
@@ -150,15 +150,14 @@ impl LegTerm {
 /// ```compile_fail
 /// use sutura_domain::calendar::TimeRange;
 /// use sutura_domain::model::{QualifiedTable, SourceName};
-/// use sutura_domain::plan::LegPlan;
+/// use sutura_domain::plan::{LegPlan, PlanBindings};
 ///
 /// fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
 ///         table,
 ///         keys: Vec::new(),
-///         filters: Vec::new(),
-///         params: Vec::new(),
+///         bindings: PlanBindings::none(),
 ///         range,
 ///     }
 /// }
@@ -166,16 +165,57 @@ impl LegTerm {
 ///
 /// ```
 /// use sutura_domain::model::{QualifiedTable, SourceName};
-/// use sutura_domain::plan::LegPlan;
+/// use sutura_domain::plan::{LegPlan, PlanBindings};
 ///
 /// fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
 ///         table,
 ///         keys: Vec::new(),
-///         filters: Vec::new(),
-///         params: Vec::new(),
+///         bindings: PlanBindings::none(),
 ///     }
+/// }
+/// ```
+///
+/// A leg's filters arrive as a checked set too, so a producer cannot state a filter list beside a
+/// parameter list and leave the two to agree by coincidence. This doctest holds the CARRIER, not
+/// the type: `LegPlan::Lookup` has no `filters` field to name, so rustc refuses it with `E0559`
+/// before `PlanBindings`'s own privacy is ever reached - `crate::plan::bindings`'s
+/// `compile_fail,E0451` doctest on `PlanBindings` itself is what holds that second boundary.
+///
+/// ```compile_fail,E0559
+/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::plan::{LegPlan, PlanFilter};
+/// use sutura_domain::warehouse::ParamValue;
+///
+/// fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> LegPlan {
+///     LegPlan::Lookup {
+///         source,
+///         table,
+///         keys: Vec::new(),
+///         filters,
+///         params,
+///     }
+/// }
+/// ```
+///
+/// ```
+/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter};
+/// use sutura_domain::warehouse::ParamValue;
+///
+/// fn _parsed(
+///     source: SourceName,
+///     table: QualifiedTable,
+///     filters: Vec<PlanFilter>,
+///     params: Vec<ParamValue>,
+/// ) -> Result<LegPlan, IncoherentBindings> {
+///     Ok(LegPlan::Lookup {
+///         source,
+///         table,
+///         keys: Vec::new(),
+///         bindings: PlanBindings::parse(filters, params)?,
+///     })
 /// }
 /// ```
 ///
@@ -185,7 +225,7 @@ impl LegTerm {
 /// ```compile_fail
 /// use sutura_domain::calendar::TimeRange;
 /// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
-/// use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin};
+/// use sutura_domain::plan::{LegPlan, PlanBindings, PlanBucket, PlanJoin};
 ///
 /// fn _unchecked(
 ///     source: SourceName,
@@ -203,8 +243,7 @@ impl LegTerm {
 ///         bucket,
 ///         keys: Vec::new(),
 ///         terms: Vec::new(),
-///         filters: Vec::new(),
-///         params: Vec::new(),
+///         bindings: PlanBindings::none(),
 ///         range,
 ///     }
 /// }
@@ -213,7 +252,7 @@ impl LegTerm {
 /// ```
 /// use sutura_domain::calendar::TimeRange;
 /// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
-/// use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin, StatementTables};
+/// use sutura_domain::plan::{LegPlan, PlanBindings, PlanBucket, PlanJoin, StatementTables};
 ///
 /// fn _checked(
 ///     source: SourceName,
@@ -230,8 +269,7 @@ impl LegTerm {
 ///         bucket,
 ///         keys: Vec::new(),
 ///         terms: Vec::new(),
-///         filters: Vec::new(),
-///         params: Vec::new(),
+///         bindings: PlanBindings::none(),
 ///         range,
 ///     })
 /// }
@@ -277,8 +315,15 @@ pub enum LegPlan {
         bucket: PlanBucket,
         keys: Vec<PlanKey>,
         terms: Vec<LegTerm>,
-        filters: Vec<PlanFilter>,
-        params: Vec<ParamValue>,
+        /// **A parsed set and not a filter list beside a parameter list, and that is this variant's
+        /// own guard** for the reason `tables` above is one: a leg's statement is never seen by
+        /// anything downstream, so a predicate binding a parameter the leg does not carry - or
+        /// binding one out of the order a positional placeholder gives it - is a wrong number that
+        /// reaches a combiner rather than a statement that fails. `crate::plan::bindings` holds the
+        /// argument. It serializes `#[serde(flatten)]`, so the pinned form is `filters` beside
+        /// `params` exactly as before.
+        #[serde(flatten)]
+        bindings: PlanBindings,
         range: TimeRange,
     },
     /// Read off one remote dimension model: its join key, the columns the answer groups by, and
@@ -288,15 +333,17 @@ pub enum LegPlan {
     /// would be a predicate on a column that is not there; nothing is aggregated, so there is no
     /// term and no measure label; and the metric belongs to the fact leg.
     ///
-    /// `filters` may be empty, and whether it is decides the join kind above - INNER for a remote
+    /// `bindings` may be empty, and whether it is decides the join kind above - INNER for a remote
     /// dimension carrying a filter, LEFT for one that does not. That derivation belongs to the
     /// splitter and is deliberately not a field here.
     Lookup {
         source: SourceName,
         table: QualifiedTable,
         keys: Vec<PlanKey>,
-        filters: Vec<PlanFilter>,
-        params: Vec<ParamValue>,
+        /// A parsed set, for [`Fact`](LegPlan::Fact)'s reason. `PlanBindings::none` is the
+        /// no-filter spelling, which is what a remote dimension the question did not filter carries.
+        #[serde(flatten)]
+        bindings: PlanBindings,
     },
 }
 
@@ -343,7 +390,7 @@ impl LegPlan {
     #[inline]
     pub fn filters(&self) -> &[PlanFilter] {
         match *self {
-            Self::Fact { ref filters, .. } | Self::Lookup { ref filters, .. } => filters,
+            Self::Fact { ref bindings, .. } | Self::Lookup { ref bindings, .. } => bindings.filters(),
         }
     }
 
@@ -351,7 +398,7 @@ impl LegPlan {
     #[inline]
     pub fn params(&self) -> &[ParamValue] {
         match *self {
-            Self::Fact { ref params, .. } | Self::Lookup { ref params, .. } => params,
+            Self::Fact { ref bindings, .. } | Self::Lookup { ref bindings, .. } => bindings.params(),
         }
     }
 

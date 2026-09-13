@@ -137,9 +137,9 @@ fn an_empty_pinned_list_is_refused_rather_than_defaulted() {
 
 #[test]
 fn a_resource_identifier_is_stored_exactly_as_written_and_nothing_is_normalised() {
-    // The reason `url` is not a dependency of this crate. An audience is compared byte for byte
-    // against a token claim, and a parser that lower-cased the host or dropped a default port would
-    // make this deployment accept a token minted for a DIFFERENT spelling than the operator wrote.
+    // URL parsing validates only the structure. An audience is compared byte for byte against a token
+    // claim, so storing a parser's lower-cased host or elided default port would make this deployment
+    // accept a token minted for a DIFFERENT spelling than the operator wrote.
     let written = "https://Sutura.Example.com:8443/v1";
     let parsed = ResourceIdentifier::parse(written).expect("a mixed-case identifier is an identifier");
     assert_eq!(parsed.as_str(), written, "the value was normalised");
