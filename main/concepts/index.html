@@ -2816,14 +2816,17 @@ there is no field a catalogue could write an arbitrary expression into. <code>Me
 shapes over a <code>Term</code> enum of two terms, <code>RequiredFilter</code> an enum of four operators, and
 <code>deny_unknown_fields</code> applies at every depth. sutura generates the whole statement from that, in
 <code>sutura-semantic</code>, so neither caller-authored nor catalogue-authored SQL is on the path at all.</p>
-<p><strong>Partly built, and named so it cannot be quiet.</strong> A metric may instead carry <code>authored_sql:</code> - a SQL
-expression a catalogue author wrote, for what the closed vocabulary cannot say: a window function, a
-percentile, an expression over two columns. It is a <em>sibling</em> of <code>measure:</code> rather than a field on it,
-exactly one of the two may be present, and a fragment is parsed at load, checked against a list of
-refused constructs, checked against the model's declared columns and rendered for every dialect
-before anything serves. A caller still has no field for SQL, and the agent prompt still never sees
-any. <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/">A named escape hatch for authored SQL</a> is
-the record. The types and the compile exist; no catalogue document can write the key yet.</p>
+<p><strong>Loaded and refused at boot, and named so it cannot be quiet.</strong> A metric may instead carry
+<code>authored_sql:</code> - a SQL expression a catalogue author wrote, for what the closed vocabulary cannot
+say: a window function, a percentile, an expression over two columns. It is a <em>sibling</em> of <code>measure:</code>
+rather than a field on it, exactly one of the two may be present, and the fragment is admitted as
+text (present, bounded, one fragment rather than a script, free of control and invisible characters)
+and pinned under the definition digest exactly as written. <strong>It is not compiled</strong>: nothing published
+parses it, checks it against the model's columns or renders it, and every adapter this workspace
+ships refuses to start on a bundle that carries one, naming the metric. A caller still has no field
+for SQL, and the agent prompt still never sees any.
+<a href="../adr/0004-a-named-escape-hatch-for-authored-sql/">A named escape hatch for authored SQL</a> is the
+record, and its amendment says why the compile was kept out of the load.</p>
 <p><strong>Design target, not built.</strong> A definition may instead arrive as <strong>statement</strong> text authored
 upstream, spliced into a generated wrapper byte for byte, because re-emitting it would substitute
 our reading for the author's and the number would change quietly. Nothing implements that splice:

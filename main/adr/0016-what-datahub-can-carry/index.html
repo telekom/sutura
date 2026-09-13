@@ -3439,10 +3439,12 @@ is <code>ANSI_SQL</code>, <code>SNOWFLAKE</code>, <code>MDX</code>, <code>TABLEA
 both sets</strong>, and three of DataHub's are not SQL at all - MDX, Tableau's calculation language and MAQL
 would not parse in a SQL parser and are not meant to. Getting from <code>ANSI_SQL</code> to our three would be a
 translation, and <em>we never translate SQL we did not generate</em> is an invariant with a mechanism behind
-it. Even setting that aside, the hatch is in <code>AGENTS.md</code>'s <em>Built And Not Wired</em> section: no shipped
-binary can execute an authored expression, because the engine generates no SQL and the adapter that
-renders is a dev-dependency. So reading <code>metricInfo.expression</code> as a computation would move a refusal
-from load time to query time rather than answer anything.</p>
+it. Even setting that aside, no shipped binary can execute an authored expression - the engine
+generates no SQL and the adapter that renders is a dev-dependency - so a bundle carrying one is
+refused at boot (<a href="../0004-a-named-escape-hatch-for-authored-sql/">0004</a>'s amendment). Reading
+<code>metricInfo.expression</code> as a computation would therefore produce a bundle that loads and cannot
+start, rather than answer anything; and this adapter may not compile the text either, since
+<code>cargo xtask check-boundaries</code> forbids it reaching <code>sutura-sql</code>.</p>
 <h3 id="cardinality-declared-optional-and-one-value-we-cannot-represent">Cardinality: declared, optional, and one value we cannot represent<a class="headerlink" href="#cardinality-declared-optional-and-one-value-we-cannot-represent" title="Permanent link">&para;</a></h3>
 <p><strong>DataHub does declare cardinality, which was the open question, and the news is better than
 expected and smaller than it looks.</strong> <code>SemanticModelRelationship.cardinality</code> is an
@@ -3915,8 +3917,8 @@ knowledge-only DataHub with no metrics anywhere contributes <em>nothing at all</
 structure-and-descriptions DataHub contributes a working bundle.</p>
 <p><strong>Read <code>metricInfo.expression</code> through the authored-SQL hatch.</strong> Rejected on two independent grounds,
 either of which is sufficient: the dialect sets do not intersect and closing the gap is translation;
-and no shipped binary can execute an authored expression, so the load would succeed and the question
-would still be refused, one stage later and less clearly.</p>
+and no shipped binary can execute an authored expression, so the load would succeed and the
+deployment would refuse to start.</p>
 <p><strong>Derive a <code>Measure</code> from <code>aggregationFunction</code> plus the annotated field.</strong> Rejected because the
 expression beside it is authored independently and nothing reconciles the two, so the derivation
 certifies half a definition. This is the alternative that looks cheapest and is the one whose failure

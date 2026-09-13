@@ -4143,10 +4143,10 @@ written in.</p>
 misspelled key would otherwise be dropped in silence, and the definition that loads is not the
 one the author wrote: <code>colums:</code> yields a model with no columns, which then refuses every question
 about it for a reason that says nothing about a typo.</p>
-<p><code>sutura_domain::measure</code> is the one exception, and the <code>measure</code> field of <code>MetricDoc</code> argues
-for it where a reader will be standing when they wonder. In short: those types already carry
-exactly this format's representation, and mirroring its variants here would buy nothing but a
-place to forget the next one.</p>
+<p><code>sutura_domain::measure</code> and <code>AuthoredSql</code> are the exceptions, and the computation fields of
+<code>MetricDoc</code> argue for them where a reader will be standing when they wonder. In short: those
+types already carry exactly this format's representation, and mirroring their variants here
+would buy nothing but a place to forget the next one.</p>
 <h3 id="enum-documentkind"><code>enum DocumentKind</code><a class="headerlink" href="#enum-documentkind" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DocumentKind</span>
 </span></code></pre></div>
@@ -4272,7 +4272,7 @@ where <code>MetricDoc::into_domain</code> can refuse it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidMetricDocument</span>
 </span></code></pre></div>
 <p>Why a metric document cannot become a metric.</p>
-<p>Only what belongs to the DOCUMENT: the two conversions this file performs that the domain's own
+<p>Only what belongs to the DOCUMENT: the conversions this file performs that the domain's own
 constructors can refuse. Everything about whether a metric holds together is checked in
 <code>sutura_domain::catalog</code>, once, for every adapter - <strong>including the duplicated dimension this
 enum used to carry.</strong> That variant existed because <code>Metric::new</code> took a map, so the domain could
@@ -4282,6 +4282,7 @@ a check in one adapter is a check the other adapter does not have, which is exac
 happened.</p>
 <h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
 <ul>
+<li><code>Computation</code> - The document wrote neither computation key, or wrote both.</li>
 <li><code>Inconsistent</code> - The domain refused the metric this document describes.</li>
 <li><code>AnchorValue</code> - The anchor's <code>value:</code> is not text a number can be checked against.</li>
 </ul>

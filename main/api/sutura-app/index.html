@@ -3047,6 +3047,21 @@ So the bundle is proven to compute its certified numbers for whatever identity e
 configured with - the process, for the file engine that ships - and the composition root refuses
 a bundle with an anchor on a source that declared no verification identity, which is the half
 available before the port changes.</p>
+<h1 id="what-is-refused-before-any-anchor-runs">What is refused before any anchor runs<a class="headerlink" href="#what-is-refused-before-any-anchor-runs" title="Permanent link">&para;</a></h1>
+<p>A metric whose computation is catalog-authored SQL, unless <code>W</code> declares
+<code>Warehouse::EXECUTES_AUTHORED_SQL</code>. The fragment is stored as written and nothing published
+compiles it, so an adapter taking the default cannot execute the metric; refusing the bundle
+here, naming the metric, is what stands between that and a served bundle with a metric that
+is silently skipped or a measure quietly substituted. Read off the ONE adapter type
+<code>Warehouses&lt;W&gt;</code> holds, the way <code>EXECUTES_LEGS</code> is - so it is a fact about the build, not
+about the data. No adapter this workspace ships opts in; <code>docs/adr/0004</code> is the decision.</p>
+<p><strong>"Before any anchor runs" is a placement, not an assertion.</strong> It is true because this check
+sits ahead of <code>declared_keys::hold</code> and <code>verify_anchors</code> in the body below, and the ordering
+ahead of <code>declared_keys::hold</code> is held INCIDENTALLY, by the <code>examples/authored-sql</code> cell: that
+catalog declares a relationship and attaches no data to it, so a block moved below <code>hold</code>
+fails there first, on <code>declared_keys::hold</code>'s own refusal, rather than on this one. Nothing
+separates the placement from <code>verify_anchors</code> alone, and no fixture's fake counts an anchor
+or a declared key that was never touched.</p>
 <h2 id="type_alias-answering"><code>type_alias Answering</code><a class="headerlink" href="#type_alias-answering" title="Permanent link">&para;</a></h2>
 <p>What answering produced, or why it could not.</p>
 <p>A named alias because the inline form is over the complexity threshold in <code>clippy.toml</code>, and

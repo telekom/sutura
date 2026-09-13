@@ -2840,20 +2840,63 @@
 
 
 <h1 id="a-named-escape-hatch-for-authored-sql">A named escape hatch for authored SQL<a class="headerlink" href="#a-named-escape-hatch-for-authored-sql" title="Permanent link">&para;</a></h1>
-<p>Status: accepted, and <strong>built but not wired.</strong> It amends
+<p>Status: accepted; <strong>an authored metric loads, pins and is refused at boot, and nothing published
+compiles or executes it.</strong> It amends
 <a href="../0002-a-closed-vocabulary-for-measures/">the closed vocabulary decision</a>, whose <em>Alternatives
 considered</em> rejected exactly this, and it does not supersede it: the closed vocabulary stays closed,
 and this record is about what sits <strong>beside</strong> it and how it is kept visible.</p>
 <h2 id="what-is-built-and-what-is-not">What is built, and what is not<a class="headerlink" href="#what-is-built-and-what-is-not" title="Permanent link">&para;</a></h2>
-<p>Read this before the rest, because the rest is written in the present tense about a path that has no
-caller.</p>
-<p><code>sutura_domain::expression</code> and <code>sutura_sql::expression</code> are complete and tested. <strong>Nothing reaches
-them.</strong> <code>catalog::Metric</code> holds a <code>Measure</code> and not a <code>Computation</code>; a metric document has no
-<code>authored_sql</code> key; <code>sutura_sql::expression::compile</code> has no production caller. So no catalog can
-express an authored metric, and every guard below is exercised by its own tests and by nothing that
-reads a file. <code>AGENTS.md</code>'s <em>Built And Not Wired</em> section says the same thing from the other side, and
-the three rows that used to state this as enforced were deleted from its Invariants table.</p>
-<p>Two things are in the way, and only the first is wiring.</p>
+<p>Read this before the rest, because the rest is written in the present tense about a compile step that
+has no production caller.</p>
+<p><strong>Amendment - the load is wired, the compile is not, and that split is a decision.</strong>
+<code>catalog::Metric</code> holds a <code>Computation</code>; a local metric document writes exactly one of <code>measure:</code>
+and <code>authored_sql:</code>;
+the fragment is admitted by <code>SqlFragment::parse</code> - present, bounded, one fragment rather than a
+script, free of control and invisible characters - pinned under the definition digest exactly as
+written, and <strong>compiled by nothing</strong>. <code>sutura_sql::expression::compile</code> still has no production
+caller. The checkpoint that first wired the load compiled the fragment inside <code>LocalCatalog::load</code> -
+the "refusal inside the one function that loads a catalog" this section used to name as the
+placement left available - and it was taken out again before it merged, because of what it did to
+the closure rather than to the code: <code>sutura-catalog-local</code> is linked by both shipped binaries
+unconditionally, so a compile there puts <code>sutura-sql</code> and the pre-1.0 generator it carries into the
+network binary's default tree - the exact outcome <code>xtask/src/boundaries.rs</code>'s <code>FORBIDDEN_EDGES</code>
+exists to prevent <code>sutura-semantic</code> from producing - while every sentence saying the network binary
+does not link it stayed in place and nothing fired. Three entries in that table now forbid a catalog
+adapter reaching <code>sutura-sql</code> - every catalog adapter this workspace ships, not only the one that
+carries authored SQL today - so the PLACEMENT is held by that gate and not by this paragraph.
+<strong>The OUTCOME is a second, narrower mechanism</strong>, because <code>FORBIDDEN_EDGES</code> names crates and cannot
+see a normal dependency added straight to <code>sutura-app</code> - the crate both composition roots sit on -
+which is outside every one of its three entries and would still put the generator into the network
+binary's default closure. <code>nix/shipped.nix</code>'s <code>checks.shipped-features</code> closes that gap for
+<code>sutura-serve</code> by banning <code>polyglot-sql</code> from its embedded dependency list, read off the artifact
+<code>cargo auditable</code> records rather than off any manifest; <code>sutura</code> legitimately links the crate, for
+<code>compile</code>, so its own entry stays unbanned. So the decision is held by two mechanisms answering two
+different questions - which crate may declare the edge, and which binary may embed the crate - not
+by this paragraph. <strong>The second mechanism's venue, next to the claim:</strong> <code>checks.shipped-features</code>
+runs in <code>just shipped</code> and in the tag-triggered release build, not in <code>just validate</code>, <code>just ci</code> or
+any pull-request workflow - so an edge this gate would catch still merges green and is caught only
+at the first tag that builds the artifact.</p>
+<p>What holds instead is a refusal at boot. <code>Warehouse::EXECUTES_AUTHORED_SQL</code> defaults to <code>false</code>, no
+adapter this workspace ships opts in, and <code>sutura_app::verify_and_validate</code> - the only door to a
+<code>Validated</code> bundle - refuses a bundle carrying an authored metric as
+<code>NotValidated::AuthoredSqlNotExecutable</code>, naming the metric, before any anchor runs - by PLACEMENT
+in that function's body, ahead of <code>declared_keys::hold</code> and <code>verify_anchors</code>. The ordering ahead of
+<code>declared_keys::hold</code> is held INCIDENTALLY, by the <code>examples/authored-sql</code> cell: that catalog
+declares a relationship and attaches no data to it, so a block moved below <code>hold</code> fails there first,
+on <code>hold</code>'s own refusal rather than on this one. Nothing separates the placement from
+<code>verify_anchors</code> alone, and no test's fake counts an anchor or a declared key that was never
+touched. It reads the
+constant off the one adapter type the registry holds, the way <code>EXECUTES_LEGS</code> is read, so it is a
+fact about the build. <strong>The limit, next to the claim:</strong> the fragment is stored and not checked. A
+metric naming a column its model lacks, a construct on the denylist below, or a second table loads
+and pins today, and the only thing that makes that safe is that nothing executes it. The compile
+belongs to the first execution adapter that declares the constant, beside the renderer for its own
+dialect, and that adapter's PR brings the test that holds it. <code>sutura_semantic::plan</code> refuses an
+authored metric it is handed as <code>CompileFailure::AuthoredSqlNotPlanned</code> - a wiring failure and not
+a refusal - which is the arm that catches a bundle reaching the compiler without passing the boot
+check.</p>
+<p>The rest of this section is the argument as it stood before the amendment, and it still stands: why
+the refusal could not be a type.</p>
 <p><strong>A refusal in the composition root cannot be made structural today.</strong> The <em>Consequences</em> below say a
 build that renders no SQL must refuse a catalog that carries authored SQL. The strong form of that -
 make it unrepresentable, by having the authored variant carry a value only <code>compile</code> can produce - is
@@ -2877,15 +2920,15 @@ not available:</p>
   the composition root from a runtime one, because the loader would still have to be handed a
   compiler and still have to refuse when it was not.</li>
 </ul>
-<p>What remains available is a refusal inside the one function that loads a catalog, which no caller can
-skip because there is no other path - a placement, not a type. That is a weaker guarantee than the
-rest of this record relies on, and it is stated here rather than implied.</p>
-<p><strong>No shipped binary could execute an authored expression even with the load path wired.</strong>
-<code>sutura-exec-datafusion</code> is the engine, builds a logical plan over Arrow and compiles no <code>sql</code>
-feature, so <code>Computation::measure()</code> returning <code>None</code> is a refusal there and not an execution path.
-<code>sutura-exec-duckdb</code> renders through <code>sutura-sql</code> and pushes down, and it is a dev-dependency that no
-binary links. So wiring the load alone would move the refusal from load time to query time. Which
-composition root gets an execution path for authored SQL is a decision this record does not make.</p>
+<p>What remains available is a refusal at a placement no caller can skip - a placement, not a type. The
+amendment above says which placement was taken and why the load function was not it. That is a weaker
+guarantee than the rest of this record relies on, and it is stated here rather than implied.</p>
+<p><strong>No shipped binary can execute an authored expression.</strong> <code>sutura-exec-datafusion</code> is the engine,
+builds a logical plan over Arrow and compiles no <code>sql</code> feature, so <code>Computation::measure()</code> returning
+<code>None</code> is a refusal there and not an execution path. <code>sutura-exec-duckdb</code> renders through
+<code>sutura-sql</code> and pushes down, and it is a dev-dependency that no binary links. So the load is wired
+and the refusal sits at boot rather than at query time. Which adapter gets an execution path for
+authored SQL, and so which adapter compiles the fragment, is a decision this record does not make.</p>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
 <p>Two things pushed against the closed vocabulary from opposite directions, and neither is a metric
 that a wider <code>Measure</code> would fix.</p>
@@ -2971,6 +3014,8 @@ beside <code>authored_sql</code>, arrived at without anybody writing two keys on
 is now an <code>IllegalCharacter</code> load failure. <code>SqlFragment</code> still trims, deliberately: two fragments
 that differ only by surrounding whitespace are the same fragment, where two map keys are two keys.</p>
 <h3 id="parse-and-generate-at-load-per-dialect">Parse and generate, at load, per dialect<a class="headerlink" href="#parse-and-generate-at-load-per-dialect" title="Permanent link">&para;</a></h3>
+<p>What follows describes what <code>sutura_sql::expression::compile</code> does when it is called. Nothing published
+calls it - the amendment at the top says where the call belongs and what holds until it exists.</p>
 <p><code>sutura_sql::expression::compile</code> does the work, at catalog-compile time, for <strong>every</strong> dialect the
 build renders for at once. What it stores is the rendered string per target; what reaches a statement
 at query time is that string, verbatim, and nothing is parsed on the query path.</p>
@@ -3337,15 +3382,16 @@ The generator does escape a closing <code>*/</code> into <code>* /</code> - meas
 measure has no reason to carry prose that the document around it can hold instead.</p>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <ul>
-<li>A catalog that uses the hatch cannot be loaded by a build that renders no SQL. <code>sutura_sql</code> is
-  where the compile lives, and the network binary does not link it. That is not a gap to paper over:
-  a build that cannot validate authored SQL must refuse a catalog that carries it, rather than serve
-  the metric unvalidated. The composition root is what must call the compile, and a <code>Computation</code>
-  that has not been through it is unvalidated. <strong>"By construction" is what this sentence used to say
-  and it is not available</strong> - see <a href="#what-is-built-and-what-is-not"><em>What is built, and what is not</em></a>
-  for why a witness type cannot be placed anywhere the bundle can hold it, and for the weaker
-  placement that is available instead. No such refusal is written today, because no catalog can
-  express an authored metric today.</li>
+<li>A catalog that uses the hatch loads on every build and is <strong>refused at boot</strong> by every build this
+  workspace ships. <code>sutura_sql</code> is where the compile lives, the network binary does not link it, and
+  a catalog adapter may not link it either - <code>cargo xtask check-boundaries</code> holds both. So a build
+  that cannot execute authored SQL refuses a bundle that carries it rather than serve the metric
+  unvalidated; <code>verify_and_validate</code> is that refusal and <code>Warehouse::EXECUTES_AUTHORED_SQL</code> is what
+  it reads. A <code>Computation::AuthoredSql</code> that has not been through the compile is unvalidated, and
+  today every one of them is. <strong>"By construction" is what this sentence used to say and it is not
+  available</strong> - see <a href="#what-is-built-and-what-is-not"><em>What is built, and what is not</em></a> for why a
+  witness type cannot be placed anywhere the bundle can hold it, and for the placement that holds
+  instead.</li>
 <li>The engine adapter cannot execute an authored expression at all. It builds a logical plan over
   Arrow and its <code>sql</code> feature is deliberately not compiled. So <code>Computation::measure()</code> returning
   <code>None</code> has to be a refusal there, naming the metric - never a skipped metric and never a

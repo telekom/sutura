@@ -2572,7 +2572,11 @@ author a SQL fragment for a metric the closed measure vocabulary cannot express,
 fragment is parsed - <strong>at catalog-compile time, once, never on the query path</strong> - checked against
 a list of constructs this build refuses, qualified against the model's columns, and rendered for
 every dialect. What reaches a statement afterwards is our own generator's output. <code>docs/adr/0004</code>
-is the decision.</p>
+is the decision, and its amendment is the state of the tree: <strong>nothing published calls
+<code>expression::compile</code> today.</strong> An authored fragment is loaded, pinned as written and refused at
+boot; a catalog adapter may not reach this crate (<code>cargo xtask check-boundaries</code> forbids the edge,
+for the closure reason above), so the caller, when it exists, is the execution adapter that
+declares <code>Warehouse::EXECUTES_AUTHORED_SQL</code> - and it compiles beside the renderer it needs.</p>
 <h2 id="struct-generatedquery"><code>struct GeneratedQuery</code><a class="headerlink" href="#struct-generatedquery" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">GeneratedQuery</span>
 </span></code></pre></div>

@@ -3338,10 +3338,16 @@ which are text is a word in the document rather than a reading of it.
 <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/">A named escape hatch for authored SQL</a> is the
 record: what the hatch is, what stays closed, which constructs are refused at load and why each one
 is on the list.</p>
-<p><strong>Partly built.</strong> The domain types and the compile - parse, refuse, qualify against the model's
-columns, render per dialect, all at catalog-compile time - exist in <code>sutura_domain::expression</code> and
-<code>sutura_sql::expression</code>. What does not exist yet is the wiring: no catalog document can write
-<code>authored_sql:</code> and no plan can carry a compiled one, so no metric uses the hatch today.</p>
+<p><strong>Loaded and refused at boot; not compiled, not executed.</strong> A local metric document writes
+<code>authored_sql:</code> beside nothing else, the fragment is admitted as text - present, bounded, one
+fragment rather than a script, no control or invisible characters - and pinned under the definition
+digest exactly as written. Nothing published compiles it: the compile in <code>sutura_sql::expression</code>
+has no production caller, and a catalog adapter may not reach that crate
+(<code>cargo xtask check-boundaries</code>), because both shipped binaries link the local catalog and a SQL
+generator in its tree is one in the network binary's. Every adapter this workspace ships leaves
+<code>Warehouse::EXECUTES_AUTHORED_SQL</code> at <code>false</code>, so <code>verify_and_validate</code> refuses a bundle carrying an
+authored metric before serving, naming it. The compile belongs to the first adapter that executes
+the fragment. Until then an authored fragment is stored, not checked.</p>
 <p><strong>A pinned statement</strong>, rendered upstream and taken as given, spliced into a generated wrapper. Not
 built. The rest of this section is its design.</p>
 <h3 id="the-splice">The splice<a class="headerlink" href="#the-splice" title="Permanent link">&para;</a></h3>

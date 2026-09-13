@@ -3141,7 +3141,9 @@ a caller chooses:</p>
 <li><strong>A measure is a shape and terms from a closed vocabulary, not an expression.</strong> There is no field
   for <code>sum(price * quantity)</code>, and <a href="../adr/0002-a-closed-vocabulary-for-measures/">the closed vocabulary for measures</a> argues why: a string field is an escape
   hatch, and an escape hatch on the query path is the thing being defended against. What the
-  vocabulary cannot say belongs in a statement rendered upstream. <code>zero_denominator</code> is required
+  vocabulary cannot say can be declared under the explicitly named <code>authored_sql:</code> sibling, and
+  today that declaration loads and pins and nothing more: no published adapter compiles or executes
+  the fragment, so a bundle carrying one is refused at startup. <code>zero_denominator</code> is required
   rather than defaulted, because "a rate over an empty period is null" and "is an error" are both
   defensible and a definition should say which - which is also why it is a word (<code>yields_null</code> or
   <code>fails</code>) rather than a boolean that records only that somebody thought about it.</li>
