@@ -601,7 +601,9 @@ mod tests {
         assert!(!fires("rounds to 0.3 rather than duckdb's 0.30000000000000004"));
         assert!(!fires("a duckdb 0.30000000000000004 artefact appears whenever"));
         assert!(!fires("duckdb 0.10000000149011612 for an `f32`"));
-        // The line this was found on, in `crates/sutura-domain/src/warehouse.rs`. Before the
+        // The line this was found on - `crates/sutura-domain/src/warehouse/tests.rs` when this
+        // was written, and asserted here as TEXT rather than by location, so the split that
+        // moved it out of `warehouse.rs` left the fixture covering the same bytes. Before the
         // retreat, ADJACENCY was the only thing sparing it - its neighbour is `as` and the token
         // ends the line - so naming the engine one word earlier reddened a measurement. Both
         // shapes are content now, which is the point: it no longer turns on the word order.
