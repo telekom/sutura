@@ -63,6 +63,13 @@
 //!   reaches is the shell that IS: `nix/*.sh`, where such a path would be written if it were
 //!   committed. That scope holds nothing today - measured, zero takings - which is what a refusal
 //!   over a shape nobody writes should do.
+//! * **The git half of #405 is one instance, and it reaches less than the filesystem half.**
+//!   `refs/stash` is one ref per REPOSITORY - a linked worktree does not get its own - so a file in
+//!   this scope may not INSTRUCT an operation on it, and one doc comment did. That is all a
+//!   repository can hold: git offers no hook on a stash, so the collision measured 2026-09-13, a
+//!   pop taking a sibling worktree's entry, came from a command typed at a prompt and no gate here
+//!   reaches it. [`global_ref`] carries the argument and prints no count, because the scope,
+//!   census pass and anchor set are the ones above rather than a second opinion.
 //! * **It reads text, not a program.** A shared root reached through a helper, an alias, or a
 //!   binding two hops away reads as unkeyed, which is the safe direction; a MUTATION laundered into
 //!   a helper makes a literal read as `Unwritten`, which is not.
@@ -71,6 +78,7 @@
 //!   a test that passes against the wrong fixture, and it is the same asymmetry
 //!   `dev/src/scope.rs`'s header argues for naming over ports.
 
+mod global_ref;
 mod scan;
 
 use scan::{Keyed, Taking};
@@ -125,6 +133,9 @@ struct Inspected {
     missed: Vec<&'static str>,
     /// One answer per taking, in file and line order.
     adjudicated: Vec<(Taking, Keyed)>,
+    /// Lines instructing an operation on a repository-GLOBAL git ref, as `(file, line)`. No count
+    /// is derived from this and none is printed on a clean run - see [`global_ref`].
+    instructed: Vec<(String, usize)>,
 }
 
 impl Inspected {
@@ -138,7 +149,14 @@ impl Inspected {
     /// the loop lives inside `inspect`, so `.take(n)` has nowhere to be written, and an
     /// unreachable subject from the walk itself is a refusal rather than a silent `continue`.
     /// Restating it here would be a second derivation of a weaker claim.
-    fn of(read: &[String], lines: (usize, usize), discovered: usize, adjudicated: Vec<(Taking, Keyed)>) -> Result<Self, String> {
+    fn of(
+        read: &[String],
+        lines: (usize, usize),
+        discovered: usize,
+        adjudicated: Vec<(Taking, Keyed)>,
+        instructed: Vec<(String, usize)>,
+        instructed_offered: usize,
+    ) -> Result<Self, String> {
         let read_files = read.len();
         // THE LINE LAW, over how much of each file the lexer reached. `telekom/sutura#414`
         // measured a truncated extraction leaving the file law and every anchor satisfied,
@@ -150,6 +168,18 @@ impl Inspected {
                 "the files in scope hold {} line(s) and the lexer reached {}. A verdict over part \
                  of a file is the same subset defect one level down from a narrowed walk",
                 lines.0, lines.1
+            ));
+        }
+        // THE SAME LAW FOR THE GIT ARM, and it is the only thing standing where a printed count
+        // would. That arm prints no number, so a deleted `extend` in `run` would leave it reaching
+        // nothing with every other number in the verdict still agreeing with itself.
+        // `global_ref::offered` counts by its own expression over the whole text; this refuses the
+        // disagreement. It catches a narrowed LOOP and not a wrong needle - see that function.
+        if instructed_offered != instructed.len() {
+            return Err(format!(
+                "the scan offered {instructed_offered} instruction(s) on a repository-global git \
+                 ref and carried {}. A rule that prints no count has this law instead",
+                instructed.len()
             ));
         }
         if discovered != adjudicated.len() {
@@ -180,6 +210,7 @@ impl Inspected {
                 .collect(),
             discovered,
             adjudicated,
+            instructed,
         })
     }
 
@@ -221,6 +252,11 @@ impl Inspected {
             .collect()
     }
 
+    /// Every line instructing an operation on a ref the whole repository shares.
+    fn instructed(&self) -> &[(String, usize)] {
+        &self.instructed
+    }
+
     /// How many takings each holder accounts for, in the order the verdict prints them.
     fn by_holder(&self) -> Vec<(&'static str, usize)> {
         let mut counted: Vec<(&'static str, usize)> = Vec::new();
@@ -248,6 +284,11 @@ enum Decision {
     /// The scan found a path a second worktree also reaches. Reported FIRST, whatever else the
     /// walk missed: a violation found is a violation.
     Violations,
+    /// A file in scope instructs an operation on a repository-GLOBAL git ref. Ranked AHEAD of a
+    /// missed anchor for the same reason `Violations` is - this is the gate's own rule rather than
+    /// a missing input, which is `telekom/sutura#405`'s property 4 - and behind it only because
+    /// the shared filesystem path is this gate's primary subject.
+    Instructions,
     /// Nothing shared, and the walk did not read a subject this gate's scope must cover - so the
     /// clean bill is over a tree the verdict names and the scan never reached.
     MissedAnchors,
@@ -262,6 +303,9 @@ enum Decision {
 fn decide(inspected: &Inspected) -> Decision {
     if !inspected.shared().is_empty() {
         return Decision::Violations;
+    }
+    if !inspected.instructed().is_empty() {
+        return Decision::Instructions;
     }
     if inspected.missed().is_empty() {
         Decision::Clean
@@ -292,6 +336,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let mut read: Vec<String> = Vec::new();
     let mut lines = (0_usize, 0_usize);
     let mut adjudicated: Vec<(Taking, Keyed)> = Vec::new();
+    let mut instructed: Vec<(String, usize)> = Vec::new();
+    let mut instructed_offered = 0_usize;
     let mut languages: Vec<(&'static str, usize)> = Vec::new();
 
     // **`must_judge` IS EMPTY HERE, AND THAT IS THE ONE REVIEWABLE CHOICE IN THIS MIGRATION.**
@@ -330,6 +376,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         lines = (lines.0.saturating_add(raw), lines.1.saturating_add(lexed));
         offered = offered.saturating_add(scan::offered(language, &text));
         adjudicated.extend(scan::takings(rel, language, &text));
+        instructed_offered = instructed_offered.saturating_add(global_ref::offered(&text));
+        instructed.extend(
+            global_ref::instructed_lines(&text)
+                .into_iter()
+                .map(|line| (String::from(rel), line)),
+        );
         let label = language.label();
         match languages.iter_mut().find(|(name, _)| *name == label) {
             Some((_, count)) => *count = count.saturating_add(1),
@@ -362,7 +414,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let inspected = match Inspected::of(&read, lines, offered, adjudicated) {
+    let inspected = match Inspected::of(&read, lines, offered, adjudicated, instructed, instructed_offered) {
         Ok(witness) => witness,
         Err(why) => {
             eprintln!("xtask check-worktree-state: FAILED - {why}");
@@ -398,6 +450,22 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             // file-level number the walk did not reach.
             println!("  discovery: {}", counted.verdict());
             Verdict::Pass
+        }
+        Decision::Instructions => {
+            eprintln!(
+                "xtask check-worktree-state: FAILED - {} line(s) instruct an operation on a ref \
+                 the whole repository shares",
+                inspected.instructed().len()
+            );
+            for (path, line) in inspected.instructed() {
+                eprintln!("  {path}:{line}");
+            }
+            eprintln!();
+            eprintln!("`refs/stash` is one ref per REPOSITORY and a linked worktree does not get its");
+            eprintln!("own, so one worktree's pop takes whichever entry another pushed. Keep the diff");
+            eprintln!("in a patch file under this worktree, which is state the worktree owns. What this");
+            eprintln!("rule does NOT reach is a command typed at a prompt - see `global_ref`'s header.");
+            Verdict::Fail
         }
         Decision::MissedAnchors => {
             eprintln!(
@@ -487,7 +555,7 @@ mod tests {
         // type rather than a sentence beside it.
         let one = vec![(taking(1), Keyed::Process)];
         assert!(
-            Inspected::of(&anchors(), (9, 9), 2, one).is_err(),
+            Inspected::of(&anchors(), (9, 9), 2, one, Vec::new(), 0).is_err(),
             "a subset must not mint a witness"
         );
     }
@@ -499,8 +567,8 @@ mod tests {
         // OPENED rather than read in full. Measured on a sibling: 40 of 67 takings unread at exit 0
         // with every floor satisfied.
         let one = vec![(taking(1), Keyed::Process)];
-        let refused =
-            Inspected::of(&anchors(), (115_088, 624), 1, one).expect_err("a partially lexed tree must not mint a witness");
+        let refused = Inspected::of(&anchors(), (115_088, 624), 1, one, Vec::new(), 0)
+            .expect_err("a partially lexed tree must not mint a witness");
         assert!(
             refused.contains("part \nof a file") || refused.contains("part of a file"),
             "{refused}"
@@ -510,7 +578,7 @@ mod tests {
     #[test]
     fn the_witness_prints_the_numbers_its_scan_reached() {
         let two = vec![(taking(1), Keyed::Process), (taking(9), Keyed::Worktree)];
-        let witness = Inspected::of(&anchors(), (9, 9), 2, two).expect("two offered, two adjudicated");
+        let witness = Inspected::of(&anchors(), (9, 9), 2, two, Vec::new(), 0).expect("two offered, two adjudicated");
         assert_eq!(witness.discovered(), 2);
         assert_eq!(witness.inspected(), 2);
         assert_eq!(witness.files(), anchors().len());
@@ -525,7 +593,7 @@ mod tests {
             (taking(4), Keyed::Unwritten),
             (taking(7), Keyed::Shared),
         ];
-        let witness = Inspected::of(&anchors(), (9, 9), 3, mixed).expect("three offered, three adjudicated");
+        let witness = Inspected::of(&anchors(), (9, 9), 3, mixed, Vec::new(), 0).expect("three offered, three adjudicated");
         let shared = witness.shared();
         assert_eq!(shared.len(), 2);
         assert_eq!(shared.iter().map(|t| t.line).collect::<Vec<usize>>(), vec![1, 7]);
@@ -542,7 +610,7 @@ mod tests {
         // number.
         let short: Vec<String> = anchors().into_iter().skip(1).collect();
         let one = vec![(taking(1), Keyed::Process)];
-        let witness = Inspected::of(&short, (9, 9), 1, one).expect("the counts agree");
+        let witness = Inspected::of(&short, (9, 9), 1, one, Vec::new(), 0).expect("the counts agree");
         assert_eq!(witness.missed(), [scan::MUST_READ[0]]);
         assert_eq!(super::decide(&witness), super::Decision::MissedAnchors);
     }
@@ -557,15 +625,50 @@ mod tests {
         // file and its line. `telekom/sutura#405`'s property 4 is exactly that distinction.
         let short: Vec<String> = anchors().into_iter().skip(1).collect();
         let shared = vec![(taking(2), Keyed::Shared)];
-        let witness = Inspected::of(&short, (9, 9), 1, shared).expect("the counts agree");
+        let witness = Inspected::of(&short, (9, 9), 1, shared, Vec::new(), 0).expect("the counts agree");
         assert!(!witness.missed().is_empty(), "the fixture must also miss an anchor");
+        assert_eq!(super::decide(&witness), super::Decision::Violations);
+    }
+
+    #[test]
+    fn a_witness_refuses_when_the_git_arm_offered_more_than_it_carried() {
+        // THE ARM GOING QUIET, which is the one thing a rule printing no count cannot show in its
+        // verdict: delete the `extend` in `run` and every other number still agrees with itself.
+        let one = vec![(taking(1), Keyed::Process)];
+        let why = Inspected::of(&anchors(), (9, 9), 1, one, Vec::new(), 1)
+            .expect_err("one instruction offered and none carried must not mint a witness");
+        assert!(why.contains("repository-global git ref"), "{why}");
+    }
+
+    #[test]
+    fn an_instruction_on_a_repository_global_ref_refuses_a_tree_with_no_shared_path_in_it() {
+        // THE REFUSAL, not the predicate. `global_ref`'s own tests hold the line-finding; what is
+        // tested here is that a found line reaches a `Verdict::Fail` - the pair
+        // `telekom/sutura#405` records as *predicate tested, refusal untested*, where neutralising
+        // the refusal leaves `dead_code` quiet and every suite green.
+        let one = vec![(taking(1), Keyed::Process)];
+        let instructed = vec![(String::from("crates/sutura-sql/tests/adversarial_findings.rs"), 245)];
+        let witness = Inspected::of(&anchors(), (9, 9), 1, one, instructed, 1).expect("the counts agree");
+        assert!(witness.missed().is_empty(), "no anchor was missed");
+        assert!(witness.shared().is_empty(), "no filesystem path is shared in this fixture");
+        assert_eq!(super::decide(&witness), super::Decision::Instructions);
+    }
+
+    #[test]
+    fn a_shared_path_outranks_an_instruction_and_both_outrank_a_missed_anchor() {
+        let short: Vec<String> = anchors().into_iter().skip(1).collect();
+        let shared = vec![(taking(2), Keyed::Shared)];
+        let instructed = vec![(String::from("dev/src/scope.rs"), 1)];
+        let witness = Inspected::of(&short, (9, 9), 1, shared, instructed, 1).expect("the counts agree");
+        assert!(!witness.missed().is_empty(), "the fixture also misses an anchor");
+        assert!(!witness.instructed().is_empty(), "and also instructs the operation");
         assert_eq!(super::decide(&witness), super::Decision::Violations);
     }
 
     #[test]
     fn a_clean_scan_that_read_every_anchor_is_the_only_pass() {
         let one = vec![(taking(1), Keyed::Process)];
-        let witness = Inspected::of(&anchors(), (9, 9), 1, one).expect("the counts agree");
+        let witness = Inspected::of(&anchors(), (9, 9), 1, one, Vec::new(), 0).expect("the counts agree");
         assert!(witness.missed().is_empty(), "no takings were missed");
         assert_eq!(super::decide(&witness), super::Decision::Clean);
     }
@@ -679,7 +782,7 @@ mod tests {
         // would still be a hole, so this walks the whole set and asserts each one lands somewhere
         // a reader sees: either in the violation list or in the holder breakdown.
         for keyed in [Keyed::Worktree, Keyed::Process, Keyed::Unwritten, Keyed::Shared] {
-            let witness = Inspected::of(&anchors(), (9, 9), 1, vec![(taking(1), keyed)]).expect("one and one");
+            let witness = Inspected::of(&anchors(), (9, 9), 1, vec![(taking(1), keyed)], Vec::new(), 0).expect("one and one");
             assert_eq!(
                 witness.shared().len(),
                 usize::from(keyed.is_shared()),
