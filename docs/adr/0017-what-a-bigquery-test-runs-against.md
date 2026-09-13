@@ -436,12 +436,16 @@ execution arriving. And the corpus-wide leg this page specifies - #78's importer
 pointed at a dataset - was still not built when this amendment was written. **It is now**, and the
 third amendment below is its record; this sentence is left as the pointer rather than deleted,
 
+because a reader arriving at an amendment wants to know which of its limits a later one spent.
+
 **Corrected: the premise moved and the consequence with it.** `IMPERSONATION` is
 `ImpersonationCapability::PerSubjectCredential` now, so an `impersonation-at-source` declaration
 against this adapter is no longer refused by the posture cross-check alone - `deliverable_by`
-accepts it. What still gates per-subject execution is a broker that mints a per-leg credential
-through it, which nothing composes today.
-because a reader arriving at an amendment wants to know which of its limits a later one spent.
+accepts it. The broker is built too: `crates/sutura-exec-bigquery/src/sts.rs`'s
+`WorkloadIdentityBroker` performs the exchange, and `sutura-serve`'s `bigquery` composition
+attaches it (#284). What gates per-subject execution is narrower than "nothing composes it" -
+wired in serve, not proven live: no exchanged token has ever run against a real STS
+(`.agents/skills/sutura/identity/SKILL.md`, `docs/where-identity-is-proven.md`).
 
 ## Third amendment, 2026-08-31: the corpus leg is built, and two of the four bullets are answered
 

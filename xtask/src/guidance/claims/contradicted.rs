@@ -536,21 +536,36 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
         // github.com/telekom/sutura#159. `BigQueryWarehouse::IMPERSONATION` moved from
         // `NoPlaceForASubject` to `PerSubjectCredential` and the correction landed in the crate's
-        // own module doc (`crates/sutura-exec-bigquery/src/lib.rs`) but never reached the four
-        // prose sites that stated the old value - three in 0017, one in 0018 - which is the exact
-        // shape this table exists for: one correction, N sibling documents, and the sibling that
-        // was missed is a failure rather than a survivor.
+        // own module doc (`crates/sutura-exec-bigquery/src/lib.rs`) but never reached five prose
+        // sites - three in 0017 and two in 0018, the second 0018 site (`:141`) phrased differently
+        // enough to need its own wording - which is the exact shape this table exists for: one
+        // correction, N sibling documents, and the sibling that was missed is a failure rather
+        // than a survivor.
+        //
+        // REVIEW #667: this entry's own `instead` repeated a second stale claim - "a broker that
+        // mints a per-leg credential is still unbuilt" - trusted from the same stale module doc
+        // (`lib.rs:56-63`, last touched 2026-08-31 in #93, before #284). The broker IS built:
+        // `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the
+        // exchange, and `crates/sutura-serve/src/broker.rs` composes it (`build_broker`, #284).
+        // The true limit is `.agents/skills/sutura/identity/SKILL.md`'s own row: wired in serve,
+        // not proven live - no exchanged token has ever run against a real STS
+        // (`docs/where-identity-is-proven.md`).
         name: "the BigQuery adapter has no place for a subject",
-        wordings: &["IMPERSONATION` still reads `NoPlaceForASubject`"],
+        wordings: &[
+            "IMPERSONATION` still reads `NoPlaceForASubject`",
+            "IMPERSONATION` is `NoPlaceForASubject` and the crate says so",
+        ],
         evidence: &[Evidence {
             path: "crates/sutura-exec-bigquery/src/lib.rs",
             holds: "ImpersonationCapability::PerSubjectCredential",
         }],
         instead: "`BigQueryWarehouse::IMPERSONATION` is `ImpersonationCapability::PerSubjectCredential`, \
                   so a source declared `impersonation-at-source` can be opened here and the posture \
-                  cross-check no longer refuses it by name. What is still unbuilt is a broker that \
-                  mints a per-leg credential through this capability - `crates/sutura-exec-bigquery/src/lib.rs` \
-                  states both halves",
+                  cross-check no longer refuses it by name. The broker is built too: \
+                  `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the \
+                  exchange and `crates/sutura-serve/src/broker.rs` composes it. What is still true \
+                  is narrower - wired in serve, not proven live: no exchanged token has ever run \
+                  against a real STS (`docs/where-identity-is-proven.md`)",
         only: &[],
         // Both records state the old value and amend it in place, per this repository's own rule
         // for a record: preserve the sentence and correct it beside itself. Excepting them is what
@@ -567,22 +582,20 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // lowercase on the way (*Built and not wired*). Four ADRs (0007, 0008, 0017, 0018) still
         // cite the old capitalised name as if it were still in `AGENTS.md`. ADR 0016 already cites
         // the new location correctly, which is the evidence a reader needs to trust the register
-        // moved rather than vanished. The capitalisation split is deliberate and load-bearing: it
-        // is what makes this wording match only the four stale sites and none of the six correct
-        // ones (checked: `git grep -c 'Built And Not Wired'` is 4, `git grep -c 'Built and not
-        // wired'` is 6, and the two sets do not overlap).
+        // moved rather than vanished. REVIEW #667 measured the counts fresh rather than trusting
+        // the first draft's: `git grep -l 'Built And Not Wired' -- '*.md' '*.nix' '*.yml' '*.yaml'
+        // '*.toml' '*.sh'` is 5 files (the four ADRs plus `nix/shipped.nix`'s own, still-true,
+        // generic use - which is exactly why the wordings below are anchored to the ATTRIBUTION
+        // and not the bare phrase) and `git grep -l 'Built and not wired' -- (same globs)` is 7
+        // files / 8 hits. What excludes the six correct sites is the ATTRIBUTION, not the case: a
+        // fourth wording below is the lowercase attribution, added because a plausible rewrite
+        // using it is unmatched by the other three and no correct site names `AGENTS.md` this way.
         name: "AGENTS.md carries a Built And Not Wired section",
-        // NOT the bare phrase "Built And Not Wired" - measured against the real tree, that also
-        // matches `nix/shipped.nix`'s own comment ("the shape this repository files under *Built
-        // And Not Wired*"), which names the CONCEPT and no location, and is still true regardless
-        // of which file holds the register. `just hygiene` caught this: the first version of this
-        // entry refused a correct file. Three wordings instead, each anchored to the ATTRIBUTION
-        // ("AGENTS.md ... Built And Not Wired") rather than the bare phrase - 0007 phrases it
-        // differently from the other three (no `'s` construction), hence three rather than one.
         wordings: &[
             "`AGENTS.md`'s *Built And Not Wired*",
             "AGENTS.md's *Built And Not Wired*",
             "AGENTS.md has a section named after that mistake",
+            "`AGENTS.md`'s *Built and not wired*",
         ],
         evidence: &[Evidence {
             path: ".agents/skills/sutura/query-surface/SKILL.md",
@@ -649,14 +662,37 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // word, which is why this is registered rather than derived.
         name: "four refusal reasons map to 422",
         wordings: &["four of the codes above land"],
+        // REVIEW #667: the original anchor was the comment `// five variants are \`422\`` beside
+        // the match, not a production arm - a comment can stay behind after an arm is removed and
+        // the rule would stay live over a sentence that had become true again. Anchored on the
+        // fifth arm's own match pattern instead, which cannot outlive the arm it names.
         evidence: &[Evidence {
             path: "crates/sutura-http/src/wire/refusal.rs",
-            holds: "five variants are `422`",
+            holds: "RefusalReason::ResourcesExhausted { ceiling_bytes } => (",
         }],
         instead: "five: `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, \
-                  `duplicate_dimension` and `resources_exhausted`. `docs/serving.md`'s own table \
-                  two lines above the sentence lists all five",
+                  `duplicate_dimension` and `resources_exhausted`. `docs/serving.md`'s own table, \
+                  above the sentence, lists all five",
         only: &[],
         except: &[],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159, raised in review of #667. `sutura-serve` links the
+        // adapter behind the default-off `bigquery` feature; a default build (feature off) still
+        // links none of it and still refuses `kind: bigquery` by name, which is the half of the
+        // sentence that survives.
+        name: "sutura-serve links no BigQuery adapter",
+        wordings: &["links no `BigQuery` adapter"],
+        evidence: &[Evidence {
+            path: "crates/sutura-serve/src/main.rs",
+            holds: "type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse",
+        }],
+        instead: "it links the adapter behind the default-off `bigquery` feature - \
+                  `OpenedSources::BigQuery` and the `BigQuerySource` type alias. A default build \
+                  (the feature off) still links none of it, which is the sense in which \
+                  \"refuses `kind: bigquery` by name\" survives",
+        only: &[],
+        // 0018 states the old value and amends it directly below.
+        except: &["docs/adr/0018-what-the-bigquery-wire-is-built-from.md"],
     },
 ];
