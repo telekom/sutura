@@ -4321,6 +4321,13 @@ or a request body; anything reachable from one of them is pulled in by the deriv
 <p>The whole document: the derived shell plus one fragment per version.</p>
 <p>A <code>v2</code> adds one line here and nothing else, which is what makes versioning additive: the
 fragment carries its own absolute paths because the prefix is applied by the <code>nest</code> below.</p>
+<p><strong>It describes the GOVERNED operations and nothing else.</strong> Liveness is mounted on its own
+router (<code>crate::router</code>) and deliberately left out: it is a property of the process rather than
+an operation of the API (<code>crate::constants::HEALTH_PATH</code> says so), and every operation this
+document lists becomes a tool a client such as a chat interface may offer its model. A probe in
+that list is a tool nothing should call. The set is exhaustive in both directions - a route the
+document describes that <code>crate::capability::governed</code> does not name, and a governed route it
+omits, are each a failure (<code>tests/operations.rs</code>).</p>
 <h3 id="fn-document_json"><code>fn document_json</code><a class="headerlink" href="#fn-document_json" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-100-1"><a id="__codelineno-100-1" name="__codelineno-100-1" href="#__codelineno-100-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">document_json</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">serde_json</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
