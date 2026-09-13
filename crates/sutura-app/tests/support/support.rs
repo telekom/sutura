@@ -404,14 +404,15 @@ impl Warehouse for HeavyResult {
         clippy::unwrap_in_result,
         reason = "the one-row, one-column shape is a literal here, so a failure to build it is a \n                  broken test rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         let plan = whole_plan(executable);
         let cell = Value::Text("x".repeat(self.bytes));
         Ok(RowSet::new(vec![String::from(plan.metric().as_str())], vec![vec![cell]]).expect("one column and one row"))
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        self.execute(Executable::Query(plan.plan()), &fake_leg()).map(AnchorRows::of)
+        self.execute(Executable::Query(plan.plan()), &fake_leg(), fake_deadline())
+            .map(AnchorRows::of)
     }
 }
 

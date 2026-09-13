@@ -331,6 +331,7 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         &crate::adapters::shared_credential(),
         &heavy,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -354,6 +355,7 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         &crate::adapters::shared_credential(),
         &light,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
