@@ -4017,10 +4017,13 @@ the whole of an input it had measured only against the limit that input broke.
 
 What each variant carries is the diagnosis and not the evidence - which rule was broken, the one
 offending character, the measured length against the limit. A reader who needs the input names it
-themselves, and every wrapper of this error in this workspace already does, because a wrapper
-knows whose text it holds and this parser does not: `RdbmsError::ColumnName` names the column it
-read from a dictionary, and `crate::question::MalformedQuestion` names the request field and
-deliberately not its value.
+themselves, and every wrapper of this error over text that did not ship inside this repository
+already does, because a wrapper knows whose text it holds and this parser does not:
+`RdbmsError::ColumnName` names the column it read from a dictionary, and
+`crate::question::MalformedQuestion` names the request field and deliberately not its value.
+Three wrappers over text that DID ship inside this repository carry neither, because whoever
+reads one already has the file: `PostgresError::InvalidColumnName`'s CSV fixture,
+`FixtureNotUsable::Header`'s `BigQuery` fixture, and `sutura-conformance`'s `FixtureError::Names`.
 
 #### Variants
 
@@ -8342,8 +8345,10 @@ bounded by the type that produced it, and its INPUT is bounded by nothing whatev
 **The limit.** This is a property of `Display` and `source()` across these enums, held by their
 carrying no field a renderer could reach for - not by a gate, and not by either transport, which
 walk whatever chain they are given. `crates/sutura-mcp/tests/shared_question_conversion.rs`
-asserts it over every caller-controlled field against both transports' rendering, and is what
-reddens if one of those sentences is widened again.
+asserts it over every caller-controlled field against a reproduction of both transports' chain
+walk, not by calling either transport's own renderer, so it reddens if one of these sentences is
+widened again but not if a transport's renderer alone started interpolating something this
+parser never carried.
 
 #### Variants
 

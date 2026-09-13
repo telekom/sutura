@@ -63,8 +63,10 @@ impl<'a> RawFilter<'a> {
 /// **The limit.** This is a property of `Display` and `source()` across these enums, held by their
 /// carrying no field a renderer could reach for - not by a gate, and not by either transport, which
 /// walk whatever chain they are given. `crates/sutura-mcp/tests/shared_question_conversion.rs`
-/// asserts it over every caller-controlled field against both transports' rendering, and is what
-/// reddens if one of those sentences is widened again.
+/// asserts it over every caller-controlled field against a reproduction of both transports' chain
+/// walk, not by calling either transport's own renderer, so it reddens if one of these sentences is
+/// widened again but not if a transport's renderer alone started interpolating something this
+/// parser never carried.
 #[derive(Debug, thiserror::Error)]
 pub enum MalformedQuestion {
     #[error("`metric` is not a metric name")]

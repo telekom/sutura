@@ -53,7 +53,8 @@ checked against the current documentation of four:
 Nothing mainstream retries a `4xx` by default. The two statuses retried by convention are `429` and
 `408`, and no refusal maps to either. `422`, where the refusals that ask a caller to narrow the
 question land - `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`,
-`duplicate_dimension` and `resources_exhausted` - is documented the other way round from the premise:
+`duplicate_dimension`, `resources_exhausted` and `deadline_exceeded` - is documented the other way
+round from the premise:
 clients receiving a `422` "should expect that repeating the request without modification will fail
 with the same error".
 

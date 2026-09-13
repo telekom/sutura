@@ -125,10 +125,13 @@ const MAX_IDENTIFIER_LEN: usize = 63;
 ///
 /// What each variant carries is the diagnosis and not the evidence - which rule was broken, the one
 /// offending character, the measured length against the limit. A reader who needs the input names it
-/// themselves, and every wrapper of this error in this workspace already does, because a wrapper
-/// knows whose text it holds and this parser does not: `RdbmsError::ColumnName` names the column it
-/// read from a dictionary, and [`crate::question::MalformedQuestion`] names the request field and
-/// deliberately not its value.
+/// themselves, and every wrapper of this error over text that did not ship inside this repository
+/// already does, because a wrapper knows whose text it holds and this parser does not:
+/// `RdbmsError::ColumnName` names the column it read from a dictionary, and
+/// [`crate::question::MalformedQuestion`] names the request field and deliberately not its value.
+/// Three wrappers over text that DID ship inside this repository carry neither, because whoever
+/// reads one already has the file: `PostgresError::InvalidColumnName`'s CSV fixture,
+/// `FixtureNotUsable::Header`'s `BigQuery` fixture, and `sutura-conformance`'s `FixtureError::Names`.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidIdentifier {
     /// Empty or whitespace-only. An unnamed column is a modelling mistake, not a wildcard.

@@ -306,8 +306,9 @@ pub enum SettingsError {
         #[source]
         cause: UnknownCatalogKind,
     },
-    #[error("`catalogs` holds a name that is not a catalog name")]
+    #[error("`catalogs.{written}` is not a catalog name")]
     CatalogName {
+        written: String,
         #[source]
         cause: InvalidIdentifier,
     },
@@ -839,7 +840,10 @@ fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsError> {
         // contribution manifest keys on the name and the composition root dispatches the kind, so
         // an entry that omits either is a declaration that cannot be opened. `kind` is parsed as a
         // closed set; an absent one was already defaulted by the raw shape.
-        let name = SourceName::parse(&raw_catalog.name).map_err(|cause| SettingsError::CatalogName { cause })?;
+        let name = SourceName::parse(&raw_catalog.name).map_err(|cause| SettingsError::CatalogName {
+            written: raw_catalog.name.clone(),
+            cause,
+        })?;
         let kind = CatalogKind::parse(&raw_catalog.kind).map_err(|cause| SettingsError::CatalogKind { cause })?;
         let version = DefinitionVersion::parse(&raw_catalog.version).map_err(|cause| SettingsError::Version { cause })?;
         let settings = CatalogSettings::parse(
