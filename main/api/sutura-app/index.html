@@ -3700,8 +3700,37 @@ reviewed, so the refusal is what carries the names.</p>
 </ul>
 <h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-elementkind"><code>enum ElementKind</code><a class="headerlink" href="#enum-elementkind" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ElementKind</span>
+</span></code></pre></div>
+<p>The six kinds of catalog element two sources may collide over.</p>
+<p><code>CompositionError::ElementCollision</code>'s <code>kind</code> field used to be a <code>&amp;'static str</code>: a free-text
+field on a variant a caller matches by name is a contradiction, because nothing stopped a sixth
+call site from spelling one of the five existing kinds differently, or a seventh call site from
+naming a kind <code>check_no_element_collisions</code> does not actually check. Neither <code>DefinitionKind</code>
+nor <code>Capability</code> in <code>sutura_domain</code> fits: the first does not distinguish a model from a
+relationship (both are <code>Structure</code>), and the second has no variant for either. A small closed
+enum local to this composition step is what the issue's "existing typed vocabulary or a small
+closed enum if needed" resolves to here.</p>
+<p><strong>The limit, next to the claim.</strong> Closure - a seventh call site naming a kind this type has no
+variant for is a compile error - is held by the compiler, for all six variants. WHICH kind a
+given call site in <code>check_no_element_collisions</code> names is pinned by a test for two of them,
+<code>Model</code> and <code>Relationship</code>; the other four (<code>GlossaryTerm</code>, <code>Caveat</code>, <code>Absence</code>, <code>WorkedExample</code>)
+have no cell of their own, so a call site there naming the wrong (but still valid) variant is
+caught by nothing but review.</p>
+<h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Model</code></li>
+<li><code>Relationship</code></li>
+<li><code>GlossaryTerm</code></li>
+<li><code>Caveat</code></li>
+<li><code>Absence</code></li>
+<li><code>WorkedExample</code></li>
+</ul>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-assemble"><code>fn assemble</code><a class="headerlink" href="#fn-assemble" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">assemble</span><span class="p">(</span><span class="n">bundles</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">CompositionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">assemble</span><span class="p">(</span><span class="n">bundles</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">CompositionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Composes N contributions into one bundle, refusing a composition ADR 0011 says cannot exist.</p>
 <p><strong>Application code, not an adapter over adapters - the shape ADR 0011 picked, for three
@@ -3714,6 +3743,9 @@ of them, which is the crate-graph shape this avoids.</p>
 one source, two contributions certifying different versions, two sources providing the same
 element, a contributor whose content disagrees with its declaration, or definitions/knowledge
 that do not assemble once merged.</p>
+<p>Takes a slice, not an owned <code>Vec</code>: every <code>Contributor</code> below borrows its bundle's
+<code>Definitions</code>/<code>Knowledge</code> rather than cloning them, so this function never needs to own a bundle
+to begin with - a caller that already has a <code>Vec</code> passes <code>&amp;bundles</code>.</p>
 <h2 id="module-capability">Module <code>capability</code><a class="headerlink" href="#module-capability" title="Permanent link">&para;</a></h2>
 <p>What this surface can be asked to do, named once for every transport that offers it.</p>
 <h1 id="why-the-vocabulary-is-here-rather-than-in-a-transport">Why the vocabulary is here rather than in a transport<a class="headerlink" href="#why-the-vocabulary-is-here-rather-than-in-a-transport" title="Permanent link">&para;</a></h1>
@@ -3755,7 +3787,7 @@ authorization server does not read. The scopes here are two fixed strings no cat
 detail: an authorization server is configured with those literals by hand. A test pins them by
 value for that reason.</p>
 <h3 id="enum-capability"><code>enum Capability</code><a class="headerlink" href="#enum-capability" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Capability</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Capability</span>
 </span></code></pre></div>
 <p>One thing this surface can be asked to do.</p>
 <p>Closed, and closed on purpose: a third capability is a third exhaustive match to satisfy - the
@@ -3766,26 +3798,26 @@ any of them, so a variant added here does not compile until every one of those h
 deployment</strong>: describing what is measured comes before asking for a number. A
 <code>BTreeSet&lt;Capability&gt;</code> therefore iterates in that order, which is what makes a rendered tool list
 deterministic.</p>
-<h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
+<h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>DescribeCatalog</code> - Read the pinned bundle: which metrics exist, at which grains, with which dimensions and which filter values.</li>
 <li><code>AskMetric</code> - Answer one governed question about one certified metric.</li>
 <li><code>RunSql</code> - Run one literal SQL statement against the configured source, off by default and refused where the deployment cannot execute it as the asking subject or is not declared single-user.</li>
 </ul>
 <h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every capability this surface has, in declaration order.</p>
 <p>Built from <code>FIRST</code> and <code>Capability::next</code> rather than written out as an array, so there is
 no second list to keep in step with the enum.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The stable identifier both transports name this capability by.</p>
 <p>The agent surface uses it as the tool name; the HTTP surface uses it as the operation
 identifier in the generated interface description. <strong>It is part of the deployed contract</strong>, so
 it is a fixed literal here rather than derived from the variant name: a <code>Debug</code> rendering would
 rename a client's tool the day somebody renamed a variant.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scope</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scope</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The scope that licenses this capability.</p>
 <p>A fixed literal, stated independently of <code>Capability::id</code> rather than derived from it. That
@@ -3795,10 +3827,10 @@ scope, and every authorization server configured with the old one would stop gra
 <p>Prefixed, so a token minted for another resource server that happens to carry <code>catalog.read</code>
 does not read as a grant here. The audience check is what actually keeps such a token out -
 <code>docs/adr/0014</code> Decision 2 - and this is defence in depth rather than the control.</p>
-<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
 <h3 id="struct-permitted"><code>struct Permitted</code><a class="headerlink" href="#struct-permitted" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Permitted</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Permitted</span>
 </span></code></pre></div>
 <p>What one caller may do on this surface.</p>
 <p><strong>Two named constructors and no third way in</strong>, because the two cases are the two honest answers to
@@ -3825,18 +3857,18 @@ Moving it would be taking a decision <code>docs/adr/0014</code>'s closing sectio
 architecture decision, not a refactor"</em> - and nothing here needs the parse: this compares against
 two fixed literals, and a string that could not be a scope simply matches neither.</p>
 <h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">advertised</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">'</span><span class="nb">_</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">advertised</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">'</span><span class="nb">_</span>
 </span></code></pre></div>
 <p>What to advertise, in declaration order.</p>
 <p>Presentation. A capability absent from here is one <code>Permitted::includes</code> also refuses, which
 is what keeps the two from being able to disagree: both read the same set.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many capabilities are permitted. For a startup or per-request log line.</p>
 <p>The count and not the names, for the same reason <code>sutura_http::inbound::Scopes</code> puts a count on
 a log line: the names are a caller's authorization detail and they multiply a log's
 cardinality.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every_capability</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every_capability</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Every capability this surface has.</p>
 <p><strong>What a deployment that establishes no caller identity permits, and the name says so.</strong> It is
@@ -3846,20 +3878,20 @@ calls <em>worse than no filter - it looks like a control</em>.</p>
 <p>Two callers today: <code>sutura_http</code>'s capability layer, for a deployment with no
 <code>security.inbound</code> block, and <code>sutura_mcp::serve_stdio</code>, where the process boundary is the
 boundary and there is no header a token could arrive in.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granted_by</span><span class="o">&lt;'</span><span class="na">scope</span><span class="o">&gt;</span><span class="p">(</span><span class="n">scopes</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">IntoIterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granted_by</span><span class="o">&lt;'</span><span class="na">scope</span><span class="o">&gt;</span><span class="p">(</span><span class="n">scopes</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">IntoIterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Exactly the capabilities these scopes name.</p>
 <p><strong>The one comparison, so there is not one per transport.</strong> A scope this surface does not know
 is ignored rather than refused: a token is minted by an authorization server that may serve
 other resources too, and refusing a caller for holding an unrelated grant would be refusing
 them for somebody else's configuration.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">includes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">includes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Whether this caller may use one capability.</p>
 <p><strong>This is the control.</strong> <code>Permitted::advertised</code> decides what a caller is shown; this decides
 what it may do, and a transport calls it on every invocation whether or not it filtered the
 advertisement.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">without</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">without</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Removes one capability, whatever granted it.</p>
 <p><strong>A deployment-level narrowing, and deliberately independent of a caller's own scopes.</strong> A
@@ -3870,7 +3902,7 @@ surface knows, and including the no-authentication single-player case
 tool this deployment never turned on" and "a tool this caller was not granted" two different
 reasons a caller sees the same absence for, without <code>Permitted</code> itself growing a second
 notion of what a scope is.</p>
-<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="module-preflight">Module <code>preflight</code><a class="headerlink" href="#module-preflight" title="Permanent link">&para;</a></h2>
 <p>Asking every open data system whether it holds the tables the bundle names.</p>
@@ -3894,7 +3926,7 @@ that the columns a model names are on it, and not that a question's identity may
 listing grant and a read grant are two grants. An anchor covers both, for the metrics that have
 one.</p>
 <h3 id="enum-verdict"><code>enum Verdict</code><a class="headerlink" href="#enum-verdict" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>What one data system answered about the tables one bundle names in it.</p>
 <p>A root treats two failures differently, and an incomplete or unreadable inventory is not a
@@ -3911,7 +3943,7 @@ to the catalog - and reading it as <code>Self::Unverified</code> would be worse 
 half, so the one shape the cross-check exists to catch would end in a deployment that serves.</p>
 <p>Generic in the adapter's error so the cause travels: nothing here can read <code>W::Error</code>, and the
 root that composed the adapter is the one that can flatten it.</p>
-<h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
+<h4 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Present</code> - Asked, and every table is there. Carries how many, for a line that says so.</li>
 <li><code>NotReported</code> - The adapter did not report - <code>TablesPresent::NotAsked</code>, the port's default.</li>
@@ -3921,10 +3953,10 @@ root that composed the adapter is the one that can flatten it.</p>
 <li><code>Refused</code> - The data system refused to be asked: this identity may not list it.</li>
 <li><code>Unverified</code> - The data system could not be asked, for a reason that is not a refusal.</li>
 </ul>
-<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="struct-absentbehind"><code>struct AbsentBehind</code><a class="headerlink" href="#struct-absentbehind" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AbsentBehind</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AbsentBehind</span>
 </span></code></pre></div>
 <p>The tables a data system does not hold, each with the models that named it.</p>
 <p><strong>Keyed by the TABLE and carrying the models, because that is the direction a refusal reads in:</strong>
@@ -3934,40 +3966,40 @@ value is a set, and <code>Display</code> renders every one of them.</p>
 <p>Non-empty by construction: it is built only from a <code>TablesPresent::AllBut</code>, whose own newtype
 refuses an empty set, so a refusal that names nothing is unrepresentable rather than checked.</p>
 <h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Always <code>false</code>, and it exists because <code>clippy::len_without_is_empty</code> asks for it.</p>
 <p>The type is non-empty by construction, so this is a constant with a name rather than a
 question worth asking - which is itself the honest reading of the invariant.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">len</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">len</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many tables are absent.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">named</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="n">QualifiedTable</span><span class="p">,</span><span class="w"> </span><span class="n">BTreeSet</span><span class="o">&lt;</span><span class="n">ModelName</span><span class="o">&gt;&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">named</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="n">QualifiedTable</span><span class="p">,</span><span class="w"> </span><span class="n">BTreeSet</span><span class="o">&lt;</span><span class="n">ModelName</span><span class="o">&gt;&gt;</span>
 </span></code></pre></div>
 <p>The absent tables and the models behind each, for a root that renders its own shape.</p>
-<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-asked"><code>struct Asked</code><a class="headerlink" href="#struct-asked" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Asked</span><span class="o">&lt;'</span><span class="na">source</span><span class="p">,</span><span class="w"> </span><span class="n">E</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Asked</span><span class="o">&lt;'</span><span class="na">source</span><span class="p">,</span><span class="w"> </span><span class="n">E</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>One data system's name and what it answered.</p>
 <p>The name is BORROWED from the registry rather than cloned: the registry outlives the answer at
 every call site, and a clone here would be one taken to satisfy a signature rather than to own
 anything.</p>
 <h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The answer, owned, for a root that has to move the cause out of it.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">source</span><span class="w"> </span><span class="nc">SourceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">source</span><span class="w"> </span><span class="nc">SourceName</span>
 </span></code></pre></div>
 <p>Which data system answered.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">verdict</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">verdict</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Verdict</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>What it answered.</p>
-<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
+<h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="fn-ask"><code>fn ask</code><a class="headerlink" href="#fn-ask" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ask</span><span class="o">&lt;'</span><span class="na">engines</span><span class="p">,</span><span class="w"> </span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">engines</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">engines</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouses</span><span class="p">::</span><span class="n">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Asked</span><span class="o">&lt;'</span><span class="na">engines</span><span class="p">,</span><span class="w"> </span><span class="o">&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ask</span><span class="o">&lt;'</span><span class="na">engines</span><span class="p">,</span><span class="w"> </span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">engines</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">engines</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouses</span><span class="p">::</span><span class="n">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Asked</span><span class="o">&lt;'</span><span class="na">engines</span><span class="p">,</span><span class="w"> </span><span class="o">&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;&gt;</span>
 </span></code></pre></div>
 <p>Asks each open data system once whether it holds the tables the bundle names in it.</p>
 <p><strong>One call per data system, and per DATASET underneath, never per model</strong> - which is what makes
@@ -3989,7 +4021,7 @@ that file hit the thousand-line limit <code>cargo xtask max-lines</code> enforce
 handling exactly and differs only on the way out, where every execution failure becomes a
 refusal rather than a <code>RunSqlError</code> - see that function's own documentation for why.</p>
 <h3 id="enum-runsqlerror"><code>enum RunSqlError</code><a class="headerlink" href="#enum-runsqlerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RunSqlError</span><span class="o">&lt;</span><span class="n">M</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RunSqlError</span><span class="o">&lt;</span><span class="n">M</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Why running a raw statement did not produce an outcome.</p>
 <p><strong>Deliberately not <code>ServiceError</code>.</strong> That type's <code>Compile</code> and
@@ -3998,32 +4030,32 @@ raw statement is unparsed text, end to end. What is left is the credential half
 <code>answer</code> also has, plus one arm of its own for a state the boot refusal is
 supposed to make unreachable: the raw tool turned on over an adapter that does not accept raw
 text at all.</p>
-<h4 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h4>
+<h4 id="variants_9">Variants<a class="headerlink" href="#variants_9" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Broker</code> - The credential broker did not answer.</li>
 <li><code>Credentials</code> - The broker's grant does not fit this request.</li>
 <li><code>Posture</code> - The presented leg disagrees with how this source was declared.</li>
 <li><code>NoAcceptingSource</code> - No data system is registered under the raw tool's configured source, or the one registered does not declare <code>Warehouse::ACCEPTS_RAW_STATEMENTS</code>.</li>
 </ul>
-<h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
+<h4 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-answeredraw"><code>struct AnsweredRaw</code><a class="headerlink" href="#struct-answeredraw" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AnsweredRaw</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-69-1"><a id="__codelineno-69-1" name="__codelineno-69-1" href="#__codelineno-69-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AnsweredRaw</span>
 </span></code></pre></div>
 <p>One raw call's result: what the caller is told, and what it ran under - the
 <code>Answered</code> of the raw path, over <code>sutura_domain::raw::RawOutcome</code> rather
 than <code>ToolOutcome</code>.</p>
 <h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-69-1"><a id="__codelineno-69-1" name="__codelineno-69-1" href="#__codelineno-69-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">executed_until</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Expiry</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">executed_until</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Expiry</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_outcome</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">raw</span><span class="p">::</span><span class="n">RawOutcome</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_outcome</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">raw</span><span class="p">::</span><span class="n">RawOutcome</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">outcome</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">raw</span><span class="p">::</span><span class="n">RawOutcome</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">outcome</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">raw</span><span class="p">::</span><span class="n">RawOutcome</span>
 </span></code></pre></div>
-<h4 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h4>
+<h4 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="fn-run_sql"><code>fn run_sql</code><a class="headerlink" href="#fn-run_sql" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">run_sql</span><span class="o">&lt;</span><span class="n">W</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="o">&gt;</span><span class="p">(</span><span class="n">context</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">RequestContext</span><span class="p">,</span><span class="w"> </span><span class="n">statement</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">raw</span><span class="p">::</span><span class="n">RawStatement</span><span class="p">,</span><span class="w"> </span><span class="n">broker</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">B</span><span class="p">,</span><span class="w"> </span><span class="n">warehouses</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouses</span><span class="p">::</span><span class="n">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">RunningRaw</span><span class="o">&lt;</span><span class="n">B</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-73-1"><a id="__codelineno-73-1" name="__codelineno-73-1" href="#__codelineno-73-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">run_sql</span><span class="o">&lt;</span><span class="n">W</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="o">&gt;</span><span class="p">(</span><span class="n">context</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">RequestContext</span><span class="p">,</span><span class="w"> </span><span class="n">statement</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">raw</span><span class="p">::</span><span class="n">RawStatement</span><span class="p">,</span><span class="w"> </span><span class="n">broker</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">B</span><span class="p">,</span><span class="w"> </span><span class="n">warehouses</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">warehouses</span><span class="p">::</span><span class="n">Warehouses</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">RunningRaw</span><span class="o">&lt;</span><span class="n">B</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Runs one literal statement against the deployment's configured source, or says why it will not.</p>
 <h1 id="pr1s-scope-stated-as-a-limit-rather-than-left-implicit_1">PR1's scope, stated as a limit rather than left implicit<a class="headerlink" href="#pr1s-scope-stated-as-a-limit-rather-than-left-implicit_1" title="Permanent link">&para;</a></h1>

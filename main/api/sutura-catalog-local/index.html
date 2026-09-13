@@ -4166,6 +4166,8 @@ finer split is a cheap change if a caller ever needs the branch.</p>
 <li><code>Inconsistent</code></li>
 <li><code>UncheckableKnowledge</code> - The notes do not hold together with the definitions they are about.</li>
 <li><code>Empty</code></li>
+<li><code>TooManyDocuments</code> - The walk found more documents than <code>MAX_CATALOG_DOCUMENTS</code> permits.</li>
+<li><code>TooLarge</code> - The documents read so far sum to more bytes than <code>MAX_CATALOG_BYTES</code> permits.</li>
 <li><code>Digest</code> - The domain could not hash the definitions.</li>
 </ul>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
