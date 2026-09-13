@@ -234,7 +234,9 @@ mod tests {
         let mut zero_denominators: BTreeSet<&str> = BTreeSet::new();
         let mut with_required_filter = 0_usize;
         for metric in pinned.definitions().metrics().values() {
-            let measure = metric.measure();
+            let measure = metric
+                .measure()
+                .expect("the single-player example uses the closed measure vocabulary");
             shapes.insert(measure.shape());
             if let sutura_domain::measure::Measure::Ratio { zero_denominator, .. } = *measure {
                 zero_denominators.insert(zero_denominator.as_str());

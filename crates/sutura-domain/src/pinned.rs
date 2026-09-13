@@ -622,6 +622,12 @@ impl AnchorReport {
 /// Why a bundle is not validated.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum NotValidated {
+    /// The bundle carries a metric whose computation is catalog-authored SQL, and the adapter this
+    /// build selected does not declare `Warehouse::EXECUTES_AUTHORED_SQL` - which today is every
+    /// adapter this workspace ships. The fragment is stored as written and compiled by nothing, so
+    /// this refusal is what stands between it and a served bundle; `docs/adr/0004` is the record.
+    #[error("metric {metric} uses authored SQL, and the selected execution adapter cannot execute it")]
+    AuthoredSqlNotExecutable { metric: MetricName },
     /// The declared number and the produced one, both quoted.
     ///
     /// `{:?}` and not `{}`, for the reason [`crate::measure::RequiredFilter`]'s `Display` gives: a

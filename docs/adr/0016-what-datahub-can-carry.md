@@ -207,10 +207,12 @@ is `ANSI_SQL`, `SNOWFLAKE`, `MDX`, `TABLEAU`, `DATABRICKS`, `MAQL`, `OTHER`. **N
 both sets**, and three of DataHub's are not SQL at all - MDX, Tableau's calculation language and MAQL
 would not parse in a SQL parser and are not meant to. Getting from `ANSI_SQL` to our three would be a
 translation, and *we never translate SQL we did not generate* is an invariant with a mechanism behind
-it. Even setting that aside, the hatch is in `AGENTS.md`'s *Built And Not Wired* section: no shipped
-binary can execute an authored expression, because the engine generates no SQL and the adapter that
-renders is a dev-dependency. So reading `metricInfo.expression` as a computation would move a refusal
-from load time to query time rather than answer anything.
+it. Even setting that aside, no shipped binary can execute an authored expression - the engine
+generates no SQL and the adapter that renders is a dev-dependency - so a bundle carrying one is
+refused at boot ([0004](0004-a-named-escape-hatch-for-authored-sql.md)'s amendment). Reading
+`metricInfo.expression` as a computation would therefore produce a bundle that loads and cannot
+start, rather than answer anything; and this adapter may not compile the text either, since
+`cargo xtask check-boundaries` forbids it reaching `sutura-sql`.
 
 ### Cardinality: declared, optional, and one value we cannot represent
 
@@ -668,8 +670,8 @@ structure-and-descriptions DataHub contributes a working bundle.
 
 **Read `metricInfo.expression` through the authored-SQL hatch.** Rejected on two independent grounds,
 either of which is sufficient: the dialect sets do not intersect and closing the gap is translation;
-and no shipped binary can execute an authored expression, so the load would succeed and the question
-would still be refused, one stage later and less clearly.
+and no shipped binary can execute an authored expression, so the load would succeed and the
+deployment would refuse to start.
 
 **Derive a `Measure` from `aggregationFunction` plus the annotated field.** Rejected because the
 expression beside it is authored independently and nothing reconciles the two, so the derivation

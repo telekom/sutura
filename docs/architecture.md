@@ -472,10 +472,16 @@ which are text is a word in the document rather than a reading of it.
 record: what the hatch is, what stays closed, which constructs are refused at load and why each one
 is on the list.
 
-**Partly built.** The domain types and the compile - parse, refuse, qualify against the model's
-columns, render per dialect, all at catalog-compile time - exist in `sutura_domain::expression` and
-`sutura_sql::expression`. What does not exist yet is the wiring: no catalog document can write
-`authored_sql:` and no plan can carry a compiled one, so no metric uses the hatch today.
+**Loaded and refused at boot; not compiled, not executed.** A local metric document writes
+`authored_sql:` beside nothing else, the fragment is admitted as text - present, bounded, one
+fragment rather than a script, no control or invisible characters - and pinned under the definition
+digest exactly as written. Nothing published compiles it: the compile in `sutura_sql::expression`
+has no production caller, and a catalog adapter may not reach that crate
+(`cargo xtask check-boundaries`), because both shipped binaries link the local catalog and a SQL
+generator in its tree is one in the network binary's. Every adapter this workspace ships leaves
+`Warehouse::EXECUTES_AUTHORED_SQL` at `false`, so `verify_and_validate` refuses a bundle carrying an
+authored metric before serving, naming it. The compile belongs to the first adapter that executes
+the fragment. Until then an authored fragment is stored, not checked.
 
 **A pinned statement**, rendered upstream and taken as given, spliced into a generated wrapper. Not
 built. The rest of this section is its design.

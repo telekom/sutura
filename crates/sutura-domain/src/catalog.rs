@@ -7,7 +7,10 @@
 //! the same content must produce the same [`Definitions`] or one of them is wrong, and the golden
 //! suite asserts exactly that.
 //!
-//! Nothing here holds SQL. See `docs/adr/0001-first-party-semantic-models.md`.
+//! Nothing here parses or renders SQL. A [`Computation`] may hold catalog-authored text as written;
+//! the compile that would validate it lives in `sutura-sql`, and nothing published calls it - a
+//! bundle carrying such a metric is refused at boot. See `docs/adr/0001-first-party-semantic-models.md`
+//! and `docs/adr/0004-a-named-escape-hatch-for-authored-sql.md`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,6 +30,7 @@ pub use authored::{
 pub use consistency::{Definitions, InconsistentDefinitions};
 
 use crate::calendar::TimeRange;
+use crate::expression::Computation;
 use crate::measure::{Measure, RequiredFilter};
 use crate::model::{
     ColumnName, DimensionName, Grain, IdentifierCase, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName,
@@ -348,12 +352,13 @@ impl Anchor {
     }
 }
 
-/// A certified metric: one measure over one model, and the shapes of question it will answer.
+/// A certified metric: one computation over one model, and the shapes of question it will answer.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Metric {
     name: MetricName,
     model: ModelName,
-    measure: Measure,
+    #[serde(flatten)]
+    computation: Computation,
     /// Predicates that are part of what this metric MEANS, applied to every question about it.
     ///
     /// A caller cannot see, choose or remove one. `mrr` means revenue from active subscriptions, and
@@ -428,7 +433,7 @@ impl Metric {
     pub fn new(
         name: MetricName,
         model: ModelName,
-        measure: Measure,
+        computation: impl Into<Computation>,
         required_filters: Vec<RequiredFilter>,
         time_column: ColumnName,
         grains: BTreeSet<Grain>,
@@ -462,7 +467,7 @@ impl Metric {
         Ok(Self {
             name,
             model,
-            measure,
+            computation: computation.into(),
             required_filters,
             time_column,
             grains,
@@ -483,8 +488,14 @@ impl Metric {
     }
 
     #[inline]
-    pub const fn measure(&self) -> &Measure {
-        &self.measure
+    pub const fn computation(&self) -> &Computation {
+        &self.computation
+    }
+
+    /// The closed measure, if this metric does not use catalog-authored SQL.
+    #[inline]
+    pub const fn measure(&self) -> Option<&Measure> {
+        self.computation.measure()
     }
 
     /// The predicates every question about this metric carries, whether the caller asked or not.

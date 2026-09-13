@@ -913,7 +913,10 @@ that lived in an adapter would be a check the other adapter did not have. Two ad
 the same content must produce the same `Definitions` or one of them is wrong, and the golden
 suite asserts exactly that.
 
-Nothing here holds SQL. See `docs/adr/0001-first-party-semantic-models.md`.
+Nothing here parses or renders SQL. A `Computation` may hold catalog-authored text as written;
+the compile that would validate it lives in `sutura-sql`, and nothing published calls it - a
+bundle carrying such a metric is refused at boot. See `docs/adr/0001-first-party-semantic-models.md`
+and `docs/adr/0004-a-named-escape-hatch-for-authored-sql.md`.
 
 ### `struct Model`
 
@@ -1159,12 +1162,16 @@ line a person reads to decide whether a metric still means what it claimed.
 pub struct Metric
 ```
 
-A certified metric: one measure over one model, and the shapes of question it will answer.
+A certified metric: one computation over one model, and the shapes of question it will answer.
 
 #### Methods
 
 ```rust
 pub const fn anchor(&self) -> Option<&Anchor>
+```
+
+```rust
+pub const fn computation(&self) -> &Computation
 ```
 
 ```rust
@@ -1184,8 +1191,10 @@ pub const fn grains(&self) -> &BTreeSet<Grain>
 ```
 
 ```rust
-pub const fn measure(&self) -> &Measure
+pub const fn measure(&self) -> Option<&Measure>
 ```
+
+The closed measure, if this metric does not use catalog-authored SQL.
 
 ```rust
 pub const fn model(&self) -> &ModelName
@@ -1196,7 +1205,7 @@ pub const fn name(&self) -> &MetricName
 ```
 
 ```rust
-pub fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
+pub fn new(name: MetricName, model: ModelName, computation: impl Into<Computation>, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
 ```
 
 A certified metric, or a refusal if two of its dimensions answer to one label.
@@ -1653,14 +1662,24 @@ word - `authored_sql` - that a reviewer greps for and an operator can list. Ther
 metric is free-text SQL" is invisible in a diff.
 
 **Nothing here parses.** A `SqlFragment` is checked for being *a plausible fragment* - present,
-bounded, and free of the characters that make the text a reviewer reads differ from the text
-that compiles - and nothing more. Whether it is one SQL expression, over
-columns this model declares, reaching no table it was not given, is decided by `sutura_sql`, at
-catalog-compile time, and a fragment that fails is a **load failure naming line and column**. The
-domain may not do that work: it holds no SQL parser and `cargo xtask check-boundaries` keeps it
-that way. The consequence is worth stating plainly - **a `Computation::AuthoredSql` that has not
-been through `sutura_sql::expression::compile` is unvalidated**, and the composition root is what
-must not skip it.
+bounded, one fragment rather than a script, and free of the characters that make the text a
+reviewer reads differ from the text that compiles - and nothing more. Whether it is one SQL
+expression, over columns this model declares, reaching no table it was not given, is decided by
+`sutura_sql::expression::compile`, and the domain may not do that work: it holds no SQL parser
+and `cargo xtask check-boundaries` keeps it that way.
+
+**Stored, not compiled - and that is the state of the tree, not a transitional note.** A
+`Computation::AuthoredSql` is loaded, pinned and put under the definition digest exactly as
+written, and nothing published compiles it: not the catalog adapter that loads it - the same
+boundary gate forbids a catalog adapter reaching `sutura-sql`, because a SQL generator in a
+metadata crate's tree is a generator in every shipped binary's - and not the composition root.
+The compile belongs to the first execution adapter that declares
+`Warehouse::EXECUTES_AUTHORED_SQL`, beside the renderer for its own dialect. Until one does, every
+adapter takes that constant's `false` default and `sutura_app::verify_and_validate` refuses a
+bundle carrying an authored metric at startup, naming the metric. So the consequence, plainly:
+**a `Computation::AuthoredSql` is unvalidated SQL text, and the only thing that makes that safe
+today is that nothing executes it** - the refusal is the mechanism, and `docs/adr/0004` records
+why a witness type was not available instead.
 
 **It is a provider CAPABILITY, not a feature every provider has.** A wren-style directory has
 authored SQL because a person wrote the file. A metadata service that stores no executable SQL
@@ -1688,6 +1707,7 @@ Why a fragment is not one.
 - `TooLong`
 - `ControlCharacter` - A control character other than tab and newline. Those two are formatting a person might use inside a long `CASE`; the rest are not text, and their likeliest origin is a paste accident or an attempt to hide part of a fragment from a reviewer's terminal.
 - `InvisibleCharacter` - A character a terminal, a diff and a browser do not render, or render in the wrong order.
+- `StatementTerminator` - A `;` anywhere in the text. An authored computation is ONE expression that a generator splices into a statement it composes; a semicolon is the one character that can end that statement and begin another, which turns a metric definition into a script. Refused textually - inside a string literal too - because nothing here parses, and a rule that depended on tokenising would be a parser by another name. A literal that needs one is the derived-column case `docs/adr/0001` sends upstream.
 
 #### Implements
 
@@ -1723,6 +1743,10 @@ Its own type rather than a `String` field, so the checks happen once and a value
 them cannot be confused with a string that did not. Deliberately **not** an identifier newtype:
 the character set of SQL is not the character set of a name, and narrowing it here would reject
 the quotes, parentheses and commas the whole feature exists to allow.
+
+Held exactly as written past the surrounding trim, so the digest covers the author's text. The
+derived `Debug` prints it, and that is fine: it is operator-authored catalog content, not a
+secret. What must not print it is `AuthoredSql`'s `Display`, whose doc says why.
 
 #### Methods
 
@@ -1926,7 +1950,7 @@ key, visible in the diff, which is the whole point.
 #### Variants
 
 - `Measure` - The closed vocabulary, and the ordinary case. Every metadata provider can produce this, and nothing about it is optional or degraded.
-- `AuthoredSql` - SQL somebody wrote in the catalog, compiled at load. The exception, named so that it reads as one.
+- `AuthoredSql` - SQL somebody wrote in the catalog, stored as written. The exception, named so that it reads as one - and, today, one no published adapter executes: the module doc says what holds instead.
 
 #### Methods
 
@@ -1964,8 +1988,9 @@ pub const fn measure(&self) -> Option<&Measure>
 The closed measure, if this metric uses the closed vocabulary.
 
 Every consumer that walks columns, resolves terms or renders an aggregate reads this, and a
-`None` is the signal that the number comes from a compiled fragment instead. An adapter that
-cannot execute one has to **refuse** on that `None` rather than skip the metric.
+`None` is the signal that the number would come from an authored fragment instead. A
+consumer that cannot execute one has to **refuse** on that `None`, naming the metric, rather
+than skip it - `sutura_semantic::plan` does, and so does the startup check.
 
 #### Implements
 
@@ -1976,7 +2001,8 @@ cannot execute one has to **refuse** on that `None` rather than skip the metric.
 The longest authored fragment accepted.
 
 A bound rather than a judgement about style: the fragment is handed to a recursive-descent parser
-at load, and an unbounded string out of a file is an unbounded amount of work and stack.
+by whichever adapter compiles it, and an unbounded string out of a file is an unbounded amount of
+work and stack. Counted in characters, not bytes.
 Generous enough for the conditional sums and guarded ratios this exists for; anything longer is a
 derived column that belongs upstream, which is what `docs/adr/0001` says about the whole class.
 
@@ -4840,6 +4866,7 @@ Why a bundle is not validated.
 
 #### Variants
 
+- `AuthoredSqlNotExecutable` - The bundle carries a metric whose computation is catalog-authored SQL, and the adapter this build selected does not declare `Warehouse::EXECUTES_AUTHORED_SQL` - which today is every adapter this workspace ships. The fragment is stored as written and compiled by nothing, so this refusal is what stands between it and a served bundle; `docs/adr/0004` is the record.
 - `AnchorMismatch` - The declared number and the produced one, both quoted.
 - `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`

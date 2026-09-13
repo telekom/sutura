@@ -33,6 +33,7 @@ mod resolve;
 use crate::plan::PlanError;
 pub use crate::resolve::BundleInconsistent;
 use crate::resolve::ResolveError;
+use sutura_domain::model::MetricName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::FederatedPlanError;
 use sutura_domain::plan::QueryPlan as DomainPlan;
@@ -78,11 +79,12 @@ impl Compiled {
 }
 /// Why compiling failed, which is never why a question was refused.
 ///
-/// **Two arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question the
+/// **Three arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question the
 /// deployment declines comes back as [`Compiled::Refused`]; what reaches this type is our own side
-/// being wrong. Those are the two ways that can happen: the pinned bundle names something it does not
-/// hold, and the splitter built a two-source plan that
-/// [`FederatedPlan::new`](sutura_domain::plan::FederatedPlan::new) then rejected. The second used to
+/// being wrong. Those are the three ways that can happen: the pinned bundle names something it does
+/// not hold, the bundle reaches this compiler with authored SQL its plan cannot carry, or the
+/// splitter built a two-source plan that
+/// [`FederatedPlan::new`](sutura_domain::plan::FederatedPlan::new) then rejected. The third used to
 /// be flattened into [`RefusalReason::FederationNotExecutable`], which is what a build whose adapter
 /// type does not declare `Warehouse::EXECUTES_LEGS` is told - so a wiring defect and a statement
 /// about the build's own capability arrived as one value, and a caller could not tell which it had.
@@ -97,6 +99,9 @@ pub enum CompileFailure {
     /// The pinned bundle names a model or a relationship it does not hold.
     #[error(transparent)]
     Bundle(#[from] BundleInconsistent),
+    /// The bundle carries authored SQL, while the domain plan deliberately carries no SQL.
+    #[error("metric {metric} uses authored SQL, which the semantic plan cannot carry")]
+    AuthoredSqlNotPlanned { metric: MetricName },
     /// A two-source plan this workspace compiled and could not then assemble.
     #[error("this deployment compiled a two-source question it could not assemble")]
     NotAssembled(#[from] FederatedPlanError),
@@ -151,6 +156,7 @@ pub fn compile(query: &Query, pinned: &PinnedDefinitions) -> Result<Compiled, Co
         Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
         Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
+        Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
     }
 }

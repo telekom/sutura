@@ -503,7 +503,7 @@ mod tests {
         let content = property.assemble().expect("the recorded document decodes");
         assert_eq!(
             metric.measure(),
-            content.measure(),
+            Some(content.measure()),
             "the certified measure is the one the served document carried, over the domain's closed \
              set - not the raw `{}` expression string beside it, which stays the promotion \
              candidate's half",

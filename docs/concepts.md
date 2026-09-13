@@ -74,14 +74,17 @@ shapes over a `Term` enum of two terms, `RequiredFilter` an enum of four operato
 `deny_unknown_fields` applies at every depth. sutura generates the whole statement from that, in
 `sutura-semantic`, so neither caller-authored nor catalogue-authored SQL is on the path at all.
 
-**Partly built, and named so it cannot be quiet.** A metric may instead carry `authored_sql:` - a SQL
-expression a catalogue author wrote, for what the closed vocabulary cannot say: a window function, a
-percentile, an expression over two columns. It is a *sibling* of `measure:` rather than a field on it,
-exactly one of the two may be present, and a fragment is parsed at load, checked against a list of
-refused constructs, checked against the model's declared columns and rendered for every dialect
-before anything serves. A caller still has no field for SQL, and the agent prompt still never sees
-any. [A named escape hatch for authored SQL](adr/0004-a-named-escape-hatch-for-authored-sql.md) is
-the record. The types and the compile exist; no catalogue document can write the key yet.
+**Loaded and refused at boot, and named so it cannot be quiet.** A metric may instead carry
+`authored_sql:` - a SQL expression a catalogue author wrote, for what the closed vocabulary cannot
+say: a window function, a percentile, an expression over two columns. It is a *sibling* of `measure:`
+rather than a field on it, exactly one of the two may be present, and the fragment is admitted as
+text (present, bounded, one fragment rather than a script, free of control and invisible characters)
+and pinned under the definition digest exactly as written. **It is not compiled**: nothing published
+parses it, checks it against the model's columns or renders it, and every adapter this workspace
+ships refuses to start on a bundle that carries one, naming the metric. A caller still has no field
+for SQL, and the agent prompt still never sees any.
+[A named escape hatch for authored SQL](adr/0004-a-named-escape-hatch-for-authored-sql.md) is the
+record, and its amendment says why the compile was kept out of the load.
 
 **Design target, not built.** A definition may instead arrive as **statement** text authored
 upstream, spliced into a generated wrapper byte for byte, because re-emitting it would substitute
