@@ -432,11 +432,13 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Definitions, Description, Metric, Model};
+    use sutura_domain::catalog::{Definitions, Description, Metric, Model, Relationship};
     use sutura_domain::identity::{PrincipalChain, RequestContext, Subject, SubjectId};
     use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-    use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+    use sutura_domain::model::{
+        Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+    };
     use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, InvalidManifest, PinnedDefinitions};
     use sutura_domain::query::{Query, ToolOutcome};
     use sutura_domain::warehouse::{RowSet, Value};
@@ -724,6 +726,73 @@ mod tests {
             } => {
                 assert_eq!(kind, ElementKind::Model);
                 assert_eq!(element, "geo");
+                assert_eq!(first.as_str(), "alpha");
+                assert_eq!(second.as_str(), "beta");
+            }
+            other => panic!("expected an element collision, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn two_sources_providing_the_same_relationship_are_refused_with_a_typed_element_kind() {
+        // The model-collision test above leaves one mutation uncaught: a `check_no_element_collisions`
+        // that always constructed `ElementKind::Model`, regardless of which of the six checks found
+        // the collision, would still pass it - a model collision genuinely produces `ElementKind::Model`.
+        // Measured directly: reverting every non-model `kind:` construction to `ElementKind::Model` and
+        // running `just test` left the model-collision test (and the whole suite) green. This test
+        // closes that gap with a different kind, so a collapse anywhere in the six checks has somewhere
+        // to be caught.
+        fn relationship_only(suffix: &str, contributor: &str) -> PinnedDefinitions {
+            let origin = Model::new(
+                ModelName::parse(format!("orders_{suffix}")).expect("a test model is a model"),
+                source("local"),
+                TableName::parse(format!("orders_{suffix}")).expect("a test table is a table"),
+                BTreeSet::from([column("id"), column("customer_id")]),
+                Description::default(),
+            );
+            let target = Model::new(
+                ModelName::parse(format!("customers_{suffix}")).expect("a test model is a model"),
+                source("local"),
+                TableName::parse(format!("customers_{suffix}")).expect("a test table is a table"),
+                BTreeSet::from([column("id")]),
+                Description::default(),
+            );
+            let relationship = Relationship::new(
+                RelationshipName::parse("fulfillment").expect("a test relationship is a name"),
+                ModelName::parse(format!("orders_{suffix}")).expect("a test model is a model"),
+                column("customer_id"),
+                ModelName::parse(format!("customers_{suffix}")).expect("a test model is a model"),
+                column("id"),
+                JoinType::ManyToOne,
+            );
+            let definitions =
+                Definitions::assemble(vec![origin, target], vec![relationship], vec![]).expect("one relationship holds together");
+            let declared = MetadataCapabilities::of(
+                DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Relationships]),
+                KnowledgeCapabilities::none(),
+            );
+            PinnedDefinitions::pin(
+                version(),
+                definitions,
+                Knowledge::none(),
+                ContributionManifest::single(source(contributor), Contribution::of(declared)),
+            )
+            .expect("a single relationship pins")
+        }
+
+        // Each contributor names its own models (`orders_a`/`customers_a` vs `orders_b`/`customers_b`),
+        // so no model collision fires first - only the shared relationship name does.
+        let err = assemble(&[relationship_only("a", "alpha"), relationship_only("b", "beta")])
+            .expect_err("two sources providing the same relationship must not compose");
+        match err {
+            CompositionError::ElementCollision {
+                kind,
+                element,
+                first,
+                second,
+            } => {
+                assert_eq!(kind, ElementKind::Relationship);
+                assert_eq!(element, "fulfillment");
                 assert_eq!(first.as_str(), "alpha");
                 assert_eq!(second.as_str(), "beta");
             }
