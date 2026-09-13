@@ -622,6 +622,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | `sources.<alias>.posture`                       | absent                               | `shared-service-user` or `impersonation-at-source`. Required, with no default                                                                                                                                                                                                                                                                  |
 | `sources.<alias>.acknowledged_because`          | absent                               | The operator's reason. Required for a shared source in `multi-user` mode                                                                                                                                                                                                                                                                       |
 | `sources.<alias>.verification_identity`         | absent                               | The identity that re-runs that source's anchors. Only on an impersonating source                                                                                                                                                                                                                                                               |
+| `tools.run_sql.enabled`                         | `false`                              | `docs/adr/0013`'s raw SQL tool. Refused at boot with a shared source in `multi-user` mode - see [The raw SQL tool](#the-raw-sql-tool-over-the-postgres-source-above)                                                                                                                                                                           |
 | `runtime.max_concurrent_queries`                | `8`                                  | How many questions execute at once. See [Capacity](#capacity)                                                                                                                                                                                                                                                                                  |
 | `runtime.admission_timeout_seconds`             | `5`                                  | How long one waits for a slot before it is shed `503`                                                                                                                                                                                                                                                                                          |
 | `runtime.engine_worker_threads`                 | the machine's                        | How wide the in-process engine runs. Set it under a CPU quota                                                                                                                                                                                                                                                                                  |
@@ -804,6 +805,72 @@ answer. Three or more sources refuse at plan time as `plan_spans_too_many_source
 *The limit, because it decides what is worth configuring today:* the default build links only the
 in-process engine. Builds enabling `bigquery` or `postgres` add that one network adapter, and one
 process still opens one KIND of data system at a time.
+
+### The raw SQL tool, over the postgres source above
+
+[`docs/adr/0013`](adr/0013-a-raw-sql-tool-off-by-default.md) is the record; this is the settings key
+and the split between what this service enforces, what the connecting role enforces, and what
+neither does. `examples/raw-sql/README.md` is the worked showcase - a settings snippet, a role grant,
+one question with no certified metric, over the same Postgres source declared above.
+
+**`tools.run_sql.enabled`, off by default, per deployment.** An absent `tools:` key is the ordinary
+case `docs/adr/0013` calls normal, not a narrower mode of it: `run_sql` does not appear in `tools/list`
+or the served OpenAPI document, and calling it by name is refused as `tool_not_enabled` - a different
+code from `insufficient_scope`, because obtaining `sutura:sql.run` could not help a caller a
+deployment switch refused. Turning it on is one line an operator writes and a reviewer sees.
+
+**Enforced by this service, once the switch is on:**
+
+- A caller still needs `sutura:sql.run` beside the deployment switch - two independent gates, and the
+  switch alone does not widen anyone's scope.
+- The result's wire shape has no field for a definition version, a digest or provenance of any kind -
+  `RawOutcome` cannot be rendered as a certified answer because there is nowhere on the type to put
+  one, not because a check catches it trying.
+- The row cap (`MAX_ROWS`) applies exactly as it does to a certified answer, enforced by reading no
+  more than that many rows past the limit off a STREAMED result rather than materialising the whole
+  answer first.
+- One statement per call. The extended query protocol this adapter uses cannot carry a second command
+  in the same `Parse` message, so `select 1; drop table t` is refused by the SERVER as a syntax error
+  before either half runs - sutura reads no keyword out of the text to decide this.
+- **A boot refusal**, reusing the same `security.identity` mechanism the shared-source acknowledgement
+  above already uses: `tools.run_sql.enabled: true` with `security.identity: multi-user` does not
+  start. Verbatim: *"tools.run_sql.enabled is true and security.identity is `multi-user`. The raw SQL
+  tool executes under one shared identity for every caller... it may run only where the deployment is
+  single-user or a source executes as the asking subject."* Today's Postgres adapter cannot execute as
+  the asking subject, so this refuses on the declared mode alone - stated as the limit it is: a
+  boot-time check over a written word, not a runtime measurement that callers are actually one person.
+- **A minimal audit record per call, refusal included**, carrying the chain, the row count or the
+  refusal, and the statement text as an audit-only field this service never returns to a caller.
+
+**Enforced by the connecting role, and by nothing else:**
+
+- **What the statement may read or write.** Every call runs inside a transaction this adapter opens
+  `BEGIN READ ONLY` and always rolls back - a real, server-enforced second control beside the role,
+  closing the session-level escape (`SET TRANSACTION READ WRITE`, `default_transaction_read_only`)
+  [`docs/adr/0013`](adr/0013-a-raw-sql-tool-off-by-default.md) already rejects as undoable by the
+  caller's own next statement. But that transaction bounds SQL-visible writes for the DURATION of one
+  call; it says nothing about what the role could otherwise do, and nothing about a VOLATILE
+  function's own side effects (a file write, a network call through an extension) once the role may
+  call one at all. `docs/serving.md`'s general Postgres guidance above - `SELECT` on the named tables,
+  never an owner, a superuser, a creator or `BYPASSRLS` - is what actually bounds this, and it is an
+  operator's `GRANT`, not a setting sutura reads or verifies.
+- **How long a statement may run.** The connect-time `statement_timeout` this source's connection
+  already carries is the ceiling. It is one number for every caller today, not narrowed per request -
+  [`docs/adr/0013`](adr/0013-a-raw-sql-tool-off-by-default.md) names the caller-derived deadline as a
+  prerequisite this build does not yet carry for the raw path.
+
+**What neither enforces, stated because an overstated control is the defect this repository names
+directly:**
+
+- **The intent boundary.** The scope gate bounds WHO may call `run_sql`; the role bounds WHAT it may
+  read or write. Neither bounds what a prompt-injected instruction can talk the calling agent into
+  SENDING as the statement - `docs/adr/0013`'s own accounting of what this tool spends, restated here
+  because an operator reading only this page should still see it.
+- **Whether the connecting role is actually narrowed to `SELECT`.** Sutura reads no privilege off the
+  source; the `GRANT`s above are the only source of truth for what the role can do, exactly as they
+  are for the certified path's own source credential.
+- **Which of several open sources a statement runs against.** This build targets the sole registered
+  data system and refuses rather than guesses where more than one is open; naming one is future work.
 
 ### Address families
 

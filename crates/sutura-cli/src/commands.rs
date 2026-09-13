@@ -262,10 +262,20 @@ pub(crate) fn prompt(args: &[String]) -> ExitCode {
         eprintln!("sutura: configuration from {}", settings.layers());
         let (prose, instructions) = prompt_inputs(settings.prompt())?;
         let pinned = load(Path::new(&root))?;
-        // Every operation, because the HTTP surface mounts every operation. A transport that hid one
-        // passes the subset it mounts and the workflow drops the step rather than telling an agent
-        // to call something that is not there.
-        let inputs = PromptInputs::new(Tool::ALL, prose, instructions.as_deref());
+        // Every certified operation, because the HTTP surface mounts every one of them
+        // unconditionally. A transport that hid one passes the subset it mounts and the workflow
+        // drops the step rather than telling an agent to call something that is not there.
+        //
+        // `run_sql` is added on top rather than folded into `Tool::ALL`: it is off by default and a
+        // deployment turns it on separately (`tools.run_sql.enabled`), so this command reads the
+        // SAME settings the service would boot with - the ones already loaded above - rather than
+        // assuming every deployment mounts it. A configuration this command was not told about
+        // cannot make the rendered prompt describe a tool the deployment cannot call.
+        let mut tools = Tool::ALL.to_vec();
+        if settings.tools().run_sql_enabled() {
+            tools.push(Tool::RunSql);
+        }
+        let inputs = PromptInputs::new(&tools, prose, instructions.as_deref());
         print!("{}", sutura_app::prompt::render(&pinned, &inputs));
         Ok(())
     })())
