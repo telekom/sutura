@@ -24,6 +24,7 @@ use crate::source::{ImpersonationCapability, SourcePosture};
 /// Shared typing for deliberately simple CSV fixtures.
 #[cfg(any(test, feature = "fixtures"))]
 pub mod csv;
+pub mod estimate;
 /// The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
 ///
 /// **`pub mod` with no re-export beside it, and that is a documentation decision rather than a
@@ -32,6 +33,7 @@ pub mod csv;
 /// `### use None` stubs and no content for these three types, so the published reference would have
 /// carried a port method returning a type it does not describe. A public module gets documented.
 pub mod preflight;
+use estimate::EstimatedBytes;
 
 /// What it takes for two answers to one plan to be the same answer, for the differential legs that
 /// compare them.
@@ -316,12 +318,11 @@ impl RowSet {
 
 /// What a pre-flight established.
 ///
-/// **[`Self::NotAsked`] is not [`Self::Accepted`], and no caller can read it as one.** Before
-/// `dry_run` took a credential, a default of `Ok(())` was defensible: with nothing to be wrong
-/// about, "nothing went wrong" is honest. With a subject in the signature it stops being honest,
-/// because `Ok(())` from an adapter that did not look is indistinguishable from `Ok(())` from an
-/// adapter that asked the data system as that subject and was told yes - so a defaulted pre-flight
-/// would read as "this subject may run this plan" for every adapter that declined to implement one.
+/// **[`Self::NotAsked`] is not [`Self::Accepted`], and no caller can read it as one.** Before `dry_run` took a credential, a
+/// default of `Ok(())` was defensible: with nothing to be wrong about, "nothing went wrong" is honest. With a subject in the
+/// signature it stops being honest, because `Ok(())` from an adapter that did not look is indistinguishable from `Ok(())`
+/// from an adapter that asked the data system as that subject and was told yes - so a defaulted pre-flight would read as
+/// "this subject may run this plan" for every adapter that declined to implement one.
 ///
 /// The shape is the one the row cap already uses, where `row_limit()` is `max_rows + 1` so a result
 /// *at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 is the decision.
@@ -332,11 +333,10 @@ impl RowSet {
 /// that would stop it - skipping a check on the strength of `Accepted` is a review question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreFlight {
-    /// The adapter did not ask. The default, and the honest answer for an adapter where checking
-    /// costs what running costs.
+    /// The adapter did not ask. The default, and the honest answer for an adapter where checking costs what running costs.
     NotAsked,
-    /// The data system was asked, as this subject, and accepted the plan.
-    Accepted,
+    /// The data system was asked, as this subject, and accepted the plan - see [`estimate::EstimatedBytes`].
+    Accepted { estimated_bytes: Option<EstimatedBytes> },
 }
 
 /// The rows one anchor's plan produced at boot.

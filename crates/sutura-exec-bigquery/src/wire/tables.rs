@@ -404,6 +404,7 @@ where
         | WireError::MoreThanOnePage
         | WireError::NoTotal { .. }
         | WireError::NotATotal { .. }
+        | WireError::NotAnEstimate { .. }
         | WireError::NoSchema { .. }
         | WireError::NotAScalar { .. }
         | WireError::NotAListing { .. }
@@ -459,7 +460,7 @@ mod tests {
             Err(FakeCause)
         }
 
-        fn validate(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        fn validate(&self, _request: &JobRequest<'_>) -> Result<crate::transport::DryRunEstimate, Self::Error> {
             Err(FakeCause)
         }
 

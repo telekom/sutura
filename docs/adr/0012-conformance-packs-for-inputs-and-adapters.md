@@ -21,6 +21,15 @@ this record as evidence that a source executed as the asking subject - it is not
 conformance run does NOT establish is enumerated in that crate's own module header; this
 line is not a substitute for it.
 
+**Corrected: most of it is built now.** `crates/sutura-conformance` exists as the dev-only packs
+crate this record specifies; `execute_packs!` binds it to three data systems
+(`sutura-exec-duckdb`, `sutura-exec-postgres`, `sutura-exec-datafusion` - the engine); compile packs
+run behind the harness crate's default-off `compile` feature; and `cargo xtask
+check-conformance-bindings` (`xtask/src/conformance.rs`) is the gate the *Consequences* section
+below asks for, holding the registry and the macro invocation in step. What is still unbuilt, per
+the record's own later corrections further down: a per-pack timing aggregate, `cargo-insta`'s
+unreferenced-snapshot check, and a data adapter beyond the three bound today.
+
 The requirement is that every metadata input and every data adapter conforms to the **same tests and
 functions**, so a new connector proves itself by registering and declaring rather than by anyone
 editing a test. This record is the construction.

@@ -18,6 +18,14 @@ sentence below - *"the `403`s are not a statement about a credential"* - stopped
 that sentence is, and the status table below carries the new row. A review is what found this record
 unamended while the code that amended it had already merged.
 
+**Prospectively amended by [Where a budget lives](0030-where-a-budget-lives.md), ahead of the code
+that will land it.** The Context sentence below - *"the two \[statuses retried by convention, `429`
+and `408`\] and no refusal maps to either"* - and `crates/sutura-http/src/wire/refusal.rs`'s own
+header comment, which repeats it, both stop being true the day `feat/budget-refusal` lands a spent
+budget as a `RefusalReason` at `429`. 0030 decides the status now; this record and `refusal.rs`'s
+header get their own edit - a status-table row and a rewritten sentence, not this note - in the
+commit that lands the variant.
+
 ## Context
 
 `POST /v1/query` answered `200` for both outcomes. An answer and a refusal arrived with the same

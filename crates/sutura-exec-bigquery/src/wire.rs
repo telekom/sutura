@@ -138,7 +138,7 @@ mod tests;
 // read - the split is a file boundary rather than an API one.
 #[cfg(feature = "fixtures")]
 use crate::wire::document::applied;
-use crate::wire::document::{QueryAnswer, body, complete, refusal, url};
+use crate::wire::document::{QueryAnswer, body, complete, estimated_bytes, refusal, url};
 
 /// The API this module speaks to. A compile-time constant: there is no configuration key for it, so
 /// no deployment can choose which service receives the credential. What a deployment CAN choose is
@@ -549,6 +549,17 @@ where
         #[source]
         cause: core::num::ParseIntError,
     },
+    /// `totalBytesProcessed` was present and not a number.
+    ///
+    /// Same reason as [`Self::NotATotal`]: the endpoint writes this 64-bit count as a JSON string
+    /// too. Refused rather than read as [`None`] - which is reserved for the field being ABSENT -
+    /// because a value that arrived and did not parse is a shape this adapter does not understand,
+    /// not a dry run that declined to price.
+    #[error("the endpoint's total bytes processed was not a number")]
+    NotAnEstimate {
+        #[source]
+        cause: core::num::ParseIntError,
+    },
     /// A complete job with rows and no schema to read them against.
     #[error("the endpoint returned {rows} rows and no schema")]
     NoSchema { rows: usize },
@@ -745,21 +756,26 @@ where
         serde_json::from_str(&text).map_err(|cause| WireError::NotADocument { cause })
     }
 
-    /// What a dry run may conclude, which is *the endpoint accepted this statement* and nothing more.
+    /// What a dry run may conclude: *the endpoint accepted this statement*, and its own estimate of
+    /// the bytes it would scan, when it priced one.
     ///
-    /// **A `2xx` is the whole test, and both of the things it deliberately does not check are worth
-    /// naming.** `jobComplete` is not required, because a dry run creates no job and what that field
-    /// means for one is not something this repository can verify; requiring it would risk refusing a
-    /// validation that succeeded. And `errors` is not read, because a dry run that FAILS is an HTTP
-    /// error rather than a `200` carrying a reason - the endpoint's own shape - while a `200` carrying
-    /// entries is a warning, and refusing on those is the defect the module header describes.
+    /// **A `2xx` is the whole acceptance test, and both of the things it deliberately does not check
+    /// are worth naming.** `jobComplete` is not required, because a dry run creates no job and what
+    /// that field means for one is not something this repository can verify; requiring it would risk
+    /// refusing a validation that succeeded. And `errors` is not read, because a dry run that FAILS
+    /// is an HTTP error rather than a `200` carrying a reason - the endpoint's own shape - while a
+    /// `200` carrying entries is a warning, and refusing on those is the defect the module header
+    /// describes.
     ///
-    /// **What it does not do, and could:** a dry run returns `statistics.totalBytesProcessed`, and
-    /// this discards it. The bound that matters is already on the request as `maximumBytesBilled`,
-    /// enforced by the service, so a client-side comparison here would be a second and weaker copy of
-    /// it. `PreFlight::Accepted` also carries no field for an estimate, so there is nowhere to put it.
-    fn validate_job(&self, request: &JobRequest<'_>) -> Wired<(), C::Error> {
-        self.submit(request, DryRun::Yes).map(|_| ())
+    /// **The estimate is read but not enforced here.** `document::estimated_bytes` carries
+    /// `totalBytesProcessed` out of the answer, typed and refusing a non-numeric value rather than
+    /// panicking, but nothing in this function compares it against anything - the bound that matters
+    /// is already on the request as `maximumBytesBilled`, enforced by the service, so a client-side
+    /// comparison here would be a second and weaker copy of it. `docs/adr/0030` is where the estimate
+    /// this carries starts being useful for something other than display.
+    fn validate_job(&self, request: &JobRequest<'_>) -> Wired<crate::transport::DryRunEstimate, C::Error> {
+        let answer = self.submit(request, DryRun::Yes)?;
+        estimated_bytes(&answer)
     }
 
     /// The rows one job produced, or the reason they are not a complete result.
@@ -785,7 +801,7 @@ where
         self.run_job(request)
     }
 
-    fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
+    fn validate(&self, request: &JobRequest<'_>) -> Result<crate::transport::DryRunEstimate, Self::Error> {
         self.validate_job(request)
     }
 
@@ -855,6 +871,7 @@ where
             | WireError::NotComplete { .. }
             | WireError::NoTotal { .. }
             | WireError::NotATotal { .. }
+            | WireError::NotAnEstimate { .. }
             | WireError::NoSchema { .. }
             | WireError::NotAScalar { .. }
             // The three listing failures. None of them is about a result: the pre-flight reads no
