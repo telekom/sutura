@@ -170,7 +170,7 @@ impl<const LEGS: bool> Warehouse for Fake<LEGS> {
     fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
         match self.check {
             Check::NotAsked => Ok(PreFlight::NotAsked),
-            Check::Accepted => Ok(PreFlight::Accepted),
+            Check::Accepted => Ok(PreFlight::Accepted { estimated_bytes: None }),
             Check::Refused => Err(FakeFailure::PreFlightRefused),
         }
     }

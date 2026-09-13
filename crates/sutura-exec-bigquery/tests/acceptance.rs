@@ -262,7 +262,19 @@ mod tests {
         let accepted = warehouse
             .dry_run(Executable::Query(&plan), &presented())
             .expect("the endpoint accepted the generated statement");
-        assert_eq!(accepted, PreFlight::Accepted);
+        // The one live check `docs/adr/0030` cannot fake: whether a real dry run against a real
+        // dataset actually prices a `totalBytesProcessed`, not merely that this adapter can decode
+        // one if it arrives. The number itself is not asserted - what it is TODAY is not a promise
+        // about tomorrow's storage layout - only that this generated statement got one.
+        assert!(
+            matches!(
+                accepted,
+                PreFlight::Accepted {
+                    estimated_bytes: Some(_)
+                }
+            ),
+            "a real dry run over real data did not report an estimate: {accepted:?}"
+        );
     }
 
     #[test]
