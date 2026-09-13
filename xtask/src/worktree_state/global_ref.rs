@@ -32,6 +32,16 @@
 //! A line mentioning the operation reads the same as a line instructing it. That direction is the
 //! safe one for a rule whose scope excludes the prose that would want to discuss it, and the
 //! needle is assembled from parts for the reason [`instructed`] gives.
+//!
+//! **The other direction is the one to distrust: one literal, so anything that is not that literal
+//! passes.** A paraphrase, a second space, or the same operation reached through a flag this needle
+//! does not spell are all invisible here, and no widening fixes that - a matcher over intent is not
+//! a thing a text scan has. So this rule catches the sentence somebody actually wrote once, and is
+//! worth exactly that; `telekom/sutura#670` is the same shape one level out, where a register over
+//! prose is defeated by rewording and, per that issue, does not reach `.rs` at all. That second
+//! half is why this arm lives here rather than as an entry in that register - the doc comment it
+//! refuses was in a file the register does not select. Read the selector for today's answer rather
+//! than a copy of it here, which would rot the moment #670 is closed.
 
 use super::scan;
 
