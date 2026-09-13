@@ -202,6 +202,13 @@ mod tests {
     }
 
     #[test]
+    fn a_reversed_range_is_refused_rather_than_reordered() {
+        let error = parse_query("revenue", "month", "2026-07-01", "2026-06-01", &[], &[])
+            .expect_err("an end before its start is not a period");
+        assert!(matches!(error, MalformedQuestion::Range { .. }), "{error:?}");
+    }
+
+    #[test]
     fn a_filter_value_this_catalog_could_not_declare_names_no_caller_text() {
         let error = parse_query(
             "revenue",
