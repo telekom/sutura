@@ -553,14 +553,16 @@ where
     /// default cannot honestly return. A dry run at this endpoint validates the query and returns a
     /// result schema without using slots and without being charged, so the round trip is worth making
     /// here in a way it is not for an in-process engine - the port's own documentation draws exactly
-    /// that line.
+    /// that line. `estimated_bytes` carries whatever `totalBytesProcessed` the endpoint reported for
+    /// THIS statement - `docs/adr/0030` decides the shape; nothing here sums or refuses against it.
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.transport
+        let estimated_bytes = self
+            .transport
             .validate(&self.request(&query, Self::subject_bearer(presented)))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
-        Ok(PreFlight::Accepted)
+        Ok(PreFlight::Accepted { estimated_bytes })
     }
 
     fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {

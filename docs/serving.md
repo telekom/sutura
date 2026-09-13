@@ -109,7 +109,7 @@ is refused at startup.
 security:
   inbound:
     mode: "direct"
-    resource: "https://sutura.example.com"
+    resource: "https://sutura.example.com/v1/query"
     authorization_server: "https://issuer.example.com" # the `iss` value, exactly
     key_set_file: "/etc/sutura/keys/jwks.json"
     algorithms: ["RS256"]
@@ -168,9 +168,24 @@ What the checks are, in both modes:
 | `scope`                         | Parsed, bounded, and **read** - it decides which of this surface's operations the caller may invoke. See *What a scope grants* below. A per-caller ceiling derived from a scope is still not built                                                                                                                                                                                                                                                                                                                                           |
 
 A refused request in the `direct` mode gets `401` with a `WWW-Authenticate: Bearer
-realm="<your resource identifier>", error="invalid_token"`. It deliberately does **not** say which
-check failed: "the signature verified and the audience did not" tells a caller which half of a forgery
-to fix. The log says, in the cause chain, where an operator can read it.
+realm="<your resource identifier>", error="invalid_token"`. When an origin-form request's raw `Host`
+and request target reproduce the exact configured resource identifier, the challenge also carries
+`resource_metadata="<absolute metadata URL>"`. RFC 9728 requires clients to discard metadata naming
+any other resource, so the parameter is absent for every other spelling. Absolute-form request
+targets are not matched either: the HTTP URI parser canonicalises standard schemes, so a match there
+would compare against a normalised spelling rather than the byte-exact one configured. The challenge
+deliberately does **not** say which check
+failed: "the signature verified and the audience did not" tells a caller which half of a forgery to
+fix. The log says, in the cause chain, where an operator can read it.
+
+The metadata URL is public and needs no token. It serves RFC 9728 JSON whose `resource` is the exact
+configured resource identifier and whose one `authorization_servers` entry is the exact configured
+issuer. For `https://sutura.example.com/v1/query`, the route is
+`GET /.well-known/oauth-protected-resource/v1/query`; a resource with no path uses
+`GET /.well-known/oauth-protected-resource` for direct discovery, but that root document cannot be
+advertised from a child path. It is outside `/v1` and capability authorization, uses the probe rate
+limit, and exists only in `direct` mode. Authorization-server metadata remains the authorization
+server's document, not one served here.
 
 **In `behind-gateway` there is no challenge**, and that is deliberate rather than missing: the caller
 holds no bearer token for this resource, so an instruction to present one is one it cannot follow - and
@@ -178,10 +193,10 @@ a client that followed it would start putting credentials in a header this deplo
 
 **Rotation and revocation are two questions, and they have two answers.**
 
-| Question                   | What triggers a re-read                        | The bound                                                                                                                                                                                                                                                                                                                                                                                 |
-| -------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| has a key been **added**   | a token naming a `kid` the cache does not hold | at most one read per thirty seconds, **however many requests arrive at once**: the window is compared and reserved in one lock acquisition, so concurrent callers with forged key ids share the one read rather than getting one each. Without that bound a forged key id turns every request into a re-read, which is a denial-of-service primitive aimed at whatever serves the key set |
-| has a key been **removed** | age: the cached set is re-read once a minute   | one minute. This is the one the caller cannot influence, and it is the one that matters for revocation - a caller presenting a revoked key presents an id the cache *has*, so nothing else would ever trigger                                                                                                                                                                             |
+| Question                   | What triggers a re-read                        | The bound                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| has a key been **added**   | a token naming a `kid` the cache does not hold | at most one read per thirty seconds, **however many requests arrive at once**: the window is compared and reserved in one lock acquisition, so concurrent callers with forged key ids share the one read rather than getting one each. Without that bound a forged key id turns every request into a re-read, which is a denial-of-service primitive aimed at whatever serves the key set                                         |
+| has a key been **removed** | age: the cached set is re-read once a minute   | one minute **while the source keeps answering with a usable document**, and no bounded time while it does not: a failing re-read keeps the previous keys verifying and logs `stale_for_ms`, and nothing refuses on that number. This is the one the caller cannot influence, and it is the one that matters for revocation - a caller presenting a revoked key presents an id the cache *has*, so nothing else would ever trigger |
 
 The age re-read happens on a timer *and* on the first request past the horizon, so a deployment gets
 the bound whether or not it is serving traffic. A candidate that will not parse, or that holds no key
@@ -239,20 +254,20 @@ bound that surface exactly as they bound this one.
 
 ## The endpoints
 
-| Method and path     | Token                                                                               | What it is                                                                                                                                                                                                                              |
-| ------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`       | no                                                                                  | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                         |
-| `GET /v1/catalog`   | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is | The metrics this catalog defines, with grains, dimensions and the values a filter may use                                                                                                                                               |
-| `POST /v1/query`    | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is  | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
-| `GET /metrics`      | its own token, never `security.access_token`                                        | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                  |
-| `GET /openapi.json` | yes, when one is configured                                                         | The generated interface description                                                                                                                                                                                                     |
-| `GET /docs`         | yes, when one is configured                                                         | A browser interface over that description                                                                                                                                                                                               |
+| Method and path                                               | Token                                                                               | What it is                                                                                                                                                                                                                              |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                                 | no                                                                                  | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                         |
+| `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                              | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                       |
+| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is | The metrics this catalog defines, with grains, dimensions and the values a filter may use                                                                                                                                               |
+| `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is  | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
+| `GET /metrics`                                                | its own token, never `security.access_token`                                        | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                  |
+| `GET /openapi.json`                                           | yes, when one is configured                                                         | The generated interface description                                                                                                                                                                                                     |
+| `GET /docs`                                                   | yes, when one is configured                                                         | A browser interface over that description                                                                                                                                                                                               |
 
 `/health` is outside the version prefix on purpose: a probe must keep working across a version bump
 without an orchestrator being reconfigured. It carries no version, no build identifier, no
-dependency list, no configuration and no catalog content, because it is the one path an
-unauthenticated caller can always reach - so every field it might have is a field handed to anybody
-who can route a packet.
+dependency list, no configuration and no catalog content, because an unauthenticated caller can
+always reach it - so every field it might have is a field handed to anybody who can route a packet.
 
 The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.
@@ -401,7 +416,7 @@ The two are now separable by `code` as well as by status, and a test asserts the
 This used to be a `200` for both outcomes, on the argument that an error status invites a client
 library to retry a governance decision until it succeeds. The second half of that is right and the
 first half does not survive checking: nothing mainstream retries a `4xx` by default, and `422` - where
-four of the codes above land - is documented the other way round, as a status a client should expect
+five of the codes above land - is documented the other way round, as a status a client should expect
 to fail again on an unchanged request. What the `200` did cost was legibility to everything that reads
 a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose
 success branch is `2xx`. A deployment refusing every question read as perfectly healthy.
@@ -577,7 +592,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | `server.tls_certificate`                        | absent                               | A PEM chain. Only with `tls_termination: in-process`                                                                                                                                                                                                                                                                                           |
 | `server.tls_key`                                | absent                               | The matching PEM private key. Both halves or neither                                                                                                                                                                                                                                                                                           |
 | `rate_limit.enabled`                            | follows the environment              | Off in development and test, on in production. `false` in production is refused                                                                                                                                                                                                                                                                |
-| `rate_limit.probe_per_second`                   | `2`                                  | Liveness and the interface description                                                                                                                                                                                                                                                                                                         |
+| `rate_limit.probe_per_second`                   | `2`                                  | Liveness, protected-resource metadata, and the interface description                                                                                                                                                                                                                                                                           |
 | `rate_limit.probe_burst`                        | `5`                                  |                                                                                                                                                                                                                                                                                                                                                |
 | `rate_limit.api_per_second`                     | `10`                                 | The versioned API                                                                                                                                                                                                                                                                                                                              |
 | `rate_limit.api_burst`                          | `20`                                 |                                                                                                                                                                                                                                                                                                                                                |
@@ -590,8 +605,18 @@ selects which file is layered, so a file that could change it would be self-refe
 | `catalog.dir`                                   | `catalog`                            |                                                                                                                                                                                                                                                                                                                                                |
 | `catalog.data_dir`                              | `data`                               | **Printed by the startup banner and read by nothing that opens a data system.** A served source's files come from its own `sources.<alias>.data_dir`, and the `sutura` command reads that same entry or else the directory on its command line                                                                                                 |
 | `catalog.version`                               | `unversioned`                        | A commit id or a build number. What identifies the snapshot                                                                                                                                                                                                                                                                                    |
-| `sources.<alias>.kind`                          | absent                               | `files` is the only kind this build has an adapter for. Required, with no default                                                                                                                                                                                                                                                              |
+| `sources.<alias>.kind`                          | absent                               | `files`, or `bigquery`/`postgres` when that default-off feature was built in. Required, with no default                                                                                                                                                                                                                                        |
 | `sources.<alias>.data_dir`                      | absent                               | Where that source's files are. Required, and absolute                                                                                                                                                                                                                                                                                          |
+| `sources.<alias>.host`                          | absent                               | Postgres only. A DNS name or IP address. Exactly one of `host` and `unix_socket`                                                                                                                                                                                                                                                               |
+| `sources.<alias>.unix_socket`                   | absent                               | Postgres only. An absolute socket directory. Exactly one of `unix_socket` and `host`                                                                                                                                                                                                                                                           |
+| `sources.<alias>.port`                          | absent                               | Postgres only. Required; no guessed `5432`                                                                                                                                                                                                                                                                                                     |
+| `sources.<alias>.database`                      | absent                               | Postgres only. Required                                                                                                                                                                                                                                                                                                                        |
+| `sources.<alias>.user`                          | absent                               | Postgres only. The one role every caller reaches this source as                                                                                                                                                                                                                                                                                |
+| `sources.<alias>.password_file`                 | absent                               | Postgres only. Absolute, read at startup; secret text is refused in the settings tree                                                                                                                                                                                                                                                          |
+| `sources.<alias>.transport_mode`                | absent                               | Postgres only. `plaintext`, `verified` or `mutual`; required, with no default                                                                                                                                                                                                                                                                  |
+| `sources.<alias>.transport_anchors`             | absent                               | Postgres TLS only. `system` as an explicit choice, or an absolute PEM bundle path                                                                                                                                                                                                                                                              |
+| `sources.<alias>.client_certificate`            | absent                               | Postgres mutual TLS only. Absolute PEM chain; both client identity halves or neither                                                                                                                                                                                                                                                           |
+| `sources.<alias>.client_key`                    | absent                               | Postgres mutual TLS only. Absolute PEM private key; both client identity halves or neither                                                                                                                                                                                                                                                     |
 | `sources.<alias>.posture`                       | absent                               | `shared-service-user` or `impersonation-at-source`. Required, with no default                                                                                                                                                                                                                                                                  |
 | `sources.<alias>.acknowledged_because`          | absent                               | The operator's reason. Required for a shared source in `multi-user` mode                                                                                                                                                                                                                                                                       |
 | `sources.<alias>.verification_identity`         | absent                               | The identity that re-runs that source's anchors. Only on an impersonating source                                                                                                                                                                                                                                                               |
@@ -619,7 +644,7 @@ security:
 
 sources:
   local:
-    # `files` or `bigquery`. Required, with no default - and which of them a given BINARY can
+    # `files`, `bigquery` or `postgres`. Required, with no default - and which of them a given BINARY can
     # actually open is a second question, answered below.
     kind: "files"
     # Absolute. A relative path resolves against whatever working directory the supervisor chose.
@@ -688,6 +713,64 @@ Two facts, declared by two different parties, and conflating them gives the mode
 The boot check compares them. A source configured to impersonate on an adapter that cannot does not
 start, and there is no fallback.
 
+### A `postgres` source, least authority, and its channel
+
+Postgres is behind the default-off `postgres` feature on both binaries. A default build refuses the
+entry by name and tells the operator which feature is absent; current published artifacts leave it
+off. A source build enables it explicitly with `--features postgres`, the same shape as
+`--features bigquery` above; no `just` task and no nix package builds it, and release packaging
+chooses the default set.
+
+One remote, server-verified source is declared like this:
+
+```yaml
+security:
+  identity: "multi-user"
+
+sources:
+  warehouse:
+    kind: "postgres"
+    host: "db.example.com"
+    port: 5432
+    database: "analytics"
+    user: "sutura_reader"
+    password_file: "/etc/sutura/postgres-password"
+    transport_mode: "verified"
+    # An explicit choice, never a default. Use `system` to read the host store instead.
+    transport_anchors: "/etc/sutura/database-ca.pem"
+    posture: "shared-service-user"
+    acknowledged_because: "the reporting role is intentionally the same for every caller"
+```
+
+The password file contains only the password and should be readable by the service account alone.
+The process reads and trims it at startup; an unreadable or empty file stops the process. The source
+entry cannot contain the password itself. No host or port is inferred, and `host` and `unix_socket`
+are mutually exclusive.
+
+`transport_mode` has three states, not a verification flag:
+
+- `plaintext` uses no TLS. It is accepted only with an absolute unix-socket directory or a loopback
+  IP literal; a hostname or non-loopback address is a startup refusal.
+- `verified` requires `transport_anchors` and requires the TLS handshake. `system` means the host's
+  trust store because the operator wrote it; an absolute path means that PEM bundle alone.
+- `mutual` adds `client_certificate` and `client_key`, both absolute and both required. The source
+  still verifies the server against `transport_anchors`. The client certificate identifies this
+  deployment, not the caller, so it does not change the `shared-service-user` posture.
+
+Create a login role with only the database and objects this catalog names. In ordinary PostgreSQL
+terms that means `CONNECT` on the database, `USAGE` on the selected schemas, and `SELECT` on the
+named tables (plus equivalent grants for future tables only if the deployment actually needs them).
+Do not make the role an owner, superuser, creator, or `BYPASSRLS`. If row-level security is meant to
+separate callers, this static source cannot deliver it: every question uses the same role and sees
+the same policy result. Per-subject Postgres credentials are separate work.
+
+The gate-backed example loads `examples/single-player/data/*.csv` into the provisioned Postgres tier,
+starts the real `sutura-serve` binary with the declaration above over verified loopback TLS, and asks
+the example's certified June revenue question over HTTP. Run it with `just test`, which is where the
+tier is provisioned - `just serve-e2e` scopes `cargo nextest` to `sutura-serve` alone and does not
+source `nix/with-tier.sh`, so run from a shell with no tier up it returns without asserting. No fixed
+fixture port is involved either way.
+
 | Posture                   | What it means                                                          | What decides what a subject sees                                                |
 | ------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `shared-service-user`     | Every query reaches the source under one identity the deployment holds | that identity's grants. Every caller sees the same rows                         |
@@ -716,9 +799,9 @@ fact leg and a lookup leg, and `answer` either executes it or refuses it as `fed
 while no adapter can execute a leg - so the split is never served as a partial or a half-executed
 answer. Three or more sources refuse at plan time as `plan_spans_too_many_sources`.
 
-*The limit, because it decides what is worth configuring today:* the only adapter this build links is
-the in-process engine, so two configured sources are two engines over two directories. A data system
-across a network arrives with its own adapter.
+*The limit, because it decides what is worth configuring today:* the default build links only the
+in-process engine. Builds enabling `bigquery` or `postgres` add that one network adapter, and one
+process still opens one KIND of data system at a time.
 
 ### Address families
 
@@ -1038,9 +1121,6 @@ Named rather than implied, because an absence that reads as an oversight gets as
   id, and the rate limit on that refetch - and a sidecar that rewrites a mounted key set is how a
   process with no egress rotates. **The limit a file has:** no cache header, so a key rotated *without*
   its id changing is one this deployment keeps using.
-- **No protected-resource metadata.** A `401` carries an RFC 6750 challenge naming the realm and no
-  `resource_metadata` parameter, so a client learns which authorization server governs this resource
-  out of band rather than by reading a document here.
 - **No replay protection on a gateway assertion.** The *window* is bounded - an `iat` is required and
   `exp - iat` is capped - and inside it an intercepted assertion replays. Closing that needs the
   assertion bound to the request (a hash of the method, path and body the component computes) or a
@@ -1063,21 +1143,11 @@ Named rather than implied, because an absence that reads as an oversight gets as
   the log, which is what makes one request's lines findable. What does not exist is a trace
   exporter, which is a decision about a backend, a sampling rate and an egress path none of which has
   been made.
-- **No CONFIGURABLE client TLS, and this bullet is narrower than it used to be.** It used to say no
-  crate here holds an HTTP client, and that stopped being true: `sutura-exec-bigquery`'s default-off
-  `wire` feature holds one - `ureq` over rustls, with a compiled-in root set and `https_only` - so
-  outbound TLS to a data source exists and works. What does not exist is any way for a deployment to
-  *configure* it: no trust-store setting, no client certificate, no pinning, and no configuration
-  group at all. Two reasons, and the second is why it is not simply an omission. There is little to
-  attach one to: the crate is linked and `kind: bigquery` dispatches behind a default-off feature,
-  so what a default build can open still reads local files. **Both clauses that used to stand here -
-  *no composition root links that crate* and *`sutura-serve` refuses `kind: bigquery` by name* - are
-  spent**, which `docs/adr/0017`'s second amendment recorded. And for that endpoint
-  the *absence* of configuration is the safer default - a compiled-in root set means the same binary
-  trusts the same authorities on every machine, and a settable host is a settable place to send a
-  bearer token, which `docs/adr/0018` records as a deliberate trade against local testability. A
-  configuration group arrives with the first networked adapter a deployment can actually open, and
-  the parsing and validation the inbound listener already does is what it will be built out of.
+- **No configurable client TLS for HTTP adapters.** Postgres now has a per-source three-state
+  declaration, explicit anchors, and an optional client identity. The BigQuery wire does not honour
+  it: `ureq` still verifies its fixed endpoint against its compiled-in root set and accepts no client
+  certificate. Sharing the declaration with HTTP adapters and defining certificate rotation remain
+  separate work; Postgres reading its files once at startup is not rotation.
 - **No mutual TLS inbound either.** The listener above presents a certificate and verifies no
   client. Client-certificate authentication would be an identity, and this service has none to
   attach one to - see the first section.
@@ -1111,10 +1181,11 @@ unauthenticated caller can create a rate-limit bucket on any path that resolves 
 buckets are swept on an interval, so the memory is bounded rather than growing for the life of the
 process.
 
-An unauthenticated caller can reach `/health` and learn that the process is up, and can learn which
-paths exist - a path under the version prefix that matches no route answers `404` without holding a
-credential. The paths are in the published interface description in any case. Every path that
-resolves to a handler holds a credential: the API's, or `/metrics`'s own.
+An unauthenticated caller can reach `/health` and learn that the process is up. In `direct` mode it
+can also read the protected-resource metadata that tells clients which authorization server governs
+the resource. A path under the version prefix that matches no route answers `404` without holding a
+credential. The paths are in the published interface description in any case. Every other path that
+resolves to a handler holds the API credential when one is configured, or `/metrics`'s own.
 
 A caller with the token can occupy every execution slot and shed everybody else, inside their own
 rate limit, by asking questions that each cost more than the request timeout. The `503` the others

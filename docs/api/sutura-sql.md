@@ -64,7 +64,11 @@ author a SQL fragment for a metric the closed measure vocabulary cannot express,
 fragment is parsed - **at catalog-compile time, once, never on the query path** - checked against
 a list of constructs this build refuses, qualified against the model's columns, and rendered for
 every dialect. What reaches a statement afterwards is our own generator's output. `docs/adr/0004`
-is the decision.
+is the decision, and its amendment is the state of the tree: **nothing published calls
+`expression::compile` today.** An authored fragment is loaded, pinned as written and refused at
+boot; a catalog adapter may not reach this crate (`cargo xtask check-boundaries` forbids the edge,
+for the closure reason above), so the caller, when it exists, is the execution adapter that
+declares `Warehouse::EXECUTES_AUTHORED_SQL` - and it compiles beside the renderer it needs.
 
 ## `struct GeneratedQuery`
 

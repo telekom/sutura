@@ -238,6 +238,25 @@ pub(crate) fn compose(root: &Path, project: &str, profiles: &[&str], extra: &[&s
     run(&mut command, Budget::of(extra))
 }
 
+/// List the volume carrying one Compose project and logical-volume label pair.
+pub(crate) fn labeled_volumes(root: &Path, project: &str, logical: &str) -> Result<Output, Failed> {
+    let project_label = format!("label=com.docker.compose.project={project}");
+    let volume_label = format!("label=com.docker.compose.volume={logical}");
+    let mut command = Command::new("docker");
+    command
+        .current_dir(root)
+        .args(["volume", "ls", "--quiet", "--filter", project_label.as_str()])
+        .args(["--filter", volume_label.as_str()]);
+    run(&mut command, Budget::query())
+}
+
+/// Remove one already-resolved Docker volume by exact name.
+pub(crate) fn remove_volume(root: &Path, name: &str) -> Result<Output, Failed> {
+    let mut command = Command::new("docker");
+    command.current_dir(root).args(["volume", "rm", name]);
+    run(&mut command, Budget::provision())
+}
+
 /// The published address to record, out of what `docker compose port` printed.
 ///
 /// It can print more than one line - an IPv4 binding and an IPv6 one - and reading the whole output

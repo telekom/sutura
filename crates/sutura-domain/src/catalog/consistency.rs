@@ -295,13 +295,15 @@ impl Definitions {
         // Every column the measure reads, whichever shape it is. `Measure::columns` is the single
         // place that knows, so a shape added there cannot be forgotten here - which is the failure
         // this loop replaces, from when a measure was one column and the check read it directly.
-        for column in metric.measure.columns() {
-            if !model.has_column(column) {
-                return Err(InconsistentDefinitions::UnknownMeasureColumn {
-                    metric: metric.name.clone(),
-                    model: model.name.clone(),
-                    column: column.clone(),
-                });
+        if let Some(measure) = metric.computation.measure() {
+            for column in measure.columns() {
+                if !model.has_column(column) {
+                    return Err(InconsistentDefinitions::UnknownMeasureColumn {
+                        metric: metric.name.clone(),
+                        model: model.name.clone(),
+                        column: column.clone(),
+                    });
+                }
             }
         }
         // A required filter is applied to every question about the metric, so a column it names that

@@ -212,6 +212,45 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
                   `ParamValue` already are. A type only the renderer uses belongs in `sutura-sql`, \
                   which is where `GeneratedQuery` went",
     },
+    // The same closure argument from the metadata side, and it was nearly missed: a checkpoint
+    // compiled `authored_sql:` fragments at catalog load, which needs `sutura_sql::expression` and
+    // so put the generator into `sutura-catalog-local`'s tree. Both shipped binaries link that
+    // adapter unconditionally, so the network binary - which the two entries above keep the
+    // generator out of - would have linked it through the catalog instead, with every line of
+    // prose saying it does not still in place. Nothing fired, because nothing forbade this edge.
+    // `docs/adr/0004` records the decision this holds: an authored fragment is stored as written,
+    // and compiling it belongs to the first execution adapter that executes it.
+    ForbiddenEdge {
+        from: "sutura-catalog-local",
+        forbidden: "sutura-sql",
+        why: "a catalog adapter loads metadata and renders nothing, and both shipped binaries link \
+              this one unconditionally - so the generator in its tree is the generator in the \
+              network binary's default closure, which the `sutura-semantic` entries exist to prevent",
+        instead: "store the authored fragment as `sutura_domain::expression::SqlFragment` and leave \
+                  it uncompiled; the adapter that declares `Warehouse::EXECUTES_AUTHORED_SQL` is the \
+                  one that compiles it, beside the renderer for its own dialect",
+    },
+    // The sibling catalog adapter, and the one `docs/adr/0016` names as the next candidate to mint
+    // an authored computation (`metricInfo.expression`). Same class, same reason, one line.
+    ForbiddenEdge {
+        from: "sutura-catalog-datahub",
+        forbidden: "sutura-sql",
+        why: "a catalog adapter loads metadata and renders nothing; the entry above says the rest",
+        instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
+    },
+    // The rule above is about the class, not the two adapters that happened to exist when it was
+    // written. `sutura-catalog-rdbms` is a DEV-dependency of `sutura-app` only - `cargo tree -e
+    // normal -i sutura-catalog-rdbms` reaches nothing, so unlike the two entries above it is not in
+    // any shipped binary's default closure. The entry stands anyway, as the class rule rather than
+    // the closure argument: a catalog adapter loads metadata and renders nothing regardless of which
+    // dependency kind links it, and `Edges::Every` walks dev-dependencies for exactly that reason -
+    // a test-only compile of the generator inside a catalog adapter's own tree is still refused.
+    ForbiddenEdge {
+        from: "sutura-catalog-rdbms",
+        forbidden: "sutura-sql",
+        why: "a catalog adapter loads metadata and renders nothing; the entry above says the rest",
+        instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
+    },
 ];
 
 /// Which dependency edges a walk follows.

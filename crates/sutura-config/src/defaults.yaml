@@ -135,8 +135,8 @@ rate_limit:
   # `enabled` is deliberately absent - see the note above. It follows the environment, and writing
   # `true` here would make a value nobody chose look exactly like one somebody did.
   #
-  # The unauthenticated surface: liveness, and the generated interface description. Nothing there
-  # is worth polling, so the tier is tight.
+  # The unauthenticated surface: liveness, direct-mode protected-resource metadata, and the generated
+  # interface description. Nothing there is worth polling, so the tier is tight.
   probe_per_second: 2
   probe_burst: 5
   # The versioned API, where one caller legitimately asks several questions in a row.

@@ -74,6 +74,8 @@ mod tests {
 
     // The harness, next door. It holds no assertion - see its own module documentation for why the
     // split moved this direction and not the other.
+    #[cfg(feature = "postgres")]
+    use crate::harness::postgres_settings;
     use crate::harness::reading::Reading;
     use crate::harness::{
         LOCAL_SOURCE, LOOKUP_SOURCE, LOOPBACK, RECORD, RESOURCE, SINGLE_USER, TOKEN, VERSION, accepted_by, an_issuer, deployment,
@@ -241,6 +243,29 @@ mod tests {
         assert_eq!(
             body["executed_as"],
             serde_json::json!([{ "source": "local", "posture": "shared-service-user" }])
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "postgres")]
+    fn a_postgres_source_answers_a_certified_question_from_the_served_binary() {
+        let Some(settings) = postgres_settings("postgres-answer") else {
+            return;
+        };
+        let served = start_configured("postgres-answer", &settings);
+        let reply = served.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(TOKEN),
+            &recurring_revenue_june(),
+        );
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(body["outcome"], "answer", "{}", reply.body);
+        assert_eq!(body["columns"], serde_json::json!(["period", "recurring_revenue"]));
+        assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "202121"]]));
+        assert_eq!(
+            body["executed_as"],
+            serde_json::json!([{ "source": LOCAL_SOURCE, "posture": "shared-service-user" }])
         );
     }
 
@@ -448,11 +473,11 @@ mod tests {
                 route.route()
             );
         }
-        // Liveness is outside the version prefix and still described, which is what an orchestrator
-        // reads the document for.
+        // Liveness is outside the governed interface description. It remains mounted and public,
+        // but it is a process probe rather than an operation a client may invoke.
         assert!(
-            !document["paths"][sutura_http::constants::HEALTH_PATH].is_null(),
-            "the served document does not describe the liveness probe: {}",
+            document["paths"][sutura_http::constants::HEALTH_PATH].is_null(),
+            "the served document describes the liveness probe: {}",
             document["paths"]
         );
     }

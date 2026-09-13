@@ -69,13 +69,13 @@ const STARTUP: Subject = Subject {
 ///
 /// **The asymmetry `github.com/telekom/sutura#428` is about.** A `RefusalReason` refuses one
 /// question; this refuses the whole deployment, and until it was enrolled the only thing holding
-/// its variants was whether an author happened to look. All six were named by tests already, which
-/// is what makes the enrolment free: what changes is that the seventh cannot arrive unnamed.
+/// its variants was whether an author happened to look. All seven are named by tests, which keeps
+/// the enrolment free: an eighth cannot arrive unnamed.
 const VALIDATION: Subject = Subject {
     name: "NotValidated",
     declared_in: "crates/sutura-domain/src/pinned.rs",
     allow_file: "devco/validation-refusals-unprovoked-allow",
-    variants: variants(6),
+    variants: variants(7),
 };
 
 /// Every enum this gate reads. Widening it is a diff here and nowhere else; see the module doc for
