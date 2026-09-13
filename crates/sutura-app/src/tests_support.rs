@@ -260,7 +260,7 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
 
     fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
         match self.dry_run {
-            DryRunOutcome::Accepted => Ok(PreFlight::Accepted),
+            DryRunOutcome::Accepted => Ok(PreFlight::Accepted { estimated_bytes: None }),
             DryRunOutcome::SourceRefused => Err(AdapterFailure::RefusedBySource),
             DryRunOutcome::TransientFailure => Err(AdapterFailure::Statement { cause: DriverFailure }),
         }

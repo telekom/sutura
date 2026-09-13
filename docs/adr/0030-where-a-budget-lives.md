@@ -19,11 +19,12 @@ The pieces this decision assembles already exist and none of them talk to each o
 - **`Warehouse::dry_run`** returns `PreFlight`, asked before `execute` spends anything.
   `PreFlight::Accepted` carries no field - `crates/sutura-domain/src/warehouse.rs` - so an adapter
   that priced its own dry run has nowhere to put the number.
-- **BigQuery's dry run is free and slotless** and already returns
-  `statistics.totalBytesProcessed`. `crates/sutura-exec-bigquery/src/wire.rs`'s `validate_job` reads
-  the response and discards that field today, in words: *"a dry run returns
-  `statistics.totalBytesProcessed`, and this discards it... `PreFlight::Accepted` also carries no
-  field for an estimate, so there is nowhere to put it."*
+- **BigQuery's dry run is free and slotless** and its `QueryResponse` already carries
+  `totalBytesProcessed` as a top-level field, beside `kind`, `jobReference` and `cacheHit` -
+  `crates/sutura-exec-bigquery/src/wire/document.rs`'s own header names it among the fields nothing
+  here reads. `crates/sutura-exec-bigquery/src/wire.rs`'s `validate_job` discards it today, in words:
+  *"a dry run returns `totalBytesProcessed`, and this discards it... `PreFlight::Accepted` also
+  carries no field for an estimate, so there is nowhere to put it."*
 - **`PrincipalChain`** is the key a budget would use, and says so in its own doc comment:
   *"what a budget would be keyed on if a budget existed... `Eq` and `Hash` are derived so that it
   can be one when something does."* `attribution()` returns a two-variant `Attribution` -
@@ -145,18 +146,20 @@ payload is not.
 ## What "spend" means per data system
 
 **BigQuery** already has a service-enforced, per-job money bound (`maximumBytesBilled`) and a free
-estimate (`statistics.totalBytesProcessed`) this record's estimate step reads. What sutura adds is
+estimate (`totalBytesProcessed`) this record's estimate step reads. What sutura adds is
 the thing BigQuery's own bound cannot see: a ceiling that sums across many jobs by the same asking
 identity, which is exactly the shape #139 opens with - *a thousand jobs that each scan just under
 the per-job bound.*
 
 **The in-process engine (DataFusion) and DuckDB bill nobody.** There is no money bound to add for
 either. "Spend" for them is bytes scanned, and neither adapter's `dry_run` produces that number
-today - both answer `PreFlight::Accepted` because `prepare` really resolves the statement, and
-neither reads the plan against statistics that would estimate bytes touched. So an estimate for
-these two is `None` honestly, the same as it is for Postgres, and the budget this record's counter
-enforces is checked against **whatever legs did estimate**, with an unestimated leg contributing
-nothing to the sum rather than refusing the plan for lacking a number nobody promised. Whether an
+today - DuckDB answers `PreFlight::Accepted` because `prepare` really resolves the statement and
+reads no plan statistics that would estimate bytes touched; DataFusion answers the port's own
+`NotAsked` default and does not override it at all, because checking its plan means running most of
+the answer twice - see its own `dry_run` doc comment. Either way an estimate for these two is `None`
+honestly, the same as it is for Postgres, and the budget this record's counter enforces is checked
+against **whatever legs did estimate**, with an unestimated leg contributing nothing to the sum
+rather than refusing the plan for lacking a number nobody promised. Whether an
 engine-side estimate is worth building - from table statistics, or from `EXPLAIN` - is not decided
 here and is not blocking: the smallest honest slice ships with BigQuery's number and everyone else's
 honest absence.
@@ -189,7 +192,7 @@ citation names.
 acceptance suite, `sutura-conformance/tests/bound.rs` - becomes `Accepted { estimated_bytes: None }`
 except the one call site with a real number to put there
 (`crates/sutura-exec-bigquery/src/lib.rs`'s `dry_run`, which already discards
-`statistics.totalBytesProcessed` and now keeps it). This is mechanical and it is one commit, per
+`totalBytesProcessed` and now keeps it). This is mechanical and it is one commit, per
 `AGENTS.md`'s own rule for a repeated change.
 
 ## Consequences and limits

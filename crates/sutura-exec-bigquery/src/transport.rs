@@ -23,6 +23,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::ParamValue;
+use sutura_domain::warehouse::estimate::EstimatedBytes;
 
 /// How a request writes its bind parameters.
 ///
@@ -701,6 +702,15 @@ impl JobRows {
     }
 }
 
+/// A dry run's own byte estimate, when it priced one - `None` is `docs/adr/0030`'s honest absence,
+/// never a defaulted zero.
+///
+/// **A named alias rather than `Option<EstimatedBytes>` written out at every return type**, because
+/// composed with a `Result` it crossed this workspace's tightened `clippy::type-complexity`
+/// threshold at the two call sites that return it. Naming it is also more honest than shortening it
+/// would be: the type IS an option, and a caller matching on it should see that.
+pub type DryRunEstimate = Option<EstimatedBytes>;
+
 /// A `BigQuery` endpoint, as narrow as this adapter's needs.
 ///
 /// Two methods PUT A QUESTION TO THE ENDPOINT, because the port above it has two questions with
@@ -725,9 +735,11 @@ pub trait JobTransport {
 
     /// Validates a job without reading data.
     ///
-    /// Returns nothing on success: what a caller may conclude is *the endpoint accepted this*, and a
-    /// dry run's byte estimate is not something any decision above here reads.
-    fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error>;
+    /// Returns the endpoint's own byte estimate on success, when it priced one: what a caller may
+    /// conclude is *the endpoint accepted this*, and separately, *and it thinks this many bytes*.
+    /// `docs/adr/0030` is where a decision above here starts reading the estimate for something other
+    /// than display; nothing does yet.
+    fn validate(&self, request: &JobRequest<'_>) -> Result<DryRunEstimate, Self::Error>;
 
     /// Every table one dataset holds, by the id the dataset knows it under.
     ///

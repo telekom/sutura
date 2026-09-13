@@ -11,6 +11,7 @@
 //! read them together; what is written here is why each field is the way it is.
 
 use sutura_domain::warehouse::ParamValue;
+use sutura_domain::warehouse::estimate::EstimatedBytes;
 
 use crate::transport::{Cell, Field, FieldType, JobRequest, JobRows, ParameterMode};
 use crate::wire::{Grid, HOST, JobBounds, ReasonCode, WireError, Wired};
@@ -120,6 +121,11 @@ pub(super) struct QueryAnswer {
     page_token: Option<String>,
     #[serde(default)]
     errors: Vec<ErrorItem>,
+    /// The dry run's own estimate of bytes scanned, written as a JSON string by the service like
+    /// [`Self::total_rows`] is. `None` when the endpoint did not price the job - `docs/adr/0030` is
+    /// where reading this instead of discarding it is decided; [`estimated_bytes`] is the reader.
+    #[serde(default)]
+    total_bytes_processed: Option<String>,
 }
 
 /// The columns the statement projected.
@@ -311,6 +317,30 @@ pub(super) fn reported(answer: &QueryAnswer) -> ReasonCode {
         .iter()
         .find_map(|item| item.reason.as_deref())
         .map_or(ReasonCode::Absent, |named| ReasonCode::from_provider(Some(named)))
+}
+
+/// The dry run's own byte estimate, or the honest absence of one.
+///
+/// **`None` for two different reasons collapsed into one, deliberately:** the endpoint did not write
+/// `totalBytesProcessed` at all, or wrote it and this adapter simply never read the field before -
+/// either way there is nothing to carry, and [`EstimatedBytes::parse`] is never asked to invent a
+/// number. **`Some` for a real answer, zero included:** a cached or trivial statement can legitimately
+/// scan nothing, and that is a different fact from "did not price" - `docs/adr/0030` is where the two
+/// are kept apart one level up, on `PreFlight::Accepted` itself.
+///
+/// **A value that arrived and did not parse is refused, not silently dropped to `None`.** The field
+/// is read but never enforced - see [`super::BigQueryWire::validate_job`] - so a refusal here is
+/// entirely about the shape of the answer being one this adapter does not understand, the same
+/// posture [`complete`] takes toward an unparsable `totalRows`.
+pub(super) fn estimated_bytes<C>(answer: &QueryAnswer) -> Wired<Option<EstimatedBytes>, C>
+where
+    C: core::error::Error + 'static,
+{
+    let Some(text) = answer.total_bytes_processed.as_deref() else {
+        return Ok(None);
+    };
+    let bytes: u64 = text.parse().map_err(|cause| WireError::NotAnEstimate { cause })?;
+    Ok(Some(EstimatedBytes::parse(bytes)))
 }
 
 /// The rows one complete job produced, or the reason they are not a complete result.

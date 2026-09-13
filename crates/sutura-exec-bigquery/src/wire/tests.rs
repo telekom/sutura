@@ -30,12 +30,13 @@
 use sutura_domain::calendar::Date;
 use sutura_domain::identity::{Expiry, Secret};
 use sutura_domain::warehouse::ParamValue;
+use sutura_domain::warehouse::estimate::EstimatedBytes;
 
 use core::time::Duration;
 
 use crate::transport::{Cell, DatasetId, FieldType, JobRequest, JobTransport as _, ProjectId};
 use crate::wire::credential::{AccessTokens, Bearer, QuotaProject};
-use crate::wire::document::{body, cells, columns, complete, refusal, reported, url};
+use crate::wire::document::{body, cells, columns, complete, estimated_bytes, refusal, reported, url};
 use crate::wire::{
     BigQueryWire, BytesBilledCeiling, CallDeadline, DryRun, EndpointMessage, HOST, JobBounds, QueryDeadline, ReasonCode,
     UnusableBound, WireAgent, WireError, bounded,
@@ -315,6 +316,33 @@ fn a_dry_run_and_a_real_run_differ_by_that_one_field() {
     assert_eq!(executed["dryRun"], false);
     validated["dryRun"] = serde_json::Value::Bool(false);
     assert_eq!(validated, executed, "a dry run differs from a real one by more than the flag");
+}
+
+#[test]
+fn a_dry_run_that_processes_bytes_reports_the_estimate_it_read() {
+    // The plumbing already reaches the HTTP response - `validate_job`'s own doc comment used to say
+    // a dry run returns `totalBytesProcessed` and this discards it. This is the other half: the
+    // number the endpoint reported is the number a reader gets, not one silently dropped on the way
+    // out. `docs/adr/0030` is the record.
+    let parsed = answer(r#"{"jobComplete": true, "totalBytesProcessed": "123456789"}"#);
+    let read = estimated_bytes::<CannotFail>(&parsed).expect("a numeric estimate parses");
+    assert_eq!(read, Some(EstimatedBytes::parse(123_456_789)));
+}
+
+#[test]
+fn a_dry_run_with_no_priced_field_reports_the_honest_absence() {
+    // `None` here means "the endpoint did not price this", never zero and never a refusal - the same
+    // distinction `PreFlight::NotAsked` draws one level up, held one level in.
+    let parsed = answer(r#"{"jobComplete": true}"#);
+    let read = estimated_bytes::<CannotFail>(&parsed).expect("an absent field is not a parse failure");
+    assert_eq!(read, None);
+}
+
+#[test]
+fn a_dry_run_whose_estimate_is_not_a_number_is_a_typed_refusal_not_a_panic() {
+    let parsed = answer(r#"{"jobComplete": true, "totalBytesProcessed": "not-a-number"}"#);
+    let refused = estimated_bytes::<CannotFail>(&parsed);
+    assert!(matches!(refused, Err(WireError::NotAnEstimate { .. })), "{refused:?}");
 }
 
 #[test]

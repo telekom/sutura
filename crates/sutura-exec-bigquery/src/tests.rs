@@ -362,7 +362,9 @@ fn a_dry_run_really_asks_the_endpoint_before_it_says_accepted() {
     let answered = warehouse
         .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()))
         .expect("the fake validates");
-    assert_eq!(answered, PreFlight::Accepted);
+    // The fake never simulates an estimate, so this asserts the field the fake actually carries -
+    // whether the endpoint was really asked - and not the number, which `wire/tests.rs` covers.
+    assert_eq!(answered, PreFlight::Accepted { estimated_bytes: None });
     assert_eq!(*warehouse.transport.validated.borrow(), 1);
 }
 

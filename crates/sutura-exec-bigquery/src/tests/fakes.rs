@@ -148,10 +148,10 @@ impl JobTransport for Recording {
         Ok(self.answer.clone())
     }
 
-    fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
+    fn validate(&self, request: &JobRequest<'_>) -> Result<crate::transport::DryRunEstimate, Self::Error> {
         self.record(request);
         *self.validated.borrow_mut() += 1;
-        Ok(())
+        Ok(None)
     }
 
     /// Answers from what a test handed over, and records which pair was asked.
@@ -203,7 +203,7 @@ impl JobTransport for Refusing {
         Err(ListingRefused)
     }
 
-    fn validate(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+    fn validate(&self, _request: &JobRequest<'_>) -> Result<crate::transport::DryRunEstimate, Self::Error> {
         Err(ListingRefused)
     }
 
@@ -243,7 +243,7 @@ impl JobTransport for Broken {
         Err(EndpointSaidNo)
     }
 
-    fn validate(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+    fn validate(&self, _request: &JobRequest<'_>) -> Result<crate::transport::DryRunEstimate, Self::Error> {
         Err(EndpointSaidNo)
     }
 
@@ -406,7 +406,7 @@ impl JobTransport for Paged {
         Err(OnePageOfMore)
     }
 
-    fn validate(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+    fn validate(&self, _request: &JobRequest<'_>) -> Result<crate::transport::DryRunEstimate, Self::Error> {
         Err(OnePageOfMore)
     }
 
