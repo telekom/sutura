@@ -115,7 +115,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64) -> Answering<W, B>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline) -> Answering<W, B>
 ```
 
 Answers one question, or says why it will not.
@@ -392,6 +392,53 @@ What answering produced, or why it could not.
 A named alias because the inline form is over the complexity threshold in `clippy.toml`, and
 naming it is the better half of that trade: the generic parameter is a warehouse, not a result.
 
+## `use AnsweredRaw`
+
+One raw call's result: what the caller is told, and what it ran under - the
+`Answered` of the raw path, over `sutura_domain::raw::RawOutcome` rather
+than `ToolOutcome`.
+
+## `use RunSqlError`
+
+Why running a raw statement did not produce an outcome.
+
+**Deliberately not `ServiceError`.** That type's `Compile` and
+`Federated` arms describe the compiler and the splitter, neither of which this path touches - a
+raw statement is unparsed text, end to end. What is left is the credential half
+`answer` also has, plus one arm of its own for a state the boot refusal is
+supposed to make unreachable: the raw tool turned on over an adapter that does not accept raw
+text at all.
+
+## `use RunningRaw`
+
+What running a raw statement produced, or why it could not.
+
+## `use run_sql`
+
+Runs one literal statement against the deployment's configured source, or says why it will not.
+
+# PR1's scope, stated as a limit rather than left implicit
+
+**This targets the sole registered data system, and refuses `RunSqlError::NoAcceptingSource`
+where more than one is open or none is.** `docs/adr/0013`'s showcase is one Postgres source; a
+deployment naming which of several sources the raw tool may run over is future work, not a
+decision this function makes by omission - a second source is refused rather than guessed at.
+
+# Otherwise, this mirrors `answer`'s credential handling exactly
+
+Mint once, check the grant agrees with the request, check the presented leg agrees with the
+adapter's declared posture - the same three findings behind the same one guard, for the same
+reason: a broker is an adapter outside the hexagon, and its answer is input.
+
+# What is different from `answer` on the way out, and why
+
+**Every failure to execute becomes a refusal, never a `RunSqlError`.** The statement is the
+caller's own text, so a syntax error, a statement timeout, or the server refusing a write inside
+the read-only transaction `docs/adr/0013`'s amendment wraps every call in are all answers *about
+that statement* - not an infrastructure outage this deployment must page for. What remains an
+`Err` is only what happens before the statement ever reaches the data system: the broker not
+answering, or credentials that do not fit.
+
 ## Module `surface`
 
 What a transport needs from this crate, with the ports' generic parameters erased.
@@ -404,8 +451,8 @@ table by path, and named again by the macro that generates the interface descrip
 handler cannot be generic over the warehouse without the whole router becoming generic in it,
 and the generated document becoming generic in it too.
 
-`Surface` is the seam: this crate's two operations, with `W` gone - and with the audit sink's
-own parameter gone for the same reason, since `LocalService` is generic in that too.
+`Surface` is the seam: this crate's operations, with `W` gone - and with the audit sink's own
+parameter gone for the same reason, since `LocalService` is generic in that too.
 
 # Why it is HERE and not in the transport that uses it
 
@@ -431,8 +478,8 @@ at all, it is this crate's own service with one generic parameter erased. It hol
 crate made the application's interface the property of one of its callers.
 
 **Is the erasure an application concern or an HTTP one?** The *trigger* is an HTTP fact: a
-handler is a concrete function. The *content* is not - `definitions` and `answer` are this
-crate's own two operations, and `LocalService::start` is `crate::verify_and_validate` with
+handler is a concrete function. The *content* is not - `definitions`, `answer` and `run_sql` are
+this crate's own operations, and `LocalService::start` is `crate::verify_and_validate` with
 the catalog port consumed. Nothing in this file names a framework type, which is checkable
 rather than asserted: `cargo xtask check-boundaries` fails on a framework anywhere in a tree it
 governs, and this file added no dependency to this crate's manifest. A shape the application can
@@ -724,9 +771,12 @@ pub enum Tool
 
 One operation a transport exposes.
 
-Two variants, because `Surface` has two methods and this enum is the
-prompt's name for each. It is a list rather than a constant because the point is that a caller
-passes the subset it actually mounts: `Tool::ALL` is what a transport serving the whole surface
+Two variants: the certified surface's own operations, and the prompt's name for each.
+`Surface` gained a third method - `run_sql`, `docs/adr/0013`'s tool -
+and this enum deliberately did not grow with it: prompt framing for the raw tool is its own
+record, not a consequence of this one, so `Tool::ALL` still names only what the certified prompt
+talks about. It is a list rather than a constant because the point is that a caller passes the
+subset it actually mounts: `Tool::ALL` is what a transport serving the whole certified surface
 passes, and a deployment that mounts only one passes only that one.
 
 **Two entries make this cheap insurance rather than a large win, and it is worth saying so.** The
@@ -1152,10 +1202,47 @@ reviewed, so the refusal is what carries the names.
 
 `Debug`, `Display`, `Error`
 
+### `enum ElementKind`
+
+```rust
+pub enum ElementKind
+```
+
+The six kinds of catalog element two sources may collide over.
+
+`CompositionError::ElementCollision`'s `kind` field used to be a `&'static str`: a free-text
+field on a variant a caller matches by name is a contradiction, because nothing stopped a sixth
+call site from spelling one of the five existing kinds differently, or a seventh call site from
+naming a kind `check_no_element_collisions` does not actually check. Neither `DefinitionKind`
+nor `Capability` in `sutura_domain` fits: the first does not distinguish a model from a
+relationship (both are `Structure`), and the second has no variant for either. A small closed
+enum local to this composition step is what the issue's "existing typed vocabulary or a small
+closed enum if needed" resolves to here.
+
+**The limit, next to the claim.** Closure - a seventh call site naming a kind this type has no
+variant for is a compile error - is held by the compiler, for all six variants. WHICH kind a
+given call site in `check_no_element_collisions` names is pinned by a test for two of them,
+`Model` and `Relationship`; the other four (`GlossaryTerm`, `Caveat`, `Absence`, `WorkedExample`)
+have no cell of their own, so a call site there naming the wrong (but still valid) variant is
+caught by nothing but review.
+
+#### Variants
+
+- `Model`
+- `Relationship`
+- `GlossaryTerm`
+- `Caveat`
+- `Absence`
+- `WorkedExample`
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
+
 ### `fn assemble`
 
 ```rust
-pub fn assemble(bundles: Vec<sutura_domain::pinned::PinnedDefinitions>) -> Result<sutura_domain::pinned::PinnedDefinitions, CompositionError>
+pub fn assemble(bundles: &[sutura_domain::pinned::PinnedDefinitions]) -> Result<sutura_domain::pinned::PinnedDefinitions, CompositionError>
 ```
 
 Composes N contributions into one bundle, refusing a composition ADR 0011 says cannot exist.
@@ -1173,16 +1260,20 @@ one source, two contributions certifying different versions, two sources providi
 element, a contributor whose content disagrees with its declaration, or definitions/knowledge
 that do not assemble once merged.
 
+Takes a slice, not an owned `Vec`: every `Contributor` below borrows its bundle's
+`Definitions`/`Knowledge` rather than cloning them, so this function never needs to own a bundle
+to begin with - a caller that already has a `Vec` passes `&bundles`.
+
 ## Module `capability`
 
 What this surface can be asked to do, named once for every transport that offers it.
 
 # Why the vocabulary is here rather than in a transport
 
-`crate::surface::Surface` has exactly two operations - read the pinned bundle, and answer one
-governed question - and those two *are* the tool set. A transport renames them for its own
-protocol: the agent surface calls them tools and the HTTP surface calls them routes. Neither owns
-the set.
+`crate::surface::Surface` has three operations - read the pinned bundle, answer one governed
+question, and (`docs/adr/0013`, off by default) run one raw statement - and those three *are* the
+tool set. A transport renames them for its own protocol: the agent surface calls them tools and
+the HTTP surface calls them routes. Neither owns the set.
 
 That is not a preference. `sutura-mcp` and `sutura-http` cannot see each other - *an adapter never
 calls another adapter* - so a set owned by one of them is a set the other has to reach through it,
@@ -1247,6 +1338,7 @@ deterministic.
 
 - `DescribeCatalog` - Read the pinned bundle: which metrics exist, at which grains, with which dimensions and which filter values.
 - `AskMetric` - Answer one governed question about one certified metric.
+- `RunSql` - Run one literal SQL statement against the configured source, off by default and refused where the deployment cannot execute it as the asking subject or is not declared single-user.
 
 #### Methods
 
@@ -1382,6 +1474,21 @@ Whether this caller may use one capability.
 what it may do, and a transport calls it on every invocation whether or not it filtered the
 advertisement.
 
+```rust
+pub fn without(self, capability: Capability) -> Self
+```
+
+Removes one capability, whatever granted it.
+
+**A deployment-level narrowing, and deliberately independent of a caller's own scopes.** A
+tool that is off for this DEPLOYMENT - `docs/adr/0013`'s off-by-default raw SQL tool is the
+first one - has to be absent for every caller including one presenting every scope this
+surface knows, and including the no-authentication single-player case
+`Self::every_capability` answers. Applying this after either constructor is what makes "a
+tool this deployment never turned on" and "a tool this caller was not granted" two different
+reasons a caller sees the same absence for, without `Permitted` itself growing a second
+notion of what a scope is.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
@@ -1391,8 +1498,8 @@ advertisement.
 Asking every open data system whether it holds the tables the bundle names.
 
 **The decision sequence, once, for every composition root that has one** - and it is here rather
-than copied into each because review measured the copy: the two helpers underneath were
-byte-identical between `sutura-serve` and `sutura-cli`, and neither of them contains a word an
+than copied into each because review measured the copy: each helper underneath was
+byte-identical between `sutura-serve` and `sutura-cli`, and none of them contains a word an
 operator reads. `models_by_table` is a pure query over `PinnedDefinitions`, which is a
 `sutura-domain` type, and `AbsentBehind`'s rendering is a list of names rather than a sentence.
 
@@ -1721,3 +1828,100 @@ A named alias because `clippy::type_complexity` refuses the bare `Result` at thi
 name is the better half of that trade rather than a suppression: the split IS the decision, so a
 signature that says *boot policy* reads as the thing being returned and not as two halves a
 caller has to recombine. It stays a `Result` so `?` in a composition root keeps working.
+
+## Module `raw`
+
+`docs/adr/0013`'s raw SQL tool: the port-facing execution path, split out of `lib.rs` because
+that file hit the thousand-line limit `cargo xtask max-lines` enforces.
+
+One function beside the types it needs: `run_sql` mirrors `crate::answer`'s credential
+handling exactly and differs only on the way out, where every execution failure becomes a
+refusal rather than a `RunSqlError` - see that function's own documentation for why.
+
+### `enum RunSqlError`
+
+```rust
+pub enum RunSqlError<M>
+```
+
+Why running a raw statement did not produce an outcome.
+
+**Deliberately not `ServiceError`.** That type's `Compile` and
+`Federated` arms describe the compiler and the splitter, neither of which this path touches - a
+raw statement is unparsed text, end to end. What is left is the credential half
+`answer` also has, plus one arm of its own for a state the boot refusal is
+supposed to make unreachable: the raw tool turned on over an adapter that does not accept raw
+text at all.
+
+#### Variants
+
+- `Broker` - The credential broker did not answer.
+- `Credentials` - The broker's grant does not fit this request.
+- `Posture` - The presented leg disagrees with how this source was declared.
+- `NoAcceptingSource` - No data system is registered under the raw tool's configured source, or the one registered does not declare `Warehouse::ACCEPTS_RAW_STATEMENTS`.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct AnsweredRaw`
+
+```rust
+pub struct AnsweredRaw
+```
+
+One raw call's result: what the caller is told, and what it ran under - the
+`Answered` of the raw path, over `sutura_domain::raw::RawOutcome` rather
+than `ToolOutcome`.
+
+#### Methods
+
+```rust
+pub const fn executed_until(&self) -> Option<Expiry>
+```
+
+```rust
+pub fn into_outcome(self) -> sutura_domain::raw::RawOutcome
+```
+
+```rust
+pub const fn outcome(&self) -> &sutura_domain::raw::RawOutcome
+```
+
+#### Implements
+
+`Debug`
+
+### `fn run_sql`
+
+```rust
+pub fn run_sql<W, B>(context: &sutura_domain::identity::RequestContext, statement: &sutura_domain::raw::RawStatement, broker: &B, warehouses: &crate::warehouses::Warehouses<W>) -> RunningRaw<B>
+```
+
+Runs one literal statement against the deployment's configured source, or says why it will not.
+
+# PR1's scope, stated as a limit rather than left implicit
+
+**This targets the sole registered data system, and refuses `RunSqlError::NoAcceptingSource`
+where more than one is open or none is.** `docs/adr/0013`'s showcase is one Postgres source; a
+deployment naming which of several sources the raw tool may run over is future work, not a
+decision this function makes by omission - a second source is refused rather than guessed at.
+
+# Otherwise, this mirrors `answer`'s credential handling exactly
+
+Mint once, check the grant agrees with the request, check the presented leg agrees with the
+adapter's declared posture - the same three findings behind the same one guard, for the same
+reason: a broker is an adapter outside the hexagon, and its answer is input.
+
+# What is different from `answer` on the way out, and why
+
+**Every failure to execute becomes a refusal, never a `RunSqlError`.** The statement is the
+caller's own text, so a syntax error, a statement timeout, or the server refusing a write inside
+the read-only transaction `docs/adr/0013`'s amendment wraps every call in are all answers *about
+that statement* - not an infrastructure outage this deployment must page for. What remains an
+`Err` is only what happens before the statement ever reaches the data system: the broker not
+answering, or credentials that do not fit.
+
+### `type_alias RunningRaw`
+
+What running a raw statement produced, or why it could not.
