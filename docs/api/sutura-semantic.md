@@ -81,12 +81,13 @@ pub enum CompileFailure
 
 Why compiling failed, which is never why a question was refused.
 
-**Three arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question
+**Four arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question
 the deployment declines comes back as `Compiled::Refused`; what reaches this type is our own
-side being wrong. Those are the ways that can happen: the pinned bundle names something it does
-not hold, the splitter built a two-source plan that
+side being wrong. Those are the four ways that can happen: the pinned bundle names something it
+does not hold, the bundle reaches this compiler with authored SQL its plan cannot carry, the
+splitter built a two-source plan that
 `FederatedPlan::new` then rejected, and a producer
-built a plan whose predicates and parameters did not resolve each other. The second used to
+built a plan whose predicates and parameters did not resolve each other. The third used to
 be flattened into `RefusalReason::FederationNotExecutable`, which is what a build whose adapter
 type does not declare `Warehouse::EXECUTES_LEGS` is told - so a wiring defect and a statement
 about the build's own capability arrived as one value, and a caller could not tell which it had.
@@ -103,6 +104,7 @@ as a refusal a caller would retry.
 ### Variants
 
 - `Bundle` - The pinned bundle names a model or a relationship it does not hold.
+- `AuthoredSqlNotPlanned` - The bundle carries authored SQL, while the domain plan deliberately carries no SQL.
 - `NotAssembled` - A two-source plan this workspace compiled and could not then assemble.
 - `NotBound` - A plan this workspace compiled whose predicates and parameters did not resolve each other.
 

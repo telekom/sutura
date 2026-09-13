@@ -132,10 +132,10 @@ misspelled key would otherwise be dropped in silence, and the definition that lo
 one the author wrote: `colums:` yields a model with no columns, which then refuses every question
 about it for a reason that says nothing about a typo.
 
-`sutura_domain::measure` is the one exception, and the `measure` field of `MetricDoc` argues
-for it where a reader will be standing when they wonder. In short: those types already carry
-exactly this format's representation, and mirroring its variants here would buy nothing but a
-place to forget the next one.
+`sutura_domain::measure` and `AuthoredSql` are the exceptions, and the computation fields of
+`MetricDoc` argue for them where a reader will be standing when they wonder. In short: those
+types already carry exactly this format's representation, and mirroring their variants here
+would buy nothing but a place to forget the next one.
 
 ### `enum DocumentKind`
 
@@ -340,7 +340,7 @@ pub enum InvalidMetricDocument
 
 Why a metric document cannot become a metric.
 
-Only what belongs to the DOCUMENT: the two conversions this file performs that the domain's own
+Only what belongs to the DOCUMENT: the conversions this file performs that the domain's own
 constructors can refuse. Everything about whether a metric holds together is checked in
 `sutura_domain::catalog`, once, for every adapter - **including the duplicated dimension this
 enum used to carry.** That variant existed because `Metric::new` took a map, so the domain could
@@ -351,6 +351,7 @@ happened.
 
 #### Variants
 
+- `Computation` - The document wrote neither computation key, or wrote both.
 - `Inconsistent` - The domain refused the metric this document describes.
 - `AnchorValue` - The anchor's `value:` is not text a number can be checked against.
 

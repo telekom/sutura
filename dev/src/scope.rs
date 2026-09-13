@@ -109,6 +109,27 @@ pub fn profiles() -> Vec<&'static str> {
     found
 }
 
+/// The DISCOVERABLE services assigned to one profile, and nothing else.
+///
+/// **Not [`profiles`], and the difference is the point.** [`crate::scope::profiles`] names every
+/// profile any discoverable service declares, so a teardown can activate all of them and leave
+/// nothing behind. This selection is narrower still: helper containers that publish no endpoint
+/// are deliberately absent from [`SERVICES`], so this is NOT an inventory of every Compose block.
+/// The exclusive lifecycle accepts only the self-contained `demo` profile and starts it with
+/// `--no-deps`; widening that policy requires a source of truth for those helper containers first.
+///
+/// Derived from [`SERVICES`] rather than listed, so a service added to a profile joins its
+/// lifecycle without a second edit. A name no service declares selects nothing, which the caller
+/// refuses rather than treating as an empty success.
+#[must_use]
+pub fn discoverable_services_of(profile: &str) -> Vec<&'static str> {
+    SERVICES
+        .iter()
+        .filter(|service| service.profile == Some(profile))
+        .map(Service::name)
+        .collect()
+}
+
 /// The services a worktree may run. Adding one is a row here plus a block in
 /// `compose.services.yaml` - which is NOT `compose.dev.yaml`, the dev-container wrapper.
 ///
@@ -535,6 +556,23 @@ mod tests {
                  provisioning read back a port that does not exist"
             );
         }
+    }
+
+    #[test]
+    fn a_profile_selection_is_that_profiles_discoverable_services() {
+        // The demo lifecycle's isolation, asserted on the selection rather than by running docker
+        // and looking at what survived. `discoverable_services_of` is safe as a lifecycle selector
+        // only for the self-contained demo, which is why `--only` accepts that profile alone.
+        assert_eq!(super::discoverable_services_of("demo"), vec!["demo"]);
+        for unrelated in ["clickhouse", "keycloak", "datahub"] {
+            assert!(
+                !super::discoverable_services_of("demo").contains(&unrelated),
+                "`{unrelated}` is selected by the demo profile's teardown"
+            );
+        }
+        // A name nothing declares selects nothing, which the caller refuses rather than removing
+        // nothing and reporting success.
+        assert_eq!(super::discoverable_services_of("nonesuch"), Vec::<&str>::new());
     }
 
     #[test]

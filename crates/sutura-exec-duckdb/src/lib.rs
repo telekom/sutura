@@ -522,7 +522,9 @@ impl Warehouse for DuckDbWarehouse {
     /// Answers [`PreFlight::Accepted`] because it really asked: preparing resolves every table and
     /// column name and validates the syntax. That is the value the port's default cannot honestly
     /// return - see [`PreFlight`], where the two variants keep "the data system accepted this" apart
-    /// from "nobody looked".
+    /// from "nobody looked". `estimated_bytes` is `None`: `prepare` resolves the statement and reads
+    /// no plan statistics that would price bytes touched, so this leg's contribution to a summed
+    /// estimate is an honest absence rather than a number nobody promised. `docs/adr/0030`.
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
@@ -531,7 +533,7 @@ impl Warehouse for DuckDbWarehouse {
                 .prepare(query.sql())
                 .map_err(|cause| DuckDbError::Prepare { cause })?,
         );
-        Ok(PreFlight::Accepted)
+        Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
     fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {

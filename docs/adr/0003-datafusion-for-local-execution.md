@@ -9,6 +9,10 @@ Status: accepted. It adds an execution adapter and changes what the execution po
 supersedes nothing: the dialect layer keeps the job of rendering SQL for a remote data system, and
 federation is still later rather than now.
 
+**Corrected: federation is no longer later.** [Federating across different data systems](0007-federating-across-different-data-systems.md)
+landed - `LegPlan`, `answer_federated` and the two-source split all ship. What this record decided
+about the local path and the dialect layer is unchanged; only the "still later" clause is spent.
+
 ## Context
 
 The local path is the one a person is on the first time they try this: a file on the same machine, no
@@ -118,6 +122,12 @@ is refused rather than run partly as somebody else.
 | Refusal is a result, not an error                                            | Unchanged. An adapter's failure is its own typed error; a question that may not be asked is still refused before an adapter is reached                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Every generated statement is well formed in the dialect it was generated for | Unchanged for the adapters that generate one: the goldens parse each statement with its target dialect, parse only, never re-emitting. Narrower than "the data system accepts it", and deliberately so - the dialect layer's parser is not gated on the dialect for every construct, so acceptance is vouched for by execution rather than by parsing. For an adapter that generates nothing there is no statement to parse, and what stands in its place is the differential test below: the same plan executed locally and pushed down as SQL, rows compared |
 | Every query runs as the calling principal                                    | Not held on this path, and this decision does not change that either way. A local file has no login, so there is nobody else to be, and `CredentialBroker` is still absent                                                                                                                                                                                                                                                                                                                                                                                     |
+
+**Corrected: the row's closing clause is spent.** `CredentialBroker` now exists -
+`crates/sutura-domain/src/identity/credential.rs` declares the trait, and `sutura-config`'s
+`StaticCredentialBroker` is one implementor. The row's actual claim - that this path's local file
+has no login and so nobody else to be - is unchanged; only the closing clause naming the trait's
+absence no longer holds.
 
 ## Consequences
 
