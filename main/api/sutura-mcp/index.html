@@ -3027,22 +3027,31 @@ the two together is how a caller ends up told "no such tool" for one it holds th
 <h2 id="module-wire">Module <code>wire</code><a class="headerlink" href="#module-wire" title="Permanent link">&para;</a></h2>
 <p>The tool's arguments and its result, and the conversions to and from the domain.</p>
 <h1 id="why-this-crate-has-its-own-wire-type">Why this crate has its own wire type<a class="headerlink" href="#why-this-crate-has-its-own-wire-type" title="Permanent link">&para;</a></h1>
-<p><code>sutura-http</code> already holds one - <code>QuestionBody</code>, with the same five fields and the same
-<code>TryFrom&lt;..&gt; for Query</code>. Sharing it would mean this adapter depending on that one, and <em>an
-adapter never calls another adapter</em> is the rule the whole layout rests on: a shape owned by one
-transport is a shape every other transport has to reach through it. <code>CatalogContent</code> is the
-same story against <code>sutura_http::wire::CatalogBody</code>.</p>
-<p><strong>So the duplication is deliberate, and it is a cost rather than an oversight.</strong> Nothing in the
-compiler makes two wire types stay equal. What guards them is
-<code>AskArgs</code>'s own <code>deny_unknown_fields</code>, asserted through the transport in <code>crate::server</code>, plus
-the committed schema dump in <code>crate::tool</code> - a widened input changes a snapshot and the
-byte-compare fails until somebody re-accepts it, which is what puts a new field in a reviewer's
-diff.</p>
-<p><strong>What is now mechanical across the two transports is the TOOL SET, and not these shapes.</strong>
-<code>sutura_app::Capability</code> is the one source both of them render, and
-<code>both_transports_describe_the_same_tools</code> in <code>crate::tool</code> is the assertion. The field lists of
-two wire types with the same job are still kept equal by review, and that limit is worth keeping
-in front of a reader rather than letting the tool-set test read as covering it.</p>
+<p><code>sutura-http</code> already holds one - <code>QuestionBody</code>, with the same five fields. Sharing the STRUCT
+would mean this adapter depending on that one, and <em>an adapter never calls another adapter</em> is
+the rule the whole layout rests on: a shape owned by one transport is a shape every other
+transport has to reach through it. <code>CatalogContent</code> is the same story against
+<code>sutura_http::wire::CatalogBody</code>.</p>
+<p><strong>So the wire STRUCT is deliberately duplicated, and it is a cost rather than an oversight.</strong>
+Nothing in the compiler makes two wire types stay equal. What guards them is <code>AskArgs</code>'s own
+<code>deny_unknown_fields</code>, asserted through the transport in <code>crate::server</code>, plus the committed
+schema dump in <code>crate::tool</code> - a widened input changes a snapshot and the byte-compare fails
+until somebody re-accepts it, which is what puts a new field in a reviewer's diff.</p>
+<p><strong>What moved inward is the PARSE, and it is not a cost any more.</strong> <code>TryFrom&lt;AskArgs&gt; for Query</code>
+used to re-derive the same seven failure modes <code>sutura-http</code>'s own <code>TryFrom</code> did, out of its own
+copy of <code>MalformedQuestion</code>, its own <code>grain_of</code>, its own <code>range_of</code> - identical logic, kept equal
+only by review. That translation lives in <code>sutura_domain::question</code> now, and what this crate
+keeps of its own is the one failure mode a transport's own deserialization step can produce
+before that function is ever reached: <code>MalformedQuestion::NotAnObject</code>, for an arguments object
+that fails to deserialize into <code>AskArgs</code> at all - which HTTP's Axum extractor rejects earlier
+in its own stack, so <code>sutura-http</code> has no arm for it and needs none.</p>
+<p><strong>What is now mechanical across the two transports is the TOOL SET and the QUESTION PARSE, and
+not these wire shapes.</strong> <code>sutura_app::Capability</code> is the one source both of them render for the
+first, and <code>both_transports_describe_the_same_tools</code> in <code>crate::tool</code> is the assertion;
+<code>sutura_domain::question::parse_query</code> is the one function both <code>TryFrom</code> impls call for the
+second. The field lists of two wire types with the same job are still kept equal by review, and
+that limit is worth keeping in front of a reader rather than letting either test read as
+covering it.</p>
 <h1 id="why-the-derive-is-here-and-not-on-query">Why the derive is here and not on <code>Query</code><a class="headerlink" href="#why-the-derive-is-here-and-not-on-query" title="Permanent link">&para;</a></h1>
 <p>The schema has to be generated - a hand-written tool schema and a hand-written parser drift, and
 the drift is invisible until a caller trusts the schema. The derive that generates it is
@@ -3089,19 +3098,10 @@ last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedQuestion</span>
 </span></code></pre></div>
 <p>Why an arguments object is not a question.</p>
-<p>Every variant names the field, and none of them echoes the caller's value back except where the
-value is the thing that failed to parse as an identifier - which is a bounded character set, not
-free text.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotAnObject</code> - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.</li>
-<li><code>Metric</code></li>
-<li><code>Grain</code></li>
-<li><code>Date</code></li>
-<li><code>Range</code></li>
-<li><code>Dimension</code></li>
-<li><code>FilterDimension</code></li>
-<li><code>FilterValue</code> - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than <code>sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS</code>.</li>
+<li><code>Question</code> - Every other way a question can be malformed: which field, and none of the caller's own value except where it already failed an identifier parse - see that type's own documentation. Shared with <code>sutura-http</code>, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.</li>
 </ul>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
