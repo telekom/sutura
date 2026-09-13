@@ -27,16 +27,28 @@ the "refusal inside the one function that loads a catalog" this section used to 
 placement left available - and it was taken out again before it merged, because of what it did to
 the closure rather than to the code: `sutura-catalog-local` is linked by both shipped binaries
 unconditionally, so a compile there puts `sutura-sql` and the pre-1.0 generator it carries into the
-network binary's default tree - the exact outcome `FORBIDDEN_EDGES` in `xtask/src/boundaries.rs`
-forbids `sutura-semantic` from producing - while every sentence saying the network binary does not
-link it stayed in place and nothing fired. Three entries in that table now forbid a catalog adapter
-reaching `sutura-sql` - every catalog adapter this workspace ships, not only the one that carries
-authored SQL today - so the decision is held by the gate and not by this paragraph.
+network binary's default tree - the exact outcome `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES`
+exists to prevent `sutura-semantic` from producing - while every sentence saying the network binary
+does not link it stayed in place and nothing fired. Three entries in that table now forbid a catalog
+adapter reaching `sutura-sql` - every catalog adapter this workspace ships, not only the one that
+carries authored SQL today - so the PLACEMENT is held by that gate and not by this paragraph.
+**The OUTCOME is a second, narrower mechanism**, because `FORBIDDEN_EDGES` names crates and cannot
+see a normal dependency added straight to `sutura-app` - the crate both composition roots sit on -
+which is outside every one of its three entries and would still put the generator into the network
+binary's default closure. `nix/shipped.nix`'s `checks.shipped-features` closes that gap for
+`sutura-serve` by banning `polyglot-sql` from its embedded dependency list, read off the artifact
+`cargo auditable` records rather than off any manifest; `sutura` legitimately links the crate, for
+`compile`, so its own entry stays unbanned. So the decision is held by two mechanisms answering two
+different questions - which crate may declare the edge, and which binary may embed the crate - not
+by this paragraph.
 
 What holds instead is a refusal at boot. `Warehouse::EXECUTES_AUTHORED_SQL` defaults to `false`, no
 adapter this workspace ships opts in, and `sutura_app::verify_and_validate` - the only door to a
 `Validated` bundle - refuses a bundle carrying an authored metric as
-`NotValidated::AuthoredSqlNotExecutable`, naming the metric, before any anchor runs. It reads the
+`NotValidated::AuthoredSqlNotExecutable`, naming the metric, before any anchor runs - by PLACEMENT
+in that function's body, ahead of `declared_keys::hold` and `verify_anchors`, and unasserted: no
+test's fake records that an anchor or a declared key was never touched, so the ordering is read off
+the source rather than proven by a cell that would go red if the two blocks traded places. It reads the
 constant off the one adapter type the registry holds, the way `EXECUTES_LEGS` is read, so it is a
 fact about the build. **The limit, next to the claim:** the fragment is stored and not checked. A
 metric naming a column its model lacks, a construct on the denylist below, or a second table loads

@@ -239,9 +239,12 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
     },
     // The rule above is about the class, not the two adapters that happened to exist when it was
-    // written: `sutura-catalog-rdbms` is linked by `sutura-app` unconditionally too, so it is the
-    // same closure argument the moment any catalog adapter reaches the generator, mint an authored
-    // computation or not.
+    // written. `sutura-catalog-rdbms` is a DEV-dependency of `sutura-app` only - `cargo tree -e
+    // normal -i sutura-catalog-rdbms` reaches nothing, so unlike the two entries above it is not in
+    // any shipped binary's default closure. The entry stands anyway, as the class rule rather than
+    // the closure argument: a catalog adapter loads metadata and renders nothing regardless of which
+    // dependency kind links it, and `Edges::Every` walks dev-dependencies for exactly that reason -
+    // a test-only compile of the generator inside a catalog adapter's own tree is still refused.
     ForbiddenEdge {
         from: "sutura-catalog-rdbms",
         forbidden: "sutura-sql",

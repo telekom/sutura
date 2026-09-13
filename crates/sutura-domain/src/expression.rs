@@ -187,10 +187,18 @@ impl TryFrom<String> for SqlFragment {
 /// `sutura_sql::dialect::Dialect` owns it, because each entry there is a claim that we generate
 /// correct SQL for that system and have a golden that says so - and a second copy of the set here
 /// would be one that has to be kept in step with nothing checking it, which is exactly what
-/// [`crate::measure::Term`] declines to do for aggregates. So a tag is a *word* until the compile
-/// step, which resolves it against the list that build actually renders for and refuses an unknown
-/// one naming the choices. A `postgresql:` where `postgres:` was meant is therefore a load failure
+/// [`crate::measure::Term`] declines to do for aggregates. So a tag is meant to be a *word* until a
+/// compile step resolves it against the list that build actually renders for and refuses an unknown
+/// one naming the choices - a `postgresql:` where `postgres:` was meant would then be a load failure
 /// and not a variant that is silently never chosen.
+///
+/// **That compile step has no production caller today.** `docs/adr/0004`'s amendment records why:
+/// nothing published calls `sutura_sql::expression::compile`, so nothing resolves a `DialectTag`
+/// against anything. A misspelt tag loads, pins under the definition digest exactly as written, and
+/// is refused at boot with every other authored metric - `NotValidated::AuthoredSqlNotExecutable`,
+/// naming the metric rather than the tag - because no adapter this workspace ships opts into
+/// `Warehouse::EXECUTES_AUTHORED_SQL`. The resolution this doc comment describes is what the first
+/// adapter that does must add, beside its own renderer.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "String")]
 pub struct DialectTag(String);

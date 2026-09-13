@@ -467,6 +467,49 @@ mod tests {
     }
 
     #[test]
+    fn the_authored_sql_example_does_not_boot_against_the_in_process_engine() {
+        // The other half of the fixture above, over the directory `examples/authored-sql` and the
+        // README under it actually claim about: not a hand-built bundle, but
+        // `LocalCatalog::load` through the real composition path `sutura query`, `sutura mcp` and
+        // `sutura-serve` all take. `LocalCatalog::capabilities()` is `everything()`
+        // (`crates/sutura-catalog-local/src/lib.rs`), so composing this directory first requires the
+        // example to carry every kind that declares: a second model, a relationship, a dimension
+        // reached through it, a required filter, an anchor, and the four knowledge documents. Red
+        // before those existed, at `CompositionError::Unfaithful` - a one-model, one-metric catalog
+        // does not compose, which a review of this checkpoint found before the example carried
+        // enough to reach the authored check at all. The compiled mutation is the same as the test
+        // above.
+        use std::path::Path;
+
+        use sutura_catalog_local::LocalCatalog;
+        use sutura_domain::pinned::DefinitionVersion;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/authored-sql/catalog");
+        let version = DefinitionVersion::parse("authored-sql-example").expect("a fixed version is a version");
+        let catalog = LocalCatalog::new(source(), root, version);
+        let ceiling = core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive");
+        let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
+            source(),
+            shared(),
+            sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
+        )
+        .expect("the in-process engine starts");
+        let error = LocalService::start(
+            &catalog,
+            Warehouses::of(engine),
+            DiscardingAuditSink,
+            FixedBroker::GrantsShared,
+            1 << 30,
+        )
+        .expect_err("the example carries an authored metric the in-process engine cannot execute");
+        let ServiceNotStarted::NotValidated { cause } = error else {
+            panic!("the example must compose and then hit the authored-SQL refusal: {error:?}");
+        };
+        let metric = sutura_domain::model::MetricName::parse("order_value_spread").expect("the example metric name is a name");
+        assert_eq!(cause, NotValidated::AuthoredSqlNotExecutable { metric });
+    }
+
+    #[test]
     fn an_adapter_declaring_authored_sql_support_passes_only_the_capability_gate() {
         // The other direction, so the gate above is a capability read and not an unconditional
         // refusal of the key. What the declaring fake does NOT get is an answer: the plan carries no

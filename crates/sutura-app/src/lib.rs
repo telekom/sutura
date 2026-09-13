@@ -221,6 +221,11 @@ mod proof {
     /// is silently skipped or a measure quietly substituted. Read off the ONE adapter type
     /// `Warehouses<W>` holds, the way `EXECUTES_LEGS` is - so it is a fact about the build, not
     /// about the data. No adapter this workspace ships opts in; `docs/adr/0004` is the decision.
+    ///
+    /// **"Before any anchor runs" is a placement, not an assertion.** It is true because this check
+    /// sits ahead of `declared_keys::hold` and `verify_anchors` in the body below, and it is
+    /// unasserted: no fixture's fake records that an anchor or a declared key was never touched, so
+    /// a change that moved the block after them would not go red for that reason on its own.
     pub fn verify_and_validate<W>(
         pinned: PinnedDefinitions,
         warehouses: &Warehouses<W>,
