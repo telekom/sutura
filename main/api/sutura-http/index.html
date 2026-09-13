@@ -2562,6 +2562,10 @@ and there are exactly two ways in: one takes no argument, and the other takes a
 <p><strong><code>/health</code> carries nothing.</strong> It is the one path an unauthenticated caller can always reach, so
 every field it might have is a field handed to anybody who can route a packet. No version, no
 build, no configuration, no catalog. A test asserts the body byte for byte.</p>
+<p>A directly validating deployment also exposes its RFC 9728 protected-resource metadata without a
+token. That document is deliberately only the exact resource identifier and the configured
+authorization server; it is absent in gateway and single-player deployments and shares the probe
+rate limit with liveness.</p>
 <h1 id="what-is-deliberately-absent">What is deliberately absent<a class="headerlink" href="#what-is-deliberately-absent" title="Permanent link">&para;</a></h1>
 <ul>
 <li><strong>No CORS layer.</strong> A browser is not a client of this surface. An allow-list nobody needs is an
@@ -3046,16 +3050,12 @@ leg plus a source that declares it can impersonate. A deployment with leg 1 and 
 is asking and still reads every row as one identity. The startup log prints that sentence on every
 boot, out of <code>sutura_config::InboundIdentity::what_it_does_not_do</code>, rather than leaving a reader to
 infer it.</p>
-<h1 id="the-five-things-this-does-not-build-and-each-is-named-rather-than-left-to-be-discovered">The five things this does not build, and each is named rather than left to be discovered<a class="headerlink" href="#the-five-things-this-does-not-build-and-each-is-named-rather-than-left-to-be-discovered" title="Permanent link">&para;</a></h1>
+<h1 id="the-four-things-this-does-not-build-and-each-is-named-rather-than-left-to-be-discovered">The four things this does not build, and each is named rather than left to be discovered<a class="headerlink" href="#the-four-things-this-does-not-build-and-each-is-named-rather-than-left-to-be-discovered" title="Permanent link">&para;</a></h1>
 <p>An overstated claim is itself the defect, so each of these is written down here rather than found:</p>
 <ol>
 <li><strong>A JWKS endpoint.</strong> Keys are read from a file. The cache, the unknown-key refetch and the rate
    limit on it are built and are what a URL source would need anyway - see <code>keys</code> for the whole
    argument and for the one property a file cannot have.</li>
-<li><strong>The two metadata documents.</strong> A directly validating deployment is supposed to serve
-   protected-resource metadata a client can read to learn which authorization server governs it.
-   There is no such route. The <code>401</code> carries an RFC 6750 challenge naming the realm and no
-   <code>resource_metadata</code> parameter, so a client is configured with its issuer out of band.</li>
 <li><strong>Anything about client registration or client authentication.</strong> Those are decisions for the
    authorization server and for the client; this deployment is a resource server and validates what
    arrives.</li>
@@ -3402,11 +3402,12 @@ order matters only in the <code>behind-gateway</code> mode, where both are confi
 header.</p>
 <h1 id="what-a-refused-request-is-told-and-what-it-is-not">What a refused request is told, and what it is not<a class="headerlink" href="#what-a-refused-request-is-told-and-what-it-is-not" title="Permanent link">&para;</a></h1>
 <p>A <code>401</code> with an RFC 6750 <code>WWW-Authenticate</code> challenge naming the realm, which for a directly
-validating deployment is its own resource identifier. <code>docs/adr/0014</code> step 1 asks for <em>"a challenge
-naming where to look"</em>, and this is the half of that which exists: <strong>the two metadata documents the
-record describes are not built</strong>, so the challenge carries no <code>resource_metadata</code> parameter and a
-client learns the authorization server out of band. That is a named gap rather than a silent one -
-see <code>crate::inbound</code>.</p>
+validating deployment is its own resource identifier. When an origin-form target and raw <code>Host</code>
+reproduce that exact resource, its <code>resource_metadata</code> parameter is the absolute URL of the public
+RFC 9728 document built from the same token requirement as the validator. It is omitted for any
+other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
+gateway assertion arrives somewhere other than <code>Authorization: Bearer</code>, so that mode offers no
+Bearer challenge.</p>
 <p>What the response does <strong>not</strong> say is which check failed. The log says - through the <code>#[source]</code>
 chain on <code>TokenRejected</code> - and the caller does not, because "the signature verified and the
 audience did not" tells somebody which half of a forgery to fix.</p>
@@ -3421,7 +3422,7 @@ authenticates nobody. <code>crate::router</code> refuses to assemble a router fo
 declare an inbound identity and whose state carries no gate, which is what makes forgetting to
 attach one a startup failure rather than an open door.</p>
 <h5 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">challenge</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">challenge</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">request_uri</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Uri</span><span class="p">,</span><span class="w"> </span><span class="n">headers</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">HeaderMap</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The RFC 6750 challenge a refused request carries, where one is meaningful.</p>
 <p><strong><code>None</code> in the <code>behind-gateway</code> mode, and that is a fix rather than an omission.</strong> A <code>Bearer</code>
@@ -3433,6 +3434,10 @@ read.</p>
 <p><strong>No <code>error_description</code></strong> in the direct case, and that is the same decision the response body
 makes: a description would have to say which check failed to be worth anything, and that is the
 one thing a caller must not learn.</p>
+<p>Both request parts are required because an origin-form target carries its path in the URI and
+its authority in the raw <code>Host</code> value. Absolute-form targets are not matched: <code>http::Uri</code>
+canonicalises standard schemes, so a match there would compare against a normalised spelling
+rather than the configured identifier's exact bytes.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">describe_keys</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="kt">usize</span><span class="p">,</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span>
 </span></code></pre></div>
 <p>How many keys are cached, and their ids. For the startup log.</p>
@@ -4365,7 +4370,7 @@ this service mints one yet, and a field that is always absent is worse than no f
 </thead>
 <tbody>
 <tr>
-<td>liveness</td>
+<td>liveness and direct protected-resource discovery</td>
 <td>anybody who can route a packet</td>
 <td>public</td>
 <td>no</td>
@@ -4385,7 +4390,8 @@ this service mints one yet, and a field that is always absent is worse than no f
 </tbody>
 </table>
 <p>Liveness has no token because a probe has no credential to present, which is exactly why its
-body carries nothing.</p>
+body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
+client where authorization happens; its two configured fields are the whole public document.</p>
 <h1 id="layer-order-and-why-it-reads-backwards">Layer order, and why it reads backwards<a class="headerlink" href="#layer-order-and-why-it-reads-backwards" title="Permanent link">&para;</a></h1>
 <p><code>Router::layer</code> wraps what is already there, so <strong>the last layer added is the outermost and runs
 first</strong>. Reading the assembly below from the bottom up gives the order a request travels in.
@@ -4414,8 +4420,9 @@ under the version prefix without also applying to the liveness probe merged in b
 <p><strong>The consequence, stated rather than discovered later:</strong> a path under the version prefix that
 matches no route skips the gate and falls through to the top-level <code>404</code>. So an unauthenticated
 caller can learn which paths exist, though not what is behind them - and the paths are in the
-published interface description anyway. Every path that resolves to a handler does hold a
-credential. There is a test on each half of that.</p>
+published interface description anyway. Apart from liveness and the direct-only protected-resource
+document, every path that resolves to a handler does hold a credential when one is configured.
+There is a test on each half of that.</p>
 <h1 id="why-this-returns-a-result">Why this returns a <code>Result</code><a class="headerlink" href="#why-this-returns-a-result" title="Permanent link">&para;</a></h1>
 <p>Because a limiter that will not build must stop the process rather than quietly become no
 limiter, and so must a sweeper that will not start: a keyed store nothing sweeps grows for the

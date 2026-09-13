@@ -3328,7 +3328,7 @@ is refused at startup.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">security</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">inbound</span><span class="p">:</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">"direct"</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">resource</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">resource</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com/v1/query"</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">authorization_server</span><span class="p">:</span><span class="w"> </span><span class="s">"https://issuer.example.com"</span><span class="w"> </span><span class="c1"># the `iss` value, exactly</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">key_set_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/keys/jwks.json"</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">algorithms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"RS256"</span><span class="p p-Indicator">]</span>
@@ -3417,9 +3417,23 @@ what the mode means. What is not trusted is a string.</p>
 </tbody>
 </table>
 <p>A refused request in the <code>direct</code> mode gets <code>401</code> with a <code>WWW-Authenticate: Bearer
-realm="&lt;your resource identifier&gt;", error="invalid_token"</code>. It deliberately does <strong>not</strong> say which
-check failed: "the signature verified and the audience did not" tells a caller which half of a forgery
-to fix. The log says, in the cause chain, where an operator can read it.</p>
+realm="&lt;your resource identifier&gt;", error="invalid_token"</code>. When an origin-form request's raw <code>Host</code>
+and request target reproduce the exact configured resource identifier, the challenge also carries
+<code>resource_metadata="&lt;absolute metadata URL&gt;"</code>. RFC 9728 requires clients to discard metadata naming
+any other resource, so the parameter is absent for every other spelling. Absolute-form request
+targets are not matched either: the HTTP URI parser canonicalises standard schemes, so a match there
+would compare against a normalised spelling rather than the byte-exact one configured. The challenge
+deliberately does <strong>not</strong> say which check
+failed: "the signature verified and the audience did not" tells a caller which half of a forgery to
+fix. The log says, in the cause chain, where an operator can read it.</p>
+<p>The metadata URL is public and needs no token. It serves RFC 9728 JSON whose <code>resource</code> is the exact
+configured resource identifier and whose one <code>authorization_servers</code> entry is the exact configured
+issuer. For <code>https://sutura.example.com/v1/query</code>, the route is
+<code>GET /.well-known/oauth-protected-resource/v1/query</code>; a resource with no path uses
+<code>GET /.well-known/oauth-protected-resource</code> for direct discovery, but that root document cannot be
+advertised from a child path. It is outside <code>/v1</code> and capability authorization, uses the probe rate
+limit, and exists only in <code>direct</code> mode. Authorization-server metadata remains the authorization
+server's document, not one served here.</p>
 <p><strong>In <code>behind-gateway</code> there is no challenge</strong>, and that is deliberate rather than missing: the caller
 holds no bearer token for this resource, so an instruction to present one is one it cannot follow - and
 a client that followed it would start putting credentials in a header this deployment refuses to read.</p>
@@ -3517,6 +3531,11 @@ bound that surface exactly as they bound this one.</p>
 <td>Liveness. The body is exactly <code>{"status":"ok"}</code></td>
 </tr>
 <tr>
+<td><code>GET /.well-known/oauth-protected-resource[/&lt;resource path&gt;]</code></td>
+<td>no; <code>direct</code> mode only</td>
+<td>RFC 9728 protected-resource metadata: the configured resource identifier and authorization server</td>
+</tr>
+<tr>
 <td><code>GET /v1/catalog</code></td>
 <td>yes, when one is configured; plus <code>sutura:catalog.read</code> where <code>security.inbound</code> is</td>
 <td>The metrics this catalog defines, with grains, dimensions and the values a filter may use</td>
@@ -3545,9 +3564,8 @@ bound that surface exactly as they bound this one.</p>
 </table>
 <p><code>/health</code> is outside the version prefix on purpose: a probe must keep working across a version bump
 without an orchestrator being reconfigured. It carries no version, no build identifier, no
-dependency list, no configuration and no catalog content, because it is the one path an
-unauthenticated caller can always reach - so every field it might have is a field handed to anybody
-who can route a packet.</p>
+dependency list, no configuration and no catalog content, because an unauthenticated caller can
+always reach it - so every field it might have is a field handed to anybody who can route a packet.</p>
 <p>The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.</p>
 <h3 id="the-metrics-endpoint">The metrics endpoint<a class="headerlink" href="#the-metrics-endpoint" title="Permanent link">&para;</a></h3>
@@ -4045,7 +4063,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>rate_limit.probe_per_second</code></td>
 <td><code>2</code></td>
-<td>Liveness and the interface description</td>
+<td>Liveness, protected-resource metadata, and the interface description</td>
 </tr>
 <tr>
 <td><code>rate_limit.probe_burst</code></td>
@@ -4663,9 +4681,6 @@ transcript nobody runs goes stale silently, and a suite cannot.</p>
   id, and the rate limit on that refetch - and a sidecar that rewrites a mounted key set is how a
   process with no egress rotates. <strong>The limit a file has:</strong> no cache header, so a key rotated <em>without</em>
   its id changing is one this deployment keeps using.</li>
-<li><strong>No protected-resource metadata.</strong> A <code>401</code> carries an RFC 6750 challenge naming the realm and no
-  <code>resource_metadata</code> parameter, so a client learns which authorization server governs this resource
-  out of band rather than by reading a document here.</li>
 <li><strong>No replay protection on a gateway assertion.</strong> The <em>window</em> is bounded - an <code>iat</code> is required and
   <code>exp - iat</code> is capped - and inside it an intercepted assertion replays. Closing that needs the
   assertion bound to the request (a hash of the method, path and body the component computes) or a
@@ -4720,10 +4735,11 @@ that is deliberate and is the point of the limiter sitting <em>outside</em> the 
 unauthenticated caller can create a rate-limit bucket on any path that resolves to a handler. Those
 buckets are swept on an interval, so the memory is bounded rather than growing for the life of the
 process.</p>
-<p>An unauthenticated caller can reach <code>/health</code> and learn that the process is up, and can learn which
-paths exist - a path under the version prefix that matches no route answers <code>404</code> without holding a
-credential. The paths are in the published interface description in any case. Every path that
-resolves to a handler holds a credential: the API's, or <code>/metrics</code>'s own.</p>
+<p>An unauthenticated caller can reach <code>/health</code> and learn that the process is up. In <code>direct</code> mode it
+can also read the protected-resource metadata that tells clients which authorization server governs
+the resource. A path under the version prefix that matches no route answers <code>404</code> without holding a
+credential. The paths are in the published interface description in any case. Every other path that
+resolves to a handler holds the API credential when one is configured, or <code>/metrics</code>'s own.</p>
 <p>A caller with the token can occupy every execution slot and shed everybody else, inside their own
 rate limit, by asking questions that each cost more than the request timeout. The <code>503</code> the others
 get is honest and the backlog is bounded, but the <em>sharing</em> is not fair and is not made fair here.

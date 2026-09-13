@@ -2933,11 +2933,11 @@ today say so inside the section, and <a href="#what-exists-today">What exists to
 </div>
 <h2 id="serving-is-mcp">Serving is MCP<a class="headerlink" href="#serving-is-mcp" title="Permanent link">&para;</a></h2>
 <p><strong>Both transports are built, and one property this section describes is not.</strong> <code>sutura-http</code> serves
-a versioned <code>v1</code> tree, a liveness probe, a generated interface description, rate limiting and a
-bearer gate; <code>sutura-mcp</code> serves the tool surface over a process's own standard input and output,
-and <code>just mcp-e2e</code> drives that one end to end. What is absent is a caller identity on the agent
-surface: a pipe has no header a token could arrive in, so it answers as the deployment and offers
-every capability, and a network-reachable agent surface needs the identity leg
+a versioned <code>v1</code> tree, a liveness probe, direct-mode protected-resource metadata, a generated
+interface description, rate limiting and a bearer gate; <code>sutura-mcp</code> serves the tool surface over a
+process's own standard input and output, and <code>just mcp-e2e</code> drives that one end to end. What is absent
+is a caller identity on the agent surface: a pipe has no header a token could arrive in, so it answers
+as the deployment and offers every capability, and a network-reachable agent surface needs the identity leg
 <a href="../adr/0014-how-a-caller-proves-who-it-is/">how a caller proves who it is</a> designs.</p>
 <p>The primary interface is an MCP server, so an agent is a first-class client rather than an
 afterthought wrapped around an API built for a dashboard.</p>
@@ -3619,9 +3619,11 @@ statement about a laptop and not about a warehouse, so this remains a compiler w
 door: what the port bought is that the day a real source arrives, there is no code path for it to be
 read as the process through.</p>
 <p><strong>The HTTP transport is here now</strong>, and this sentence used to say it was not: an axum surface with a
-versioned <code>v1</code> tree, a liveness probe, a generated interface description, rate limiting, a bearer
-gate and optional in-process TLS. What it does <strong>not</strong> carry is a per-caller identity - the token
-authenticates the deployment - so none of the identity claims above are made true by its arrival.</p>
+versioned <code>v1</code> tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
+description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
+the deployment; <code>security.inbound</code> instead establishes the caller in <code>direct</code> or <code>behind-gateway</code>
+mode. Neither makes a data system execute as that caller: leg 2 remains absent from every published
+adapter.</p>
 <p>Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
 the row cap and the ten-year span. The spliced-statement path is designed, documented above, and
 unimplemented. <strong>This bullet used to list the MCP transport, federation, a second catalog adapter

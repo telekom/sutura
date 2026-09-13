@@ -3347,9 +3347,9 @@ mutual TLS.</p>
 <li>The first inbound dependency that must <strong>verify</strong> a signature enters the tree. <code>sutura-http</code> presents a
   chain today and verifies none, so this is a supply-chain change and belongs in the same review as the code
   that needs it.</li>
-<li>The transport grows a challenge, two metadata documents it serves about itself, and a validator. All of it is
-  transport: it parses a wire shape and produces a domain value, and it decides nothing about what a question
-  may ask.</li>
+<li>The transport grows a challenge, protected-resource metadata it serves about itself, and a validator. All of
+  it is transport: it parses a wire shape and produces a domain value, and it decides nothing about what a
+  question may ask.</li>
 <li><code>Caller</code> becomes a domain value with claims behind it, and the principal chain from
   <a href="../0009-the-plan-from-one-source-to-many/">the plan</a> - human, then agent, then task - is what it carries.
   Both tail positions are absent at first, and that is the point of building it early.</li>
@@ -3419,6 +3419,11 @@ built" statements are older than the implementation.</p>
 <td>RFC 9068's <code>at+jwt</code>, default-on in <code>direct</code>, checked on <code>decoded.header</code> <strong>after</strong> the signature - so it is a rule applied to a document the issuer signed rather than to an unauthenticated header. <strong>Review found this missing and it was the serious one:</strong> without it, any JWT the issuer signed with this audience verifies, an OIDC ID token included wherever the resource identifier is also a client id, which is the ordinary arrangement. <code>at+jwt</code>, <code>AT+JWT</code> and <code>application/at+jwt</code> are one value (RFC 7515 §4.1.9); a token with <strong>no</strong> <code>typ</code> is refused, so the check cannot be satisfied by omission; <code>any</code> is the written opt-out and the startup log prints it at <code>WARN</code>. In <code>behind-gateway</code> the class is a <strong>required</strong> key, because a component's <code>typ</code> is a fact only the deployment knows</td>
 </tr>
 <tr>
+<td>Protected-resource discovery in <code>direct</code> mode</td>
+<td><code>sutura_http::routes::protected_resource</code> and <code>sutura_http::inbound::gate</code></td>
+<td>One startup value owns the public RFC 9728 route and its document. The document publishes the exact audience as <code>resource</code> and the exact configured issuer in <code>authorization_servers</code>; the validator reads that same token requirement. A challenge includes the absolute metadata URL only when an origin-form request's raw <code>Host</code> and request target reproduce that exact resource, because RFC 9728 section 3.3 makes mismatched metadata unusable. Absolute-form targets are not matched: the HTTP URI parser canonicalises standard schemes, so a match there would compare against a normalised spelling rather than the configured identifier's exact bytes. The route is outside <code>/v1</code> and capability authorization, inside the probe limiter, and absent in <code>behind-gateway</code> and single-player deployments</td>
+</tr>
+<tr>
 <td>A ceiling on a gateway assertion's lifetime</td>
 <td><code>sutura_config::ProofLifetime</code></td>
 <td><code>iat</code> <strong>required</strong> and <code>exp - iat</code> capped at <code>transit_max_lifetime_seconds</code>; an <code>iat</code> dated forward past the leeway is refused too, or a component could buy a longer window by dating forward. <strong>Review demonstrated the gap:</strong> an assertion with no <code>iat</code> and an <code>exp</code> ten years out was accepted, twice, on a replay of the identical token - so this record's own word <em>short-lived</em> was one the code did not enforce. <code>iat</code> is checked by us and not by the library, whose <code>required_spec_claims</code> honours only <code>exp</code>, <code>nbf</code>, <code>aud</code>, <code>iss</code> and <code>sub</code></td>
@@ -3465,9 +3470,6 @@ built" statements are older than the implementation.</p>
    sidecar that rewrites a mounted key set is how a process with no egress rotates - and its honest
    limit is that a file has no cache header, so a key rotated <em>without</em> its id changing is one this
    deployment keeps using.</li>
-<li><strong>The two metadata documents.</strong> There is no protected-resource metadata route. The <code>401</code> carries an
-   RFC 6750 challenge naming the realm and no <code>resource_metadata</code> parameter, so a client is configured
-   with its issuer out of band. Decision 2's steps 2 and 3 are therefore undelivered.</li>
 <li><strong>Client registration and client authentication.</strong> Decision 2's sub-sections 1 and 2 are decisions
    for the authorization server and the client. This deployment is a resource server and validates
    what arrives; nothing here excludes any of the three mechanisms and nothing here implements one.</li>
