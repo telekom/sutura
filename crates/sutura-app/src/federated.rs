@@ -556,6 +556,64 @@ mod tests {
         );
     }
 
+    /// The lookup leg's own rows, one dimension value one byte over
+    /// [`sutura_domain::query::ResponseByteLimit::DEFAULT`] - three rows, so neither the row cap
+    /// nor the volume bound (nothing here reports `result_did_not_fit`) is what fires.
+    fn oversized_lookup_rows() -> RowSet {
+        use sutura_domain::plan::InternalLabel;
+        let ceiling = sutura_domain::query::ResponseByteLimit::DEFAULT.bytes();
+        let oversized = "x".repeat(usize::try_from(ceiling).expect("the default ceiling fits a usize") + 1);
+        let row = |link: &str| vec![Value::Text(link.into()), Value::Text(oversized.clone())];
+        RowSet::new(
+            vec![InternalLabel::Link.label(), String::from("region")],
+            vec![row("c1"), row("c2")],
+        )
+        .expect("a well-formed test lookup result")
+    }
+
+    #[test]
+    fn a_federated_answer_within_the_row_cap_but_too_wide_to_encode_is_refused() {
+        // The federated half of the mono-source golden cell: a combined result can be inside every
+        // row and volume bound and still be wide, because a JOINED dimension's own value is not
+        // something either leg's own bound was measuring.
+        let fact_source = SourceName::parse("facts").expect("a test source");
+        let lookup_source = SourceName::parse("geo").expect("a test source");
+        let shared = shared();
+        let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+            fact_source,
+            shared.clone(),
+            federated_fact_rows(),
+        ))
+        .and(crate::tests_support::LegsWarehouse::answering(
+            lookup_source,
+            shared,
+            oversized_lookup_rows(),
+        ))
+        .expect("two sources, one registry");
+
+        let plan = federated_plan();
+        let outcome = answer_federated(
+            &bundle(),
+            &plan,
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            FEDERATED_BUDGET,
+        )
+        .expect("a bound is a refusal, not an error")
+        .into_outcome();
+        let ceiling = sutura_domain::query::ResponseByteLimit::DEFAULT.bytes();
+        assert_eq!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Encoded { limit_bytes: ceiling },
+                },
+            },
+            "a combined result over the response byte ceiling must be refused"
+        );
+    }
+
     #[test]
     fn a_federated_leg_the_source_refuses_is_refused_not_a_503() {
         // The federated half of the identity/authorization refusal, and the reason `execute_leg`

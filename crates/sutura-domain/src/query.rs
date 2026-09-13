@@ -622,9 +622,14 @@ impl ResponseByteLimit {
     /// length of a GROUPED column's actual value, which comes back from the data system as
     /// [`crate::warehouse::Value::Text`] with no length carried by the type at all. So a single
     /// oversized column in an otherwise ordinary catalog is exactly the case this ceiling is the
-    /// only bound against - chosen comfortably below a size that costs a caller's async executor
-    /// thread a noticeable pause to encode once this deployment builds the wire body from an
-    /// in-cap answer.
+    /// only bound against.
+    ///
+    /// **Unmeasured, and stated as such rather than dressed up as a derived cost.** 8 MiB is a
+    /// round number, not a figure timed against `Outcome::from` building a wire body of that size -
+    /// no such measurement exists in this codebase yet. Lowering it trades headroom for encode
+    /// latency on the async executor thread the wire body is still built on after the blocking
+    /// closure returns; raising it trades the other way. Either direction is a decision the next
+    /// change to this constant should measure rather than guess at twice.
     pub const DEFAULT: Self = Self(8 * 1024 * 1024);
 
     /// Reads a byte ceiling.

@@ -342,9 +342,11 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         "a result over the response byte ceiling must be refused, and refused for being too large"
     );
 
-    // A cell comfortably under the ceiling still answers, so this is not a test that would pass
-    // with every result refused.
-    let light = sutura_app::Warehouses::of(crate::support::HeavyResult::of(16));
+    // A cell of EXACTLY the ceiling still answers, so this pins `>` rather than `>=`: the ceiling
+    // itself is not over it, and a result at the ceiling is not a test that would pass with every
+    // result refused.
+    let at_the_ceiling = usize::try_from(ceiling).expect("the default ceiling fits a usize on every target this builds for");
+    let light = sutura_app::Warehouses::of(crate::support::HeavyResult::of(at_the_ceiling));
     let outcome = sutura_app::answer(
         &validated,
         &question("recurring-revenue-by-region.yaml"),

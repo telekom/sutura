@@ -445,7 +445,7 @@ mod tests {
         let MalformedQuestion::Question(ref shared) = error else {
             panic!("expected a shared parse failure, got {error:?}");
         };
-        assert!(matches!(shared, SharedMalformedQuestion::Grain { .. }), "{shared:?}");
+        assert!(matches!(shared, SharedMalformedQuestion::Grain), "{shared:?}");
         assert!(error.to_string().contains("quarter"), "{error}");
 
         let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"nope","end":"2026-07-01"}}"#)

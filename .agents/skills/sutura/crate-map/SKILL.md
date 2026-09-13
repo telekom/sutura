@@ -22,7 +22,9 @@ Rules that are not visible from a manifest:
   two transports cannot see each other. Its `Warehouses` registry is generic in one adapter type, so
   a heterogeneous set - or a catalog naming two KINDS of source - is an architecture decision.
 - **A transport is transport-only.** It never reads a catalog directory and never opens a data
-  system; a composition root does both. `sutura-mcp` depends on nothing in `sutura-http`.
+  system; a composition root does both. `sutura-mcp` carries no NORMAL dependency on `sutura-http` -
+  a dev-dependency exists, for one differential test, and is exempt from that rule the same way
+  `sutura-exec-bigquery` dev-depending on `sutura-exec-datafusion` is.
 - **`sutura-cli` reads the same `sources:` tree `sutura-serve` does**, and dispatches the declared
   `SourceKind` through an exhaustive match of its own - so a third kind is a compile error in both
   composition roots. The two differ in what an ABSENT entry means: a startup refusal there, and a

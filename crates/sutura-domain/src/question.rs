@@ -53,8 +53,12 @@ pub enum MalformedQuestion {
         #[source]
         cause: InvalidIdentifier,
     },
+    /// **Carries no field, and that is on purpose.** The accepted set is fixed and finite, so the
+    /// sentence names all five instead of echoing back the one that did not match - the caller's
+    /// text would otherwise sit in a `Debug` rendering unread by any transport, the shape
+    /// `MalformedQuestion` is elsewhere careful never to carry.
     #[error("`grain` is not one of: day, week, month, quarter, year")]
-    Grain { found: String },
+    Grain,
     #[error("`range.{field}` is not a date in `YYYY-MM-DD` form")]
     Date {
         field: &'static str,
@@ -147,9 +151,7 @@ fn grain_of(raw: &str) -> Result<Grain, MalformedQuestion> {
         "month" => Ok(Grain::Month),
         "quarter" => Ok(Grain::Quarter),
         "year" => Ok(Grain::Year),
-        other => Err(MalformedQuestion::Grain {
-            found: String::from(other),
-        }),
+        _other => Err(MalformedQuestion::Grain),
     }
 }
 
@@ -188,7 +190,7 @@ mod tests {
     fn an_unknown_grain_names_the_field_and_the_accepted_set() {
         let error =
             parse_query("revenue", "fortnight", "2026-06-01", "2026-07-01", &[], &[]).expect_err("`fortnight` is not a grain");
-        assert!(matches!(error, MalformedQuestion::Grain { .. }), "{error:?}");
+        assert!(matches!(error, MalformedQuestion::Grain), "{error:?}");
         assert!(error.to_string().contains("quarter"), "{error}");
     }
 

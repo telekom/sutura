@@ -545,7 +545,7 @@ mod tests {
         // A caller fixing a request needs to know which field, and a serde message does not say.
         let error = parse(r#"{"metric":"revenue","grain":"fortnight","range":{"start":"2026-06-01","end":"2026-07-01"}}"#)
             .expect_err("`fortnight` is not a grain");
-        assert!(matches!(error, MalformedQuestion::Grain { .. }), "{error:?}");
+        assert!(matches!(error, MalformedQuestion::Grain), "{error:?}");
         assert!(error.to_string().contains("quarter"), "{error}");
 
         let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"nope","end":"2026-07-01"}}"#)

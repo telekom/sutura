@@ -79,6 +79,24 @@ fn rendering_is_one_function_so_an_anchor_compares_the_same_way_everywhere() {
 }
 
 #[test]
+fn rendered_len_agrees_with_render_for_every_variant_without_cloning_text() {
+    // The two must never drift, for every variant - `rendered_byte_len` trusts this without
+    // rendering. `Text` is the one arm that takes the cheap path instead of calling `render`; a
+    // long value proves the two still agree without proving it by allocating twice.
+    for value in [
+        Value::Null,
+        Value::Integer(197_122),
+        Value::Integer(-1),
+        Value::Real(real(0.3_f64)),
+        Value::Text(String::new()),
+        Value::Text(String::from("north")),
+        Value::Text("x".repeat(9_000_000)),
+    ] {
+        assert_eq!(value.rendered_len(), value.render().len(), "{value:?}");
+    }
+}
+
+#[test]
 fn a_cell_cannot_hold_a_number_that_is_not_one() {
     // THE BUG THIS EXISTS FOR. `Real` used to be a raw `f64`, so a ratio measure declaring
     // `zero_denominator: fails` answered the string "inf" under its own certified metric name:

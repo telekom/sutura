@@ -66,8 +66,8 @@ insta = { workspace = true }
 # dependency rule - `cargo xtask check-boundaries` walks `Edges::Normal` only - and a dev-dependency
 # between two adapters of the same class is exempt for exactly this reason: it is how a differential
 # reaches a second real implementation to compare against, the same shape
-# `sutura-exec-bigquery` dev-depends on `sutura-exec-datafusion` for. Nothing here adds to
-# `Cargo.lock`: `sutura-serve` already resolves this crate and its whole tree normally.
+# `sutura-exec-bigquery` dev-depends on `sutura-exec-datafusion` for. Adds no PACKAGE to
+# `Cargo.lock`: `sutura-http`'s whole tree is already resolved there, by `sutura-serve`.
 sutura-http = { workspace = true }
 # The far side of every test in `src/server.rs`: a REAL MCP client from the same SDK, over an
 # in-memory duplex. That is what "with no client of ours in the loop" means - nothing this crate
