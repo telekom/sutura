@@ -906,6 +906,10 @@ fn a_refusal_naming_a_source_nobody_asked_about_is_a_failure_rather_than_a_refus
 /// Split out for `max-lines` - see that file's own header.
 mod not_validated;
 
+/// `crate::answer` under a REAL, configured `SpendLedger` - split out for the same `max-lines`
+/// reason, and because the local `answer` wrapper above is pinned to `SpendLedger::no_budget()`.
+mod spend_test;
+
 #[test]
 fn the_row_cap_refuses_at_one_row_over_and_cannot_be_lifted_by_a_failed_conversion() {
     // The plan asks a data system for one row MORE than it will certify, so a result carrying

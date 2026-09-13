@@ -483,6 +483,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_federated_answer_sums_both_legs_estimates_before_charging_the_ledger_once() {
+        // `docs/adr/0030`'s "all-or-nothing": neither leg's own price is under the ceiling here, and
+        // the answer must still refuse, because the CEILING is over the SUM (600 + 600 = 1200) and
+        // not over either leg alone (600 < 1000). A mutation that summed only the first leg's
+        // estimate would see 600, admit it, and answer instead of refusing - which is exactly the
+        // substitute this cell exists to catch where `test-causality` cannot separate it from base.
+        let fact_source = SourceName::parse("facts").expect("a test source");
+        let lookup_source = SourceName::parse("geo").expect("a test source");
+        let shared = shared();
+        let warehouses = Warehouses::of(crate::tests_support::PricedWarehouse::pricing(
+            fact_source,
+            shared.clone(),
+            federated_fact_rows(),
+            Some(600),
+        ))
+        .and(crate::tests_support::PricedWarehouse::pricing(
+            lookup_source,
+            shared,
+            federated_lookup_rows(),
+            Some(600),
+        ))
+        .expect("two sources, one registry");
+        let ledger = SpendLedger::new(Some(crate::spend::SpendBudget::new(
+            1_000,
+            std::time::Duration::from_secs(60),
+        )));
+        let outcome = answer_federated(
+            &bundle(),
+            &federated_plan(),
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &warehouses,
+            FEDERATED_BUDGET,
+            test_deadline(),
+            &ledger,
+        )
+        .expect("a refusal is an Ok")
+        .into_outcome();
+        assert!(
+            matches!(
+                outcome,
+                ToolOutcome::Refusal {
+                    reason: RefusalReason::BudgetExhausted { .. }
+                }
+            ),
+            "the summed estimate (1200) is over the ceiling (1000), even though neither leg alone is: {outcome:?}"
+        );
+    }
+
     /// `docs/adr/0029` decision 3's own RED cell - split out so this file stays under the
     /// `max-lines` cap it was already at before this record.
     mod deadline_test;

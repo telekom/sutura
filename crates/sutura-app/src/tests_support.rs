@@ -290,6 +290,10 @@ impl Warehouse for FixedWarehouse {
     }
 }
 
+/// [`PricedWarehouse`] - split out for this file's own `max-lines` reason, above.
+mod priced;
+pub(crate) use priced::PricedWarehouse;
+
 /// A fake that scripts the query pre-flight and records whether execution was reached.
 pub(crate) struct PreflightWarehouse<const EXECUTES_LEGS: bool> {
     source: SourceName,
