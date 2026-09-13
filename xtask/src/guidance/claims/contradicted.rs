@@ -533,4 +533,73 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        // github.com/telekom/sutura#159. `BigQueryWarehouse::IMPERSONATION` moved from
+        // `NoPlaceForASubject` to `PerSubjectCredential` and the correction landed in the crate's
+        // own module doc (`crates/sutura-exec-bigquery/src/lib.rs`) but never reached the four
+        // prose sites that stated the old value - three in 0017, one in 0018 - which is the exact
+        // shape this table exists for: one correction, N sibling documents, and the sibling that
+        // was missed is a failure rather than a survivor.
+        name: "the BigQuery adapter has no place for a subject",
+        wordings: &["IMPERSONATION` still reads `NoPlaceForASubject`"],
+        evidence: &[Evidence {
+            path: "crates/sutura-exec-bigquery/src/lib.rs",
+            holds: "ImpersonationCapability::PerSubjectCredential",
+        }],
+        instead: "`BigQueryWarehouse::IMPERSONATION` is `ImpersonationCapability::PerSubjectCredential`, \
+                  so a source declared `impersonation-at-source` can be opened here and the posture \
+                  cross-check no longer refuses it by name. What is still unbuilt is a broker that \
+                  mints a per-leg credential through this capability - `crates/sutura-exec-bigquery/src/lib.rs` \
+                  states both halves",
+        only: &[],
+        // Both records state the old value and amend it in place, per this repository's own rule
+        // for a record: preserve the sentence and correct it beside itself. Excepting them is what
+        // stops this entry firing against its own fix; every OTHER page is still held to it.
+        except: &[
+            "docs/adr/0017-what-a-bigquery-test-runs-against.md",
+            "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
+        ],
+    },
+    Contradicted {
+        // github.com/telekom/sutura#159. `AGENTS.md` carried a *Built And Not Wired* section that
+        // registered every claim with no mechanism behind it; the register MOVED to
+        // `.agents/skills/sutura/query-surface/SKILL.md` under the router rewrite, renamed to
+        // lowercase on the way (*Built and not wired*). Four ADRs (0007, 0008, 0017, 0018) still
+        // cite the old capitalised name as if it were still in `AGENTS.md`. ADR 0016 already cites
+        // the new location correctly, which is the evidence a reader needs to trust the register
+        // moved rather than vanished. The capitalisation split is deliberate and load-bearing: it
+        // is what makes this wording match only the four stale sites and none of the six correct
+        // ones (checked: `git grep -c 'Built And Not Wired'` is 4, `git grep -c 'Built and not
+        // wired'` is 6, and the two sets do not overlap).
+        name: "AGENTS.md carries a Built And Not Wired section",
+        // NOT the bare phrase "Built And Not Wired" - measured against the real tree, that also
+        // matches `nix/shipped.nix`'s own comment ("the shape this repository files under *Built
+        // And Not Wired*"), which names the CONCEPT and no location, and is still true regardless
+        // of which file holds the register. `just hygiene` caught this: the first version of this
+        // entry refused a correct file. Three wordings instead, each anchored to the ATTRIBUTION
+        // ("AGENTS.md ... Built And Not Wired") rather than the bare phrase - 0007 phrases it
+        // differently from the other three (no `'s` construction), hence three rather than one.
+        wordings: &[
+            "`AGENTS.md`'s *Built And Not Wired*",
+            "AGENTS.md's *Built And Not Wired*",
+            "AGENTS.md has a section named after that mistake",
+        ],
+        evidence: &[Evidence {
+            path: ".agents/skills/sutura/query-surface/SKILL.md",
+            holds: "Built and not wired",
+        }],
+        instead: "the register is `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not \
+                  wired* section now; `AGENTS.md` carries no such section. ADR 0016 cites it \
+                  correctly",
+        only: &[],
+        // All four state the old name and amend it in place beside itself, per this repository's
+        // own rule for a record. ADR 0016, which already cites the new location, is deliberately
+        // NOT here - it has nothing to except.
+        except: &[
+            "docs/adr/0007-federating-across-different-data-systems.md",
+            "docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md",
+            "docs/adr/0017-what-a-bigquery-test-runs-against.md",
+            "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
+        ],
+    },
 ];

@@ -350,6 +350,14 @@ everybody who asks. So what is established is *accepted, and correct for that id
 `BigQueryWarehouse::IMPERSONATION` still reads `NoPlaceForASubject`, and nothing here is a step towards
 per-subject execution.
 
+**Corrected: the constant moved, and this section did not follow it.** `IMPERSONATION` is
+`ImpersonationCapability::PerSubjectCredential` now - `crates/sutura-exec-bigquery/src/lib.rs`'s own
+module doc states the same fact correctly, in the paragraph the corpus leg above sits beside. A leg
+presenting `Presented::SubjectToken` or `Presented::SubjectPrincipal` has somewhere to go: the token
+rides as the job's bearer. **What this section's premise still gets right:** the corpus leg tested
+here runs on the service-account credential, so a green run says nothing about the per-subject path -
+that is a broker minting a per-leg credential through this capability, and it is still unbuilt.
+
 ### The service-account flow, and what it cost
 
 `0017`'s fixture decision named a developer's own login, and CI can only hold a key - so the credential
@@ -470,6 +478,9 @@ remove the property the test would be checking around.
 
 - `sutura-exec-bigquery` stays in AGENTS.md's *Built And Not Wired* section, one line further along.
   Nothing in it may be cited as an invariant.
+  **Corrected: the section is `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not
+  wired* now** - `AGENTS.md` carries no such section. Nothing named there may be cited as an
+  invariant either.
 - The `data_systems:` axis of `crates/sutura-app/tests/adapters/mod.rs` still gains **no** entry.
   That registry's rule is that an entry is something somebody could deploy, and a cell that has never
   executed reads as coverage. It gains one in the change that pastes a green acceptance run.
