@@ -839,6 +839,8 @@
       
         
       
+        
+      
     
     
     
@@ -1652,6 +1654,34 @@
     
   
     Who may see a metric
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0029-where-a-deadline-lives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where a deadline lives
   
 
     
@@ -4250,7 +4280,7 @@ the disabled path costs nothing at runtime and nothing at all in the response pa
 <p>A quota set so high it never fires would have been the alternative, and it is worse: it reads as
 a configured limit in a log and in a review, and it is not one.</p>
 <h3 id="fn-enforce_timeout"><code>fn enforce_timeout</code><a class="headerlink" href="#fn-enforce_timeout" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-97-1"><a id="__codelineno-97-1" name="__codelineno-97-1" href="#__codelineno-97-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">enforce_timeout</span><span class="p">(</span><span class="n">__arg0</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">State</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">time</span><span class="p">::</span><span class="n">Duration</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">middleware</span><span class="p">::</span><span class="n">Next</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">response</span><span class="p">::</span><span class="n">Response</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-97-1"><a id="__codelineno-97-1" name="__codelineno-97-1" href="#__codelineno-97-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">enforce_timeout</span><span class="p">(</span><span class="n">__arg0</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">State</span><span class="o">&lt;</span><span class="n">sutura_config</span><span class="p">::</span><span class="n">RequestTimeout</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">middleware</span><span class="p">::</span><span class="n">Next</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">response</span><span class="p">::</span><span class="n">Response</span>
 </span></code></pre></div>
 <p>Gives up on a request that outran the configured bound, with the documented body.</p>
 <p><strong>Written here rather than taken from <code>tower_http</code>, and the reason is a body.</strong>
@@ -4262,6 +4292,11 @@ constructed. Ten lines here is the whole cost of the response shape being one sh
 <p>It bounds <em>the response</em>, which is what a caller experiences, and not the work: a question
 already handed to the blocking pool keeps running until the data system answers it. Cancelling
 that needs a cancellation token the <code>Warehouse</code> port does not have.</p>
+<p><strong>Also where the port's <code>Deadline</code> is opened</strong>, at the instant this layer is reached - before
+admission, so the wait for a concurrency slot sits inside the caller's own bound rather than
+adds to it (<code>docs/adr/0029</code>). Inserted as a request extension, which is what lets the route
+handler read it with no state of its own to thread it through: <code>crate::inbound::VerifiedCaller</code>
+reaches the handler the same way, for the same reason.</p>
 <h3 id="type_alias-ratelimit"><code>type_alias RateLimit</code><a class="headerlink" href="#type_alias-ratelimit" title="Permanent link">&para;</a></h3>
 <p>A limiter layer, keyed by whatever <code>ClientAddress</code> attributes a request to, reporting its
 state in response headers.</p>

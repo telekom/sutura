@@ -1191,6 +1191,8 @@
       
         
       
+        
+      
     
     
     
@@ -2004,6 +2006,34 @@
     
   
     Who may see a metric
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0029-where-a-deadline-lives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where a deadline lives
   
 
     
@@ -3760,6 +3790,11 @@ depends on why:</p>
 <td><code>legs_decide_identity_differently</code></td>
 <td><code>409</code></td>
 <td>Ask the same metric without the dimension on the second data system. The two data systems decide who is asking in two different ways, and a total made of rows read under two identities is a number neither is entitled to. No published build can reach it - every linked adapter serves everyone as one identity</td>
+</tr>
+<tr>
+<td><code>deadline_exceeded</code></td>
+<td><code>422</code></td>
+<td>Narrow the period, group by fewer dimensions or add a filter. This deployment stopped the question after its configured budget (<code>server.request_timeout_seconds</code> minus a one-second margin); the sentence names it. <code>docs/adr/0029</code> records the shape - no adapter this release links stops mid-flight on it yet</td>
 </tr>
 </tbody>
 </table>

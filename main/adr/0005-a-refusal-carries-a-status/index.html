@@ -841,6 +841,8 @@
       
         
       
+        
+      
     
     
     
@@ -1795,6 +1797,34 @@
     
   
     Who may see a metric
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0029-where-a-deadline-lives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where a deadline lives
   
 
     
@@ -2975,6 +3005,11 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <td><code>LegsDecideIdentityDifferently</code></td>
 <td><code>409</code></td>
 <td><strong>Added after this record was accepted, with the rule that one answer's legs must decide identity the same way.</strong> Two legs of one answer would run under different identity postures, so the answer is refused rather than combined and disclosed. The same grouping as the <code>409</code>s above and for the same reason: answerable in principle, and this deployment will not express it as one answer</td>
+</tr>
+<tr>
+<td><code>DeadlineExceeded</code></td>
+<td><code>422</code></td>
+<td><strong>Added by <a href="../0029-where-a-deadline-lives/">0029</a>.</strong> This answer ran out of the time it was given - at the data system, or found already spent before it was ever asked. <code>422</code> under this record's own rule: the deployment decided the bound and the data system enforced it, so something WAS judged, and repeating the request unchanged spends the whole budget again. Not <code>503</code> or <code>408</code>, for the reasons <code>ResourcesExhausted</code> already established for a configured bound. The sentence names the configured budget in seconds</td>
 </tr>
 </tbody>
 </table>

@@ -839,6 +839,8 @@
       
         
       
+        
+      
     
     
     
@@ -1652,6 +1654,34 @@
     
   
     Who may see a metric
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0029-where-a-deadline-lives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where a deadline lives
   
 
     
@@ -8334,6 +8364,7 @@ somebody else's input.</p>
 <li><code>CredentialUnavailable</code> - The asking subject has no credential at that data system.</li>
 <li><code>SourceRefused</code> - The data system refused the executed statement because the identity it ran it as may not ask it.</li>
 <li><code>LegsDecideIdentityDifferently</code> - The legs of one answer would not all decide identity the same way.</li>
+<li><code>DeadlineExceeded</code> - This answer ran out of the time it was given, at the data system or before it was ever asked.</li>
 </ul>
 <h4 id="methods_70">Methods<a class="headerlink" href="#methods_70" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-445-1"><a id="__codelineno-445-1" name="__codelineno-445-1" href="#__codelineno-445-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
@@ -9107,33 +9138,34 @@ is being asked for.</p>
 </span><span id="__span-510-2"><a id="__codelineno-510-2" name="__codelineno-510-2" href="#__codelineno-510-2"></a>use sutura_domain::model::SourceName;
 </span><span id="__span-510-3"><a id="__codelineno-510-3" name="__codelineno-510-3" href="#__codelineno-510-3"></a>use sutura_domain::plan::{AnchorPlan, Executable};
 </span><span id="__span-510-4"><a id="__codelineno-510-4" name="__codelineno-510-4" href="#__codelineno-510-4"></a>use sutura_domain::source::SourcePosture;
-</span><span id="__span-510-5"><a id="__codelineno-510-5" name="__codelineno-510-5" href="#__codelineno-510-5"></a>use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
-</span><span id="__span-510-6"><a id="__codelineno-510-6" name="__codelineno-510-6" href="#__codelineno-510-6"></a>
-</span><span id="__span-510-7"><a id="__codelineno-510-7" name="__codelineno-510-7" href="#__codelineno-510-7"></a>struct Undeclared {
-</span><span id="__span-510-8"><a id="__codelineno-510-8" name="__codelineno-510-8" href="#__codelineno-510-8"></a>    source: SourceName,
-</span><span id="__span-510-9"><a id="__codelineno-510-9" name="__codelineno-510-9" href="#__codelineno-510-9"></a>    posture: SourcePosture,
-</span><span id="__span-510-10"><a id="__codelineno-510-10" name="__codelineno-510-10" href="#__codelineno-510-10"></a>}
-</span><span id="__span-510-11"><a id="__codelineno-510-11" name="__codelineno-510-11" href="#__codelineno-510-11"></a>
-</span><span id="__span-510-12"><a id="__codelineno-510-12" name="__codelineno-510-12" href="#__codelineno-510-12"></a>// No `const IMPERSONATION`, so this impl is incomplete: the trait declares it with no default.
-</span><span id="__span-510-13"><a id="__codelineno-510-13" name="__codelineno-510-13" href="#__codelineno-510-13"></a>impl Warehouse for Undeclared {
-</span><span id="__span-510-14"><a id="__codelineno-510-14" name="__codelineno-510-14" href="#__codelineno-510-14"></a>    type Error = core::fmt::Error;
-</span><span id="__span-510-15"><a id="__codelineno-510-15" name="__codelineno-510-15" href="#__codelineno-510-15"></a>
-</span><span id="__span-510-16"><a id="__codelineno-510-16" name="__codelineno-510-16" href="#__codelineno-510-16"></a>    fn source(&amp;self) -&gt; &amp;SourceName {
-</span><span id="__span-510-17"><a id="__codelineno-510-17" name="__codelineno-510-17" href="#__codelineno-510-17"></a>        &amp;self.source
-</span><span id="__span-510-18"><a id="__codelineno-510-18" name="__codelineno-510-18" href="#__codelineno-510-18"></a>    }
-</span><span id="__span-510-19"><a id="__codelineno-510-19" name="__codelineno-510-19" href="#__codelineno-510-19"></a>
-</span><span id="__span-510-20"><a id="__codelineno-510-20" name="__codelineno-510-20" href="#__codelineno-510-20"></a>    fn posture(&amp;self) -&gt; &amp;SourcePosture {
-</span><span id="__span-510-21"><a id="__codelineno-510-21" name="__codelineno-510-21" href="#__codelineno-510-21"></a>        &amp;self.posture
-</span><span id="__span-510-22"><a id="__codelineno-510-22" name="__codelineno-510-22" href="#__codelineno-510-22"></a>    }
-</span><span id="__span-510-23"><a id="__codelineno-510-23" name="__codelineno-510-23" href="#__codelineno-510-23"></a>
-</span><span id="__span-510-24"><a id="__codelineno-510-24" name="__codelineno-510-24" href="#__codelineno-510-24"></a>    fn execute(&amp;self, _executable: Executable&lt;'_&gt;, _presented: &amp;Presented) -&gt; Result&lt;RowSet, Self::Error&gt; {
-</span><span id="__span-510-25"><a id="__codelineno-510-25" name="__codelineno-510-25" href="#__codelineno-510-25"></a>        Err(core::fmt::Error)
-</span><span id="__span-510-26"><a id="__codelineno-510-26" name="__codelineno-510-26" href="#__codelineno-510-26"></a>    }
-</span><span id="__span-510-27"><a id="__codelineno-510-27" name="__codelineno-510-27" href="#__codelineno-510-27"></a>
-</span><span id="__span-510-28"><a id="__codelineno-510-28" name="__codelineno-510-28" href="#__codelineno-510-28"></a>    fn verify_anchor(&amp;self, _plan: AnchorPlan&lt;'_&gt;) -&gt; Result&lt;AnchorRows, Self::Error&gt; {
-</span><span id="__span-510-29"><a id="__codelineno-510-29" name="__codelineno-510-29" href="#__codelineno-510-29"></a>        Err(core::fmt::Error)
-</span><span id="__span-510-30"><a id="__codelineno-510-30" name="__codelineno-510-30" href="#__codelineno-510-30"></a>    }
-</span><span id="__span-510-31"><a id="__codelineno-510-31" name="__codelineno-510-31" href="#__codelineno-510-31"></a>}
+</span><span id="__span-510-5"><a id="__codelineno-510-5" name="__codelineno-510-5" href="#__codelineno-510-5"></a>use sutura_domain::warehouse::deadline::Deadline;
+</span><span id="__span-510-6"><a id="__codelineno-510-6" name="__codelineno-510-6" href="#__codelineno-510-6"></a>use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+</span><span id="__span-510-7"><a id="__codelineno-510-7" name="__codelineno-510-7" href="#__codelineno-510-7"></a>
+</span><span id="__span-510-8"><a id="__codelineno-510-8" name="__codelineno-510-8" href="#__codelineno-510-8"></a>struct Undeclared {
+</span><span id="__span-510-9"><a id="__codelineno-510-9" name="__codelineno-510-9" href="#__codelineno-510-9"></a>    source: SourceName,
+</span><span id="__span-510-10"><a id="__codelineno-510-10" name="__codelineno-510-10" href="#__codelineno-510-10"></a>    posture: SourcePosture,
+</span><span id="__span-510-11"><a id="__codelineno-510-11" name="__codelineno-510-11" href="#__codelineno-510-11"></a>}
+</span><span id="__span-510-12"><a id="__codelineno-510-12" name="__codelineno-510-12" href="#__codelineno-510-12"></a>
+</span><span id="__span-510-13"><a id="__codelineno-510-13" name="__codelineno-510-13" href="#__codelineno-510-13"></a>// No `const IMPERSONATION`, so this impl is incomplete: the trait declares it with no default.
+</span><span id="__span-510-14"><a id="__codelineno-510-14" name="__codelineno-510-14" href="#__codelineno-510-14"></a>impl Warehouse for Undeclared {
+</span><span id="__span-510-15"><a id="__codelineno-510-15" name="__codelineno-510-15" href="#__codelineno-510-15"></a>    type Error = core::fmt::Error;
+</span><span id="__span-510-16"><a id="__codelineno-510-16" name="__codelineno-510-16" href="#__codelineno-510-16"></a>
+</span><span id="__span-510-17"><a id="__codelineno-510-17" name="__codelineno-510-17" href="#__codelineno-510-17"></a>    fn source(&amp;self) -&gt; &amp;SourceName {
+</span><span id="__span-510-18"><a id="__codelineno-510-18" name="__codelineno-510-18" href="#__codelineno-510-18"></a>        &amp;self.source
+</span><span id="__span-510-19"><a id="__codelineno-510-19" name="__codelineno-510-19" href="#__codelineno-510-19"></a>    }
+</span><span id="__span-510-20"><a id="__codelineno-510-20" name="__codelineno-510-20" href="#__codelineno-510-20"></a>
+</span><span id="__span-510-21"><a id="__codelineno-510-21" name="__codelineno-510-21" href="#__codelineno-510-21"></a>    fn posture(&amp;self) -&gt; &amp;SourcePosture {
+</span><span id="__span-510-22"><a id="__codelineno-510-22" name="__codelineno-510-22" href="#__codelineno-510-22"></a>        &amp;self.posture
+</span><span id="__span-510-23"><a id="__codelineno-510-23" name="__codelineno-510-23" href="#__codelineno-510-23"></a>    }
+</span><span id="__span-510-24"><a id="__codelineno-510-24" name="__codelineno-510-24" href="#__codelineno-510-24"></a>
+</span><span id="__span-510-25"><a id="__codelineno-510-25" name="__codelineno-510-25" href="#__codelineno-510-25"></a>    fn execute(&amp;self, _executable: Executable&lt;'_&gt;, _presented: &amp;Presented, _deadline: Deadline) -&gt; Result&lt;RowSet, Self::Error&gt; {
+</span><span id="__span-510-26"><a id="__codelineno-510-26" name="__codelineno-510-26" href="#__codelineno-510-26"></a>        Err(core::fmt::Error)
+</span><span id="__span-510-27"><a id="__codelineno-510-27" name="__codelineno-510-27" href="#__codelineno-510-27"></a>    }
+</span><span id="__span-510-28"><a id="__codelineno-510-28" name="__codelineno-510-28" href="#__codelineno-510-28"></a>
+</span><span id="__span-510-29"><a id="__codelineno-510-29" name="__codelineno-510-29" href="#__codelineno-510-29"></a>    fn verify_anchor(&amp;self, _plan: AnchorPlan&lt;'_&gt;) -&gt; Result&lt;AnchorRows, Self::Error&gt; {
+</span><span id="__span-510-30"><a id="__codelineno-510-30" name="__codelineno-510-30" href="#__codelineno-510-30"></a>        Err(core::fmt::Error)
+</span><span id="__span-510-31"><a id="__codelineno-510-31" name="__codelineno-510-31" href="#__codelineno-510-31"></a>    }
+</span><span id="__span-510-32"><a id="__codelineno-510-32" name="__codelineno-510-32" href="#__codelineno-510-32"></a>}
 </span></code></pre></div>
 <p>The compiling twin, so the block above cannot be passing on a typo - the only difference between
 the two is the one line that declares the capability:</p>
@@ -9141,39 +9173,40 @@ the two is the one line that declares the capability:</p>
 </span><span id="__span-511-2"><a id="__codelineno-511-2" name="__codelineno-511-2" href="#__codelineno-511-2"></a>use sutura_domain::model::SourceName;
 </span><span id="__span-511-3"><a id="__codelineno-511-3" name="__codelineno-511-3" href="#__codelineno-511-3"></a>use sutura_domain::plan::{AnchorPlan, Executable};
 </span><span id="__span-511-4"><a id="__codelineno-511-4" name="__codelineno-511-4" href="#__codelineno-511-4"></a>use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-</span><span id="__span-511-5"><a id="__codelineno-511-5" name="__codelineno-511-5" href="#__codelineno-511-5"></a>use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
-</span><span id="__span-511-6"><a id="__codelineno-511-6" name="__codelineno-511-6" href="#__codelineno-511-6"></a>
-</span><span id="__span-511-7"><a id="__codelineno-511-7" name="__codelineno-511-7" href="#__codelineno-511-7"></a>struct Declared {
-</span><span id="__span-511-8"><a id="__codelineno-511-8" name="__codelineno-511-8" href="#__codelineno-511-8"></a>    source: SourceName,
-</span><span id="__span-511-9"><a id="__codelineno-511-9" name="__codelineno-511-9" href="#__codelineno-511-9"></a>    posture: SourcePosture,
-</span><span id="__span-511-10"><a id="__codelineno-511-10" name="__codelineno-511-10" href="#__codelineno-511-10"></a>}
-</span><span id="__span-511-11"><a id="__codelineno-511-11" name="__codelineno-511-11" href="#__codelineno-511-11"></a>
-</span><span id="__span-511-12"><a id="__codelineno-511-12" name="__codelineno-511-12" href="#__codelineno-511-12"></a>impl Warehouse for Declared {
-</span><span id="__span-511-13"><a id="__codelineno-511-13" name="__codelineno-511-13" href="#__codelineno-511-13"></a>    type Error = core::fmt::Error;
-</span><span id="__span-511-14"><a id="__codelineno-511-14" name="__codelineno-511-14" href="#__codelineno-511-14"></a>
-</span><span id="__span-511-15"><a id="__codelineno-511-15" name="__codelineno-511-15" href="#__codelineno-511-15"></a>    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-</span><span id="__span-511-16"><a id="__codelineno-511-16" name="__codelineno-511-16" href="#__codelineno-511-16"></a>
-</span><span id="__span-511-17"><a id="__codelineno-511-17" name="__codelineno-511-17" href="#__codelineno-511-17"></a>    fn source(&amp;self) -&gt; &amp;SourceName {
-</span><span id="__span-511-18"><a id="__codelineno-511-18" name="__codelineno-511-18" href="#__codelineno-511-18"></a>        &amp;self.source
-</span><span id="__span-511-19"><a id="__codelineno-511-19" name="__codelineno-511-19" href="#__codelineno-511-19"></a>    }
-</span><span id="__span-511-20"><a id="__codelineno-511-20" name="__codelineno-511-20" href="#__codelineno-511-20"></a>
-</span><span id="__span-511-21"><a id="__codelineno-511-21" name="__codelineno-511-21" href="#__codelineno-511-21"></a>    fn posture(&amp;self) -&gt; &amp;SourcePosture {
-</span><span id="__span-511-22"><a id="__codelineno-511-22" name="__codelineno-511-22" href="#__codelineno-511-22"></a>        &amp;self.posture
-</span><span id="__span-511-23"><a id="__codelineno-511-23" name="__codelineno-511-23" href="#__codelineno-511-23"></a>    }
-</span><span id="__span-511-24"><a id="__codelineno-511-24" name="__codelineno-511-24" href="#__codelineno-511-24"></a>
-</span><span id="__span-511-25"><a id="__codelineno-511-25" name="__codelineno-511-25" href="#__codelineno-511-25"></a>    fn execute(&amp;self, _executable: Executable&lt;'_&gt;, _presented: &amp;Presented) -&gt; Result&lt;RowSet, Self::Error&gt; {
-</span><span id="__span-511-26"><a id="__codelineno-511-26" name="__codelineno-511-26" href="#__codelineno-511-26"></a>        Err(core::fmt::Error)
-</span><span id="__span-511-27"><a id="__codelineno-511-27" name="__codelineno-511-27" href="#__codelineno-511-27"></a>    }
-</span><span id="__span-511-28"><a id="__codelineno-511-28" name="__codelineno-511-28" href="#__codelineno-511-28"></a>
-</span><span id="__span-511-29"><a id="__codelineno-511-29" name="__codelineno-511-29" href="#__codelineno-511-29"></a>    fn verify_anchor(&amp;self, _plan: AnchorPlan&lt;'_&gt;) -&gt; Result&lt;AnchorRows, Self::Error&gt; {
-</span><span id="__span-511-30"><a id="__codelineno-511-30" name="__codelineno-511-30" href="#__codelineno-511-30"></a>        Err(core::fmt::Error)
-</span><span id="__span-511-31"><a id="__codelineno-511-31" name="__codelineno-511-31" href="#__codelineno-511-31"></a>    }
-</span><span id="__span-511-32"><a id="__codelineno-511-32" name="__codelineno-511-32" href="#__codelineno-511-32"></a>}
-</span><span id="__span-511-33"><a id="__codelineno-511-33" name="__codelineno-511-33" href="#__codelineno-511-33"></a>
-</span><span id="__span-511-34"><a id="__codelineno-511-34" name="__codelineno-511-34" href="#__codelineno-511-34"></a>assert_eq!(
-</span><span id="__span-511-35"><a id="__codelineno-511-35" name="__codelineno-511-35" href="#__codelineno-511-35"></a>    &lt;Declared as Warehouse&gt;::IMPERSONATION,
-</span><span id="__span-511-36"><a id="__codelineno-511-36" name="__codelineno-511-36" href="#__codelineno-511-36"></a>    ImpersonationCapability::NoPlaceForASubject
-</span><span id="__span-511-37"><a id="__codelineno-511-37" name="__codelineno-511-37" href="#__codelineno-511-37"></a>);
+</span><span id="__span-511-5"><a id="__codelineno-511-5" name="__codelineno-511-5" href="#__codelineno-511-5"></a>use sutura_domain::warehouse::deadline::Deadline;
+</span><span id="__span-511-6"><a id="__codelineno-511-6" name="__codelineno-511-6" href="#__codelineno-511-6"></a>use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+</span><span id="__span-511-7"><a id="__codelineno-511-7" name="__codelineno-511-7" href="#__codelineno-511-7"></a>
+</span><span id="__span-511-8"><a id="__codelineno-511-8" name="__codelineno-511-8" href="#__codelineno-511-8"></a>struct Declared {
+</span><span id="__span-511-9"><a id="__codelineno-511-9" name="__codelineno-511-9" href="#__codelineno-511-9"></a>    source: SourceName,
+</span><span id="__span-511-10"><a id="__codelineno-511-10" name="__codelineno-511-10" href="#__codelineno-511-10"></a>    posture: SourcePosture,
+</span><span id="__span-511-11"><a id="__codelineno-511-11" name="__codelineno-511-11" href="#__codelineno-511-11"></a>}
+</span><span id="__span-511-12"><a id="__codelineno-511-12" name="__codelineno-511-12" href="#__codelineno-511-12"></a>
+</span><span id="__span-511-13"><a id="__codelineno-511-13" name="__codelineno-511-13" href="#__codelineno-511-13"></a>impl Warehouse for Declared {
+</span><span id="__span-511-14"><a id="__codelineno-511-14" name="__codelineno-511-14" href="#__codelineno-511-14"></a>    type Error = core::fmt::Error;
+</span><span id="__span-511-15"><a id="__codelineno-511-15" name="__codelineno-511-15" href="#__codelineno-511-15"></a>
+</span><span id="__span-511-16"><a id="__codelineno-511-16" name="__codelineno-511-16" href="#__codelineno-511-16"></a>    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+</span><span id="__span-511-17"><a id="__codelineno-511-17" name="__codelineno-511-17" href="#__codelineno-511-17"></a>
+</span><span id="__span-511-18"><a id="__codelineno-511-18" name="__codelineno-511-18" href="#__codelineno-511-18"></a>    fn source(&amp;self) -&gt; &amp;SourceName {
+</span><span id="__span-511-19"><a id="__codelineno-511-19" name="__codelineno-511-19" href="#__codelineno-511-19"></a>        &amp;self.source
+</span><span id="__span-511-20"><a id="__codelineno-511-20" name="__codelineno-511-20" href="#__codelineno-511-20"></a>    }
+</span><span id="__span-511-21"><a id="__codelineno-511-21" name="__codelineno-511-21" href="#__codelineno-511-21"></a>
+</span><span id="__span-511-22"><a id="__codelineno-511-22" name="__codelineno-511-22" href="#__codelineno-511-22"></a>    fn posture(&amp;self) -&gt; &amp;SourcePosture {
+</span><span id="__span-511-23"><a id="__codelineno-511-23" name="__codelineno-511-23" href="#__codelineno-511-23"></a>        &amp;self.posture
+</span><span id="__span-511-24"><a id="__codelineno-511-24" name="__codelineno-511-24" href="#__codelineno-511-24"></a>    }
+</span><span id="__span-511-25"><a id="__codelineno-511-25" name="__codelineno-511-25" href="#__codelineno-511-25"></a>
+</span><span id="__span-511-26"><a id="__codelineno-511-26" name="__codelineno-511-26" href="#__codelineno-511-26"></a>    fn execute(&amp;self, _executable: Executable&lt;'_&gt;, _presented: &amp;Presented, _deadline: Deadline) -&gt; Result&lt;RowSet, Self::Error&gt; {
+</span><span id="__span-511-27"><a id="__codelineno-511-27" name="__codelineno-511-27" href="#__codelineno-511-27"></a>        Err(core::fmt::Error)
+</span><span id="__span-511-28"><a id="__codelineno-511-28" name="__codelineno-511-28" href="#__codelineno-511-28"></a>    }
+</span><span id="__span-511-29"><a id="__codelineno-511-29" name="__codelineno-511-29" href="#__codelineno-511-29"></a>
+</span><span id="__span-511-30"><a id="__codelineno-511-30" name="__codelineno-511-30" href="#__codelineno-511-30"></a>    fn verify_anchor(&amp;self, _plan: AnchorPlan&lt;'_&gt;) -&gt; Result&lt;AnchorRows, Self::Error&gt; {
+</span><span id="__span-511-31"><a id="__codelineno-511-31" name="__codelineno-511-31" href="#__codelineno-511-31"></a>        Err(core::fmt::Error)
+</span><span id="__span-511-32"><a id="__codelineno-511-32" name="__codelineno-511-32" href="#__codelineno-511-32"></a>    }
+</span><span id="__span-511-33"><a id="__codelineno-511-33" name="__codelineno-511-33" href="#__codelineno-511-33"></a>}
+</span><span id="__span-511-34"><a id="__codelineno-511-34" name="__codelineno-511-34" href="#__codelineno-511-34"></a>
+</span><span id="__span-511-35"><a id="__codelineno-511-35" name="__codelineno-511-35" href="#__codelineno-511-35"></a>assert_eq!(
+</span><span id="__span-511-36"><a id="__codelineno-511-36" name="__codelineno-511-36" href="#__codelineno-511-36"></a>    &lt;Declared as Warehouse&gt;::IMPERSONATION,
+</span><span id="__span-511-37"><a id="__codelineno-511-37" name="__codelineno-511-37" href="#__codelineno-511-37"></a>    ImpersonationCapability::NoPlaceForASubject
+</span><span id="__span-511-38"><a id="__codelineno-511-38" name="__codelineno-511-38" href="#__codelineno-511-38"></a>);
 </span></code></pre></div>
 <h3 id="module-csv">Module <code>csv</code><a class="headerlink" href="#module-csv" title="Permanent link">&para;</a></h3>
 <p>Shared typing for deliberately simple CSV fixtures.
@@ -9882,6 +9915,83 @@ leg - the probe projects nothing but these two - but the two labels are read bac
 than by position, and a label that no column can shadow is what makes reading by label safe.</p>
 <h4 id="constant-distinct_label"><code>constant DISTINCT_LABEL</code><a class="headerlink" href="#constant-distinct_label" title="Permanent link">&para;</a></h4>
 <p>The label the distinct count is projected under. See <code>ROWS_LABEL</code>.</p>
+<h3 id="module-deadline">Module <code>deadline</code><a class="headerlink" href="#module-deadline" title="Permanent link">&para;</a></h3>
+<p>One absolute deadline per answer, and the budget it was opened from.</p>
+<p>A module of its own rather than a type or two added here, for the reason <code>cardinality</code>
+already gives - and because this file was at the <code>max-lines</code> cap the day the record needed
+somewhere to grow (<code>docs/adr/0029</code>). <code>Deadline</code> and <code>Budget</code> are used unqualified below, the
+same way <code>cardinality</code>'s two types are.
+One absolute deadline per answer: how long is left, read against an instant a caller supplies.</p>
+<p>The domain reads no clock - <code>crate::identity::Expiry::passed_by</code> is the precedent, and the same
+shape applies here: <code>now</code> arrives as an argument to <code>Deadline::remaining_at</code> rather than being
+read, so the one comparison this module makes lives here and not at whichever call site happens
+to hold a clock. <code>docs/adr/0029</code> is the record; this module is its first slice, carried by the
+port and not yet enforced by any adapter this release links.</p>
+<h4 id="struct-deadline"><code>struct Deadline</code><a class="headerlink" href="#struct-deadline" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-572-1"><a id="__codelineno-572-1" name="__codelineno-572-1" href="#__codelineno-572-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Deadline</span>
+</span></code></pre></div>
+<p>The instant one answer's execution has to be finished by.</p>
+<p>Opened ONCE per request, by the transport, at the instant the request arrived - before
+admission, so the wait for a concurrency slot sits inside the caller's bound rather than adds to
+it. Shared by the pre-flight, every leg of a federated answer and the re-check between them:
+<code>Self::remaining_at</code> is a comparison against an instant every reader shares, so <em>what is left</em>
+is a read and never a division.</p>
+<p>Two <code>Copy</code> words - an <code>Instant</code> and a <code>Budget</code> - so it crosses into a
+<code>sutura_runtime::spawn_carrying_span</code> closure by value and carries no secret.</p>
+<p><code>PartialEq</code>/<code>Eq</code> so a test can assert that two legs of one federated answer were handed the SAME
+value - one instant, never re-derived - without exposing the instant itself as an accessor a
+caller could otherwise be tempted to compare against its own clock.</p>
+<h5 id="methods_97">Methods<a class="headerlink" href="#methods_97" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-573-1"><a id="__codelineno-573-1" name="__codelineno-573-1" href="#__codelineno-573-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">budget</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Budget</span>
+</span></code></pre></div>
+<p>The budget this deadline opened with - what a refusal that ran out of time names, and never
+how long is left (that is <code>Self::remaining_at</code>, and it needs a <code>now</code> this type does not
+have).</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-574-1"><a id="__codelineno-574-1" name="__codelineno-574-1" href="#__codelineno-574-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">opened_at</span><span class="p">(</span><span class="n">opened</span><span class="p">:</span><span class="w"> </span><span class="nc">Instant</span><span class="p">,</span><span class="w"> </span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="nc">Budget</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a deadline at <code>opened</code>, good for <code>budget</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-575-1"><a id="__codelineno-575-1" name="__codelineno-575-1" href="#__codelineno-575-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">remaining_at</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">now</span><span class="p">:</span><span class="w"> </span><span class="nc">Instant</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Duration</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>What is left at <code>now</code>, or <code>None</code> when it is spent.</p>
+<p><strong>Never a zero duration.</strong> <code>Some(Duration::ZERO)</code> reads as <em>no timeout at all</em> to
+<code>tokio::time::timeout</code> and to every client underneath it, so handing one on would turn a
+spent budget into an unbounded wait rather than a stopped one - the same rule
+<code>sutura_exec_bigquery</code>'s <code>CallDeadline::remaining</code> already follows for its own budget.</p>
+<h5 id="implements_148">Implements<a class="headerlink" href="#implements_148" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="struct-budget"><code>struct Budget</code><a class="headerlink" href="#struct-budget" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-576-1"><a id="__codelineno-576-1" name="__codelineno-576-1" href="#__codelineno-576-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Budget</span>
+</span></code></pre></div>
+<p>How long one answer may execute.</p>
+<p>Parses: non-zero. A zero budget would read as <em>no timeout</em> the moment it reached a client
+underneath - the same rule <code>Deadline::remaining_at</code> applies to what is left mid-flight,
+applied here to what a caller may configure to begin with.</p>
+<p>The only production constructor is <code>sutura_config::RequestTimeout::budget</code>, which subtracts a
+fixed reply margin from the configured request timeout once. <code>Self::parse</code> stays <code>pub</code>
+because a test - and a third transport - needs to build one directly; what holds production is
+that one call site and review, and <code>docs/adr/0029</code> states the limit next to the claim.</p>
+<h5 id="methods_98">Methods<a class="headerlink" href="#methods_98" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-577-1"><a id="__codelineno-577-1" name="__codelineno-577-1" href="#__codelineno-577-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">duration</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>The duration, for the one call site (<code>Deadline::remaining_at</code>) that does arithmetic on it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-578-1"><a id="__codelineno-578-1" name="__codelineno-578-1" href="#__codelineno-578-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NoBudget</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a budget, refusing zero.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-579-1"><a id="__codelineno-579-1" name="__codelineno-579-1" href="#__codelineno-579-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">seconds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>The budget, in whole seconds - what <code>RefusalReason::DeadlineExceeded</code> carries, because it is
+a configured number and not how long the question would have taken, which nobody knows.</p>
+<h5 id="implements_149">Implements<a class="headerlink" href="#implements_149" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="struct-nobudget"><code>struct NoBudget</code><a class="headerlink" href="#struct-nobudget" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-580-1"><a id="__codelineno-580-1" name="__codelineno-580-1" href="#__codelineno-580-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">NoBudget</span>
+</span></code></pre></div>
+<p>Why a duration is not a budget: it is zero.</p>
+<p>Declared last in this file: <code>xtask check-boundaries</code>'s pub-field scan misreads a unit struct
+followed by an <code>impl</code> block as the struct's own fields, a gate defect noted as a PR follow-up
+rather than worked around with more prose here.</p>
+<h5 id="implements_150">Implements<a class="headerlink" href="#implements_150" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 
 
 
