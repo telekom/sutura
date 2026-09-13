@@ -28,6 +28,7 @@ use crate::state::ServiceState;
 
 mod catalog;
 mod query;
+mod run_sql;
 
 /// Every route in this version, with paths relative to the version prefix.
 ///
@@ -40,4 +41,5 @@ pub(crate) fn openapi_router() -> OpenApiRouter<ServiceState> {
         // gap in the document.
         .routes(routes!(catalog::catalog))
         .routes(routes!(query::ask))
+        .routes(routes!(run_sql::run_sql))
 }

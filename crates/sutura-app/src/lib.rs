@@ -642,6 +642,10 @@ pub(crate) const fn deadline_exceeded(deadline: Deadline) -> RefusalReason {
     }
 }
 
+// `docs/adr/0013`'s raw SQL tool - carved out because this file hit the thousand-line limit.
+pub mod raw;
+pub use raw::{AnsweredRaw, RunSqlError, RunningRaw, run_sql};
+
 /// Re-executes every declared anchor and reports what each produced.
 ///
 /// Returns a report rather than a `Result`, because "this one metric no longer computes its number"

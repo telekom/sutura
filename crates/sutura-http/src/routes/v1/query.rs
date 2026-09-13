@@ -344,7 +344,7 @@ pub(crate) async fn ask(
 /// body over the bound indistinguishable from a body with a typo in it, and the documented `413`
 /// was a status nothing produced. Branching on the rejection's own status rather than on its
 /// variant keeps that true across an `axum` release that adds a variant.
-fn rejected(rejection: &JsonRejection) -> Failure {
+pub(super) fn rejected(rejection: &JsonRejection) -> Failure {
     if rejection.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
         return Failure::TooLarge;
     }
@@ -408,7 +408,7 @@ fn is_identifier(key: &str) -> bool {
 /// `warn` and not `error`: shedding is the control working. It is also the line an operator sizes
 /// from, so it carries the bound and the window the caller waited - which the response body
 /// deliberately does not, because those numbers are this deployment's sizing.
-fn refused(shed: &AtCapacity) -> Failure {
+pub(super) fn refused(shed: &AtCapacity) -> Failure {
     tracing::warn!(
         max_concurrent_queries = shed.bound(),
         admission_timeout_seconds = shed.waited().as_secs(),
@@ -424,7 +424,7 @@ fn refused(shed: &AtCapacity) -> Failure {
 /// The split is the point. A data system that did not answer is a `503` and worth retrying; our own
 /// bundle or generator being wrong is a `500` and is not. Neither response carries the message,
 /// because a driver's complaint names a table, a column or a file.
-fn failed(failure: &SurfaceFailure) -> Failure {
+pub(super) fn failed(failure: &SurfaceFailure) -> Failure {
     // The chain is walked to text HERE, at the sink that writes it, and not inside the error. That
     // is the whole of the difference between a failure that can be inspected and one that has
     // already been turned into prose - see `crate::surface`.

@@ -78,6 +78,11 @@ mod prose;
 pub mod catalog;
 pub use catalog::{CatalogContent, DescribeCatalogArgs, DimensionContent, MetricContent};
 
+// The third tool's whole wire shape, for the reason `catalog` has its own module: one whole tool,
+// not a share of lines.
+pub mod raw;
+pub use raw::{MalformedStatement, RawContent, RunSqlArgs};
+
 /// One governed question, as a tool call carries it.
 ///
 /// The five fields are the whole input surface of this deployment. There is no field for SQL, a

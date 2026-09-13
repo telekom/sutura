@@ -368,6 +368,7 @@ pub struct Settings {
     catalogs: Catalogs,
     runtime: RuntimeSettings,
     prompt: PromptSettings,
+    tools: crate::tools::ToolsSettings,
     sources: SourceRegistry,
 }
 
@@ -419,8 +420,17 @@ impl Settings {
             catalogs: parse_catalogs(raw)?,
             runtime: parse_runtime(raw)?,
             prompt: parse_prompt(raw)?,
+            tools: parse_tools(raw),
             sources,
         })
+    }
+
+    /// The tool surface's own settings - which capability beside the certified one this deployment
+    /// turned on.
+    #[inline]
+    #[must_use]
+    pub const fn tools(&self) -> &crate::tools::ToolsSettings {
+        &self.tools
     }
 
     /// Every reason this deployment will not be served, or an empty list.
@@ -450,6 +460,7 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
+        refusals.extend(self.run_sql_refusals());
         refusals.extend(self.credential_refusals(off_host));
         if self.environment.is_production() {
             if !self.rate_limit.enabled() {
@@ -525,6 +536,24 @@ impl Settings {
             }
         }
         refusals
+    }
+
+    /// Whether the raw SQL tool is enabled over a deployment it may not run over -
+    /// `docs/adr/0013`'s boot refusal, reusing the mode `identity_refusals` already reads.
+    ///
+    /// **What this crate can check, and no more.** Whether the LINKED adapter can actually accept a
+    /// raw statement, or carries a per-subject credential, is a property of the composed binary -
+    /// `sutura_domain::warehouse::Warehouse::ACCEPTS_RAW_STATEMENTS` and `::IMPERSONATION` - which
+    /// this crate never links. So this refuses `multi-user` unconditionally rather than only where an
+    /// adapter's declared shape makes it unsafe: today no build links an adapter that is both raw-
+    /// capable and per-subject-credential-capable, so the two questions have the same answer. The day
+    /// one exists, this refusal needs a composition-root counterpart the way the shared-source
+    /// acknowledgement check already has one.
+    fn run_sql_refusals(&self) -> Vec<NotFitToServe> {
+        if self.tools.run_sql_enabled() && self.security.identity() == Some(&DeploymentIdentity::SubjectPerRequest) {
+            return vec![NotFitToServe::RunSqlEnabledInMultiUserMode];
+        }
+        Vec::new()
     }
 
     /// Everything wrong with what a request has to present, and with where it presents it.
@@ -860,6 +889,13 @@ fn parse_runtime(raw: &RawSettings) -> Result<RuntimeSettings, SettingsError> {
 ///
 /// `catalog_prose` is branched on rather than required, so a deployment that removed the key from
 /// its own copy of the defaults gets the default rather than a deserialization failure.
+/// Infallible: a boolean has no invalid form. Named as its own function anyway, matching the other
+/// groups, so `Settings::parse` reads as one list of "read this section" calls rather than one
+/// inline and the rest not.
+const fn parse_tools(raw: &RawSettings) -> crate::tools::ToolsSettings {
+    crate::tools::ToolsSettings::new(raw.tools.run_sql.enabled)
+}
+
 fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {
     let instructions = match raw.prompt.instructions_file.as_deref() {
         None => None,

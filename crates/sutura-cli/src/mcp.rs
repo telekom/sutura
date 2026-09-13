@@ -134,10 +134,20 @@ where
     // releasing the engine then would abort this process. The outer handle below releases it on
     // the main thread, once `shutdown_timeout` has let that in-flight answer finish.
     let service = std::sync::Arc::new(service);
+    // Every capability EXCEPT the raw SQL tool unless this deployment turned it on - the same
+    // narrowing `sutura-http`'s capability layer applies, over the no-authentication case this
+    // transport always is: a pipe has no header a token could arrive in, so scope alone cannot
+    // keep the tool off, and `docs/adr/0013` requires it absent for every caller regardless.
+    let permitted = sutura_app::Permitted::every_capability();
+    let permitted = if settings.tools().run_sql_enabled() {
+        permitted
+    } else {
+        permitted.without(sutura_app::Capability::RunSql)
+    };
     let served = runtime
         .block_on(sutura_mcp::serve_stdio(
             std::sync::Arc::clone(&service),
-            sutura_app::Permitted::every_capability(),
+            permitted,
             prose,
             admission,
             reply,

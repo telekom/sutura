@@ -153,6 +153,16 @@ pub enum PostgresError {
         #[source]
         cause: core::num::ParseIntError,
     },
+    /// The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run.
+    ///
+    /// `docs/adr/0013`'s amendment names this as sutura's own fixed text on the simple query
+    /// protocol - never the caller's - so a failure here is this adapter's own administrative
+    /// command being refused, not anything about the statement the caller sent.
+    #[error("the raw SQL tool's read-only transaction could not be opened")]
+    RawTransaction {
+        #[source]
+        cause: tokio_postgres::Error,
+    },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
@@ -896,6 +906,11 @@ impl Warehouse for PostgresWarehouse {
     const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
         sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
 
+    /// The one adapter this build links that may accept a raw statement at all -
+    /// `docs/adr/0013`'s showcase source. The statement is handed to `tokio-postgres` unexamined;
+    /// Postgres's own parser and its own `GRANT`/`REVOKE` model are what authorize or refuse it.
+    const ACCEPTS_RAW_STATEMENTS: bool = true;
+
     fn source(&self) -> &sutura_domain::model::SourceName {
         &self.source
     }
@@ -949,7 +964,28 @@ impl Warehouse for PostgresWarehouse {
         let rows = self.run(&query)?;
         KeyUniqueness::read(&rows).map_err(|cause| PostgresError::KeyCounts { cause })
     }
+
+    fn execute_raw(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        presented: &Presented,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        Some(self.run_raw(statement, presented))
+    }
+
+    /// Refuses `25006 read_only_sql_transaction` and `42501 insufficient_privilege` as the data
+    /// system saying no about who asked and what they may do, rather than as a generic failure -
+    /// the same split `RefusalReason::SourceRefused` already draws on the certified path, which
+    /// this adapter had not wired for either path until the raw tool needed it. See `raw` for the
+    /// match itself.
+    fn source_refused(&self, error: &Self::Error) -> bool {
+        raw::source_refused(error)
+    }
 }
+
+// `docs/adr/0013`'s raw SQL tool's own execution path - carved out because this file hit the
+// thousand-line limit `cargo xtask max-lines` enforces.
+mod raw;
 
 #[cfg(test)]
 mod tests;

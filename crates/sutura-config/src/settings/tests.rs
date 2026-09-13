@@ -830,3 +830,6 @@ mod metrics;
 /// The `sources:` tree at the deployment level: the mode refusal, the shared-identity
 /// acknowledgement, and the one key no source may ever carry. Carved out for the same reason.
 mod sources;
+
+/// `tools.run_sql`'s own boot refusal. Carved out for the same reason.
+mod tools;

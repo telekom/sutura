@@ -225,7 +225,10 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // is left to forget is a row in `crate::capability::governed`, and `governed_routes` below refuses
     // to assemble over one that is missing.
     governed_routes()?;
-    let versioned = versioned.route_layer(axum::middleware::from_fn(crate::capability::require_capability));
+    let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        crate::capability::require_capability,
+    ));
     // Then leg 1, if this deployment has it: a verified caller, or a `401` with a challenge. INSIDE
     // the deployment token gate added below, because `Router::layer` wraps what is already there - so
     // the cheap comparison runs first and a signature verification is not work an unauthenticated

@@ -5,9 +5,11 @@ description: Why a deployment may enable a general SQL tool beside the certified
 
 # A raw SQL tool, off by default, and the ramp it exists to build
 
-Status: **accepted, and scheduled LAST.** Nothing here is built, and this record does not amend an
-invariant yet - see *What this would change in the invariants* below, which says why the row cannot be
-written before the mechanism exists.
+Status: **accepted, scheduled LAST, and amended 2026-09-13** for the showcase's fork (which source),
+prerequisite 2's interim bound and prerequisite 4's read-only story - see the amendment at the foot of
+this record. Nothing here is built yet, and this record still does not amend an invariant - see *What
+this would change in the invariants* below, which says why the row cannot be written before the
+mechanism exists.
 
 **Corrected:** this said "deliberately UNSCHEDULED" and "no branch in the implementation stack" while
 `docs/implementation-plan.md` carried `feat/raw-sql-tool` as a row, 0009's order table carried
@@ -321,3 +323,141 @@ one.
 - The demo that motivated this becomes reproducible: catalog search plus a select, with the answers
   labelled for what they are, and a path from there to a metric that makes the next identical question
   certified.
+
+## Amendment (2026-09-13): the showcase's source, the interim bound, and the read-only story
+
+Written by the planning lane for `#129`, on `main` at `99109695`. Nothing in this amendment is built;
+it answers the three open questions the base record left for the implementation branch, so the branch
+starts from a decision rather than a discovery.
+
+**The fork is resolved: the showcase points at Postgres.** `#124`/`#653` landed since the base record
+was written - `sources.<alias>.kind: postgres` is declarable, `sutura-serve --features postgres` links
+`sutura-exec-postgres`, and a channel is opened per its declared transport. That source executes with
+`ImpersonationCapability::NoPlaceForASubject` - one connection under the deployment's declared identity,
+no OAuth, no per-subject credential - so it is exactly the `SharedServiceUser` shape the base record's
+table already answers **yes** for, over a network system with its own parser and its own authorization.
+Nothing pins the raw tool to Postgres forever; a source that later declares
+`ImpersonationCapability::PerSubjectCredential` is the stronger shape the base record already prefers
+("available where the source executes as the asking subject"), and this amendment does not foreclose it.
+**The shipped file engine remains out of scope, unchanged**: `datafusion`'s `sql` feature is still off,
+neither `sqlparser` nor `datafusion-sql` is in `Cargo.lock`, and this amendment adds no dependency that
+would put them there.
+
+**No parser is needed, and this is the property rather than an implementation convenience.** The
+statement is handed to `tokio-postgres` as literal, unparsed text; Postgres's own parser and its own
+`GRANT`/`REVOKE` model are what authorize or refuse it. Sutura reads no keyword out of it - the base
+record's own rule against inspecting a statement to decide read-only applies to every other purpose a
+parser might be tempted for, too.
+
+**Prerequisite 4, decided, and corrected once by root: the operator's role grant is still the PRIMARY
+control, and sutura adds a second, real one - not the session-level control the base record already
+rejected.** The first draft of this amendment read the base record's rejection of
+`default_transaction_read_only`/`SET TRANSACTION READ ONLY` as closing every mechanism sutura could add,
+and stopped at "nothing beyond a boot refusal." Root ratified the plan with one flip here: that reading
+proved too much. What the base record rejects is a **setting** sent ahead of the caller's text on a
+**session or connection the caller's next statement can still act on** - true of
+`default_transaction_read_only` and of `SET TRANSACTION READ ONLY` alike, because either is undone by a
+later statement in the same session. It is not true of a transaction sutura itself opens, uses for
+exactly the caller's one statement, and closes by rolling back before the caller ever gets to send a
+second one:
+
+- **Every raw call is exactly one statement, sent through the extended query protocol**
+  (`tokio_postgres::Client::query`/`query_raw`, never the simple query protocol `tokio_postgres::Client::batch_execute`
+  or `simple_query` takes). Postgres refuses more than one command per `Parse`/`Bind`/`Execute` cycle on
+  that protocol - a string carrying `SELECT 1; DROP TABLE t` does not smuggle a second statement in, and
+  sutura reaches that refusal by which driver call it makes, not by counting semicolons in the text: a
+  lexical count is exactly the parser the base record already refuses to write, and a quoted `;` inside a
+  string literal would defeat one anyway.
+- **Sutura wraps that one statement in its own `BEGIN ... READ ONLY` / `ROLLBACK`, unconditionally.**
+  The transaction is opened immediately before the call's statement and rolled back immediately after,
+  whether the statement answered, errored, or hit the timeout - never a `COMMIT`, so nothing the call did
+  persists even where the role's grants would have allowed it to. Inside a transaction Postgres itself
+  opened `READ ONLY`, an `INSERT`/`UPDATE`/`DELETE`/most DDL is refused by the **server** with
+  `25006 read_only_sql_transaction`, independent of what the role could otherwise do - this is the one
+  case the base record says sutura MAY enforce, and it exists here after all: not an adapter-declared
+  read-only *open* flag (Postgres has none, unchanged from the first draft's finding), but an
+  adapter-opened read-only *transaction*, scoped to the one call and never reused.
+- **A caller's own `SET TRANSACTION READ WRITE`, sent as that one statement, flips nothing that survives
+  the call.** It is not a write itself, so the read-only transaction does not refuse it outright - but it
+  has no later statement in the same transaction to apply to before sutura's `ROLLBACK` runs, and no later
+  call reuses that transaction, so the flip is discarded with everything else. This is exactly the
+  property the base record's rejection was checking for and did not have on a shared session: **the
+  caller's text cannot outlive the boundary sutura closes around it.**
+
+So the write boundary for the Postgres showcase is now two things, not one: **the operator's role grant
+is still primary and still an operator responsibility** - a role holding `INSERT`/`UPDATE`/`DELETE`/DDL
+lets a *reader* of an authorized VOLATILE function reach those, see the limit below - **and the read-only
+transaction sutura wraps around every call is a real, server-enforced second control**, catching the
+ordinary case (a statement that is itself a write) even where an operator granted more than the tool
+needs. Neither replaces the other: the transaction boundary answers only the shape "a write statement
+inside the call sutura is making," the role grant is what a reader outside that one call - a later
+certified leg, a different tool, a human with the same credential - is still bound by.
+
+**The limit, named rather than left implicit, and it is not small.** A `READ ONLY` transaction is a
+property of the SQL Postgres recognizes as a write - `INSERT`, `UPDATE`, `DELETE`, most DDL, sequence
+advancement - and says nothing about a VOLATILE function's own side effects once the role may call it.
+A function that writes a file, makes a network call, or uses `dblink`/`pg_notify` to reach outside the
+transaction runs to completion inside a `READ ONLY` block, because Postgres's read-only check inspects
+the statement's own effect on the database, not what a function it calls does beyond that. So the
+transaction boundary bounds *SQL-visible* writes and nothing that happens through a function the role
+is separately authorized to execute - naming that function in the raw statement is enough, and no parser
+here would catch it even if one existed. **And the role grant it does not replace is not verified by
+sutura either way**: nothing here reads back what the connecting role can do, so a deployment believing
+its role has no write grant has sutura's word for neither half - the operator's own `GRANT`/`REVOKE`
+statements are the only source of truth for what the role could do if the transaction boundary were not
+there, and for what a VOLATILE function can still do with it in place.
+
+Sutura's own further contribution is the boot refusal below, which stops the one shape the base record
+calls out by name: a shared credential answering for every caller with no per-caller identity ever
+established.
+
+**The multi-user boot refusal, using the mechanism this deployment already has.** `sutura-config`
+already declares deployment mode as a fact the operator states rather than derives -
+`DeploymentIdentity::StaticCredentials` (`single-user`, with a written reason) or
+`DeploymentIdentity::SubjectPerRequest` (`multi-user`) - and already refuses an unacknowledged
+`shared-service-user` source under the multi-user mode (`Settings::identity_refusals`,
+`NotFitToServe::SharedSourceNotAcknowledged`). The raw tool's refusal is the same shape, reusing the same
+declared mode rather than inventing a second one: **a deployment that turns the raw-tool capability on
+over a source whose adapter cannot exceed `SharedServiceUser` (Postgres, in this build) while
+`security.identity` is `multi-user` does not start.** This is the "same reason, same mechanism" the base
+record's consequences section already calls for; it is new code (`Settings::refusals` gains a case) and
+not a restatement of the existing one, because the existing check is about acknowledgement and this one
+is about whether the raw tool may be enabled over that posture at all - a source can be a fully
+acknowledged shared source for the certified path and still be the wrong shape for arbitrary text under
+it. **The limit, stated with the claim:** this is a boot-time refusal over a declared mode and a coded
+adapter capability, not a runtime check that a caller's identity actually varies - `single-user` is
+still a word an operator writes, and nothing here verifies that a `single-user` deployment truly has one
+user.
+
+**Prerequisite 2, the interim answer: ship on the bound Postgres already enforces, and name exactly what
+it is not.** `telekom/sutura#160` PR1 (in flight, not yet on `main`) puts a `Deadline` on the port; engine
+cancellation is PR2 and a Postgres `statement_timeout` *derived from that deadline* is PR4 - none of
+which is discharged by PR1 landing alone. Waiting for PR4 is the literal reading of "the deadline
+travelling on the port... is a prerequisite of this tool," but the merged Postgres adapter already sets
+`SET statement_timeout = <SUTURA_DEV_STATEMENT_TIMEOUT_MS, default 15000>` once, at connect
+(`PostgresWarehouse::connect_secured`), and the base record's own worry - a cross join that never
+returns, which no row cap reached after the fact can stop - is already answered by that line: the
+**server itself** aborts the statement, which is real per-adapter cancellation in the sense that
+mattered to the base record (not "the caller stops waiting"). What it is NOT is the caller's own
+request budget: the ceiling is one fixed, deployment-wide number, read once per connection, generous by
+design ("a development tier, not a query budget") and not narrowed to whatever is left of
+`server.request_timeout_seconds` for this particular call. **The decision: ship the raw tool's execution
+on this existing ceiling rather than block on `#160` PR4**, because the property the base record asked
+for - a runaway statement is killed by the source, not merely abandoned by the caller - already holds
+for Postgres today, and the gap is precision of the number rather than absence of a bound. **The limit,
+named rather than left implicit:** every statement on a raw-tool connection - certified legs sharing the
+connection are unaffected, since a fixture-only connection is not shared - runs under one ceiling for
+every caller and every question, so a caller with a five-second budget and a caller with the deployment's
+full timeout are bounded identically; `#160` PR4 is still the fix for that, and this amendment does not
+call the interim state "the deadline travelling on the port." A raw-tool connection opened with its own,
+possibly tighter, `SUTURA_DEV_STATEMENT_TIMEOUT_MS`-equivalent setting, distinct from the certified
+path's connection, is left to the implementation branch rather than decided here; either choice keeps
+the property this paragraph depends on.
+
+**What remains open for the implementation branch**, none of it decided by this amendment: the raw
+outcome type's exact shape and wire discriminant (it must share no serialized field name, and no
+discriminant value, with a certified `ToolOutcome::Answer`, per the base record's "unrepresentable
+rather than forbidden"); whether the audit record for a raw call is a new `RecordedOutcome` arm or a
+sibling constructor, and whether it carries the caller's statement text (the ramp section wants it to);
+and the exact capability id and scope literal (a fixed pair, per `sutura_app::Capability`'s own rule that
+neither may be derived from the other).

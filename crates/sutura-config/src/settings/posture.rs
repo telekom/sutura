@@ -149,6 +149,24 @@ pub enum NotFitToServe {
         DeploymentIdentity::KEY
     )]
     SharedSourceNotAcknowledged { alias: String },
+    /// The raw SQL tool is enabled in a deployment that declared it serves more than one subject.
+    ///
+    /// **The same "same reason, same mechanism" the shared-source check already uses, over a
+    /// sharper capability.** `docs/adr/0013` requires the raw tool available only where the source
+    /// executes as the asking subject, or the deployment is single-user - and today no linked
+    /// adapter accepts a raw statement AND carries a per-subject credential, so this refuses
+    /// unconditionally on the declared mode rather than asking a composition root about an adapter
+    /// capability that cannot yet make the answer `no`. **The limit, stated with the claim:** this
+    /// is a boot-time refusal over a declared mode, not a runtime check that a caller's identity
+    /// actually varies - `single-user` is still a word an operator writes.
+    #[error(
+        "tools.run_sql.enabled is true and {key} is `multi-user`. The raw SQL tool executes under \
+         one shared identity for every caller - see docs/adr/0013 - so it may run only where the \
+         deployment is single-user or a source executes as the asking subject. Neither holds here: \
+         set tools.run_sql.enabled to false, or declare {key} as single-user with a written reason",
+        key = DeploymentIdentity::KEY
+    )]
+    RunSqlEnabledInMultiUserMode,
     /// Two different credentials configured to arrive in one header.
     ///
     /// **A collision found by building leg 1 rather than by reading the record**, and it is worth

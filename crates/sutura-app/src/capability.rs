@@ -2,10 +2,10 @@
 //!
 //! # Why the vocabulary is here rather than in a transport
 //!
-//! [`crate::surface::Surface`] has exactly two operations - read the pinned bundle, and answer one
-//! governed question - and those two *are* the tool set. A transport renames them for its own
-//! protocol: the agent surface calls them tools and the HTTP surface calls them routes. Neither owns
-//! the set.
+//! [`crate::surface::Surface`] has three operations - read the pinned bundle, answer one governed
+//! question, and (`docs/adr/0013`, off by default) run one raw statement - and those three *are* the
+//! tool set. A transport renames them for its own protocol: the agent surface calls them tools and
+//! the HTTP surface calls them routes. Neither owns the set.
 //!
 //! That is not a preference. `sutura-mcp` and `sutura-http` cannot see each other - *an adapter never
 //! calls another adapter* - so a set owned by one of them is a set the other has to reach through it,
@@ -76,6 +76,13 @@ pub enum Capability {
     ///
     /// [`crate::surface::Surface::answer`].
     AskMetric,
+    /// Run one literal SQL statement against the configured source, off by default and refused
+    /// where the deployment cannot execute it as the asking subject or is not declared single-user.
+    ///
+    /// [`crate::surface::Surface::run_sql`]. `docs/adr/0013` is the record: its result carries no
+    /// [`sutura_domain::pinned::Provenance`] and no field a definition digest could occupy, so a raw
+    /// answer cannot be rendered as a certified one.
+    RunSql,
 }
 
 /// The first capability in the walk.
@@ -95,7 +102,8 @@ impl Capability {
     const fn next(self) -> Option<Self> {
         match self {
             Self::DescribeCatalog => Some(Self::AskMetric),
-            Self::AskMetric => None,
+            Self::AskMetric => Some(Self::RunSql),
+            Self::RunSql => None,
         }
     }
 
@@ -118,6 +126,7 @@ impl Capability {
         match self {
             Self::DescribeCatalog => "describe_catalog",
             Self::AskMetric => "ask_metric",
+            Self::RunSql => "run_sql",
         }
     }
 
@@ -136,6 +145,7 @@ impl Capability {
         match self {
             Self::DescribeCatalog => "sutura:catalog.read",
             Self::AskMetric => "sutura:metrics.ask",
+            Self::RunSql => "sutura:sql.run",
         }
     }
 }
@@ -210,6 +220,22 @@ impl Permitted {
         }
     }
 
+    /// Removes one capability, whatever granted it.
+    ///
+    /// **A deployment-level narrowing, and deliberately independent of a caller's own scopes.** A
+    /// tool that is off for this DEPLOYMENT - `docs/adr/0013`'s off-by-default raw SQL tool is the
+    /// first one - has to be absent for every caller including one presenting every scope this
+    /// surface knows, and including the no-authentication single-player case
+    /// [`Self::every_capability`] answers. Applying this after either constructor is what makes "a
+    /// tool this deployment never turned on" and "a tool this caller was not granted" two different
+    /// reasons a caller sees the same absence for, without [`Permitted`] itself growing a second
+    /// notion of what a scope is.
+    #[must_use]
+    pub fn without(mut self, capability: Capability) -> Self {
+        self.capabilities.remove(&capability);
+        self
+    }
+
     /// Whether this caller may use one capability.
     ///
     /// **This is the control.** [`Permitted::advertised`] decides what a caller is shown; this decides
@@ -250,7 +276,7 @@ mod tests {
     /// `Capability::next`, so comparing its length to its own length would prove nothing. A variant
     /// added to the enum fails this test, which is the reminder that a new capability is a change to
     /// the deployed contract - a scope an authorization server has to be configured with.
-    const HOW_MANY: usize = 2;
+    const HOW_MANY: usize = 3;
 
     #[test]
     fn the_walk_reaches_every_capability() {
@@ -271,6 +297,8 @@ mod tests {
         assert_eq!(Capability::DescribeCatalog.scope(), "sutura:catalog.read");
         assert_eq!(Capability::AskMetric.id(), "ask_metric");
         assert_eq!(Capability::AskMetric.scope(), "sutura:metrics.ask");
+        assert_eq!(Capability::RunSql.id(), "run_sql");
+        assert_eq!(Capability::RunSql.scope(), "sutura:sql.run");
     }
 
     #[test]
@@ -332,6 +360,21 @@ mod tests {
         let permitted = Permitted::granted_by(["offline_access", Capability::AskMetric.scope(), "some:other.thing"]);
         assert_eq!(permitted.count(), 1);
         assert!(permitted.includes(Capability::AskMetric));
+    }
+
+    /// `Permitted::without` removes a capability regardless of what granted it - a caller with
+    /// every scope and a caller with none both lose it, which is the property a deployment-level
+    /// switch needs and a per-caller scope check cannot provide on its own.
+    #[test]
+    fn without_removes_a_capability_for_every_caller_including_one_holding_every_scope() {
+        let everybody = Permitted::every_capability().without(Capability::RunSql);
+        assert!(!everybody.includes(Capability::RunSql));
+        assert!(everybody.includes(Capability::AskMetric));
+        assert!(!everybody.advertised().any(|shown| shown == Capability::RunSql));
+
+        let every_scope = Permitted::granted_by(Capability::every().map(Capability::scope)).without(Capability::RunSql);
+        assert!(!every_scope.includes(Capability::RunSql));
+        assert!(every_scope.includes(Capability::AskMetric));
     }
 
     /// Advertisement and permission read the same set, so they cannot disagree.

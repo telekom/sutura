@@ -41,6 +41,11 @@ pub type MalformedQuestion = sutura_domain::question::MalformedQuestion;
 /// interface description; only the decision moved.
 mod refusal;
 
+/// The raw SQL tool's own wire shape, kept apart from every certified shape above for the reason
+/// its own module documentation gives.
+pub mod raw;
+pub use raw::{MalformedStatement as RawMalformedStatement, RawOutcomeBody, RunSqlBody, RunSqlOutcome};
+
 /// A question, as it arrives.
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]

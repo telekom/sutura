@@ -46,7 +46,7 @@ use std::sync::Arc;
 use rmcp::model::{JsonObject, Tool};
 use sutura_app::{Capability, Permitted};
 
-use crate::wire::{AskArgs, DescribeCatalogArgs};
+use crate::wire::{AskArgs, DescribeCatalogArgs, RunSqlArgs};
 
 /// What each tool is for, in the words a model reads before it decides to call it.
 ///
@@ -74,6 +74,13 @@ const fn description(capability: Capability) -> &'static str {
              and the rows themselves. There is no way to send SQL, a table name or a filter expression, and \
              an argument that names one is rejected."
         }
+        Capability::RunSql => {
+            "Run one literal SQL statement against this deployment's configured data system. Off by \
+             default, and refused unless a deployment turned it on. Its result carries no definition \
+             version or digest and is never certified - it is exactly the SQL you sent and whatever \
+             the data system returned or refused. Prefer the certified tool for anything you can ask \
+             it; use this only where the catalog has no metric yet for the question."
+        }
     }
 }
 
@@ -89,6 +96,7 @@ pub fn input_schema(capability: Capability) -> JsonObject {
     let schema = match capability {
         Capability::DescribeCatalog => schemars::schema_for!(DescribeCatalogArgs),
         Capability::AskMetric => schemars::schema_for!(AskArgs),
+        Capability::RunSql => schemars::schema_for!(RunSqlArgs),
     };
     // `schemars::Schema` is a JSON value that is an object by construction for a derived struct
     // schema, and `to_value` on it cannot fail. Neither of those is an `unwrap` this workspace
@@ -324,7 +332,13 @@ mod tests {
         for capability in Capability::every() {
             assert_eq!(named(capability.id()), Some(capability));
         }
-        assert_eq!(named("run_sql"), None);
+        // `run_sql` names a real capability now - `docs/adr/0013`'s tool. It used to be the literal
+        // this test asserted was absent, and its own comment overclaimed "the name is the one this
+        // surface may never have" - that claim was already stale once the raw tool was decided, and
+        // this is the visible edit `#129`'s own plan called for: a genuinely non-existent name is
+        // what still resolves to nothing.
+        assert_eq!(named("run_sql"), Some(Capability::RunSql));
+        assert_eq!(named("a_tool_this_surface_does_not_have"), None);
         assert_eq!(named(""), None);
         // And the scope string is not a tool name, so a caller cannot call a scope.
         for capability in Capability::every() {

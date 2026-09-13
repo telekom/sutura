@@ -113,6 +113,7 @@ pub mod security;
 pub mod server;
 pub mod sources;
 pub mod telemetry;
+pub mod tools;
 
 mod raw;
 mod settings;
@@ -152,3 +153,4 @@ pub use crate::sources::{
 pub use crate::telemetry::{
     InvalidLogFilter, InvalidServiceName, LogFilter, LogFormat, ServiceName, TelemetrySettings, UnknownLogFormat,
 };
+pub use crate::tools::ToolsSettings;

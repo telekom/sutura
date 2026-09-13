@@ -326,6 +326,16 @@ impl Surface for FailingSurface {
             cause: Box::new(ConnectionRefused),
         })
     }
+
+    fn run_sql(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
 }
 
 /// A sink that counts, because what this crate's tests need from the audit port is that a call
@@ -413,6 +423,19 @@ impl Surface for HoldingSurface {
         Ok(ToolOutcome::Answer {
             provenance: self.definitions.provenance(ran_shared()),
             rows: self.rows.clone(),
+        })
+    }
+
+    /// Not exercised by any test naming this fixture - `HoldingSurface` exists for the admission
+    /// bound, which `Surface::answer` alone is enough to measure. Refuses cleanly rather than
+    /// panicking, so a future test naming it by accident fails on an assertion rather than a trap.
+    fn run_sql(
+        &self,
+        _context: &RequestContext,
+        _statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        Ok(sutura_domain::raw::RawOutcome::Refusal {
+            reason: sutura_domain::raw::RawRefusalReason::StatementFailed,
         })
     }
 }

@@ -30,6 +30,8 @@ pub mod base_paths {
     pub const CATALOG: &str = "/catalog";
     /// Asking one certified question.
     pub const QUERY: &str = "/query";
+    /// Running one raw SQL statement - `docs/adr/0013`'s tool, off by default.
+    pub const RUN_SQL: &str = "/sql/run";
 }
 
 #[cfg(test)]
@@ -48,6 +50,7 @@ mod tests {
             SWAGGER_UI_PATH,
             base_paths::CATALOG,
             base_paths::QUERY,
+            base_paths::RUN_SQL,
         ] {
             assert!(path.starts_with('/'), "{path}");
             assert!(!path.ends_with('/'), "{path}");

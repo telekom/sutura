@@ -8,8 +8,8 @@
 //! handler cannot be generic over the warehouse without the whole router becoming generic in it,
 //! and the generated document becoming generic in it too.
 //!
-//! [`Surface`] is the seam: this crate's two operations, with `W` gone - and with the audit sink's
-//! own parameter gone for the same reason, since [`LocalService`] is generic in that too.
+//! [`Surface`] is the seam: this crate's operations, with `W` gone - and with the audit sink's own
+//! parameter gone for the same reason, since [`LocalService`] is generic in that too.
 //!
 //! # Why it is HERE and not in the transport that uses it
 //!
@@ -35,8 +35,8 @@
 //! crate made the application's interface the property of one of its callers.
 //!
 //! **Is the erasure an application concern or an HTTP one?** The *trigger* is an HTTP fact: a
-//! handler is a concrete function. The *content* is not - `definitions` and `answer` are this
-//! crate's own two operations, and [`LocalService::start`] is [`crate::verify_and_validate`] with
+//! handler is a concrete function. The *content* is not - `definitions`, `answer` and `run_sql` are
+//! this crate's own operations, and [`LocalService::start`] is [`crate::verify_and_validate`] with
 //! the catalog port consumed. Nothing in this file names a framework type, which is checkable
 //! rather than asserted: `cargo xtask check-boundaries` fails on a framework anywhere in a tree it
 //! governs, and this file added no dependency to this crate's manifest. A shape the application can
@@ -131,6 +131,25 @@ pub trait Surface: Send + Sync + 'static {
     /// this slice the deadline is carried through to the port and refused on when already spent, and
     /// nothing yet stops a data system mid-call with it.
     fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure>;
+
+    /// Runs one literal statement against this deployment's configured source, or says why it will
+    /// not - the raw SQL tool, `docs/adr/0013`.
+    ///
+    /// Same shape as [`Self::answer`] in every way that matters: a refusal comes back inside the
+    /// `Ok` as [`sutura_domain::raw::RawOutcome::Refusal`], never as an `Err`, and the implementation
+    /// writes one record per outcome before this returns. What differs is the vocabulary - see
+    /// [`sutura_domain::raw`] for why it is not [`ToolOutcome`] wearing a second name.
+    ///
+    /// No `deadline` parameter: `docs/adr/0029`'s threading landed for `answer`/`execute_leg` only in
+    /// the slice that added it, and this tool has no `LIMIT`-bearing plan for it to bound - the row
+    /// cap and the connect-time `statement_timeout` are its only bounds today (`crates/
+    /// sutura-exec-postgres/src/raw.rs`). Threading a deadline through this path too is future work,
+    /// not decided here.
+    fn run_sql(
+        &self,
+        context: &RequestContext,
+        statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure>;
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -420,6 +439,34 @@ where
         // provenance. `None` is a question declined before the broker was asked.
         self.sink.record(&CallRecord::of(
             context.chain(),
+            answered.outcome(),
+            answered.executed_until(),
+        ));
+        Ok(answered.into_outcome())
+    }
+
+    fn run_sql(
+        &self,
+        context: &RequestContext,
+        statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        let answered = crate::run_sql(context, statement, &self.broker, &self.warehouses).map_err(|error| match error {
+            crate::RunSqlError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
+            crate::RunSqlError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            crate::RunSqlError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            // A boot refusal is supposed to make this unreachable in a running deployment - see
+            // `sutura_config`'s own refusal over `DeploymentIdentity` and the adapter's declared
+            // `Warehouse::ACCEPTS_RAW_STATEMENTS`. Reported as a wiring defect rather than panicking,
+            // because a port that CAN return this is a port whose contract says it might.
+            crate::RunSqlError::NoAcceptingSource => SurfaceFailure::Miswired {
+                cause: Box::new(crate::RunSqlError::<B::Error>::NoAcceptingSource),
+            },
+        })?;
+        // Same ordering as `answer`: written before the `Ok`, both outcomes reaching it, so a raw
+        // call is recorded exactly as reliably as a certified one.
+        self.sink.record(&CallRecord::of_raw(
+            context.chain(),
+            statement,
             answered.outcome(),
             answered.executed_until(),
         ));

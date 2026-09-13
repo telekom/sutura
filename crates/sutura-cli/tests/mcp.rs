@@ -498,7 +498,12 @@ mod tests {
         // the committed schema snapshots*. The comparison is what makes it a contract rather than a
         // smoke test - `sutura-mcp`'s snapshot test proves the GENERATOR, and this proves that what
         // a client generator reads off the wire is the same document a reviewer accepted.
-        let mut agent = spawn();
+        //
+        // Spawned with `tools.run_sql.enabled: true` so every capability - the raw tool included -
+        // is on this list; `#129`'s own `the_raw_tool_is_absent_unless_this_deployment_turned_it_on`
+        // is the test that a DEFAULT deployment does not advertise it.
+        let dir = settings_tree("mcp-every-tool-advertised", "tools:\n  run_sql:\n    enabled: true\n");
+        let mut agent = spawn_configured(Some(&dir));
         drop(agent.initialize());
         let result = agent.request("tools/list", &serde_json::json!({}));
         let listed = result["tools"].as_array().cloned().unwrap_or_default();
@@ -622,14 +627,17 @@ mod tests {
         // answered the second one the way it answers the first would be inventing a refusal for a
         // call it never understood.
         //
-        // The name is the one this surface may never have. `Query` declares no field for SQL and
-        // `Capability` declares no such tool, so what is asserted here is that the composed process
-        // says so in the protocol's own vocabulary rather than in prose.
+        // **Corrected**: this used to name `run_sql` here, on the strength of "the name is the one
+        // this surface may never have" - `docs/adr/0013`'s tool, landing with `#129`, is what made
+        // that claim stale, and the edit is the visible one the issue's own plan called for rather
+        // than a quiet deletion. `run_sql` is a real capability now; what this test still needs is a
+        // name genuinely absent from `Capability::every()`, so it asserts the protocol fault rather
+        // than a tool this build happens not to have turned on.
         let mut agent = spawn();
         drop(agent.initialize());
         let reply = agent.exchange(
             "tools/call",
-            &serde_json::json!({ "name": "run_sql", "arguments": { "sql": "select 1" } }),
+            &serde_json::json!({ "name": "a_tool_this_surface_does_not_have", "arguments": { "sql": "select 1" } }),
         );
         // -32601 is JSON-RPC's own `method not found`, which is what `tool::named` finding nothing
         // becomes. Asserted as a number rather than by message, for the reason every refusal code in
@@ -641,13 +649,63 @@ mod tests {
         );
 
         // And the process is still serving: a rejected call is not a terminated session.
+        //
+        // One fewer than `Capability::every().count()`: this fixture's default settings never turn
+        // `tools.run_sql.enabled` on, and `#129`'s own test for that absence is
+        // `the_raw_tool_is_absent_unless_this_deployment_turned_it_on`, below.
         let listed = agent.request("tools/list", &serde_json::json!({}));
         assert_eq!(
             listed["tools"].as_array().map(Vec::len),
-            Some(Capability::every().count()),
+            Some(Capability::every().count() - 1),
             "{listed}"
         );
 
+        assert!(agent.close().success(), "the process did not exit cleanly");
+    }
+
+    /// `#129`'s own named test: a default settings tree advertises no `run_sql` capability at all,
+    /// even over this transport's no-authentication case - which grants every OTHER capability to
+    /// whoever can reach the pipe. `docs/adr/0013`'s tool has to be absent here specifically because
+    /// a scope cannot keep it off: there is no header on this transport a scope could arrive in.
+    #[test]
+    fn the_raw_tool_is_absent_unless_this_deployment_turned_it_on() {
+        let mut agent = spawn();
+        drop(agent.initialize());
+        let listed = agent.request("tools/list", &serde_json::json!({}));
+        assert!(
+            !listed["tools"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|tool| tool["name"].as_str())
+                .any(|name| name == "run_sql"),
+            "{listed}"
+        );
+
+        // And calling it by name anyway is refused the same way a genuinely unknown tool is - the
+        // same code, because from this caller's side the two are one thing: a tool not on its
+        // surface.
+        let reply = agent.exchange(
+            "tools/call",
+            &serde_json::json!({ "name": "run_sql", "arguments": { "statement": "select 1" } }),
+        );
+        assert_eq!(reply["error"]["code"], serde_json::json!(-32601), "{reply}");
+        assert!(agent.close().success(), "the process did not exit cleanly");
+
+        // And turned on, it is listed - the schema test above proves what it is listed AS.
+        let dir = settings_tree("mcp-run-sql-enabled-listing", "tools:\n  run_sql:\n    enabled: true\n");
+        let mut agent = spawn_configured(Some(&dir));
+        drop(agent.initialize());
+        let listed = agent.request("tools/list", &serde_json::json!({}));
+        assert!(
+            listed["tools"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|tool| tool["name"].as_str())
+                .any(|name| name == "run_sql"),
+            "{listed}"
+        );
         assert!(agent.close().success(), "the process did not exit cleanly");
     }
 

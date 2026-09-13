@@ -637,9 +637,13 @@ async fn a_service_that_cannot_answer_is_an_error_and_carries_no_detail_from_the
 
 #[tokio::test]
 async fn a_tool_this_server_does_not_have_is_not_found_rather_than_answered() {
+    // **Corrected**: this used to name `run_sql` here. `docs/adr/0013`'s tool, landing with `#129`,
+    // is what made that a real capability - see `crate::tool::tests::a_tool_name_resolves_independently_of_what_the_caller_may_do`
+    // for the same correction on that side. What this test needs is a name genuinely absent from
+    // `sutura_app::Capability::every()`.
     let client = connected(certified_service()).await;
     let error = client
-        .call_tool(call("run_sql", &a_certified_question()))
+        .call_tool(call("a_tool_this_surface_does_not_have", &a_certified_question()))
         .await
         .expect_err("there is one tool");
     let ServiceError::McpError(data) = error else {

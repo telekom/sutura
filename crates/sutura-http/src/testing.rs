@@ -239,6 +239,8 @@ impl sutura_domain::audit::AuditSink for RecordingSink {
         let how = match *record.outcome() {
             RecordedOutcome::Answered { rows, .. } => format!("answered rows={rows}"),
             RecordedOutcome::Refused { reason } => format!("refused reason={reason:?}"),
+            RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows}"),
+            RecordedOutcome::RawRefused { reason, .. } => format!("raw_refused reason={reason:?}"),
         };
         if let Ok(mut lines) = self.lines.lock() {
             lines.push(format!("{who}{named} {how}"));

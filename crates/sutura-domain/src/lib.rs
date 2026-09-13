@@ -89,6 +89,7 @@ pub mod pinned;
 pub mod plan;
 pub mod query;
 pub mod question;
+pub mod raw;
 #[cfg(test)]
 mod serialized_form_tests;
 pub mod source;

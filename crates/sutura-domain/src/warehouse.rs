@@ -991,7 +991,20 @@ pub trait Warehouse {
     fn declared_key(&self, _key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
         Ok(KeyUniqueness::NotAsked)
     }
+
+    /// Whether this adapter accepts a raw statement at all. `false` by default - only
+    /// `sutura-exec-postgres` overrides it. See [`crate::raw`] and `docs/adr/0013`.
+    const ACCEPTS_RAW_STATEMENTS: bool = false;
+
+    /// Runs one literal statement, for the raw SQL tool - see `Self::ACCEPTS_RAW_STATEMENTS` and
+    /// [`crate::raw`]. Not what [`execute`](Warehouse::execute) uses: that takes a compiled plan.
+    fn execute_raw(&self, _statement: &crate::raw::RawStatement, _presented: &Presented) -> RawExecution<Self::Error> {
+        None
+    }
 }
+
+pub mod raw; // `docs/adr/0013`'s raw types - carved out: this file hit the thousand-line limit.
+pub use raw::{RawColumnsAndRows, RawExecution, RawRows};
 
 #[cfg(test)]
 mod tests;

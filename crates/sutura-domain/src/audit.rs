@@ -68,6 +68,7 @@
 use crate::identity::{Expiry, PrincipalChain};
 use crate::pinned::Provenance;
 use crate::query::{RefusalReason, ToolOutcome};
+use crate::raw::{RawOutcome, RawRefusalReason, RawStatement};
 use crate::source::UniformlyExecuted;
 
 /// Where a record of one call goes.
@@ -133,6 +134,18 @@ pub enum RecordedOutcome<'a> {
     /// The question was declined. The variant is what a reader needs - not a sentence - because it
     /// is what an aggregate over records can group by.
     Refused { reason: &'a RefusalReason },
+    /// A raw statement executed. `docs/adr/0013`'s ramp section is explicit that this record is what
+    /// makes an ungoverned answer a written demand signal rather than a hole - so unlike
+    /// [`Self::Answered`], the statement text rides on the record. It is never returned to the
+    /// caller: [`CallRecord::statement`] is this module's only accessor for it.
+    RawAnswered { rows: usize, statement: &'a RawStatement },
+    /// A raw statement was refused, before or after it reached the data system. The statement rides
+    /// here too, for the same reason: a refused raw call is exactly the demand signal the ramp
+    /// section wants recorded, and the SQL that would have answered it is the point.
+    RawRefused {
+        reason: &'a RawRefusalReason,
+        statement: &'a RawStatement,
+    },
 }
 
 impl<'a> CallRecord<'a> {
@@ -163,6 +176,49 @@ impl<'a> CallRecord<'a> {
             chain,
             outcome: recorded,
             executed_until,
+        }
+    }
+
+    /// The raw path's constructor, matching [`Self::of`]'s shape: the outcome half is derived from
+    /// the outcome, once, here.
+    ///
+    /// `statement` is `docs/adr/0013`'s "audit-only field never returned to the caller" - it rides
+    /// on the record and nowhere else. Taken separately from `outcome` rather than read off it,
+    /// because [`sutura_domain::raw::RawOutcome`] itself carries no statement text at all: the
+    /// caller's own text is not something the OUTCOME needed to hold, and giving it a field there
+    /// would be a second place a wire type could reach for it.
+    #[must_use]
+    pub const fn of_raw(
+        chain: &'a PrincipalChain,
+        statement: &'a RawStatement,
+        outcome: &'a RawOutcome,
+        executed_until: Option<Expiry>,
+    ) -> Self {
+        let recorded = match *outcome {
+            RawOutcome::Rows { ref rows, .. } => RecordedOutcome::RawAnswered {
+                rows: rows.len(),
+                statement,
+            },
+            RawOutcome::Refusal { ref reason } => RecordedOutcome::RawRefused { reason, statement },
+        };
+        Self {
+            chain,
+            outcome: recorded,
+            executed_until,
+        }
+    }
+
+    /// The statement text, where this record is a raw call. `None` for a certified answer or
+    /// refusal - there was no caller-supplied statement to carry.
+    ///
+    /// **Audit-only, and this is the one accessor.** Nothing in this crate or in `sutura-app` renders
+    /// this back to the caller; a sink is the only reader, which is what makes the demand signal
+    /// `docs/adr/0013`'s ramp section wants a property of the record rather than of the reply.
+    #[must_use]
+    pub const fn statement(&self) -> Option<&RawStatement> {
+        match self.outcome {
+            RecordedOutcome::RawAnswered { statement, .. } | RecordedOutcome::RawRefused { statement, .. } => Some(statement),
+            RecordedOutcome::Answered { .. } | RecordedOutcome::Refused { .. } => None,
         }
     }
 
@@ -203,7 +259,10 @@ impl<'a> CallRecord<'a> {
     pub const fn executed_as(&self) -> Option<&UniformlyExecuted> {
         match self.outcome {
             RecordedOutcome::Answered { provenance, .. } => Some(provenance.executed_as()),
-            RecordedOutcome::Refused { .. } => None,
+            // Neither raw arm carries a `Provenance` - that is `docs/adr/0013`'s whole load-bearing
+            // property read from the other side: there is no identity label to report here because
+            // there is no field to have carried one.
+            RecordedOutcome::Refused { .. } | RecordedOutcome::RawAnswered { .. } | RecordedOutcome::RawRefused { .. } => None,
         }
     }
 
@@ -269,6 +328,8 @@ mod tests {
             let how = match *record.outcome() {
                 RecordedOutcome::Answered { rows, .. } => format!("answered rows={rows}"),
                 RecordedOutcome::Refused { reason } => format!("refused reason={reason:?}"),
+                RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows}"),
+                RecordedOutcome::RawRefused { reason, .. } => format!("raw_refused reason={reason:?}"),
             };
             self.lines.borrow_mut().push(format!("{who} {how}"));
         }
@@ -303,6 +364,45 @@ mod tests {
             lines.get(1).is_some_and(|line| line.contains("acting=q***")),
             "the agent's record does not name it: {lines:?}"
         );
+    }
+
+    #[test]
+    fn a_raw_call_writes_one_record_per_outcome_carrying_the_statement_text() {
+        // `docs/adr/0013`'s ramp section: the statement rides on the record - the audit-only field
+        // never returned to the caller - so an aggregate over records is what makes an ungoverned
+        // answer a written demand signal rather than a hole.
+        use crate::raw::{RawOutcome, RawRefusalReason, RawStatement};
+
+        let chain = PrincipalChain::of(a_person());
+        let statement = RawStatement::parse("select 1").expect("a test statement is a statement");
+        let rows = RawOutcome::Rows {
+            columns: vec![String::from("n")],
+            rows: vec![vec![String::from("1")]],
+        };
+        let refused = RawOutcome::Refusal {
+            reason: RawRefusalReason::StatementFailed,
+        };
+
+        let answered = CallRecord::of_raw(&chain, &statement, &rows, None);
+        assert_eq!(answered.statement().map(RawStatement::as_str), Some("select 1"));
+        assert!(matches!(*answered.outcome(), RecordedOutcome::RawAnswered { rows: 1, .. }));
+        // Neither raw arm has an identity to report: `RawOutcome` carries no `Provenance`.
+        assert_eq!(answered.executed_as(), None);
+
+        let refusal = CallRecord::of_raw(&chain, &statement, &refused, None);
+        assert_eq!(refusal.statement().map(RawStatement::as_str), Some("select 1"));
+        assert!(matches!(
+            *refusal.outcome(),
+            RecordedOutcome::RawRefused {
+                reason: RawRefusalReason::StatementFailed,
+                ..
+            }
+        ));
+
+        // And a CERTIFIED record carries no statement at all - there was none to carry.
+        let a_certified_refusal = a_refusal();
+        let certified = CallRecord::of(&chain, &a_certified_refusal, None);
+        assert_eq!(certified.statement(), None);
     }
 
     #[test]

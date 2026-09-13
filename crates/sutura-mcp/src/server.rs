@@ -170,11 +170,14 @@ use sutura_app::surface::{Surface, SurfaceFailure, cause_chain};
 use sutura_app::{Capability, Permitted};
 use sutura_config::RequestTimeout;
 use sutura_domain::query::Query;
+use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::{Admission, AtCapacity};
 
 use crate::tool;
-use crate::wire::{AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, OutcomeContent};
+use crate::wire::{
+    AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, MalformedStatement, OutcomeContent, RawContent, RunSqlArgs,
+};
 
 /// What a cooperative client is told about this server, beyond its tools.
 ///
@@ -343,6 +346,16 @@ where
                     }
                 }
             }
+            Capability::RunSql => {
+                let statement = run_sql_statement(request)?;
+                tokio::select! {
+                    result = run_sql(&self.service, &self.admission, self.reply, statement) => result,
+                    () = context.ct.cancelled() => {
+                        tracing::warn!("stopped waiting for a tool call because its peer cancelled");
+                        return Err(ErrorData::internal_error("the peer cancelled this tool call", None));
+                    }
+                }
+            }
         };
         Ok(CallToolResponse::Complete(result))
     }
@@ -400,6 +413,24 @@ fn question(request: CallToolRequestParams) -> Result<Query, ErrorData> {
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
     let args: AskArgs = serde_json::from_value(arguments).map_err(|cause| invalid(&MalformedQuestion::NotAnObject { cause }))?;
     Query::try_from(args).map_err(|error| invalid(&error))
+}
+
+/// The arguments, parsed into a bounded raw statement.
+///
+/// The whole translation this tool is allowed to do: read one string, bound it at the edge through
+/// [`RawStatement::parse`]. Nothing here reads a keyword out of it - `docs/adr/0013`'s own rule
+/// against inspecting a statement to decide read-only applies to every other purpose a parser might
+/// be tempted for on this path too.
+fn run_sql_statement(request: CallToolRequestParams) -> Result<RawStatement, ErrorData> {
+    let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
+    let args: RunSqlArgs =
+        serde_json::from_value(arguments).map_err(|cause| invalid_statement(&MalformedStatement::NotAnObject { cause }))?;
+    RawStatement::try_from(args).map_err(|error| invalid_statement(&error))
+}
+
+/// A malformed `run_sql` call, as a JSON-RPC error.
+fn invalid_statement(error: &MalformedStatement) -> ErrorData {
+    ErrorData::invalid_params(error.to_string(), None)
 }
 
 /// A malformed question, as a JSON-RPC error naming what was wrong.
@@ -522,6 +553,52 @@ where
             failed("this deployment could not answer")
         }
     }
+}
+
+/// One raw statement, under both bounds, as a tool result - [`answer`]'s shape, over
+/// [`Surface::run_sql`] instead of [`Surface::answer`].
+async fn run_sql<S>(service: &Arc<S>, admission: &Admission, reply: RequestTimeout, statement: RawStatement) -> CallToolResult
+where
+    S: Surface,
+{
+    match tokio::time::timeout(reply.duration(), admitted_raw(service, admission, statement)).await {
+        Ok(result) => result,
+        Err(_elapsed) => outran_its_deadline(reply),
+    }
+}
+
+/// A slot, then the port on the blocking pool, then the outcome - [`admitted`]'s shape for the raw
+/// path.
+async fn admitted_raw<S>(service: &Arc<S>, admission: &Admission, statement: RawStatement) -> CallToolResult
+where
+    S: Surface,
+{
+    let slot = match admission.admit().await {
+        Ok(slot) => slot,
+        Err(shed) => return at_capacity(&shed),
+    };
+    let service = Arc::clone(service);
+    let working = sutura_runtime::spawn_carrying_span(move || {
+        let answered = service.run_sql(&crate::principal::established(), &statement);
+        drop(slot);
+        answered
+    });
+    match working.await {
+        Ok(Ok(ref outcome)) => raw_produced(outcome),
+        Ok(Err(failure)) => could_not_answer(&failure),
+        Err(error) => {
+            tracing::error!(error = %error, "the blocking task running a raw statement did not finish");
+            failed("this deployment could not run this statement")
+        }
+    }
+}
+
+/// A raw answer or refusal, as one result shape - [`produced`]'s shape, over [`RawContent`].
+fn raw_produced(outcome: &sutura_domain::raw::RawOutcome) -> CallToolResult {
+    let content = RawContent::from(outcome);
+    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text())]);
+    result.structured_content = serde_json::to_value(&content).ok();
+    result
 }
 
 /// The peer waited out `server.request_timeout_seconds` and the question is still running.
