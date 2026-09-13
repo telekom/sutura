@@ -6,7 +6,10 @@ documents, the data those documents describe, and a corpus of questions asked ag
 SQL under the named escape hatch, which nothing published compiles or executes. **`multi-player/` is
 neither**: it is the served deployment SHAPE you would configure (and no binary in this repository
 can open its catalog yet), whose runnable proof is test code over a recorded fixture rather than an
-input directory - its own section below says which is which.
+input directory. **`raw-sql/` is a settings change, not a catalog**: `docs/adr/0013`'s off-by-default
+`run_sql` tool turned on over `single-player`'s own served Postgres deployment, with one question
+answered from physical structure rather than a certified metric - [its own README](raw-sql/README.md) says what that costs and what it does not cover. The sections below say
+which is which for the first three; `raw-sql/`'s own page is short enough to stand alone.
 
 They are examples and tests at the same time, and that is the point rather than a
 convenience. `crates/sutura-cli/tests/example.rs` loads the `single-player/` catalog, pins its
@@ -129,3 +132,7 @@ which is a different sentence on a path these cases never reach.
 
 A captured session in `single-player/README.md` used to stand in for all of it and is gone: it
 restated the reference and nothing held it true.
+
+**Turning on `docs/adr/0013`'s raw SQL tool over a served Postgres source is [its own example](raw-sql/README.md)**, not a case in this suite: the settings change, the role grant an
+operator makes and the one worked question all live there, proved by a cell in this same
+`served.rs`.

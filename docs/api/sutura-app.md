@@ -771,24 +771,27 @@ pub enum Tool
 
 One operation a transport exposes.
 
-Two variants: the certified surface's own operations, and the prompt's name for each.
-`Surface` gained a third method - `run_sql`, `docs/adr/0013`'s tool -
-and this enum deliberately did not grow with it: prompt framing for the raw tool is its own
-record, not a consequence of this one, so `Tool::ALL` still names only what the certified prompt
-talks about. It is a list rather than a constant because the point is that a caller passes the
-subset it actually mounts: `Tool::ALL` is what a transport serving the whole certified surface
-passes, and a deployment that mounts only one passes only that one.
+Three variants: the certified surface's own two operations, and `docs/adr/0013`'s raw tool -
+`Surface::run_sql`. The raw tool is not in `Tool::ALL`:
+unlike `Catalog` and `Query`, no transport mounts it unconditionally, so a composition root adds
+`Tool::RunSql` to the list it passes only when `tools.run_sql.enabled` is true for the deployment
+it is rendering for. It is a list rather than a constant because the point is that a caller
+passes the subset it actually mounts: `Tool::ALL` is what a transport serving the whole certified
+surface passes, and a deployment that mounts only one passes only that one.
 
-**Two entries make this cheap insurance rather than a large win, and it is worth saying so.** The
-property it buys is narrow: the rendered workflow cannot instruct an agent to call an operation
-that is not there. With two operations that is one branch. It is here because the branch costs a
-match arm and the alternative - a hand-written workflow that is right until the day a deployment
-stops mounting the listing - costs a debugging session.
+**Two certified entries make this cheap insurance rather than a large win, and it is worth saying
+so.** The property it buys is narrow: the rendered workflow cannot instruct an agent to call an
+operation that is not there. With two operations that is one branch. It is here because the
+branch costs a match arm and the alternative - a hand-written workflow that is right until the
+day a deployment stops mounting the listing - costs a debugging session. `RunSql` reuses the same
+mechanism for the opposite direction: an agent is told about the raw tool only where it can
+actually be called.
 
 #### Variants
 
 - `Catalog` - Reading what this deployment defines. `GET /v1/catalog`, `sutura catalog`, and whatever an MCP transport would call it. `Surface::definitions`.
 - `Query` - Asking one certified question. `Surface::answer`.
+- `RunSql` - Running one literal, ungoverned SQL statement - `docs/adr/0013`'s tool, off by default. `Surface::run_sql`. Present here only when a deployment turned it on; see this type's own documentation for why it is not in `Tool::ALL`.
 
 #### Methods
 
@@ -807,6 +810,14 @@ pub const fn summary(self) -> &'static str
 ```
 
 What it does, in one line, for the operations list.
+
+`RunSql`'s wording is `docs/adr/0022`'s framing for this tool, restated for an agent rather
+than an operator: ungoverned, runs under the deployment's own role rather than the asking
+subject's, and its result carries none of the provenance a `query` answer carries. It never
+calls the raw tool's own result "certified" in any form, including a negated one - the word
+belongs to the certified path alone, and
+`tests::run_sql::the_run_sql_summary_names_the_ungoverned_boundary_and_never_calls_it_certified`
+holds the sentence to that.
 
 #### Implements
 

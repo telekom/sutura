@@ -241,8 +241,11 @@ mod tests {
     /// `panic = "abort"` there is no unwinding to catch, and a stack overflow is not a panic anyway:
     /// the process dies. A blank line in a catalog file was closed as an abort risk; this one is open.
     ///
-    /// Reproduce the abort, against the unfixed compile:
-    /// `git stash && cargo test -p sutura-sql --test adversarial_findings finding_7`.
+    /// Reproduce the abort against the unfixed compile by reverting the depth guard into a patch
+    /// file under this worktree, then `just test`. **Not onto the stash:** `refs/stash` is one ref
+    /// per REPOSITORY and a linked worktree does not get its own, so a second worktree's pop takes
+    /// whichever entry was on top - `telekom/sutura#405`, and `xtask/src/worktree_state/global_ref`
+    /// is the rule that refuses this line's earlier wording.
     #[test]
     fn finding_7_a_deeply_nested_fragment_aborts_the_process() {
         let depth = 240;

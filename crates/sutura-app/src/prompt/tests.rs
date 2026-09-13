@@ -12,6 +12,7 @@ mod column_zero;
 mod injection_corpus;
 mod physical_schema;
 mod refusal_corpus;
+mod run_sql;
 
 use std::collections::BTreeSet;
 
