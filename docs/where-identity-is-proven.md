@@ -159,6 +159,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - one key is one identity | no - two keys is two credentials nobody asked for | no | **unrun** - the standing test is here and nothing has run it |
 | **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
+| **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - a different data system | no - a different data system | no | no - a different data system |
 
 ## The fake at the port
 
