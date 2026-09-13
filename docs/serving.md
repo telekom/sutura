@@ -834,7 +834,7 @@ deployment switch refused. Turning it on is one line an operator writes and a re
   before either half runs - sutura reads no keyword out of the text to decide this.
 - **A boot refusal**, reusing the same `security.identity` mechanism the shared-source acknowledgement
   above already uses: `tools.run_sql.enabled: true` with `security.identity: multi-user` does not
-  start. Verbatim: *"tools.run_sql.enabled is true and security.identity is `multi-user`. The raw SQL
+  start. Abridged: *"tools.run_sql.enabled is true and security.identity is `multi-user`. The raw SQL
   tool executes under one shared identity for every caller... it may run only where the deployment is
   single-user or a source executes as the asking subject."* Today's Postgres adapter cannot execute as
   the asking subject, so this refuses on the declared mode alone - stated as the limit it is: a

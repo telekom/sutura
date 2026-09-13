@@ -11,8 +11,9 @@ that resembles `single-player/`'s models and metrics. What changes is `examples/
 served deployment, plus `tools.run_sql.enabled: true` and a role grant. The runnable proof is
 `crates/sutura-serve/tests/served.rs`'s `a_postgres_source_answers_a_raw_sql_statement_from_the_served_binary`,
 which starts the real `sutura-serve` binary against the provisioned Postgres tier and asks the
-question below over `POST /v1/sql/run` - every request and every response quoted here is what that
-test asserts, not a transcript kept in step by hand.
+question below over `POST /v1/sql/run` - the request and the response shown here are the value that
+test asserts the binary returned, not a transcript kept in step by hand. (The body is pretty-printed
+for this page; the binary itself answers compact JSON.)
 
 ## What this demonstrates, and what it does not
 
@@ -31,6 +32,11 @@ as the asking subject - and the Postgres adapter cannot, today, so `run_sql` is 
 because nobody but the one operator is meant to be asking. A `multi-user` deployment declaring the
 same source refuses to start with `run_sql` turned on; `crates/sutura-config/src/settings/tests/tools.rs`
 holds that refusal, not this directory.
+
+**Also does not demonstrate:** the read-only role itself. The development Postgres tier publishes
+exactly one credential, and it is the database's own owner - see *The role, and the limit next to
+the claim* below for why, and read that section before concluding the `GRANT`s in it are exercised
+by anything here. No test in this repository runs them.
 
 ## The settings
 
