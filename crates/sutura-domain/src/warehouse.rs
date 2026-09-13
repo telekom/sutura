@@ -926,11 +926,10 @@ pub trait Warehouse {
     /// **Added because the first version of the pre-flight could not tell those apart, and a review
     /// found what that cost.** [`preflight`](Warehouse::preflight)'s `Err` is *could not verify*, and
     /// a composition root's reasonable response to that is a warning rather than a refusal - a
-    /// deployment whose data system is briefly unreachable at boot still has to be able to serve.
-    /// But a data system that refused because the identity lacks the permission to LIST is a
-    /// different thing entirely: it will refuse again on every boot, forever, and the fix is one
-    /// grant. Collapsed into the warning, the check silently does nothing in exactly the deployment
-    /// least likely to read a startup log.
+    /// deployment whose data system is briefly unreachable at boot still has to be able to serve. But
+    /// a data system that refused because the identity lacks the permission to LIST will refuse again
+    /// on every boot, forever, and the fix is one grant - collapsed into the warning, the check
+    /// silently does nothing in exactly the deployment least likely to read a startup log.
     ///
     /// `true` means *this identity may not ask*, and a composition root is expected to refuse and
     /// name the grant. `false` is every other failure, including one whose text happens to mention
@@ -938,30 +937,23 @@ pub trait Warehouse {
     ///
     /// **A predicate rather than a conversion, and a `bool` rather than a reason**, for
     /// [`result_did_not_fit`](Warehouse::result_did_not_fit)'s reasons exactly: `Self::Error` is the
-    /// adapter's own type so nothing above this port can read it, and the refusal vocabulary stays
-    /// the domain's. The adapter's error already carries the detail an operator needs, and it travels
-    /// as the cause.
+    /// adapter's own type so nothing above this port can read it, and the refusal vocabulary stays the
+    /// domain's - the adapter's error already carries the detail an operator needs, travelling as the cause.
     ///
-    /// Defaulted to `false`, which is the honest answer for an adapter that cannot tell the two apart
-    /// and for one whose [`preflight`](Warehouse::preflight) never fails. **The default is the safe
-    /// direction here, and it is the opposite direction from the other two predicates on this
-    /// trait:** a refusal reported as a transport hiccup leaves a deployment serving unverified,
-    /// which is where this whole check started; a transport hiccup reported as a refusal stops a
-    /// deployment that would have worked. Answering `false` picks the first, because it is the
-    /// status quo rather than a new failure mode - and an adapter that knows better says so.
+    /// Defaulted to `false`, honest for an adapter that cannot tell the two apart or whose
+    /// [`preflight`](Warehouse::preflight) never fails. **The safe direction, and the opposite of
+    /// this trait's other two predicates:** a refusal reported as a hiccup leaves a deployment
+    /// serving unverified - where this check started; a hiccup reported as a refusal stops a
+    /// deployment that would have worked. `false` picks the status quo over a new failure mode.
     ///
-    /// **WHAT THE DEFAULT COSTS, beside the direction it argues, because review pointed out that the
-    /// argument above had no risk stated next to it.** This trait's own rule is *required with no
-    /// default where the absence changes what a caller may believe*, and here the absence does: the
-    /// next adapter that overrides [`preflight`](Warehouse::preflight) - so it really asks - and
-    /// forgets this predicate gets *never a refusal*, silently, which is the permanent-`WARN`
-    /// collapse this pair was added to remove. Nothing catches that; a defaulted method has no
-    /// `compile_fail` twin to write. It is defaulted anyway, and the price of the other direction is
-    /// what decided it: three adapters that cannot fail a pre-flight at all would each have to write
-    /// `false`, and a required method whose only honest answer is a constant is how a port teaches
-    /// its implementors to answer without reading. So this is a JUDGEMENT with a live risk under it
-    /// rather than a property - the pairing is held by review, and an adapter that overrides one of
-    /// the two and not the other is what a reviewer of that adapter has to look for.
+    /// **WHAT THE DEFAULT COSTS**, per review: this trait's own rule is *required with no default
+    /// where the absence changes what a caller may believe*, and here it does - an adapter that
+    /// overrides [`preflight`](Warehouse::preflight) so it really asks, and forgets this predicate,
+    /// gets *never a refusal*, silently, the permanent-`WARN` collapse this pair exists to remove.
+    /// Nothing catches that; a defaulted method has no `compile_fail` twin. Defaulted anyway, because
+    /// three adapters that cannot fail a pre-flight at all would each have to write `false` - so this
+    /// is a JUDGEMENT held by review, not a checked property, and pairing the two is what a reviewer
+    /// of an adapter overriding one of them has to look for.
     fn preflight_was_refused(&self, _error: &Self::Error) -> bool {
         false
     }
@@ -992,12 +984,10 @@ pub trait Warehouse {
         Ok(KeyUniqueness::NotAsked)
     }
 
-    /// Whether this adapter accepts a raw statement at all. `false` by default - only
-    /// `sutura-exec-postgres` overrides it. See [`crate::raw`] and `docs/adr/0013`.
+    /// Whether this adapter accepts a raw statement - `false` by default; see [`crate::raw`], `docs/adr/0013`.
     const ACCEPTS_RAW_STATEMENTS: bool = false;
 
-    /// Runs one literal statement, for the raw SQL tool - see `Self::ACCEPTS_RAW_STATEMENTS` and
-    /// [`crate::raw`]. Not what [`execute`](Warehouse::execute) uses: that takes a compiled plan.
+    /// Runs one literal statement for the raw SQL tool - not what [`execute`](Warehouse::execute) uses; see [`crate::raw`].
     fn execute_raw(&self, _statement: &crate::raw::RawStatement, _presented: &Presented) -> RawExecution<Self::Error> {
         None
     }

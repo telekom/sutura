@@ -126,6 +126,12 @@ What this request's caller may do.
 
 See the module documentation for the two cases and for why the second is not a fallback.
 
+`run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
+deployment-level switch and a caller's own scope are two different reasons a capability is
+absent, and `Permitted::without` is what applies the first without `Permitted` growing a
+second notion of what a scope is. `docs/adr/0013`'s off-by-default raw SQL tool is the first
+capability this applies to; a second one gains a parameter here rather than a widened boolean.
+
 ## `use require_capability`
 
 Refuses a request for a capability this caller was not granted.
@@ -133,6 +139,9 @@ Refuses a request for a capability this caller was not granted.
 A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
 handler to forget. Installed INSIDE `crate::inbound::gate::require_verified_caller`, which is what
 makes the extension available here - see `crate::router` for the whole order.
+
+Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. `docs/adr/0013`'s tool
+must be absent for every caller when a deployment never turned it on - see `permitted_for`.
 
 ## `use ClientAddress`
 
@@ -417,7 +426,7 @@ The route template, as it appears in the generated document and in `MatchedPath`
 ### `fn governed`
 
 ```rust
-pub fn governed() -> [GovernedRoute; 2]
+pub fn governed() -> [GovernedRoute; 3]
 ```
 
 Every route this crate governs.
@@ -443,17 +452,23 @@ layer is installed on the versioned subtree only, and assembly proved every rout
 ### `fn permitted_for`
 
 ```rust
-pub fn permitted_for(request: &axum::extract::Request) -> sutura_app::Permitted
+pub fn permitted_for(request: &axum::extract::Request, run_sql_enabled: bool) -> sutura_app::Permitted
 ```
 
 What this request's caller may do.
 
 See the module documentation for the two cases and for why the second is not a fallback.
 
+`run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
+deployment-level switch and a caller's own scope are two different reasons a capability is
+absent, and `Permitted::without` is what applies the first without `Permitted` growing a
+second notion of what a scope is. `docs/adr/0013`'s off-by-default raw SQL tool is the first
+capability this applies to; a second one gains a parameter here rather than a widened boolean.
+
 ### `fn require_capability`
 
 ```rust
-pub async fn require_capability(request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+pub async fn require_capability(__arg0: axum::extract::State<crate::state::ServiceState>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
 ```
 
 Refuses a request for a capability this caller was not granted.
@@ -461,6 +476,9 @@ Refuses a request for a capability this caller was not granted.
 A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
 handler to forget. Installed INSIDE `crate::inbound::gate::require_verified_caller`, which is what
 makes the extension available here - see `crate::router` for the whole order.
+
+Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. `docs/adr/0013`'s tool
+must be absent for every caller when a deployment never turned it on - see `permitted_for`.
 
 ## Module `client_address`
 
@@ -584,6 +602,10 @@ What this catalog defines.
 #### `constant QUERY`
 
 Asking one certified question.
+
+#### `constant RUN_SQL`
+
+Running one raw SQL statement - `docs/adr/0013`'s tool, off by default.
 
 ## Module `correlation`
 
@@ -2533,7 +2555,7 @@ or a request body; anything reachable from one of them is pulled in by the deriv
 ### `fn document`
 
 ```rust
-pub fn document() -> utoipa::openapi::OpenApi
+pub fn document(run_sql_enabled: bool) -> utoipa::openapi::OpenApi
 ```
 
 The whole document: the derived shell plus one fragment per version.
@@ -2549,10 +2571,19 @@ that list is a tool nothing should call. The set is exhaustive in both direction
 document describes that `crate::capability::governed` does not name, and a governed route it
 omits, are each a failure (`tests/operations.rs`).
 
+**`run_sql_enabled` decides whether `/sql/run` is in the set at all.** The same absence
+`sutura_mcp`'s `tools/list` gives a deployment that never turned the raw tool on: a route this
+deployment answers `403` for every caller of, forever, is not a "governed operation" in the
+sense this document's own header claims - it is a switch nobody may use, and listing it invites
+a client generator to build a call nothing here will ever accept. The path is removed from the
+assembled document rather than never merged, because `#[utoipa::path]` has no per-deployment
+condition to attach to - the generator's own output is unconditional, and this is the one place
+the deployment's own setting can still act on it.
+
 ### `fn document_json`
 
 ```rust
-pub fn document_json() -> Result<String, serde_json::Error>
+pub fn document_json(run_sql_enabled: bool) -> Result<String, serde_json::Error>
 ```
 
 The document as JSON.
@@ -2611,6 +2642,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
 
 - `Unauthorized` - A credential is required and was absent, malformed or wrong.
 - `InsufficientScope` - The caller is authenticated and was not granted the capability this route needs.
+- `ToolNotEnabled` - The capability exists on this surface, but this DEPLOYMENT never turned it on - distinct from `Self::InsufficientScope`, where the caller's own credential is what is missing.
 - `NotAQuestion` - The body is not a question. Carries a message naming the field.
 - `TooLarge` - The body is larger than the configured bound.
 - `RateLimited` - Too many requests from this address, too quickly.
@@ -3592,3 +3624,134 @@ Why a body is not a question.
 typed refusals were identical - kept equal only by review - so the parse moved inward of both;
 this alias is what every existing reference to `crate::wire::MalformedQuestion` in this crate
 keeps meaning.
+
+### `use RawMalformedStatement`
+
+Why a `run_sql` request body was not a statement.
+
+### `use RawOutcomeBody`
+
+What running a raw statement produced.
+
+Tagged so it cannot be mistaken for a certified answer's `super::OutcomeBody` - see the module
+documentation.
+
+**The variant NAMES carry no `Raw` prefix** (`clippy::enum_variant_names` over this
+already-`Raw`-prefixed type) - only their serialized tags do, pinned by an explicit
+`#[serde(rename)]` on each: `Refusal` alone would serialize exactly the certified path's own
+`outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
+
+### `use RunSqlBody`
+
+One raw statement, as the request body.
+
+### `use RunSqlOutcome`
+
+A raw outcome, and the status the transport says it with.
+
+`super::Outcome`'s shape, over `RawOutcome` instead of a certified
+`sutura_domain::query::ToolOutcome`.
+
+### Module `raw`
+
+The raw SQL tool's own wire shape, kept apart from every certified shape above for the reason
+its own module documentation gives.
+The raw SQL tool's wire shape: what `POST /v1/sql/run` takes, and what it answers.
+
+Its own module for the reason `wire/refusal.rs` has one: a seam the thousand-line limit on
+`wire.rs` does not have room for.
+
+It shares the discriminator's NAME (`outcome`), the `columns`/`rows` keys a row-carrying body
+needs whichever tool produced it, and the same content-negotiation `axum::Json` gives every
+response here - never the discriminator's VALUE, and never a provenance-shaped key. See below.
+
+# The discriminant, restated for this transport
+
+`docs/adr/0013` requires no shared discriminant VALUE and no provenance-shaped key with a
+certified answer's - WEAKER than "no field name in common": `columns` and `rows` are the same
+two keys on both bodies, because both carry rows and need the same two labels for them.
+
+`RawOutcomeBody` tags `outcome: "raw_rows"` / `outcome: "raw_refusal"` - never `"answer"` or
+`"refusal"` - and carries no `provenance` or `definition_digest` key at any depth, matching
+`sutura_mcp::wire::raw::RawContent`'s shape on the other transport.
+
+The two are kept equal by review, the same limit `super::OutcomeBody`'s own module
+documentation states for the certified pair.
+
+#### `struct RunSqlBody`
+
+```rust
+pub struct RunSqlBody
+```
+
+One raw statement, as the request body.
+
+##### Implements
+
+`ComposeSchema`, `Debug`, `Deserialize<'de>`, `ToSchema`
+
+#### `enum MalformedStatement`
+
+```rust
+pub enum MalformedStatement
+```
+
+Why a `run_sql` request body was not a statement.
+
+##### Variants
+
+- `Statement`
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `enum RawOutcomeBody`
+
+```rust
+pub enum RawOutcomeBody
+```
+
+What running a raw statement produced.
+
+Tagged so it cannot be mistaken for a certified answer's `super::OutcomeBody` - see the module
+documentation.
+
+**The variant NAMES carry no `Raw` prefix** (`clippy::enum_variant_names` over this
+already-`Raw`-prefixed type) - only their serialized tags do, pinned by an explicit
+`#[serde(rename)]` on each: `Refusal` alone would serialize exactly the certified path's own
+`outcome: "refusal"`, the one collision `docs/adr/0013` forbids.
+
+##### Variants
+
+- `Rows`
+- `Refusal`
+
+##### Implements
+
+`ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
+
+#### `struct RunSqlOutcome`
+
+```rust
+pub struct RunSqlOutcome
+```
+
+A raw outcome, and the status the transport says it with.
+
+`super::Outcome`'s shape, over `RawOutcome` instead of a certified
+`sutura_domain::query::ToolOutcome`.
+
+##### Methods
+
+```rust
+pub const fn body(&self) -> &RawOutcomeBody
+```
+
+```rust
+pub const fn status(&self) -> StatusCode
+```
+
+##### Implements
+
+`Debug`, `IntoResponse`

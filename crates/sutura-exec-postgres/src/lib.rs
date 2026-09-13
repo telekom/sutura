@@ -153,11 +153,8 @@ pub enum PostgresError {
         #[source]
         cause: core::num::ParseIntError,
     },
-    /// The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run.
-    ///
-    /// `docs/adr/0013`'s amendment names this as sutura's own fixed text on the simple query
-    /// protocol - never the caller's - so a failure here is this adapter's own administrative
-    /// command being refused, not anything about the statement the caller sent.
+    /// The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run - sutura's own fixed
+    /// text on the simple query protocol (`docs/adr/0013`), never the caller's.
     #[error("the raw SQL tool's read-only transaction could not be opened")]
     RawTransaction {
         #[source]
@@ -234,10 +231,9 @@ pub struct PostgresWarehouse {
     /// Single-flights every exchange on [`Self::client`] - a `PREPARE`, a certified `run`, a raw
     /// call's `BEGIN`/statement/`ROLLBACK` triple. `Client` PIPELINES rather than serializing
     /// concurrent callers: measured, two threads in `execute_raw` interleaved their triples, so a
-    /// refused write persisted OUTSIDE any transaction and a concurrent certified `run` failed
-    /// with `25P02`. `tokio::sync::Mutex<()>` (`clippy.toml` disallows `std::sync::Mutex`), held
-    /// across the whole `block_on` - so two certified `run`s wait on each other too, the shared-
-    /// connection cost `docs/adr/0013` states as a limit.
+    /// refused write persisted OUTSIDE any transaction and a concurrent `run` failed with `25P02`.
+    /// `tokio::sync::Mutex<()>` (`clippy.toml` disallows `std::sync::Mutex`), held across the whole
+    /// `block_on` - two certified `run`s wait too, the shared-connection cost `docs/adr/0013` states.
     execution_lock: tokio::sync::Mutex<()>,
 }
 
@@ -989,11 +985,8 @@ impl Warehouse for PostgresWarehouse {
         Some(self.run_raw(statement, presented))
     }
 
-    /// Refuses `25006 read_only_sql_transaction` and `42501 insufficient_privilege` as the data
-    /// system saying no about who asked and what they may do, rather than as a generic failure -
-    /// the same split `RefusalReason::SourceRefused` already draws on the certified path, which
-    /// this adapter had not wired for either path until the raw tool needed it. See `raw` for the
-    /// match itself.
+    /// Refuses `25006 read_only_sql_transaction`/`42501 insufficient_privilege` as the data system
+    /// saying no, the same split the certified path already draws - see `raw` for the match itself.
     fn source_refused(&self, error: &Self::Error) -> bool {
         raw::source_refused(error)
     }

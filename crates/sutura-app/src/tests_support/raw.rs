@@ -6,6 +6,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::Executable;
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
 
 use super::{AdapterFailure, DriverFailure};
@@ -57,12 +58,12 @@ impl Warehouse for RawCapableWarehouse {
     }
 
     /// Unreached by the raw path and never exercised by the certified one in these tests.
-    fn dry_run(&self, _executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         Err(AdapterFailure::Statement { cause: DriverFailure })
     }
 
-    fn execute(&self, _executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
         Err(AdapterFailure::Statement { cause: DriverFailure })
     }

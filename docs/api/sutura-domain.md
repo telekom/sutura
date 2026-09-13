@@ -254,10 +254,34 @@ the `ToolOutcome`: provenance rides to the caller, and what a credential's lifet
 not the caller's business.
 
 ```rust
+pub const fn of_raw(chain: &'a PrincipalChain, statement: &'a RawStatement, outcome: &'a RawOutcome, executed_until: Option<Expiry>) -> Self
+```
+
+The raw path's constructor, matching `Self::of`'s shape: the outcome half is derived from
+the outcome, once, here.
+
+`statement` is `docs/adr/0013`'s "audit-only field never returned to the caller" - it rides
+on the record and nowhere else. Taken separately from `outcome` rather than read off it,
+because `RawOutcome` itself carries no statement text at all: the
+caller's own text is not something the OUTCOME needed to hold, and giving it a field there
+would be a second place a wire type could reach for it.
+
+```rust
 pub const fn outcome(&self) -> &RecordedOutcome<'a>
 ```
 
 How it ended.
+
+```rust
+pub const fn statement(&self) -> Option<&RawStatement>
+```
+
+The statement text, where this record is a raw call. `None` for a certified answer or
+refusal - there was no caller-supplied statement to carry.
+
+**Audit-only, and this is the one accessor.** Nothing in this crate or in `sutura-app` renders
+this back to the caller; a sink is the only reader, which is what makes the demand signal
+`docs/adr/0013`'s ramp section wants a property of the record rather than of the reply.
 
 #### Implements
 
@@ -279,6 +303,8 @@ no certified answer, and a channel that records only answers cannot report it.
 
 - `Answered` - The question was answered. The row count sizes it; the provenance says which definitions produced it, so a record can be matched against the bundle that was serving.
 - `Refused` - The question was declined. The variant is what a reader needs - not a sentence - because it is what an aggregate over records can group by.
+- `RawAnswered` - A raw statement executed. `docs/adr/0013`'s ramp section is explicit that this record is what makes an ungoverned answer a written demand signal rather than a hole - so unlike `Self::Answered`, the statement text rides on the record. It is never returned to the caller: `CallRecord::statement` is this module's only accessor for it.
+- `RawRefused` - A raw statement was refused, before or after it reached the data system. The statement rides here too, for the same reason: a refused raw call is exactly the demand signal the ramp section wants recorded, and the SQL that would have answered it is the point.
 
 #### Implements
 
@@ -8309,6 +8335,182 @@ wire shape as a plain string, hand them here, get back a certified `Query` or a
 `sutura_app::compile`'s job, against the pinned catalog this function never sees and cannot
 widen.
 
+## Module `raw`
+
+The raw SQL tool's own outcome, refusal vocabulary and statement newtype.
+
+# Why this is a separate module, and not a widening of `crate::query`
+
+`docs/adr/0013` names the mechanism this module exists to be: the certified answer
+(`crate::query::ToolOutcome::Answer`) carries a `crate::pinned::Provenance` with no
+constructor that omits it, so a raw result that could ever be mistaken for one would have to
+reuse that type. `RawOutcome` is a different type instead - **no field of type `Provenance`
+anywhere in this module**, so labelling a raw answer as certified is unrepresentable rather than
+merely undone by a rule somebody remembers to apply.
+
+`RawRefusalReason` is its own vocabulary for the same reason
+`docs/adr/0013`'s amendment gives: `crate::query::RefusalReason` is keyed to a compiled plan -
+dimensions, grains, federation - and a raw statement has none of those to refuse. What it can be
+refused for is a bound this deployment applies before or after execution, or the data system's own
+answer about the statement, and this module's four variants are exactly that list.
+
+# What this module does not decide
+
+**Neither variant carries the data system's own error text.** `docs/adr/0022` Decision 3 - not yet
+built, because the raw tool did not exist when that record was written - requires the raw tool's
+failure text to be treated as untrusted content once it is rendered; until then, the closed enum
+here is what keeps a driver's `Display` from reaching a caller unquoted. A `String` field would
+have been the driver's own words; naming the SHAPE of the failure instead is what makes "never
+echoed" a property of the type rather than a discipline at every call site.
+
+### `struct RawStatement`
+
+```rust
+pub struct RawStatement
+```
+
+One statement, as a caller sent it: unparsed text, bounded and non-empty.
+
+**This is not a SQL type.** Nothing here reads a keyword out of the text - `docs/adr/0013`'s own
+rule against inspecting a statement to decide read-only applies to every other purpose a parser
+might be tempted for, and this newtype's whole job is bounding the edge, not understanding the
+middle. Sutura hands the bytes to the data system's own parser unexamined.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The statement text, for the one adapter that runs it and for an audit record.
+
+**Never handed to a renderer for a caller-facing message.** This is the field `docs/adr/0013`'s
+consequences call "an audit-only field never returned to the caller" - the accessor exists for
+`crate::audit::CallRecord::of_raw` and for the execution port, not for a wire type to echo back.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidRawStatement>
+```
+
+Parses a statement, rejecting anything this deployment will not even attempt to run.
+
+Trimmed the way `NoteBody::parse` trims prose, so leading and trailing whitespace an editor or
+a chat client added is not counted against the byte bound and cannot itself make an otherwise
+empty statement look non-empty.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InvalidRawStatement`
+
+```rust
+pub enum InvalidRawStatement
+```
+
+Why text sent as a raw statement was refused before it ever reached a data system.
+
+#### Variants
+
+- `Empty` - Nothing a data system could run: empty, or made entirely of whitespace.
+- `TooLong` - Over `MAX_RAW_STATEMENT_BYTES`. Refused rather than truncated: a statement cut at the byte bound is not the statement the caller sent, and running part of it would answer a different question under the caller's own name.
+- `EmbeddedNul` - Contains an embedded NUL byte, which no text-protocol statement can carry - `tokio-postgres` itself refuses one at the wire. Named here, rather than left to surface as a driver error, because a bound this deployment can decide before opening a connection should not wait for one.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum RawRefusalReason`
+
+```rust
+pub enum RawRefusalReason
+```
+
+Why a raw statement was refused, or its execution did not produce rows a caller may see.
+
+**Closed, and deliberately narrower than `crate::query::RefusalReason`.** That vocabulary is
+keyed to a compiled plan - a metric, a grain, a federation shape - and a raw statement has none of
+those. What can still refuse it is a bound this deployment applies, or the data system's own
+answer about the statement once it ran.
+
+#### Variants
+
+- `TooManyRows` - The result had more rows than this deployment's row cap.
+- `ResultTooLarge` - The data system would not hand this result back in one piece.
+- `StatementFailed` - The statement did not complete: a syntax error the data system's own parser found, a constraint it enforced, or the connection's own statement timeout firing before it returned.
+- `SourceRefused` - The data system refused the statement at the identity or authorization level: a write inside the read-only transaction sutura wraps every call in, a role lacking a grant the statement needed, or a row-level policy denying it.
+
+#### Methods
+
+```rust
+pub const fn code(&self) -> &'static str
+```
+
+The machine-readable code a client or an agent branches on.
+
+The same derivation rule `RefusalReason::code` uses - the `snake_case` spelling of the
+variant's own name - kept as a hand-written match rather than shared with that type, because
+the two enums do not share a caller: nothing converts one into the other, and a shared
+derivation function would be a coupling this module's whole reason for existing argues against.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum RawOutcome`
+
+```rust
+pub enum RawOutcome
+```
+
+What the raw SQL tool produced.
+
+**The load-bearing type in `docs/adr/0013`.** Compare its shape with
+`crate::query::ToolOutcome::Answer`, which carries a `Provenance` with no constructor that omits
+it: `RawOutcome` has no field of that type anywhere in this module, so a raw result cannot be
+rendered as certified by filling in a digest - there is nowhere to put one. A `compile_fail`
+doctest on this type, paired with a compiling twin, is what keeps that a property of the type
+rather than a claim in this comment: see `crate::raw` module tests.
+
+The two variants deliberately do not mirror `ToolOutcome`'s field names: `Rows` rather than
+`Answer`, so a wire type built by matching on both cannot pattern-match its way to identical
+output.
+
+#### Variants
+
+- `Rows` - The statement executed and produced this result.
+- `Refusal` - The statement was refused, before or after it reached the data system.
+
+#### Methods
+
+```rust
+pub const fn refusal(&self) -> Option<&RawRefusalReason>
+```
+
+The refusal reason, if this is one. Convenience for tests and for an audit sink, matching
+`ToolOutcome::refusal`'s own shape.
+
+```rust
+pub const fn row_count(&self) -> usize
+```
+
+How many rows this outcome carries, for an audit record. `0` for a refusal - nothing ran, or
+nothing came back.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `constant MAX_RAW_STATEMENT_BYTES`
+
+The largest raw statement this deployment will parse, in bytes.
+
+Bound at the edge, before anything does work proportional to it - the same argument
+`crate::knowledge::MAX_NOTE_BODY_BYTES` is bound for, and the reason is identical: an unbounded
+input is a denial-of-service primitive whatever else it is. 64 KiB is generous for a statement a
+person or an agent composes by hand and small next to the row and volume bounds that apply to
+what it returns.
+
 ## Module `source`
 
 How one source establishes the identity a query runs as, what an adapter can carry, and what
@@ -9399,6 +9601,31 @@ assert_eq!(
     ImpersonationCapability::NoPlaceForASubject
 );
 ```
+
+### `use RawColumnsAndRows`
+
+The two halves `RawRows::into_parts` hands back: labels, then cells.
+
+### `use RawExecution`
+
+What `Warehouse::execute_raw` answers: `None` where
+the adapter does not accept raw text at all, otherwise the same result
+`execute` would have carried.
+
+Named so the port's own signature reads as one type rather than as a shape a reader has to
+re-derive at the call site.
+
+### `use RawRows`
+
+What a raw statement's execution produced, before the application layer turns it into a
+`crate::raw::RawOutcome`.
+
+A plain pair rather than a `RowSet`: `RowSet::new` refuses a ragged
+result, which is a certified-answer guarantee about a plan the compiler shaped, and a raw
+statement's own adapter is the only thing that has already checked its rows are rectangular -
+the driver's own row type carries one value per declared column by construction. Building a
+`RowSet` here would ask that type's constructor to re-verify a shape only the adapter could have
+gotten wrong.
 
 ### Module `csv`
 
@@ -10568,3 +10795,66 @@ rather than worked around with more prose here.
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### Module `raw`
+
+`Warehouse::execute_raw`'s own types - split out of
+`warehouse.rs` because that file hit the thousand-line limit `cargo xtask max-lines` enforces.
+
+#### `struct RawRows`
+
+```rust
+pub struct RawRows
+```
+
+What a raw statement's execution produced, before the application layer turns it into a
+`crate::raw::RawOutcome`.
+
+A plain pair rather than a `RowSet`: `RowSet::new` refuses a ragged
+result, which is a certified-answer guarantee about a plan the compiler shaped, and a raw
+statement's own adapter is the only thing that has already checked its rows are rectangular -
+the driver's own row type carries one value per declared column by construction. Building a
+`RowSet` here would ask that type's constructor to re-verify a shape only the adapter could have
+gotten wrong.
+
+##### Methods
+
+```rust
+pub fn columns(&self) -> &[String]
+```
+
+```rust
+pub fn into_parts(self) -> RawColumnsAndRows
+```
+
+The rows, owned - for a caller that is about to render them and drop the rest.
+
+```rust
+pub const fn of(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Self
+```
+
+The only constructor. Infallible: nothing here promises the two vectors agree in width, the
+way `RowSet::new` does for a certified answer - this is what
+`crate::raw::RawOutcome`'s builder reads that promise from before rendering; a raw statement's
+own adapter is what already produced a rectangular result.
+
+```rust
+pub fn rows(&self) -> &[Vec<Value>]
+```
+
+##### Implements
+
+`Clone`, `Debug`, `PartialEq`
+
+#### `type_alias RawExecution`
+
+What `Warehouse::execute_raw` answers: `None` where
+the adapter does not accept raw text at all, otherwise the same result
+`execute` would have carried.
+
+Named so the port's own signature reads as one type rather than as a shape a reader has to
+re-derive at the call site.
+
+#### `type_alias RawColumnsAndRows`
+
+The two halves `RawRows::into_parts` hands back: labels, then cells.

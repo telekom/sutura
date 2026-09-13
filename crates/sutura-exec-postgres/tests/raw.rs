@@ -268,7 +268,9 @@ mod raw {
             let certified = scope.spawn(|| {
                 let mut failures = Vec::new();
                 for _ in 0..400 {
-                    if let Err(cause) = warehouse.execute(Executable::Query(case.plan()), &corpus::presented()) {
+                    if let Err(cause) =
+                        warehouse.execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline())
+                    {
                         failures.push(format!("{cause:?}"));
                     }
                 }

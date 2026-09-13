@@ -364,16 +364,12 @@ pub(crate) use deadline::WarehouseThatOutranItsDeadline;
 ///
 /// **The instrument for the second half of `result_too_large`, reached past a `dry_run` that
 /// accepts.** Its `execute` returns `Err` and [`Warehouse::result_did_not_fit`] answers `true`, so
-/// the size bound leaves as a `413 result_too_large` rather than the `503` an outage produces. It is
-/// deliberately NOT compared to [`FailingWarehouse`] here - that fake fails its `dry_run` first and
-/// never reaches `execute`, so the two do not share a path. Its actual control is
-/// [`WarehouseThatFailsToExecute`]: the same reach, the same `execute` that returns `Err`, and the
-/// DEFAULT `false` predicate. The two are separate types rather than one fake with a flag, because a
-/// flag would let one code path pretend to be both a bound and an outage.
+/// the size bound leaves as a `413 result_too_large` rather than the `503` an outage produces. Its
+/// actual control is [`WarehouseThatFailsToExecute`] - same reach, same `Err`, DEFAULT `false`
+/// predicate; two types rather than one fake with a flag, so no code path pretends to be both.
 ///
-/// `dry_run` is NOT overridden: it takes the port's `NotAsked` default, so a size bound is a property
-/// of the reply and a check that reads no data cannot have hit one. That is also what makes this
-/// reach the `execute` branch rather than being refused a step earlier.
+/// `dry_run` is NOT overridden - the port's `NotAsked` default, so a size bound is a property of the
+/// reply and a check that reads no data cannot have hit one.
 pub(crate) struct WarehouseThatWillNotPage {
     source: SourceName,
     posture: SourcePosture,
@@ -524,14 +520,12 @@ impl Warehouse for FakeWarehouse {
         Ok(self.result.clone())
     }
 
-    // `#666`'s review, finding 2: this build's fake needs to accept a raw statement for a
-    // router-level test to reach `RunSqlOutcome`'s status arms at all - every certified fixture in
-    // this file predates the raw tool and none of them override this.
+    // `#666`'s review, finding 2: a router-level test needs this fake to accept a raw statement to
+    // reach `RunSqlOutcome`'s status arms at all - no certified fixture here overrides it otherwise.
     const ACCEPTS_RAW_STATEMENTS: bool = true;
 
-    /// Answers every statement with one row, except the two magic strings a router-level test
-    /// provokes a specific outcome with: `"refuse me"` (a source refusal) and `"too many rows"`
-    /// (the row cap, at `self.result`'s own row count so a test can choose how far over).
+    /// One row for every statement except two magic strings a router-level test provokes an
+    /// outcome with: `"refuse me"` (a source refusal), `"too many rows"` (over the row cap).
     fn execute_raw(
         &self,
         statement: &sutura_domain::raw::RawStatement,
@@ -553,9 +547,7 @@ impl Warehouse for FakeWarehouse {
         )))
     }
 
-    /// This fake's `execute` never errs, so the only `StatementRejected` this predicate is ever
-    /// asked about is `execute_raw`'s own `"refuse me"` - unconditionally `true` is exact rather
-    /// than a widening.
+    /// `execute` never errs, so this is only ever asked about `execute_raw`'s own `"refuse me"`.
     fn source_refused(&self, _error: &Self::Error) -> bool {
         true
     }
@@ -599,16 +591,14 @@ fn shared_posture() -> SourcePosture {
 ///
 /// **A fake of the broker port, and the honest one for these fixtures.** Every warehouse here is a
 /// fake over no data system, so the only shape any of them can be handed is the deployment's own
-/// identity for that source - which is what [`shared_posture`] declares and what this grants. A fake
-/// that handed out subject material would provoke the adapter's wiring-defect error on every request
-/// and prove nothing about the transport.
+/// identity for that source - what [`shared_posture`] declares and what this grants. A fake handing
+/// out subject material would provoke the adapter's wiring-defect error on every request instead.
 ///
 /// **Its own error type, and a review is why it is not a refusal.** The one thing minting can fail on
 /// here is `LegCredentials::minted` refusing a set that does not cover the sources it was asked about,
-/// and the map is built from those sources - so it is unreachable. It used to be answered as
-/// `Minted::Refused`, which is the ONE outcome the transport tests here assert on: a fixture that
-/// silently produced it would have made `403 credential_unavailable` pass for the wrong reason. It
-/// leaves as the broker's own failure instead, which is a `503` with a different code.
+/// and the map is built from those sources - so it is unreachable. It used to answer `Minted::Refused`,
+/// the ONE outcome the transport tests here assert on: a fixture silently producing it would have made
+/// `403 credential_unavailable` pass for the wrong reason - it leaves as the broker's own `503` instead.
 pub(crate) struct GrantsTheSharedIdentity;
 
 /// The fixture broker's own defect, which nothing in this suite can provoke.
