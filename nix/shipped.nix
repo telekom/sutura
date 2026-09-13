@@ -146,6 +146,10 @@ let
       # LINKS on a triple this project publishes. `ureq`, rustls and `ring` are what it adds, and
       # `ring` compiles C and assembly, so the two musl triples are the answer worth having.
       probeFeatures = [ "bigquery" ];
+      # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
+      # dependency of `sutura-cli` and the generator is what renders the statement that
+      # subcommand prints. Nothing extra to forbid here beyond the shared list below.
+      alsoForbidden = [ ];
     }
     {
       bin = "sutura-serve";
@@ -163,6 +167,16 @@ let
       # dependency closure per target. The CLI is the one issue #121 owes a measurement for; what
       # this list says is that adding serve's is an entry rather than a design.
       probeFeatures = [ ];
+      # `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` holds the PLACEMENT - no catalog adapter and
+      # no compiler crate may reach `sutura-sql` - but a normal dependency added straight to
+      # `sutura-app` (the crate both `sutura-serve` and `sutura-http` sit on) is outside every one
+      # of those entries and would still put the pre-1.0 SQL generator into this binary's default
+      # closure, which renders no SQL and can reach none of it. This is the OUTCOME half: read out
+      # of the artifact's own embedded dependency list rather than out of any manifest, so a
+      # future edge the placement gate does not name still fails here, naming this binary - AT THE
+      # TAG-TRIGGERED RELEASE BUILD, where `checks.shipped-features` runs, and not on a pull
+      # request.
+      alsoForbidden = [ "polyglot-sql" ];
     }
   ];
 
@@ -263,7 +277,7 @@ let
         # rather than the environment variable of the same name: that name is a CMake
         # option, and `libmimalloc-sys` builds with the `cc` crate and never reads it.
         # nixpkgs' own mimalloc derivation sets it whenever the host libc is musl. In
-        # mimalloc v2 it switches off `MI_USE_BUILTIN_THREAD_POINTER`
+        # an earlier mimalloc major it switches off `MI_USE_BUILTIN_THREAD_POINTER`
         # (`include/mimalloc/prim.h`), so the thread id comes from the TLS slot instead of
         # `__builtin_thread_pointer`. `CFLAGS_<triple>` is the `cc` crate's per-target
         # hook; it is appended to the flags cc already computed, not a replacement for
@@ -587,6 +601,10 @@ let
         # list is what says they left it off** - an assertion about the ARTIFACT rather than
         # about a manifest, which is the whole reason it reads the embedded dependency list.
         # A `bigquery` that stopped being optional on either crate fails here.
+        #
+        # Shared across both binaries; a binary's own `alsoForbidden` (declared beside it above)
+        # is appended per binary in `checkOne` below, which is how `polyglot-sql` is banned from
+        # `sutura-serve` alone - `sutura` legitimately links it for `compile`.
         forbidden = [ "ring" "ureq" ];
         quoted = name: "'\"" + name + "\"'";
         wantOne = bin: name: ''
@@ -617,7 +635,7 @@ let
           fi
           echo "${b.bin}: $crates crate(s) embedded"
           ${pkgs.lib.concatMapStrings (wantOne b.bin) required.${b.bin}}
-          ${pkgs.lib.concatMapStrings (banOne b.bin) forbidden}
+          ${pkgs.lib.concatMapStrings (banOne b.bin) (forbidden ++ b.alsoForbidden)}
         '';
       in
       pkgs.runCommand "sutura-shipped-features" { nativeBuildInputs = [ pkgs.rust-audit-info ]; } ''

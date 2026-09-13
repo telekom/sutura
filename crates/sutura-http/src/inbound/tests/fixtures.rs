@@ -216,43 +216,80 @@ pub(super) fn gateway_declaring(token_type: RequiredTokenType, lifetime: ProofLi
     }
 }
 
-/// A key set source that hands out a prepared document per call and counts how often it was asked.
+/// A key set source a cell scripts look by look, counts, and may hold one look inside.
 ///
-/// **The instrument the rate limit is measured with.** `fetch` is what must not happen twice inside the
-/// window, so the count is the assertion - `AtomicUsize` rather than a lock, because
-/// `clippy.toml` bans `std::sync::Mutex` and there is nothing here to mutate but a counter.
+/// **The instrument the rate limit is measured with.** `read` is what must not happen twice inside
+/// the window, so the count is the assertion - `AtomicUsize` rather than a lock, because
+/// `clippy.toml` bans `std::sync::Mutex` and there is nothing here to mutate but a counter. The
+/// same fake is the instrument for a look that is slow or that fails, which is why an entry can be
+/// `None` and one look can wait at [`Self::gate`] - `super::refresh` is where both are used.
 pub(super) struct StubSource {
-    /// One document per fetch; the last one repeats. Empty means every fetch fails.
-    documents: Vec<String>,
+    /// One entry per look, in order; the last one repeats. `None` is a look that fails, so an empty
+    /// script or a trailing `None` is a source that answers nothing from there on.
+    script: Vec<Option<String>>,
+    /// Which look waits at [`Self::gate`], if any. Look zero is the priming read, so a cell that
+    /// wants the first *refresh* held names look one.
+    hold_at: Option<usize>,
+    /// Which look panics instead of returning, if any. Same indexing as [`Self::hold_at`]. Exists to
+    /// provoke `LookFailed::DidNotFinish` - a refusal variant no other cell reaches - and to prove
+    /// `InFlight` is released across an unwinding blocking closure.
+    panic_at: Option<usize>,
+    /// Two waiters: the held look, and whoever releases it - which must be a thread that is not the
+    /// runtime's, or a build whose read runs on the executor deadlocks instead of failing.
+    pub(super) gate: Arc<std::sync::Barrier>,
     pub(super) calls: AtomicUsize,
 }
 
 impl StubSource {
     pub(super) fn serving(documents: &[String]) -> Self {
+        Self::scripted(documents.iter().cloned().map(Some).collect(), None)
+    }
+
+    pub(super) fn failing() -> Self {
+        Self::scripted(Vec::new(), None)
+    }
+
+    pub(super) fn scripted(script: Vec<Option<String>>, hold_at: Option<usize>) -> Self {
         Self {
-            documents: documents.to_vec(),
+            script,
+            hold_at,
+            panic_at: None,
+            gate: Arc::new(std::sync::Barrier::new(2)),
             calls: AtomicUsize::new(0),
         }
     }
 
-    pub(super) fn failing() -> Self {
-        Self {
-            documents: Vec::new(),
-            calls: AtomicUsize::new(0),
-        }
+    /// Makes the given look (by index, same scheme as [`Self::hold_at`]) panic instead of returning.
+    #[must_use]
+    pub(super) fn panicking_at(mut self, call: usize) -> Self {
+        self.panic_at = Some(call);
+        self
+    }
+
+    /// Panics if `call` is the scripted one - split out of [`Self::read`] so `clippy` does not read a
+    /// deliberate panic as one escaping a `Result`-returning function by accident.
+    fn panic_if_scripted(&self, call: usize) {
+        assert!(self.panic_at != Some(call), "this look was scripted to panic");
     }
 }
 
 impl KeySetSource for StubSource {
     fn read(&self) -> Result<String, KeySetUnavailable> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
-        self.documents
+        self.panic_if_scripted(call);
+        if self.hold_at == Some(call) {
+            // Blocking, on whichever thread this is. That is the whole instrument: a cell asserts
+            // what the rest of the process can still do while this line has not returned.
+            let _released = self.gate.wait();
+        }
+        self.script
             .get(call)
-            .or_else(|| self.documents.last())
+            .or_else(|| self.script.last())
             .cloned()
+            .flatten()
             .ok_or_else(|| KeySetUnavailable::Unreadable {
                 path: PathBuf::from("stub"),
-                cause: std::io::Error::other("this source answers nothing"),
+                cause: std::io::Error::other("this look was scripted to fail"),
             })
     }
 }
@@ -274,7 +311,18 @@ pub(super) fn cache_of_family(
     max_age: Duration,
     now: Instant,
 ) -> (KeySetCache, Arc<StubSource>) {
-    let source = Arc::new(StubSource::serving(documents));
+    cache_around(StubSource::serving(documents), family, window, max_age, now)
+}
+
+/// A primed cache over the given source, and the source to read afterwards.
+pub(super) fn cache_around(
+    source: StubSource,
+    family: KeyFamily,
+    window: Duration,
+    max_age: Duration,
+    now: Instant,
+) -> (KeySetCache, Arc<StubSource>) {
+    let source = Arc::new(source);
     let cache = KeySetCache::primed_with_window(
         Box::new(Arc::clone(&source)),
         family,

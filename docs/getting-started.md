@@ -356,12 +356,12 @@ have nothing to do with the question:
   does not name it. Unset it. It is not the environment or the configuration directory, so the
   remedy printed underneath will not point at it.
 
-`kind: bigquery` is the other kind, and it needs a build that carries it - the published binaries
-deliberately do not link an outbound TLS stack, which `checks.shipped-features` reads out of each
-released binary rather than out of a manifest. (It is not a build-time saving: `docs/adr/0017`
-measured the feature at twelve compiled units, under 2% of a cross job.)
-[Building from source](#building-from-source) is how to get one, and the same command then submits
-the plan to a dataset.
+`kind: bigquery` and `kind: postgres` are the two network kinds, and each needs a build carrying its
+default-off feature - the published binaries deliberately link neither, which
+`checks.shipped-features` reads out of each released binary rather than out of a manifest. (That is
+an artifact decision, not a build-time saving.) [Building from source](#building-from-source) is how
+to get one. The BigQuery block below is the cloud variant; the Postgres declaration, verified and
+mutual TLS modes, and least-authority role grants are in [Serving](serving.md#a-postgres-source-least-authority-and-its-channel).
 
 **The `security:` block above is still required** - the snippet below replaces the `sources:` block
 and nothing else. Any non-empty `sources:` with no `security.identity` is refused at startup, naming
@@ -482,7 +482,9 @@ Four things matter before you write one:
 - **A measure is a shape and terms from a closed vocabulary, not an expression.** There is no field
   for `sum(price * quantity)`, and [the closed vocabulary for measures](adr/0002-a-closed-vocabulary-for-measures.md) argues why: a string field is an escape
   hatch, and an escape hatch on the query path is the thing being defended against. What the
-  vocabulary cannot say belongs in a statement rendered upstream. `zero_denominator` is required
+  vocabulary cannot say can be declared under the explicitly named `authored_sql:` sibling, and
+  today that declaration loads and pins and nothing more: no published adapter compiles or executes
+  the fragment, so a bundle carrying one is refused at startup. `zero_denominator` is required
   rather than defaulted, because "a rate over an empty period is null" and "is an error" are both
   defensible and a definition should say which - which is also why it is a word (`yields_null` or
   `fails`) rather than a boolean that records only that somebody thought about it.

@@ -17,8 +17,8 @@ use sutura_domain::model::{
 };
 use sutura_domain::plan::federated::InternalLabel;
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel,
-    StatementTables,
+    PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 
@@ -182,23 +182,26 @@ fn labelled_plan(table: &QualifiedTable, bucket_label: ResultLabel, measure_labe
             },
         },
         measure_label,
-        vec![
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::AtOrAfter {
-                    column: column("day"),
-                    param: 0,
-                },
-            ),
-            PlanFilter::new(
-                PredicateOrigin::Definition,
-                PlanPredicate::Before {
-                    column: column("day"),
-                    param: 1,
-                },
-            ),
-        ],
-        vec![ParamValue::Date(from), ParamValue::Date(until)],
+        PlanBindings::parse(
+            vec![
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::AtOrAfter {
+                        column: column("day"),
+                        param: 0,
+                    },
+                ),
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::Before {
+                        column: column("day"),
+                        param: 1,
+                    },
+                ),
+            ],
+            vec![ParamValue::Date(from), ParamValue::Date(until)],
+        )
+        .expect("a fixture plan binds its two range bounds in placeholder order"),
         TimeRange::new(from, until).expect("a bounded range is a range"),
     )
 }

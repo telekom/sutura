@@ -14,8 +14,8 @@
 use std::collections::BTreeSet;
 
 use super::{
-    AnchorPlan, NotAnAnchorsPlan, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    AnchorPlan, NotAnAnchorsPlan, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate,
+    PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
@@ -23,6 +23,7 @@ use crate::knowledge::Knowledge;
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use crate::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+use crate::warehouse::ParamValue;
 
 fn metric() -> MetricName {
     MetricName::parse("mrr").expect("a test metric is a metric")
@@ -99,7 +100,7 @@ fn anchored() -> PinnedDefinitions {
 
 /// The plan the boot path builds for an anchor: one metric, its coarsest grain, its certified range,
 /// no keys and no requested predicate.
-fn anchors_plan(range: TimeRange, grain: Grain, keys: Vec<PlanKey>, filters: Vec<PlanFilter>) -> QueryPlan {
+fn anchors_plan(range: TimeRange, grain: Grain, keys: Vec<PlanKey>, bindings: PlanBindings) -> QueryPlan {
     QueryPlan::new(
         SourceName::parse("local").expect("a test source is a source"),
         metric(),
@@ -113,8 +114,7 @@ fn anchors_plan(range: TimeRange, grain: Grain, keys: Vec<PlanKey>, filters: Vec
             },
         },
         ResultLabel::measure(&metric()),
-        filters,
-        Vec::new(),
+        bindings,
         range,
     )
 }
@@ -124,7 +124,7 @@ fn the_plan_the_boot_path_builds_is_an_anchors_plan() {
     // The positive case first, because every refusal below is worthless without it: a constructor
     // that refused everything would satisfy all of them and check nothing.
     let pinned = anchored();
-    let plan = anchors_plan(certified(), Grain::Month, Vec::new(), Vec::new());
+    let plan = anchors_plan(certified(), Grain::Month, Vec::new(), PlanBindings::none());
     let parsed = AnchorPlan::of(&plan, &pinned, &metric()).expect("the anchor's own plan is one");
     assert_eq!(parsed.plan(), &plan);
 
@@ -134,13 +134,17 @@ fn the_plan_the_boot_path_builds_is_an_anchors_plan() {
         certified(),
         Grain::Month,
         Vec::new(),
-        vec![PlanFilter::new(
-            PredicateOrigin::Definition,
-            PlanPredicate::Equals {
-                column: column("status"),
-                param: 0,
-            },
-        )],
+        PlanBindings::parse(
+            vec![PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::Equals {
+                    column: column("status"),
+                    param: 0,
+                },
+            )],
+            vec![ParamValue::Text(String::from("active"))],
+        )
+        .expect("one predicate binding the one value is coherent"),
     );
     assert!(
         AnchorPlan::of(&definitional, &pinned, &metric()).is_ok(),
@@ -161,7 +165,7 @@ fn a_question_shaped_plan_is_not_an_anchors_plan() {
             ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
             column("region"),
         )],
-        Vec::new(),
+        PlanBindings::none(),
     );
     assert_eq!(
         AnchorPlan::of(&grouped, &pinned, &metric()).unwrap_err(),
@@ -173,13 +177,17 @@ fn a_question_shaped_plan_is_not_an_anchors_plan() {
         certified(),
         Grain::Month,
         Vec::new(),
-        vec![PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: column("region"),
-                param: 0,
-            },
-        )],
+        PlanBindings::parse(
+            vec![PlanFilter::new(
+                PredicateOrigin::Requested,
+                PlanPredicate::Equals {
+                    column: column("region"),
+                    param: 0,
+                },
+            )],
+            vec![ParamValue::Text(String::from("north"))],
+        )
+        .expect("one predicate binding the one value is coherent"),
     );
     assert_eq!(
         AnchorPlan::of(&filtered, &pinned, &metric()).unwrap_err(),
@@ -188,7 +196,7 @@ fn a_question_shaped_plan_is_not_an_anchors_plan() {
     );
 
     let other = MetricName::parse("active_subscriptions").expect("a test metric is a metric");
-    let plan = anchors_plan(certified(), Grain::Month, Vec::new(), Vec::new());
+    let plan = anchors_plan(certified(), Grain::Month, Vec::new(), PlanBindings::none());
     assert_eq!(
         AnchorPlan::of(&plan, &pinned, &other).unwrap_err(),
         NotAnAnchorsPlan::NotThatMetric {
@@ -208,7 +216,7 @@ fn the_range_compared_against_is_the_bundles_and_not_the_callers() {
     // the bundle's own author did not certify is refused whatever a caller holds.
     let pinned = anchored();
     let elsewhere = TimeRange::new(day("2026-01-01"), day("2026-02-01")).expect("a test range is a range");
-    let moved = anchors_plan(elsewhere, Grain::Month, Vec::new(), Vec::new());
+    let moved = anchors_plan(elsewhere, Grain::Month, Vec::new(), PlanBindings::none());
     assert_eq!(
         AnchorPlan::of(&moved, &pinned, &metric()).unwrap_err(),
         NotAnAnchorsPlan::NotTheAnchorsRange {
@@ -227,7 +235,7 @@ fn a_plan_at_a_finer_grain_than_the_metric_declares_is_not_an_anchors_plan() {
     // as a mismatch that reads like a broken definition; and a series is strictly more than the
     // number the bundle already publishes in its own catalog document.
     let pinned = bundle(Some(anchor("197122")), BTreeSet::from([Grain::Day, Grain::Month]));
-    let daily = anchors_plan(certified(), Grain::Day, Vec::new(), Vec::new());
+    let daily = anchors_plan(certified(), Grain::Day, Vec::new(), PlanBindings::none());
     assert_eq!(
         AnchorPlan::of(&daily, &pinned, &metric()).unwrap_err(),
         NotAnAnchorsPlan::NotTheCoarsestGrain {
@@ -245,7 +253,7 @@ fn a_metric_the_bundle_does_not_anchor_has_no_anchors_plan() {
     // reader somewhere different: a bundle that never defined the metric is a boot path asking about
     // something else, and a metric with no anchor is a catalog document that declares no number.
     let unanchored = bundle(None, BTreeSet::from([Grain::Month]));
-    let plan = anchors_plan(certified(), Grain::Month, Vec::new(), Vec::new());
+    let plan = anchors_plan(certified(), Grain::Month, Vec::new(), PlanBindings::none());
     assert_eq!(
         AnchorPlan::of(&plan, &unanchored, &metric()).unwrap_err(),
         NotAnAnchorsPlan::DeclaresNoAnchor { metric: metric() },
@@ -269,8 +277,7 @@ fn a_metric_the_bundle_does_not_anchor_has_no_anchors_plan() {
             },
         },
         ResultLabel::measure(&absent),
-        Vec::new(),
-        Vec::new(),
+        PlanBindings::none(),
         certified(),
     );
     assert_eq!(

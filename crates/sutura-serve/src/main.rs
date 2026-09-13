@@ -72,6 +72,12 @@ mod boot;
 #[cfg(feature = "bigquery")]
 mod broker;
 
+/// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
+mod bigquery;
+
+/// The same, for the `Postgres` connection this root opens and secures.
+mod postgres;
+
 /// The alias the example deployment and this crate's tests use for their one source.
 ///
 /// **No longer a check, and that is the change worth reading.** It used to be the only source name
@@ -230,6 +236,24 @@ fn run() -> Result<(), String> {
             // same pinned agent and bounds the source composition already declares, so the exchange
             // and the job share one connection pool and one set of pins - see `crate::broker`.
             let broker = broker::build_broker(settings.sources(), settings.server().request_timeout())?;
+            (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None)
+        }
+        #[cfg(feature = "postgres")]
+        OpenedSources::Postgres(engines) => {
+            // A `postgres` source attaches nothing - the tables live in the database - so there is
+            // no attach step whose absence at boot would set the served bundle's tables. Its
+            // `preflight` is `NotReported` by construction, which `refuse_absent_tables` treats as a
+            // WARN rather than a refusal; calling the bigquery-shaped table check would add nothing
+            // but a misleading permission sentence. Verification of a mistyped `table:` therefore
+            // happens on the first question against it, as the port itself documents.
+            //
+            // **The static broker, not the exchanging one.** `PostgresWarehouse` declares
+            // `NoPlaceForASubject` (one connection under the deployment's declared identity), and
+            // `build_postgres` refuses an impersonating source at the posture cross-check - so the
+            // only identity a question is answered under is the one this process holds. The static
+            // broker is exactly that: every declared `shared-service-user` source is served as
+            // itself, and nothing is ever exchanged.
+            let broker = StaticCredentialBroker::from_registry(settings.sources());
             (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None)
         }
     };
@@ -491,7 +515,7 @@ fn environments() -> String {
 /// A named pair rather than a tuple: the second field is evidence for a startup refusal and `.1`
 /// would say nothing about which of the two it is. `clippy::type_complexity` asks for the same thing
 /// from the other direction.
-struct Opened {
+pub(crate) struct Opened {
     engines: sutura_app::Warehouses<DataFusionWarehouse>,
     attached: BTreeSet<TableName>,
 }
@@ -510,7 +534,7 @@ struct Opened {
 /// dispatch, which `sutura_app::warehouses` records as an architecture decision with a record - so
 /// what this enum does is make the limit a startup refusal naming both entries, instead of a
 /// `SourceUnavailable` on the first question against whichever source lost.
-enum OpenedSources {
+pub(crate) enum OpenedSources {
     /// The in-process engine over directories of files.
     Files(Opened),
     /// A `BigQuery` dataset per source, reached over the wire.
@@ -519,14 +543,29 @@ enum OpenedSources {
     /// [`boot::refuse_unattached`], which states what that costs.
     #[cfg(feature = "bigquery")]
     BigQuery(sutura_app::Warehouses<BigQuerySource>),
+    /// A `PostgreSQL` connection per source, reached over the declared channel.
+    ///
+    /// Nothing is attached - the tables live in the database - so like `BigQuery` there is no table
+    /// set beside it. The channel (plaintext on a local host, or TLS over the declared anchors) is
+    /// resolved when the engine opens, so a TLS refusal stops the process before the listener binds.
+    #[cfg(feature = "postgres")]
+    Postgres(sutura_app::Warehouses<PostgresSource>),
 }
+
+/// A `Postgres` source as this binary composes it: one connection under the deployment's declared
+/// identity, secured as the source declares.
+///
+/// Named once for the reason `BigQuerySource` is: it appears in a registry type, a `Warehouse`
+/// bound and a constructor's return, and the three layers ARE the composition.
+#[cfg(feature = "postgres")]
+pub(crate) type PostgresSource = sutura_exec_postgres::PostgresWarehouse;
 
 /// A `BigQuery` source as this binary composes it: the adapter, over the wire, over a credential file.
 ///
 /// Named once because it appears in a registry type, a `Warehouse` bound and a constructor's return,
 /// and because the three layers ARE the composition - `docs/adr/0018` is the record for the inner two.
 #[cfg(feature = "bigquery")]
-type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
+pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
     sutura_exec_bigquery::wire::BigQueryWire<sutura_exec_bigquery::wire::credential::Credential>,
 >;
 
@@ -605,7 +644,8 @@ fn open_engine(
     // per source read the same whichever function held it, and a dispatch does not.
     match one_kind(&declared, registry)? {
         sutura_config::SourceKind::Files => open_files(pinned, &declared, registry, runtime).map(OpenedSources::Files),
-        sutura_config::SourceKind::BigQuery => open_bigquery(&declared, registry, request_timeout),
+        sutura_config::SourceKind::BigQuery => bigquery::open_bigquery(&declared, registry, request_timeout),
+        sutura_config::SourceKind::Postgres => postgres::open_postgres(&declared, registry),
     }
 }
 
@@ -644,163 +684,6 @@ fn one_kind(declared: &[&SourceName], registry: &sutura_config::SourceRegistry) 
     chosen
         .map(|(_, kind)| kind)
         .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
-}
-
-/// Opens one `BigQuery` adapter per declared source, over the wire, under a declared credential.
-///
-/// **Nothing is attached and nothing is registered, which is the difference from [`open_files`] that
-/// matters:** the tables live in the dataset. What this function does instead is everything that can
-/// fail before a listener is bound - the posture cross-check, the two bounds, and READING the
-/// credential file, which is the one step that would otherwise fail on the first question.
-#[cfg(feature = "bigquery")]
-fn open_bigquery(
-    declared: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    request_timeout: sutura_config::RequestTimeout,
-) -> Result<OpenedSources, String> {
-    let mut engines: Option<sutura_app::Warehouses<BigQuerySource>> = None;
-    for source in declared {
-        let configured = configured_source(source, registry)?;
-        let engine = build_bigquery(source, configured, request_timeout)?;
-        engines = Some(match engines {
-            None => sutura_app::Warehouses::of(engine),
-            Some(open) => open.and(engine).map_err(flatten)?,
-        });
-    }
-    // Unreachable: `declared` is non-empty and every iteration assigns. Written as a fallback for the
-    // reason `open_files` gives - the workspace denies `unwrap` and `expect`.
-    engines
-        .map(OpenedSources::BigQuery)
-        .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
-}
-
-/// The refusal for a build that did not link the `BigQuery` adapter.
-///
-/// **Two definitions of one signature rather than a `cfg` inside one body**, so the dispatcher above
-/// has exactly one call and the compiler decides which of these it reaches. The parameters this body
-/// does not read are named for it, which is what lets both signatures stay identical under
-/// `dead_code = "deny"`.
-///
-/// The message names the FEATURE and not just the kind, because the two things an operator can do are
-/// in two different files: change the `kind:`, or build with `--features bigquery`. A message that
-/// only said "this binary links no `BigQuery` adapter" sent them to the first when they wanted the
-/// second - which was this refusal's shape before the adapter was registered at all.
-#[cfg(not(feature = "bigquery"))]
-fn open_bigquery(
-    declared: &[&SourceName],
-    _registry: &sutura_config::SourceRegistry,
-    _request_timeout: sutura_config::RequestTimeout,
-) -> Result<OpenedSources, String> {
-    let named = declared
-        .iter()
-        .map(|source| source.as_str())
-        .collect::<Vec<&str>>()
-        .join(", ");
-    Err(format!(
-        "[{named}] declares `kind: bigquery`, and this binary was built without the `bigquery` \
-         feature - so it links no BigQuery adapter and composes the in-process engine only. Build \
-         `sutura-serve` with `--features bigquery`, or declare a `files` source"
-    ))
-}
-
-/// Builds one `BigQuery` adapter, after checking this build can deliver the source's posture.
-///
-/// **Every value it needs is declared, and the two that are not on the source entry say where they
-/// come from.** The billing project, the dataset, the credential file and the bytes-billed ceiling are
-/// the entry's; the query deadline is `server.request_timeout_seconds`, which is what
-/// `sutura_exec_bigquery::wire::QueryDeadline` asks a composition root for by name - a job that
-/// outlives the request it is answering is billed for a result nobody is waiting for.
-///
-/// The ceiling is parsed HERE and not in `sutura-config`, and that is the single-owner rule rather
-/// than laziness: the range belongs to the adapter, so a second copy of it in the settings tree would
-/// be the duplicate that drifts. What the settings tree owns is that the key was written.
-#[cfg(feature = "bigquery")]
-fn build_bigquery(
-    source: &SourceName,
-    configured: &sutura_config::ConfiguredSource,
-    request_timeout: sutura_config::RequestTimeout,
-) -> Result<BigQuerySource, String> {
-    use sutura_exec_bigquery::transport::{DatasetId as WireDataset, ProjectId as WireProject};
-    use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
-    use sutura_exec_bigquery::wire::{BigQueryWire, BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
-
-    // Matched rather than read off accessors every kind would have to have, for the reason
-    // `open_files` gives at the same shape: `one_kind` has already decided which arm this is, and a
-    // second openable kind should arrive as a compile error at this line too.
-    let sutura_config::SourcePlacement::BigQuery {
-        ref billing_project,
-        ref dataset,
-        ref credential_file,
-        max_bytes_billed,
-    } = *configured.placement()
-    else {
-        return Err(format!(
-            "`sources.{source}` reached the BigQuery attach step with a placement no BigQuery adapter \
-             reads, which `one_kind` should have dispatched elsewhere"
-        ));
-    };
-    let identity = configured
-        .identity()
-        .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
-    // The same cross-check `open_files` makes and against a DIFFERENT constant, which is the point of
-    // it being per adapter rather than per deployment: this adapter declares `PerSubjectCredential`,
-    // so a `shared-service-user` entry is deliverable and an `impersonation-at-source` entry passes
-    // the adapter's capability half - which is the change issue 87 landed. Passing the adapter's half
-    // is not the whole story, and the composition's half is below.
-    identity
-        .posture()
-        .deliverable_by(<BigQuerySource as sutura_domain::warehouse::Warehouse>::IMPERSONATION, source)
-        .map_err(flatten)?;
-    // **The adapter can carry a subject, and the COMPOSITION's other half - the broker that mints
-    // one - is attached in `run()`'s `bigquery` arm, not here.** The port, the
-    // `WorkloadIdentityBroker` and the real `StsExchange` all exist; `build_broker` builds the broker
-    // holding this source's declared `workload_identity`, and this line merely OPENING the source is
-    // what lets a question against it be served as the asker rather than refused. The boot refusals
-    // that still guard the cases with no broker are `Settings::refusals`'s `MissingWorkloadIdentity`
-    // for an impersonating source with none declared, and the `cfg(not(feature = "bigquery"))` half
-    // of `open_bigquery` for a build that links none of this.
-    //
-    // **What keeps an impersonating source from being read under the deployment's own identity if
-    // somebody later forgets to attach a broker is not a refusal here - it is the port.** `build_broker`
-    // refuses to mint for a source it holds no exchanging half for (`Minted::Refused`), so a question
-    // against one is refused as `credential_unavailable` rather than answered as this process.
-    // **`within_request_timeout` and NOT `parse`, and the difference is a bug that would only show up
-    // under load.** What a job may spend is not the request timeout: an answer makes
-    // `QueryDeadline::CALLS_PER_ANSWER` calls and each pays a connect margin on top of its own budget,
-    // so a 30-second deadline inside a 30-second request timeout overruns the transport that promised
-    // it. That arithmetic lives in the adapter, next to the constant it depends on, which is why a
-    // composition root asks for the SHARE rather than computing one.
-    let deadline = QueryDeadline::within_request_timeout(request_timeout.seconds())
-        .map_err(|cause| format!("`server.request_timeout_seconds` leaves no BigQuery job deadline: {cause}"))?;
-    let ceiling = BytesBilledCeiling::parse(max_bytes_billed)
-        .map_err(|cause| format!("`sources.{source}.max_bytes_billed` is not a usable ceiling: {cause}"))?;
-    let bounds = JobBounds::of(deadline, ceiling);
-    // Read at BOOT rather than on the first question, which is the same argument the inbound key set
-    // is read before the listener opens: a credential file that is missing, unreadable or not a
-    // credential has to stop the process, not become a deployment that answers every question with a
-    // failure while its startup log says it opened a dataset.
-    // ONE agent, cloned, and not two `pinned` calls - which is what `Credential::read` taking an agent
-    // is for: the token exchange and the job then share one connection pool and one set of pins by
-    // construction rather than because two call sites happened to pass the same bounds. `WireAgent` is
-    // `Clone` and a `ureq::Agent`'s clone shares its pool, so the clone is the cheap half of that.
-    let agent = WireAgent::pinned(bounds);
-    let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), agent.clone())
-        .map_err(|cause| format!("`sources.{source}.credential_file` could not be read: {}", flatten(cause)))?;
-    // The two resource newtypes are parsed a SECOND time here, and that is not a redundant check: the
-    // settings tree's `BillingProject` and the transport's `ProjectId` are two types in two crates,
-    // and the one whose value is written into a request path is the transport's. Neither can be
-    // reached from the other without going through a `parse`.
-    let project = WireProject::parse(billing_project.as_str())
-        .map_err(|cause| format!("`sources.{source}.billing_project` is not a usable project id: {cause}"))?;
-    let dataset = WireDataset::parse(dataset.as_str())
-        .map_err(|cause| format!("`sources.{source}.dataset` is not a usable dataset id: {cause}"))?;
-    Ok(sutura_exec_bigquery::BigQueryWarehouse::new(
-        source.clone(),
-        identity.posture().clone(),
-        project,
-        dataset,
-        BigQueryWire::new(agent, credentials),
-    ))
 }
 
 /// Opens the in-process engine for every declared `files` source and registers one file per model.

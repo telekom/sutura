@@ -680,7 +680,7 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
             Metric::new(
                 metric.name().clone(),
                 metric.model().clone(),
-                metric.measure().clone(),
+                metric.computation().clone(),
                 metric.required_filters().to_vec(),
                 metric.time_column().clone(),
                 metric.grains().clone(),

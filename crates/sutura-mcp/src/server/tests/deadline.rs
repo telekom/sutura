@@ -29,7 +29,7 @@ const CANCELLED_WAIT: &str = "stopped waiting for a tool call because its peer c
 /// before its configured reply deadline, while the synchronous work it started and the execution
 /// slot that work owns both remain occupied.
 ///
-/// The pinned rmcp suppresses a response produced after `notifications/cancelled`.
+/// rmcp suppresses a response produced after `notifications/cancelled`.
 /// The client therefore observes `ServiceError::Cancelled`, and the captured line is the evidence
 /// that the server handler itself stopped waiting rather than merely that the client sent a
 /// notification. The fake is read before it is released: cancellation ends the async wait and does

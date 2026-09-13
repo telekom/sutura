@@ -194,7 +194,7 @@ fn aliased(inner: Expr, label: &str) -> Result<Expr, GenerateError> {
 /// `week` means a **Monday**-based week on every dialect this renders for, and that is measured
 /// rather than assumed for the one that looked doubtful. `ClickHouse` `26.7.5.10` answers
 /// `dateTrunc('week', DATE '2026-08-30')` - a Sunday - with **2026-08-24, a Monday**, matching
-/// `DuckDB` 1.5.5 and `Postgres` 17.11 (and `BigQuery`'s Monday-based `ISOWEEK`); measured on
+/// the pinned `DuckDB` and `Postgres` 17.11 (and `BigQuery`'s Monday-based `ISOWEEK`); measured on
 /// 2026-08-30. The reason is in the source rather than the spelling: `ClickHouse` routes
 /// `date_trunc('week')` through `toStartOfInterval`, whose weeks start on Monday, while only the
 /// bare `toStartOfWeek` defaults to Sunday. So one lowercase mapping stays shared, and should a
@@ -236,7 +236,7 @@ const fn unit(grain: Grain) -> &'static str {
 ///
 /// **Not a translation of the word, a translation of the SEMANTICS**, and the difference was measured
 /// rather than reasoned about. `BigQuery`'s `WEEK` begins on **Sunday** - its own reference says
-/// `WEEK` is equivalent to `WEEK(SUNDAY)` - while a real `DuckDB` 1.5.5 answers
+/// `WEEK` is equivalent to `WEEK(SUNDAY)` - while the pinned `DuckDB` answers
 /// `DATE_TRUNC('week', DATE '2026-08-30')` (a Sunday) with **2026-08-24, a Monday**, putting that
 /// Sunday in the PREVIOUS week. So the obvious mapping, `Week => "WEEK"`, buckets a Sunday's rows
 /// under a different period on `BigQuery` than on the data system that vouches for acceptance - a
@@ -850,7 +850,7 @@ mod tests {
         // example corpus asks only `day` and `month`, so nothing in `tests/snapshots` would notice if
         // this changed - which is why it is pinned here by value.
         //
-        // BigQuery's `WEEK` begins on SUNDAY. A real DuckDB 1.5.5 answers
+        // BigQuery's `WEEK` begins on SUNDAY. The pinned DuckDB answers
         // `DATE_TRUNC('week', DATE '2026-08-30')` - a Sunday - with 2026-08-24, a Monday, so it puts
         // that Sunday in the previous week. `ISOWEEK` is BigQuery's Monday-based part, and asking for
         // it is what makes the two agree about which period a row belongs to.

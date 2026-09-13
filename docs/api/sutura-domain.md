@@ -913,7 +913,10 @@ that lived in an adapter would be a check the other adapter did not have. Two ad
 the same content must produce the same `Definitions` or one of them is wrong, and the golden
 suite asserts exactly that.
 
-Nothing here holds SQL. See `docs/adr/0001-first-party-semantic-models.md`.
+Nothing here parses or renders SQL. A `Computation` may hold catalog-authored text as written;
+the compile that would validate it lives in `sutura-sql`, and nothing published calls it - a
+bundle carrying such a metric is refused at boot. See `docs/adr/0001-first-party-semantic-models.md`
+and `docs/adr/0004-a-named-escape-hatch-for-authored-sql.md`.
 
 ### `struct Model`
 
@@ -1159,12 +1162,16 @@ line a person reads to decide whether a metric still means what it claimed.
 pub struct Metric
 ```
 
-A certified metric: one measure over one model, and the shapes of question it will answer.
+A certified metric: one computation over one model, and the shapes of question it will answer.
 
 #### Methods
 
 ```rust
 pub const fn anchor(&self) -> Option<&Anchor>
+```
+
+```rust
+pub const fn computation(&self) -> &Computation
 ```
 
 ```rust
@@ -1184,8 +1191,10 @@ pub const fn grains(&self) -> &BTreeSet<Grain>
 ```
 
 ```rust
-pub const fn measure(&self) -> &Measure
+pub const fn measure(&self) -> Option<&Measure>
 ```
+
+The closed measure, if this metric does not use catalog-authored SQL.
 
 ```rust
 pub const fn model(&self) -> &ModelName
@@ -1196,7 +1205,7 @@ pub const fn name(&self) -> &MetricName
 ```
 
 ```rust
-pub fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
+pub fn new(name: MetricName, model: ModelName, computation: impl Into<Computation>, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
 ```
 
 A certified metric, or a refusal if two of its dimensions answer to one label.
@@ -1231,7 +1240,7 @@ DECLARED order is here and nowhere later, so the refusal names the two spellings
 order the file wrote them. Same shape, and the same argument, as
 `StatementTables::parse`.
 
-**What a folded pair costs was measured rather than argued.** `DuckDB` 1.5.5
+**What a folded pair costs was measured rather than argued.** The pinned `DuckDB`
 (`v1.5.5 Variegata d8cdaa33fd`), whose `sutura_sql::Dialect::identifier_case` declares
 `IdentifierCase::InsensitiveAscii`:
 `SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")` returns **1** - the `region`
@@ -1653,14 +1662,24 @@ word - `authored_sql` - that a reviewer greps for and an operator can list. Ther
 metric is free-text SQL" is invisible in a diff.
 
 **Nothing here parses.** A `SqlFragment` is checked for being *a plausible fragment* - present,
-bounded, and free of the characters that make the text a reviewer reads differ from the text
-that compiles - and nothing more. Whether it is one SQL expression, over
-columns this model declares, reaching no table it was not given, is decided by `sutura_sql`, at
-catalog-compile time, and a fragment that fails is a **load failure naming line and column**. The
-domain may not do that work: it holds no SQL parser and `cargo xtask check-boundaries` keeps it
-that way. The consequence is worth stating plainly - **a `Computation::AuthoredSql` that has not
-been through `sutura_sql::expression::compile` is unvalidated**, and the composition root is what
-must not skip it.
+bounded, one fragment rather than a script, and free of the characters that make the text a
+reviewer reads differ from the text that compiles - and nothing more. Whether it is one SQL
+expression, over columns this model declares, reaching no table it was not given, is decided by
+`sutura_sql::expression::compile`, and the domain may not do that work: it holds no SQL parser
+and `cargo xtask check-boundaries` keeps it that way.
+
+**Stored, not compiled - and that is the state of the tree, not a transitional note.** A
+`Computation::AuthoredSql` is loaded, pinned and put under the definition digest exactly as
+written, and nothing published compiles it: not the catalog adapter that loads it - the same
+boundary gate forbids a catalog adapter reaching `sutura-sql`, because a SQL generator in a
+metadata crate's tree is a generator in every shipped binary's - and not the composition root.
+The compile belongs to the first execution adapter that declares
+`Warehouse::EXECUTES_AUTHORED_SQL`, beside the renderer for its own dialect. Until one does, every
+adapter takes that constant's `false` default and `sutura_app::verify_and_validate` refuses a
+bundle carrying an authored metric at startup, naming the metric. So the consequence, plainly:
+**a `Computation::AuthoredSql` is unvalidated SQL text, and the only thing that makes that safe
+today is that nothing executes it** - the refusal is the mechanism, and `docs/adr/0004` records
+why a witness type was not available instead.
 
 **It is a provider CAPABILITY, not a feature every provider has.** A wren-style directory has
 authored SQL because a person wrote the file. A metadata service that stores no executable SQL
@@ -1688,6 +1707,7 @@ Why a fragment is not one.
 - `TooLong`
 - `ControlCharacter` - A control character other than tab and newline. Those two are formatting a person might use inside a long `CASE`; the rest are not text, and their likeliest origin is a paste accident or an attempt to hide part of a fragment from a reviewer's terminal.
 - `InvisibleCharacter` - A character a terminal, a diff and a browser do not render, or render in the wrong order.
+- `StatementTerminator` - A `;` anywhere in the text. An authored computation is ONE expression that a generator splices into a statement it composes; a semicolon is the one character that can end that statement and begin another, which turns a metric definition into a script. Refused textually - inside a string literal too - because nothing here parses, and a rule that depended on tokenising would be a parser by another name. A literal that needs one is the derived-column case `docs/adr/0001` sends upstream.
 
 #### Implements
 
@@ -1724,6 +1744,10 @@ them cannot be confused with a string that did not. Deliberately **not** an iden
 the character set of SQL is not the character set of a name, and narrowing it here would reject
 the quotes, parentheses and commas the whole feature exists to allow.
 
+Held exactly as written past the surrounding trim, so the digest covers the author's text. The
+derived `Debug` prints it, and that is fine: it is operator-authored catalog content, not a
+secret. What must not print it is `AuthoredSql`'s `Display`, whose doc says why.
+
 #### Methods
 
 ```rust
@@ -1752,10 +1776,18 @@ Which dialect a fragment was authored for, as a word at rest.
 `sutura_sql::dialect::Dialect` owns it, because each entry there is a claim that we generate
 correct SQL for that system and have a golden that says so - and a second copy of the set here
 would be one that has to be kept in step with nothing checking it, which is exactly what
-`crate::measure::Term` declines to do for aggregates. So a tag is a *word* until the compile
-step, which resolves it against the list that build actually renders for and refuses an unknown
-one naming the choices. A `postgresql:` where `postgres:` was meant is therefore a load failure
+`crate::measure::Term` declines to do for aggregates. So a tag is meant to be a *word* until a
+compile step resolves it against the list that build actually renders for and refuses an unknown
+one naming the choices - a `postgresql:` where `postgres:` was meant would then be a load failure
 and not a variant that is silently never chosen.
+
+**That compile step has no production caller today.** `docs/adr/0004`'s amendment records why:
+nothing published calls `sutura_sql::expression::compile`, so nothing resolves a `DialectTag`
+against anything. A misspelt tag loads, pins under the definition digest exactly as written, and
+is refused at boot with every other authored metric - `NotValidated::AuthoredSqlNotExecutable`,
+naming the metric rather than the tag - because no adapter this workspace ships opts into
+`Warehouse::EXECUTES_AUTHORED_SQL`. The resolution this doc comment describes is what the first
+adapter that does must add, beside its own renderer.
 
 #### Methods
 
@@ -1926,7 +1958,7 @@ key, visible in the diff, which is the whole point.
 #### Variants
 
 - `Measure` - The closed vocabulary, and the ordinary case. Every metadata provider can produce this, and nothing about it is optional or degraded.
-- `AuthoredSql` - SQL somebody wrote in the catalog, compiled at load. The exception, named so that it reads as one.
+- `AuthoredSql` - SQL somebody wrote in the catalog, stored as written. The exception, named so that it reads as one - and, today, one no published adapter executes: the module doc says what holds instead.
 
 #### Methods
 
@@ -1964,8 +1996,9 @@ pub const fn measure(&self) -> Option<&Measure>
 The closed measure, if this metric uses the closed vocabulary.
 
 Every consumer that walks columns, resolves terms or renders an aggregate reads this, and a
-`None` is the signal that the number comes from a compiled fragment instead. An adapter that
-cannot execute one has to **refuse** on that `None` rather than skip the metric.
+`None` is the signal that the number would come from an authored fragment instead. A
+consumer that cannot execute one has to **refuse** on that `None`, naming the metric, rather
+than skip it - `sutura_semantic::plan` does, and so does the startup check.
 
 #### Implements
 
@@ -1976,7 +2009,8 @@ cannot execute one has to **refuse** on that `None` rather than skip the metric.
 The longest authored fragment accepted.
 
 A bound rather than a judgement about style: the fragment is handed to a recursive-descent parser
-at load, and an unbounded string out of a file is an unbounded amount of work and stack.
+by whichever adapter compiles it, and an unbounded string out of a file is an unbounded amount of
+work and stack. Counted in characters, not bytes.
 Generous enough for the conditional sums and guarded ratios this exists for; anything longer is a
 derived column that belongs upstream, which is what `docs/adr/0001` says about the whole class.
 
@@ -4840,6 +4874,7 @@ Why a bundle is not validated.
 
 #### Variants
 
+- `AuthoredSqlNotExecutable` - The bundle carries a metric whose computation is catalog-authored SQL, and the adapter this build selected does not declare `Warehouse::EXECUTES_AUTHORED_SQL` - which today is every adapter this workspace ships. The fragment is stored as written and compiled by nothing, so this refusal is what stands between it and a served bundle; `docs/adr/0004` is the record.
 - `AnchorMismatch` - The declared number and the produced one, both quoted.
 - `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`
@@ -4974,6 +5009,14 @@ assert!(
 
 One metadata source's record in the manifest.
 
+**No `Deserialize`, and that is what closes the last way in.** A derived one admitted every
+combination of the three fields - `Required` beside `reached: false`, an availability state no
+constructor produces - while nothing in the workspace reads a manifest back:
+`PinnedDefinitions` derives `Serialize` alone, because the
+serialized form exists to be DIGESTED rather than to be parsed. So the derive was unused surface
+that could construct what `Self::of` cannot, and it is deleted rather than routed through a
+`try_from`.
+
 ### `use ContributionManifest`
 
 Which metadata sources composed a bundle, keyed by each source's declared name.
@@ -4986,15 +5029,26 @@ its hasher chose this run.
 **A single-source deployment carries a one-entry manifest** rather than none, because a shape
 that differed between one source and N would put the interesting case on the untested path.
 
+### `use InvalidManifest`
+
+Why a set of contributions is not a manifest.
+
 ### `use RequiredOrOptional`
 
-Whether a contributor is required for this deployment to serve, or may be absent.
+Whether a contributor is required for this deployment to serve.
 
-**Every value this code can produce is `Self::Required`** - no settings shape declares an
-optional source yet, so a bundle exists only when every configured source loaded. The variant is
-carried because the availability rule `docs/adr/0011` decided lands on top of it: a deployment
-that can declare `optional` is the diff that first writes `Self::Optional`, and the digest's
-job is to make that run look different from the one that included the source.
+**One variant, and that is the whole of what this code can say.** It carried an `Optional` half
+and a `Contribution::missing` constructor to produce it, and nothing produced one: no settings
+shape declares an optional source, so a bundle exists only when every configured source loaded.
+Both are deleted rather than kept against a declaration that does not exist -
+`github.com/telekom/sutura#639` is where that was decided, and the reasoning is that a variant no
+deployment can reach is a combination the type admits and the constructors do not produce.
+
+**The FIELD stays, and the limit is worth stating exactly.** `docs/adr/0011` decided the
+manifest's serialized form, the digest is taken over it, and dropping the key changes every
+pinned digest - so the shape is what a deployment that declares availability fills in, and that
+diff brings back the second variant beside its producer. What is gone is the pre-built half, not
+the decision.
 
 ### Module `manifest`
 
@@ -5021,22 +5075,28 @@ pinned-bundle half of the module.
 pub enum RequiredOrOptional
 ```
 
-Whether a contributor is required for this deployment to serve, or may be absent.
+Whether a contributor is required for this deployment to serve.
 
-**Every value this code can produce is `Self::Required`** - no settings shape declares an
-optional source yet, so a bundle exists only when every configured source loaded. The variant is
-carried because the availability rule `docs/adr/0011` decided lands on top of it: a deployment
-that can declare `optional` is the diff that first writes `Self::Optional`, and the digest's
-job is to make that run look different from the one that included the source.
+**One variant, and that is the whole of what this code can say.** It carried an `Optional` half
+and a `Contribution::missing` constructor to produce it, and nothing produced one: no settings
+shape declares an optional source, so a bundle exists only when every configured source loaded.
+Both are deleted rather than kept against a declaration that does not exist -
+`github.com/telekom/sutura#639` is where that was decided, and the reasoning is that a variant no
+deployment can reach is a combination the type admits and the constructors do not produce.
+
+**The FIELD stays, and the limit is worth stating exactly.** `docs/adr/0011` decided the
+manifest's serialized form, the digest is taken over it, and dropping the key changes every
+pinned digest - so the shape is what a deployment that declares availability fills in, and that
+diff brings back the second variant beside its producer. What is gone is the pre-built half, not
+the decision.
 
 ##### Variants
 
 - `Required` - The deployment does not serve without this source.
-- `Optional` - The deployment may serve without it, and a bundle that did differs in digest from one that did not - nothing here can produce one yet, because no declaration says so.
 
 ##### Implements
 
-`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 #### `struct Contribution`
 
@@ -5045,6 +5105,14 @@ pub struct Contribution
 ```
 
 One metadata source's record in the manifest.
+
+**No `Deserialize`, and that is what closes the last way in.** A derived one admitted every
+combination of the three fields - `Required` beside `reached: false`, an availability state no
+constructor produces - while nothing in the workspace reads a manifest back:
+`PinnedDefinitions` derives `Serialize` alone, because the
+serialized form exists to be DIGESTED rather than to be parsed. So the derive was unused surface
+that could construct what `Self::of` cannot, and it is deleted rather than routed through a
+`try_from`.
 
 ##### Methods
 
@@ -5056,25 +5124,14 @@ What this source declared it supplies, the manifest record of
 `SemanticCatalog::capabilities`.
 
 ```rust
-pub const fn missing(capabilities: MetadataCapabilities) -> Self
-```
-
-The record for a configured source this bundle serves without.
-
-The availability case `docs/adr/0011` prices: optional and unreachable at startup, recorded
-as such so the digest differs from a run that included it. Nothing in this repository can
-produce one today - no deployment declares an optional source - so it is the shape a future
-declaration fills, and it stops this constructor being omitted.
-
-```rust
 pub const fn of(capabilities: MetadataCapabilities) -> Self
 ```
 
 The record for a source that was configured, declared these capabilities, and loaded.
 
-**`reached = true` is what a served bundle records.** A source an optional deployment could
-not reach is a manifest entry with `reached = false`, which this constructor's `of` does not
-produce - see `Self::missing`.
+**The only constructor, so `reached = true` and `Required` are the only state a
+`Contribution` has.** It had a `missing` twin for the optional-and-unreachable case and
+nothing called it; `RequiredOrOptional` says why both are gone and what brings them back.
 
 ```rust
 pub const fn reached(&self) -> bool
@@ -5090,7 +5147,24 @@ Whether this source was declared required for the deployment to serve.
 
 ##### Implements
 
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum InvalidManifest`
+
+```rust
+pub enum InvalidManifest
+```
+
+Why a set of contributions is not a manifest.
+
+##### Variants
+
+- `NoContributors` - Nothing was contributed, so the manifest would record no composition at all.
+- `DuplicateSource` - Two contributions name one source, so one of them would not be recorded.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 #### `struct ContributionManifest`
 
@@ -5129,10 +5203,27 @@ pub fn get(&self, source: &SourceName) -> Option<&Contribution>
 One contributor's record, or `None` if the name was not configured.
 
 ```rust
-pub fn of(entries: impl IntoIterator<Item>) -> Self
+pub fn parse(entries: impl IntoIterator<Item>) -> Result<Self, InvalidManifest>
 ```
 
 A bundle read from several sources, in declaration order.
+
+**The canonical constructor, and it refuses two states it used to absorb.** It collected
+straight into the map, so a repeated source name OVERWROTE the earlier entry and an empty
+iterator produced an empty manifest - a bundle whose manifest records fewer contributors than
+composed it, which is precisely the "two different compositions that assemble identically are
+indistinguishable" gap `docs/adr/0011` built the manifest to close. A silent overwrite in the
+thing whose job is to make compositions distinguishable is worse than a refusal.
+
+**The limit, next to the claim:** `NoContributors` is not reachable from the one caller
+today - `sutura_app`'s assembler already refuses an empty composition with its own `Empty`,
+which wins first on the input that would otherwise produce it. `DuplicateSource` IS reachable
+through `sutura_app::assemble`, a public function: that assembler has no source-name
+uniqueness check of its own, only per-element collision checks, so two bundles with disjoint
+content that declare the same source name reach this refusal, not a silently short manifest.
+What keeps a duplicated name off the *served* path is `Catalogs::parse` in `sutura-config`
+refusing it at configuration time, before assembly runs - a different mechanism than this
+one, and this constructor's own test still provokes both variants directly.
 
 ```rust
 pub fn single(source: SourceName, contribution: Contribution) -> Self
@@ -5140,9 +5231,13 @@ pub fn single(source: SourceName, contribution: Contribution) -> Self
 
 A bundle read from exactly one source.
 
+Infallible by construction rather than by a skipped check, which is
+`StatementTables::only`'s argument: one entry cannot be
+no entries and has no second name to collide with.
+
 ##### Implements
 
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ## Module `plan`
 
@@ -5417,6 +5512,11 @@ The parameter index is recorded rather than implied by position, so a reader of 
 which value goes where without reconstructing the generator's ordering in their head - and so an
 adapter that binds by index cannot disagree with one that binds by order.
 
+**The index on its own is unconstrained, and what bounds it is `PlanBindings`.** Whether an
+index resolves is a relation between this predicate and a parameter LIST, so it is parsed over
+the pair rather than wrapped around the number; a predicate outside a parsed set reaches no
+renderer and no executor. `crate::plan::bindings` carries the argument and the limit.
+
 #### Variants
 
 - `AtOrAfter` - `column >= param`, the inclusive start of the range.
@@ -5547,16 +5647,23 @@ pub const fn metric(&self) -> &MetricName
 ```
 
 ```rust
-pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: ResultLabel, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
+pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: ResultLabel, bindings: PlanBindings, range: TimeRange) -> Self
 ```
 
 One statement's worth of decisions.
 
-**The tables arrive as a `StatementTables` and not as a table plus a vector of joins**, and
-that argument is the whole of what keeps this constructor infallible: the check that two of
-them do not answer to one identifier happens where that set is parsed, so a plan holding the
-ambiguous pair does not exist to be rendered. `crate::plan::tables` is where the defect, the
-measurement and the choice of a refusal over an alias are argued.
+**Two of the arguments are parsed sets rather than loose fields, and that is the whole of what
+keeps this constructor infallible.** Each carries a relation the plan would otherwise have to
+be trusted to have got right, checked where the set is parsed so the incoherent plan does not
+exist to be rendered:
+
+- the tables arrive as a `StatementTables` and not as a table plus a vector of joins, so no
+  plan holds two tables one statement could not tell apart. `crate::plan::tables` argues the
+  defect, the measurement and the choice of a refusal over an alias.
+- the filters arrive as `PlanBindings` and not as a filter list plus a parameter list, so no
+  plan holds a predicate that binds a parameter it does not carry, or binds one out of the
+  order a positional placeholder gives it. `crate::plan::bindings` argues what each adapter
+  does with the incoherent pair, and why the check cannot live on the index.
 
 ```rust
 pub fn params(&self) -> &[ParamValue]
@@ -5741,6 +5848,45 @@ A required filter as a plan predicate, binding a parameter when it needs one.
 was stored at. Passing the binding in rather than returning a value keeps the parameter list in
 one place: the caller owns the order, which is what the placeholder-position contract depends on.
 
+### `use IncoherentBindings`
+
+Why a set of filters and parameters is not a coherent binding.
+
+Three distinct author mistakes rather than one message, because the field a reader needs differs:
+a number that is too large, a number in the wrong place, and a value nothing reads.
+
+### `use PlanBindings`
+
+The predicates one statement applies, and the values they bind, in placeholder order.
+
+**If an instance of this type exists, every predicate in it resolves to a parameter the set
+holds, and resolves to the one a positional placeholder would give it** - which is the whole
+return on the newtype, and what lets `QueryPlan::new` stay
+infallible while the plan it builds cannot be the incoherent one. See this module's header for
+what the incoherence does to each adapter.
+
+The fields are private, so this doctest holds the TYPE itself - a struct literal is refused even
+with the right value types, distinct from `LegPlan`'s `compile_fail,E0559` doctest, which holds
+the CARRIER (`LegPlan::Lookup` has no `filters` field to name in the first place):
+
+```compile_fail,E0451
+use sutura_domain::plan::{PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _loose(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> PlanBindings {
+    PlanBindings { filters, params }
+}
+```
+
+```
+use sutura_domain::plan::{IncoherentBindings, PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _checked(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<PlanBindings, IncoherentBindings> {
+    PlanBindings::parse(filters, params)
+}
+```
+
 ### `use AnswerKey`
 
 One group-by key of the answer: which leg owns it, and the label it carries in that leg's result.
@@ -5814,7 +5960,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -6090,15 +6236,14 @@ check somebody runs:
 ```compile_fail
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::LegPlan;
+use sutura_domain::plan::{LegPlan, PlanBindings};
 
 fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
     LegPlan::Lookup {
         source,
         table,
         keys: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range,
     }
 }
@@ -6106,16 +6251,57 @@ fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPla
 
 ```
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::LegPlan;
+use sutura_domain::plan::{LegPlan, PlanBindings};
 
 fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
     LegPlan::Lookup {
         source,
         table,
         keys: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
     }
+}
+```
+
+A leg's filters arrive as a checked set too, so a producer cannot state a filter list beside a
+parameter list and leave the two to agree by coincidence. This doctest holds the CARRIER, not
+the type: `LegPlan::Lookup` has no `filters` field to name, so rustc refuses it with `E0559`
+before `PlanBindings`'s own privacy is ever reached - `crate::plan::bindings`'s
+`compile_fail,E0451` doctest on `PlanBindings` itself is what holds that second boundary.
+
+```compile_fail,E0559
+use sutura_domain::model::{QualifiedTable, SourceName};
+use sutura_domain::plan::{LegPlan, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> LegPlan {
+    LegPlan::Lookup {
+        source,
+        table,
+        keys: Vec::new(),
+        filters,
+        params,
+    }
+}
+```
+
+```
+use sutura_domain::model::{QualifiedTable, SourceName};
+use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _parsed(
+    source: SourceName,
+    table: QualifiedTable,
+    filters: Vec<PlanFilter>,
+    params: Vec<ParamValue>,
+) -> Result<LegPlan, IncoherentBindings> {
+    Ok(LegPlan::Lookup {
+        source,
+        table,
+        keys: Vec::new(),
+        bindings: PlanBindings::parse(filters, params)?,
+    })
 }
 ```
 
@@ -6125,7 +6311,7 @@ of joins and skip the ambiguity guard - which is exactly what the first producer
 ```compile_fail
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin};
+use sutura_domain::plan::{LegPlan, PlanBindings, PlanBucket, PlanJoin};
 
 fn _unchecked(
     source: SourceName,
@@ -6143,8 +6329,7 @@ fn _unchecked(
         bucket,
         keys: Vec::new(),
         terms: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range,
     }
 }
@@ -6153,7 +6338,7 @@ fn _unchecked(
 ```
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin, StatementTables};
+use sutura_domain::plan::{LegPlan, PlanBindings, PlanBucket, PlanJoin, StatementTables};
 
 fn _checked(
     source: SourceName,
@@ -6170,8 +6355,7 @@ fn _checked(
         bucket,
         keys: Vec::new(),
         terms: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range,
     })
 }
@@ -6264,6 +6448,175 @@ short; and a row count above this is
 `RefusalReason::ResultTooLarge`. A refusal is the
 honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
 the caller's move is to narrow the range or drop a dimension.
+
+### Module `bindings`
+
+What a plan's predicates bind, and the guarantee that every one of them resolves.
+
+# The defect this type exists for
+
+A `PlanPredicate` records the INDEX of the parameter it compares
+against, and a plan carries the parameter list beside its filters. Two lists, and nothing made
+them agree: `QueryPlan::new` took them as independent arguments
+and `LegPlan` carried them as independent fields, so a predicate naming
+parameter 5 beside a two-value list was a plan a producer could build, serialize and hand to an
+adapter.
+
+None of the three things downstream then refuses it, which is what makes the pair worth parsing:
+
+- `definitional_params` resolves each index with
+  `get` and DROPS the ones that miss, so the golden asserting that a metric's required filter is
+  bound rather than written into the statement reads a shorter list and passes.
+- `sutura_sql`'s numbered-placeholder rendering converts the index with a saturating cast, so an
+  oversized one renders as a placeholder the statement carries no value for.
+- the in-process engine does report a missing parameter, but only when a leg is translated -
+  after the plan has been accepted.
+
+# Order is half of it, and that half is a wrong number rather than an error
+
+Three of the four dialects `sutura_sql` renders for write a POSITIONAL placeholder, a bare `?`,
+so the Nth placeholder in the statement takes the Nth value in the list; only Postgres writes a
+NUMBERED `$n` that names its value. The renderer emits predicates in filter order and a
+positional adapter binds the list in list order, so those two agree only while the indices run
+`0, 1, .. n-1` down the filters. Read off the shipped adapters rather than reasoned about:
+`sutura_exec_duckdb::bind` maps `QueryPlan::params` in list
+order against `?`, `sutura_exec_bigquery` sends the same list as an ordered array under a
+positional parameter mode, and `sutura_sql`'s `?` placeholder ignores the position it is given.
+`ClickHouse` is the third `?` dialect and has no executor here yet. `sutura_exec_postgres::bind`
+maps the same list in the same order, but its `$n` is derived from the predicate's index, so it
+is the one shipped adapter the ordering cannot mislead.
+
+So a plan whose filters name the same parameters in a different order renders correctly on the
+numbered dialect and binds the wrong values on a positional one - `order_date >= <end> AND
+order_date < <start>` is an empty result under a certified metric name, arrived at by nothing
+that reports an error. That is the failure class this repository is arranged against, so the
+ordering is parsed rather than trusted.
+
+# What this buys, and where it stops
+
+**No `QueryPlan` and no `LegPlan` holds an
+incoherent set**, because `PlanBindings` is the only way to supply one and `PlanBindings::parse`
+is the only way to obtain one that holds a parameter - the argument
+`StatementTables` makes for the tables of one statement, applied
+to the second pair of fields those constructors used to take independently.
+
+**It stops at the pair, and the limit is the reason this is not a newtype over the index.**
+Coherence is a relation between a predicate and a LIST, so no wrapper around one `usize` can
+hold it: a `ParamIndex` that only renamed the number would buy nothing, and
+`PlanPredicate` therefore still carries an unconstrained one. What
+changes is that a predicate outside a parsed set reaches no renderer and no executor. The check
+runs once, here; after `Ok` nothing re-checks.
+
+#### `enum IncoherentBindings`
+
+```rust
+pub enum IncoherentBindings
+```
+
+Why a set of filters and parameters is not a coherent binding.
+
+Three distinct author mistakes rather than one message, because the field a reader needs differs:
+a number that is too large, a number in the wrong place, and a value nothing reads.
+
+##### Variants
+
+- `OutOfRange` - A predicate binds a parameter the list does not hold.
+- `OutOfPlaceholderOrder` - A predicate binds a parameter out of placeholder order.
+- `NeverRead` - The set carries a parameter no predicate binds.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct PlanBindings`
+
+```rust
+pub struct PlanBindings
+```
+
+The predicates one statement applies, and the values they bind, in placeholder order.
+
+**If an instance of this type exists, every predicate in it resolves to a parameter the set
+holds, and resolves to the one a positional placeholder would give it** - which is the whole
+return on the newtype, and what lets `QueryPlan::new` stay
+infallible while the plan it builds cannot be the incoherent one. See this module's header for
+what the incoherence does to each adapter.
+
+The fields are private, so this doctest holds the TYPE itself - a struct literal is refused even
+with the right value types, distinct from `LegPlan`'s `compile_fail,E0559` doctest, which holds
+the CARRIER (`LegPlan::Lookup` has no `filters` field to name in the first place):
+
+```compile_fail,E0451
+use sutura_domain::plan::{PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _loose(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> PlanBindings {
+    PlanBindings { filters, params }
+}
+```
+
+```
+use sutura_domain::plan::{IncoherentBindings, PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _checked(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<PlanBindings, IncoherentBindings> {
+    PlanBindings::parse(filters, params)
+}
+```
+
+##### Methods
+
+```rust
+pub fn filters(&self) -> &[PlanFilter]
+```
+
+The predicates this set applies, in the order a statement emits them.
+
+```rust
+pub fn into_parts(self) -> (Vec<crate::plan::PlanFilter>, Vec<crate::warehouse::ParamValue>)
+```
+
+The two lists, for a constructor that stores them apart.
+
+`QueryPlan` takes this set and keeps the halves as its own fields,
+for the reason its constructor gives about `StatementTables`:
+the serialized form a golden pins is unchanged by the guard existing.
+
+```rust
+pub const fn none() -> Self
+```
+
+No predicates and no parameters.
+
+Infallible by construction rather than by a skipped check: there is no index to resolve and
+no value to leave unread. It is `StatementTables::only`'s
+argument in the second pair - a lookup leg for a remote dimension the question did not filter
+carries exactly this.
+
+```rust
+pub fn params(&self) -> &[ParamValue]
+```
+
+The values bound to this set's placeholders, in placeholder order.
+
+```rust
+pub fn parse(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<Self, IncoherentBindings>
+```
+
+The predicates and the values they bind, or a refusal if the two do not resolve each other.
+
+**The canonical constructor.** `Self::none` is the empty spelling of it and repeats no
+check, because a set with no parameters has no index to resolve.
+
+The three checks are ordered for the DIAGNOSTIC and not for cost - the whole walk is linear
+over a list bounded by `MAX_DIMENSIONS` plus a metric's
+required filters plus the two range bounds. An index the set cannot hold is reported as that
+rather than as an ordering fault, because the author who wrote the wrong number needs to read
+the number, and an out-of-range index is out of order as well.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### Module `federated`
 
@@ -6544,7 +6897,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -6667,7 +7020,7 @@ What is established, and by what:
 | --- | --- | --- |
 | the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
-| `DuckDB` 1.5.5 executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
 `BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
 whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
@@ -7094,15 +7447,14 @@ check somebody runs:
 ```compile_fail
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::LegPlan;
+use sutura_domain::plan::{LegPlan, PlanBindings};
 
 fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
     LegPlan::Lookup {
         source,
         table,
         keys: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range,
     }
 }
@@ -7110,16 +7462,57 @@ fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPla
 
 ```
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::LegPlan;
+use sutura_domain::plan::{LegPlan, PlanBindings};
 
 fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
     LegPlan::Lookup {
         source,
         table,
         keys: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
     }
+}
+```
+
+A leg's filters arrive as a checked set too, so a producer cannot state a filter list beside a
+parameter list and leave the two to agree by coincidence. This doctest holds the CARRIER, not
+the type: `LegPlan::Lookup` has no `filters` field to name, so rustc refuses it with `E0559`
+before `PlanBindings`'s own privacy is ever reached - `crate::plan::bindings`'s
+`compile_fail,E0451` doctest on `PlanBindings` itself is what holds that second boundary.
+
+```compile_fail,E0559
+use sutura_domain::model::{QualifiedTable, SourceName};
+use sutura_domain::plan::{LegPlan, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> LegPlan {
+    LegPlan::Lookup {
+        source,
+        table,
+        keys: Vec::new(),
+        filters,
+        params,
+    }
+}
+```
+
+```
+use sutura_domain::model::{QualifiedTable, SourceName};
+use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter};
+use sutura_domain::warehouse::ParamValue;
+
+fn _parsed(
+    source: SourceName,
+    table: QualifiedTable,
+    filters: Vec<PlanFilter>,
+    params: Vec<ParamValue>,
+) -> Result<LegPlan, IncoherentBindings> {
+    Ok(LegPlan::Lookup {
+        source,
+        table,
+        keys: Vec::new(),
+        bindings: PlanBindings::parse(filters, params)?,
+    })
 }
 ```
 
@@ -7129,7 +7522,7 @@ of joins and skip the ambiguity guard - which is exactly what the first producer
 ```compile_fail
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin};
+use sutura_domain::plan::{LegPlan, PlanBindings, PlanBucket, PlanJoin};
 
 fn _unchecked(
     source: SourceName,
@@ -7147,8 +7540,7 @@ fn _unchecked(
         bucket,
         keys: Vec::new(),
         terms: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range,
     }
 }
@@ -7157,7 +7549,7 @@ fn _unchecked(
 ```
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
-use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin, StatementTables};
+use sutura_domain::plan::{LegPlan, PlanBindings, PlanBucket, PlanJoin, StatementTables};
 
 fn _checked(
     source: SourceName,
@@ -7174,8 +7566,7 @@ fn _checked(
         bucket,
         keys: Vec::new(),
         terms: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
+        bindings: PlanBindings::none(),
         range,
     })
 }
@@ -7332,7 +7723,7 @@ What happened was this, and it was reproduced rather than reasoned about: a fact
 `analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` rendered
 a `FROM` and a `LEFT JOIN` whose `ON` clause compared `orders.customer_id` with `orders.id` - one
 table with itself - and every projected column was qualified by an identifier that named two
-tables. On a real `DuckDB` 1.5.5 that statement is
+tables. On the pinned `DuckDB` that statement is
 `Binder Error: Ambiguous reference to table "orders"`; a target that binds it to one side instead
 returns a number under a certified metric name, which is the failure class this repository is
 arranged against. **Same-name tables are the normal shape of the estate `docs/adr/0019` exists
@@ -7343,7 +7734,7 @@ exotic.
 
 Distinct aliases are the fix that would keep the question answerable, and they are **not reachable
 through the SQL builder this workspace renders with**, which was measured rather than assumed
-against `polyglot-sql` 0.9.2: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
+against the pinned `polyglot-sql`: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
 could carry an `AS`, but `left_join` and every other join method take a `&str` table name and
 `join_with_kind` is private - so the JOINED side cannot be aliased without hand-building a select
 expression with upwards of thirty fields, which `sutura_sql`'s renderer rules out at its own header

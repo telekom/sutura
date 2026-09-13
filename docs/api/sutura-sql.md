@@ -64,7 +64,11 @@ author a SQL fragment for a metric the closed measure vocabulary cannot express,
 fragment is parsed - **at catalog-compile time, once, never on the query path** - checked against
 a list of constructs this build refuses, qualified against the model's columns, and rendered for
 every dialect. What reaches a statement afterwards is our own generator's output. `docs/adr/0004`
-is the decision.
+is the decision, and its amendment is the state of the tree: **nothing published calls
+`expression::compile` today.** An authored fragment is loaded, pinned as written and refused at
+boot; a catalog adapter may not reach this crate (`cargo xtask check-boundaries` forbids the edge,
+for the closure reason above), so the caller, when it exists, is the execution adapter that
+declares `Warehouse::EXECUTES_AUTHORED_SQL` - and it compiles beside the renderer it needs.
 
 ## `struct GeneratedQuery`
 
@@ -366,7 +370,7 @@ the asymmetry that makes the collision reachable: a table `Orders` is a distinct
 qualifier `Orders` still resolves to a select-list alias spelled `orders`.
 
 **`DuckDb` is `InsensitiveAscii`, and that was MEASURED rather than read.** On the pinned
-`DuckDB` 1.5.5, a table created as a quoted `Orders` is bound by a quoted `orders` qualifier and
+`DuckDB`, a table created as a quoted `Orders` is bound by a quoted `orders` qualifier and
 returns a result - so an identifier is folded when it is RESOLVED, even though the same engine
 keeps two projected aliases differing only in case as two distinct output columns. Declaring
 the coarser of the two behaviours covers both.

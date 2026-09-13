@@ -38,12 +38,11 @@
 //! unused to `unused_deps`; a full module-graph walk would need a nightly compiler or a build
 //! inside the sandbox, which this does not.
 //!
-//! It does not deliberate the authored-SQL wire-vs-delete decision. `sutura_domain::expression`
-//! and `sutura_sql::expression` are NOT flagged here - `sutura_sql`'s `expression.rs` and its
-//! `tests/adversarial_findings.rs` reference `expression` as a path segment - because they are
-//! unwired (no served metric reaches `compile`), not orphaned (no first-party crate names them).
-//! That distinction is the "either way" scope: this gate holds *no reference at all*, and the
-//! wire-vs-delete decision stays on `#131`.
+//! It does not deliberate what is wired. `sutura_sql::expression` is NOT flagged here - `sutura_sql`'s
+//! `expression.rs` and its `tests/adversarial_findings.rs` reference `expression` as a path segment -
+//! because it is unwired (nothing published calls `compile`; `docs/adr/0004`'s amendment says why
+//! the load does not), not orphaned (no first-party crate names it). That distinction is the "either
+//! way" scope: this gate holds *no reference at all*.
 
 use crate::Verdict;
 use crate::repo;

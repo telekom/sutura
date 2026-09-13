@@ -41,7 +41,7 @@ use sutura_domain::model::{
     RelationshipName, SourceName, TableName, TableQualifier,
 };
 use sutura_domain::plan::{
-    AmbiguousTables, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
+    AmbiguousTables, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
     PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
@@ -95,16 +95,13 @@ fn june() -> TimeRange {
     .expect("a fixture range is a range")
 }
 
-/// The predicates a plan carries, paired with the values they bind.
-///
-/// A named alias rather than a bare tuple, because `clippy.toml`'s complexity threshold catches one
-/// and is right to: two vectors say nothing about which is which. `sutura_semantic::plan` names its
-/// own for the same reason.
-type FiltersAndParams = (Vec<PlanFilter>, Vec<ParamValue>);
-
 /// The two range bounds, which every plan carries because a `TimeRange` has no unbounded form.
-fn bounds() -> FiltersAndParams {
-    (
+///
+/// A parsed [`PlanBindings`] rather than two vectors beside each other: the alias this used to
+/// return said which was which and nothing made them agree, which is what
+/// `sutura_domain::plan::bindings` is about.
+fn bounds() -> PlanBindings {
+    PlanBindings::parse(
         vec![
             PlanFilter::new(
                 PredicateOrigin::Definition,
@@ -126,6 +123,7 @@ fn bounds() -> FiltersAndParams {
             ParamValue::Date(Date::parse("2026-07-01").expect("a fixture date is a date")),
         ],
     )
+    .expect("the fixture's two range bounds bind in placeholder order")
 }
 
 /// A `sum(amount_cents)` over `path`, optionally joined to a dimension table at `joined`.
@@ -134,7 +132,7 @@ fn bounds() -> FiltersAndParams {
 /// which is what makes a diff between two of their snapshots readable as a statement about
 /// qualification.
 fn plan_over(path: QualifiedTable, joined: Option<QualifiedTable>) -> QueryPlan {
-    let (filters, params) = bounds();
+    let bindings = bounds();
     let mut joins: Vec<PlanJoin> = Vec::new();
     let mut keys: Vec<PlanKey> = Vec::new();
     if let Some(remote) = joined {
@@ -167,8 +165,7 @@ fn plan_over(path: QualifiedTable, joined: Option<QualifiedTable>) -> QueryPlan 
             },
         },
         ResultLabel::measure(&MetricName::parse("revenue").expect("a fixture metric is a metric")),
-        filters,
-        params,
+        bindings,
         june(),
     )
 }
@@ -422,7 +419,7 @@ fn the_plans_serialize_with_their_paths_as_text() {
 /// reading `orders.customer_id = orders.id` - one table compared with itself - beneath a `FROM` naming
 /// `analytics-prod.sales.orders` and a `LEFT JOIN` naming `reference-data.crm.orders`, with every
 /// projected column qualified by an identifier that named two tables. That is a plausible number under
-/// a certified metric on any target that binds it to one side; a real `DuckDB` 1.5.5 answers it with
+/// a certified metric on any target that binds it to one side; the pinned `DuckDB` answers it with
 /// `Binder Error: Ambiguous reference to table "orders"`.
 ///
 /// It is asserted at plan CONSTRUCTION and not on a rendered string, because that is where the fix

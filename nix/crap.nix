@@ -4,8 +4,8 @@
 # nix/toolchains.nix are - and here the reason is sharper. Those two files have their OWN nixpkgs
 # pins (flake.lock names nixos-unstable, devenv.lock names cachix/devenv-nixpkgs/rolling), so
 # `pkgs.<tool>` is a DIFFERENT VERSION depending on which file did the importing. That was not
-# hypothetical: `pkgs.cargo-llvm-cov` resolved to 0.9.0 through flake.nix and 0.8.7 through
-# devenv.nix in the same checkout. For a library that is a latent bug. For a tool whose output is
+# hypothetical: `pkgs.cargo-llvm-cov` resolved to TWO DIFFERENT versions in the same checkout,
+# one through flake.nix and one through devenv.nix - observed, not reasoned about. For a library that is a latent bug. For a tool whose output is
 # a VERDICT it means the dev shell reporting a score CI does not, and the disagreement reads as
 # flakiness rather than as two pins.
 #

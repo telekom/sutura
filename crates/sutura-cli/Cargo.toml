@@ -54,6 +54,15 @@ path = "src/main.rs"
 # check rather than the four `cross` link builds and a developer's memory.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
+# The Postgres adapter, and with it the outbound TLS the source channel verifies against.
+#
+# **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
+# decision `bigquery` above carries. `sutura-exec-postgres` is pure Rust, but `tokio-postgres-rustls`
+# pulls the rustls closure with `ring` in it; keeping this feature off leaves that out of the
+# published binary until a deployment asks for it. There is no wire feature of its own - unlike
+# `bigquery`, there is no HTTP stack here, only the rustls connector the driver links.
+postgres = ["dep:sutura-exec-postgres"]
+
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
@@ -76,7 +85,10 @@ sutura-exec-datafusion = { workspace = true }
 # The BigQuery adapter, behind the `bigquery` feature above. `optional` is what makes the dependency
 # ABSENT from the default build rather than merely unused, which is the property the cross builds need.
 sutura-exec-bigquery = { workspace = true, optional = true }
-# The agent-facing surface, and the reason it is HERE rather than on `sutura-serve`: this binary is
+# The Postgres adapter, behind the `postgres` feature above. `optional` is what makes the dependency
+# ABSENT from the default build rather than merely unused, which is the property the cross builds
+# need. The adapter owns its driver's connection config, so this root names no driver crate itself.
+sutura-exec-postgres = { workspace = true, optional = true }
 # the single-player composition. An agent client launches the process and speaks MCP on its pipes,
 # matching `examples/single-player` - which is exactly the shape roadmap wanted. The dependency is
 # pure Rust (`rmcp`, `schemars`), so it cross-compiles to musl like the engine it drives.
