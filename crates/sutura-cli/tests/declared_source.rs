@@ -324,6 +324,50 @@ mod tests {
         );
     }
 
+    /// A configuration directory declaring nothing but the raw tool's own switch.
+    ///
+    /// No `sources:` at all, deliberately: `prompt` never opens a source - it loads the catalog
+    /// directly from the positional directory - and `Settings::identity_refusals` requires
+    /// `security.identity` only once a source is declared. So this is the smallest settings tree
+    /// that can turn `tools.run_sql.enabled` on or off with nothing else for `Settings::load` to
+    /// refuse over.
+    fn config_declaring_run_sql(enabled: bool, into: &Path) -> PathBuf {
+        let dir = into.join("conf");
+        std::fs::create_dir_all(&dir).expect("a configuration directory is creatable");
+        std::fs::write(dir.join("base.yaml"), format!("tools:\n  run_sql:\n    enabled: {enabled}\n"))
+            .expect("a settings file is writable");
+        dir
+    }
+
+    #[test]
+    fn the_prompt_command_advertises_run_sql_only_when_this_deployments_own_settings_turned_it_on() {
+        // **The composition root's own read, not the renderer's.** Every cell in
+        // `sutura_app::prompt::tests::run_sql` hands `render` the tool list directly, so a broken
+        // read of `tools.run_sql.enabled` in `crates/sutura-cli/src/commands.rs`'s `prompt` command
+        // - the one place that decides which list a REAL deployment gets - would leave every one of
+        // them green. Confirmed by review: inverting `commands.rs`'s
+        // `if settings.tools().run_sql_enabled()` survived `just test` at 3361/3361 - a test that
+        // receives the value it asserts on proves the argument, not the read, the same shape
+        // `docs/adr/0022`'s own amendments record twice.
+        let on = config_declaring_run_sql(true, &scratch("declared-source-run-sql-on"));
+        let ran = run(Some(&on), &["prompt", &example().join("catalog").to_string_lossy()]);
+        assert_eq!(ran.code, Some(0), "{}", ran.output());
+        assert!(
+            ran.stdout.contains("`run_sql` -"),
+            "a deployment that turned run_sql on must advertise it: {}",
+            ran.output()
+        );
+
+        let off = config_declaring_run_sql(false, &scratch("declared-source-run-sql-off"));
+        let ran = run(Some(&off), &["prompt", &example().join("catalog").to_string_lossy()]);
+        assert_eq!(ran.code, Some(0), "{}", ran.output());
+        assert!(
+            !ran.stdout.contains("`run_sql` -"),
+            "a deployment that never turned run_sql on must not advertise it: {}",
+            ran.output()
+        );
+    }
+
     #[test]
     fn a_serving_refusal_stops_this_command_and_says_whose_refusal_it_is() {
         // **The limit review found stated nowhere, pinned.** `Settings::refusals` is a SERVER's

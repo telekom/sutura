@@ -218,10 +218,15 @@ mod tests {
         assert!(rows.as_text().starts_with(super::UNTRUSTED_RAW_NOTICE));
     }
 
-    /// The word "certified" belongs to the certified path alone. Asserted against the constant in
-    /// isolation, per this module's own doc comment on it.
+    /// The word "certified" belongs to the certified path alone. Asserted against the notice AND
+    /// against the MCP tool description a model reads first, in `tools/list` - the review's own
+    /// finding: the notice and `sutura_app::prompt::Tool::RunSql::summary` both already held this,
+    /// while `crate::tool::description(Capability::RunSql)` (`#666`) still said "is never
+    /// certified" and "Prefer the certified tool", so the rule was enforced on two of the three
+    /// raw-tool texts rather than all three.
     #[test]
     fn the_untrusted_raw_notice_never_says_certified() {
         assert!(!super::UNTRUSTED_RAW_NOTICE.contains("certified"));
+        assert!(!crate::tool::description(sutura_app::Capability::RunSql).contains("certified"));
     }
 }

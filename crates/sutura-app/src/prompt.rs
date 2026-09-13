@@ -296,7 +296,7 @@ impl<'a> PromptInputs<'a> {
 pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
     let notes = pinned.knowledge();
     let mut sections: Vec<String> = vec![
-        String::from(WHAT_THIS_IS),
+        what_this_is(inputs),
         workflow(inputs),
         refusals(),
         // Immediately after the refusals, because that is where `MetricUnknown`'s remedy is: an agent
@@ -312,7 +312,7 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
         physical_schema_guidance(pinned),
         metrics(pinned, inputs.prose),
         knowledge::examples(notes, inputs.prose),
-        String::from(PROVENANCE),
+        provenance(inputs),
     ];
     if let Some(text) = inputs.instructions {
         let text = text.trim();
@@ -349,6 +349,26 @@ To promote a number, a person must author semantic metadata: a named metric with
 grain, plus any dimensions, filters and permitted values it needs. The new definition must load and\n\
 pin before that number appears in the metric list and can be asked as a certified question.",
     )
+}
+
+/// The opening frame - unconditionally true of `query`, which is what this section was written
+/// about, and gains one caveat naming the exception where `docs/adr/0013`'s raw tool is also
+/// present: `no_such_field`'s own shape, for the same reason. Without it, "does not take SQL" sits
+/// above an operations list that names `run_sql`, which is exactly the internal inconsistency
+/// `no_such_field` was already written to avoid one section down.
+fn what_this_is(inputs: &PromptInputs<'_>) -> String {
+    let mut text = String::from(WHAT_THIS_IS);
+    if inputs.exposes(Tool::RunSql) {
+        text.push_str("\n\n");
+        text.push_str(&wrap(
+            "",
+            "That is `query`, this deployment's certified operation. This deployment also exposes \
+             `run_sql` - a separate, ungoverned exception `docs/adr/0013` names, not a wider door \
+             into `query` - see its own entry under \"The operations you have\".",
+            "",
+        ));
+    }
+    text
 }
 
 const WHAT_THIS_IS: &str = "\
@@ -488,12 +508,18 @@ fn bounds() -> String {
 fn no_such_field(inputs: &PromptInputs<'_>) -> String {
     let mut text = String::from(NO_SUCH_FIELD);
     if inputs.exposes(Tool::RunSql) {
-        text.push_str(
-            "\n\nThis deployment is the stated exception: it separately turned on `run_sql`, listed \
+        text.push_str("\n\n");
+        // Through `wrap`, not pushed raw: every other section of this document wraps at `WIDTH`,
+        // and a caveat pushed as one literal would be the one line in it that does not - review's
+        // own finding.
+        text.push_str(&wrap(
+            "",
+            "This deployment is the stated exception: it separately turned on `run_sql`, listed \
              under its own name below with its own rules. That is a deliberate, off-by-default \
              decision an operator made for this deployment - not a field on `query`, not something \
              you can request elsewhere, and not a reason to expect it anywhere else.",
-        );
+            "",
+        ));
     }
     text
 }
@@ -635,6 +661,24 @@ fn one_metric(metric: &Metric, notes: &Knowledge, prose: CatalogProse) -> String
         lines.push(caveats);
     }
     lines.join("\n")
+}
+
+/// The closing frame - `no_such_field`'s shape again: unconditionally true of a `query` answer,
+/// with one caveat where `run_sql` is also present, because that tool's own outcome has nowhere to
+/// put a definition version or a digest at all.
+fn provenance(inputs: &PromptInputs<'_>) -> String {
+    let mut text = String::from(PROVENANCE);
+    if inputs.exposes(Tool::RunSql) {
+        text.push_str("\n\n");
+        text.push_str(&wrap(
+            "",
+            "That is every `query` answer. A `run_sql` result carries none of this - no version, \
+             no digest - which is part of what keeps it ungoverned rather than a wider kind of \
+             `query` answer.",
+            "",
+        ));
+    }
+    text
 }
 
 const PROVENANCE: &str = "\

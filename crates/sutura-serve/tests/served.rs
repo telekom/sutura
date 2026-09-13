@@ -249,7 +249,10 @@ mod tests {
     #[test]
     #[cfg(feature = "postgres")]
     fn a_postgres_source_answers_a_certified_question_from_the_served_binary() {
-        let Some(settings) = postgres_settings("postgres-answer") else {
+        // `_fixture_lock` is held for the whole test, not just the load above it - see
+        // `FixtureLoadGuard`'s own documentation for the reload/read race releasing it early left
+        // open between this cell and the raw-sql one below.
+        let Some((settings, _fixture_lock)) = postgres_settings("postgres-answer") else {
             return;
         };
         let served = start_configured("postgres-answer", &settings);
@@ -307,7 +310,9 @@ mod tests {
     #[test]
     #[cfg(feature = "postgres")]
     fn a_postgres_source_answers_a_raw_sql_statement_from_the_served_binary() {
-        let Some(settings) = postgres_raw_sql_settings("postgres-run-sql") else {
+        // Held for the whole test, for the same reason the certified cell above holds its own -
+        // see `FixtureLoadGuard`'s own documentation.
+        let Some((settings, _fixture_lock)) = postgres_raw_sql_settings("postgres-run-sql") else {
             return;
         };
         let served = start_configured("postgres-run-sql", &settings);

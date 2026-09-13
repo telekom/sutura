@@ -10,33 +10,57 @@ use sutura_exec_postgres::PostgresWarehouse;
 
 use super::{LOCAL_SOURCE, LOOPBACK, SINGLE_USER, TOKEN, config_path, derived_beside, example_root, settings_over};
 
-/// An arbitrary, fixed key for the advisory lock [`with_fixture_load_locked`] holds - any `i64`
-/// works, chosen so it does not collide with a small counter a future use of the same mechanism
-/// might pick.
+/// An arbitrary, fixed key for the advisory lock [`FixtureLoadGuard`] holds - any `i64` works,
+/// chosen so it does not collide with a small counter a future use of the same mechanism might
+/// pick.
 const FIXTURE_LOAD_LOCK_KEY: i64 = 0x5375_7475_7261_5351;
 
-/// Runs `load` with an exclusive, SERVER-SIDE lock held around it, so two callers loading the same
-/// fixture into the same tier cannot interleave.
+/// Holds the fixture-load advisory lock for as long as it lives - dropping it is what releases it.
+///
+/// **Why the lock has to outlive the LOAD, not just wrap it.** The load itself is two separate
+/// server-side transactions per table (`PostgresWarehouse::load_schema`: a committed
+/// `DROP TABLE IF EXISTS ...; CREATE TABLE ...`, then a second, separate `COPY`), so between them
+/// the freshly created table is visible and EMPTY. A first version of this lock released as soon as
+/// the load loop returned, which serialised the two LOADS against each other but left the window
+/// open between "cell A releases the lock and starts querying its own served binary" and "cell B,
+/// which was waiting on the lock, immediately begins dropping and refilling the same tables cell
+/// A's binary is reading" - the two served cells measured running concurrently, adjacent in
+/// `nextest`'s own log. Returning the lock alongside the settings, for the CALLER to hold until its
+/// own test is done asking questions, is what closes that window: whichever cell is served and
+/// queried finishes before the other's reload can start.
+pub(crate) struct FixtureLoadGuard {
+    runtime: tokio::runtime::Runtime,
+    client: tokio_postgres::Client,
+}
+
+impl Drop for FixtureLoadGuard {
+    fn drop(&mut self) {
+        // Best-effort: this runs during an ordinary drop and, if the test is already panicking,
+        // during unwinding too - a second panic here would abort the process rather than fail the
+        // one test. Not load-bearing either way: an advisory lock is tied to the SESSION that took
+        // it, and this connection's session ends within the same drop regardless of whether the
+        // explicit unlock below succeeds.
+        drop(
+            self.runtime.block_on(
+                self.client
+                    .simple_query(&format!("SELECT pg_advisory_unlock({FIXTURE_LOAD_LOCK_KEY})")),
+            ),
+        );
+    }
+}
+
+/// Acquires the fixture-load advisory lock on a dedicated connection and returns it held.
 ///
 /// **Why a database lock and not an in-process one.** `settings` is called from more than one test
 /// in this binary now - the certified case and, since `docs/adr/0013`'s showcase,
 /// [`raw_sql_settings`] - and `nextest` runs each test in its OWN PROCESS. A `static` mutex would
 /// only serialise callers that happen to share a process, which nextest's test binaries do not do
-/// by default; measured directly - a `tokio::sync::Mutex` guarding this exact section still let two
-/// processes' loads interleave. `Schema::create_statement` is `DROP TABLE IF EXISTS ...; CREATE
-/// TABLE ...` followed by a separate `COPY`, so two callers loading the SAME tables at the SAME
-/// time can race: one caller's `DROP` removes the table the other just `CREATE`d, an instant before
-/// that caller's own `COPY` runs against it - measured as `could not load the fixture CSV
-/// .../fct_subscription_monthly.csv as table fct_subscription_monthly` and, once the in-process
-/// mutex proved insufficient, `.../dim_product.csv`.
-///
-/// `pg_advisory_lock` is session-scoped on the SERVER, so it serialises across processes rather
-/// than only across threads of one - a fixed key here (unrelated to any row or table this catalog
-/// uses) is enough, since there is exactly one thing this lock ever guards. Unlocked explicitly
-/// with `pg_advisory_unlock` on the way out, on the SAME dedicated connection that acquired it -
-/// an advisory lock is tied to the session that took it, so a different connection could not
-/// release this one even if it tried.
-fn with_fixture_load_locked<T>(config: &tokio_postgres::Config, load: impl FnOnce() -> T) -> T {
+/// by default; measured directly - a `tokio::sync::Mutex` guarding the load still let two
+/// processes' loads interleave. `pg_advisory_lock` is session-scoped on the SERVER, so it
+/// serialises across processes rather than only across threads of one - a fixed key here (unrelated
+/// to any row or table this catalog uses) is enough, since there is exactly one thing this lock
+/// ever guards.
+fn lock_fixture_load(config: &tokio_postgres::Config) -> FixtureLoadGuard {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -60,21 +84,18 @@ fn with_fixture_load_locked<T>(config: &tokio_postgres::Config, load: impl FnOnc
     runtime
         .block_on(client.simple_query(&format!("SELECT pg_advisory_lock({FIXTURE_LOAD_LOCK_KEY})")))
         .expect("the fixture-load advisory lock is acquirable");
-    let result = load();
-    runtime
-        .block_on(client.simple_query(&format!("SELECT pg_advisory_unlock({FIXTURE_LOAD_LOCK_KEY})")))
-        .expect("the fixture-load advisory lock is releasable");
-    result
+    FixtureLoadGuard { runtime, client }
 }
 
 /// Loads the single-player example into the provisioned Postgres tier and returns settings that
-/// make the composed binary reach it over verified TLS.
+/// make the composed binary reach it over verified TLS - alongside the [`FixtureLoadGuard`] the
+/// caller must hold for as long as its own test still asks the served binary anything.
 ///
 /// `None` is the ordinary no-tier outcome that every adapter fixture uses. Once discovery finds the
 /// endpoint, every credential and TLS value is required: a half-provisioned tier is a failing test,
 /// not an absent one. The password is copied to this case's temporary directory because a real
 /// source declaration names a file rather than carrying secret text in the settings tree.
-pub(crate) fn settings(case: &str) -> Option<String> {
+pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
     let found = sutura_dev::provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "postgres");
     let endpoint = found.endpoint()?;
     let required =
@@ -92,7 +113,10 @@ pub(crate) fn settings(case: &str) -> Option<String> {
         .password(&password)
         .dbname(&database);
     let data = example_root().join("data");
-    with_fixture_load_locked(&loader_config, || {
+    // Acquired BEFORE the load and returned to the caller still held - see `FixtureLoadGuard`'s own
+    // documentation for why releasing it here, once the load loop returns, is not enough.
+    let guard = lock_fixture_load(&loader_config);
+    {
         let source = SourceName::parse(LOCAL_SOURCE).expect("the example source name parses");
         let reason = AcknowledgementReason::parse("the served Postgres example uses one fixture role")
             .expect("the fixture reason is an acknowledgement");
@@ -115,7 +139,7 @@ pub(crate) fn settings(case: &str) -> Option<String> {
                 .load_csv(&table, &path)
                 .unwrap_or_else(|cause| panic!("{} did not load as {table}: {cause}", path.display()));
         }
-    });
+    }
 
     let scratch = derived_beside(&config_path(case));
     std::fs::create_dir_all(&scratch).expect("the Postgres case's scratch directory is creatable");
@@ -145,13 +169,14 @@ pub(crate) fn settings(case: &str) -> Option<String> {
         endpoint.port(),
         password_file.display(),
     );
-    Some(settings_over(
+    let settings = settings_over(
         &example_root().join("catalog"),
         &data,
         LOOPBACK,
         &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
         &sources,
-    ))
+    );
+    Some((settings, guard))
 }
 
 /// [`settings`], plus `docs/adr/0013`'s raw tool turned on - `examples/raw-sql`'s showcase.
@@ -170,7 +195,7 @@ pub(crate) fn settings(case: &str) -> Option<String> {
 /// this function makes by omission - the SQL an operator runs is documented and correct; this
 /// binary happens to run it under the tier's one broadly-privileged fixture role, which is a fact
 /// about the DEV TIER and not about `docs/adr/0013`'s tool or this deployment's own settings.
-pub(crate) fn raw_sql_settings(case: &str) -> Option<String> {
-    let base = settings(case)?;
-    Some(format!("{base}tools:\n  run_sql:\n    enabled: true\n"))
+pub(crate) fn raw_sql_settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
+    let (base, guard) = settings(case)?;
+    Some((format!("{base}tools:\n  run_sql:\n    enabled: true\n"), guard))
 }
