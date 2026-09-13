@@ -225,7 +225,10 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // is left to forget is a row in `crate::capability::governed`, and `governed_routes` below refuses
     // to assemble over one that is missing.
     governed_routes()?;
-    let versioned = versioned.route_layer(axum::middleware::from_fn(crate::capability::require_capability));
+    let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        crate::capability::require_capability,
+    ));
     // Then leg 1, if this deployment has it: a verified caller, or a `401` with a challenge. INSIDE
     // the deployment token gate added below, because `Router::layer` wraps what is already there - so
     // the cheap comparison runs first and a signature verification is not work an unauthenticated
@@ -311,7 +314,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         // the status with an EMPTY body, and every `408` this surface documents carries a
         // `ProblemBody`. See `middleware::enforce_timeout`.
         .layer(axum::middleware::from_fn_with_state(
-            settings.server().request_timeout().duration(),
+            settings.server().request_timeout(),
             middleware::enforce_timeout,
         ))
         // Outermost, so a request refused by any layer below still produces a span and a timing.
@@ -504,7 +507,7 @@ fn documentation(state: &ServiceState, settings: &Settings, key: &ClientAddress)
     }
     // Serialized once, at startup, and served from a clone. Serializing per request would put a few
     // hundred kilobytes of work behind a path a caller can poll.
-    let json = match crate::openapi::document_json() {
+    let json = match crate::openapi::document_json(settings.tools().run_sql_enabled()) {
         Ok(json) => json,
         Err(cause) => {
             // Not fatal, and deliberately not: this service's job is answering questions, and a

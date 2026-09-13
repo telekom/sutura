@@ -734,6 +734,11 @@ Bounded at both ends. Zero is a service that answers nothing, and an hour is a c
 held open long enough that a handful of them are the outage: a question here is one
 aggregate over a bounded range, so a minute is already generous and five is the ceiling.
 
+Carries its own `Budget` beside the duration, computed once in `Self::parse` rather than
+re-derived on every `Self::budget` read: `parse` is the one place that already proves the
+timeout can afford `Self::REPLY_MARGIN`, so recomputing it later would be the same fact
+re-argued at a second call site with an `expect` standing in for the proof.
+
 ## `use ServerSettings`
 
 Everything about the socket, the two per-request bounds, and the TLS material if there is any.
@@ -1098,6 +1103,15 @@ Everything about the log.
 ## `use UnknownLogFormat`
 
 The string was neither format.
+
+## `use ToolsSettings`
+
+What this deployment turned on beside the certified tool.
+
+Infallible to build, like the other settings groups: an unset key is `false`, and there is no
+combination of booleans here that is wrong on its own - `tools.run_sql.enabled` is checked
+against `security.identity` in `Settings::refusals`, which is a cross-group rule and belongs
+there rather than in this type.
 
 ## Module `api`
 
@@ -3447,20 +3461,44 @@ Bounded at both ends. Zero is a service that answers nothing, and an hour is a c
 held open long enough that a handful of them are the outage: a question here is one
 aggregate over a bounded range, so a minute is already generous and five is the ceiling.
 
+Carries its own `Budget` beside the duration, computed once in `Self::parse` rather than
+re-derived on every `Self::budget` read: `parse` is the one place that already proves the
+timeout can afford `Self::REPLY_MARGIN`, so recomputing it later would be the same fact
+re-argued at a second call site with an `expect` standing in for the proof.
+
 #### Methods
+
+```rust
+pub const fn budget(self) -> Budget
+```
+
+The execution port's budget: this timeout minus `Self::REPLY_MARGIN`, computed once in
+`Self::parse` so every caller reads the same number rather than re-deriving it.
 
 ```rust
 pub const fn duration(self) -> Duration
 ```
 
 ```rust
-pub const fn parse(seconds: u64) -> Result<Self, InvalidBound>
+pub fn parse(seconds: u64) -> Result<Self, InvalidBound>
 ```
 
 Reads a timeout in whole seconds.
 
 Seconds and not a duration string: sub-second precision is meaningless for a bound this
 coarse, and a parser for a suffixed number is a second grammar for a single value.
+
+**Refuses a timeout that cannot afford `Self::REPLY_MARGIN`**, which moves the floor from
+one second to two: the smallest accepted value is the smallest one `Self::budget` can open
+a non-zero `Budget` from. Checked here rather than in `budget` because a value that fails
+this refuses at startup, naming the margin - `budget` is then infallible.
+
+**The margin check is `Budget::parse`'s own zero check, read back rather than re-argued**:
+this function does not separately compare `seconds` against `Self::REPLY_MARGIN` and then
+trust that comparison to make a second, later `Budget::parse` call infallible - it asks
+`Budget::parse` once, on the subtracted duration, and turns the one way it can fail into
+`InvalidBound::CannotAffordReplyMargin`. One fact, checked once, instead of a promise one
+call site keeps and another has to take on faith.
 
 ```rust
 pub const fn seconds(self) -> u64
@@ -3535,6 +3573,7 @@ Why a bound is not a bound.
 - `Zero` - Nothing here may be zero: a zero timeout answers nothing and a zero body limit accepts nothing, and both read as no limit at all to somebody writing the file.
 - `TooLarge` - Above the ceiling this type declares.
 - `AboveAvailableMemory` - Above the memory this process can actually reach.
+- `CannotAffordReplyMargin` - `server.request_timeout_seconds` does not exceed `RequestTimeout::REPLY_MARGIN`, so the port's own budget - the timeout minus that margin - would be zero or negative.
 
 #### Implements
 
@@ -4696,3 +4735,43 @@ pub const fn service_name(&self) -> &ServiceName
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+## Module `tools`
+
+The tool surface's own settings: which of the capabilities beside the certified one this
+deployment turned on.
+
+One tool exists here today - `docs/adr/0013`'s raw SQL tool - and this module is where a second
+one's own key would arrive, per tool, off by default: there is deliberately no group-wide switch,
+because a tool this deployment never turns on should never be a line item in an operator's
+decision about a different one.
+
+### `struct ToolsSettings`
+
+```rust
+pub struct ToolsSettings
+```
+
+What this deployment turned on beside the certified tool.
+
+Infallible to build, like the other settings groups: an unset key is `false`, and there is no
+combination of booleans here that is wrong on its own - `tools.run_sql.enabled` is checked
+against `security.identity` in `Settings::refusals`, which is a cross-group rule and belongs
+there rather than in this type.
+
+#### Methods
+
+```rust
+pub const fn new(run_sql_enabled: bool) -> Self
+```
+
+```rust
+pub const fn run_sql_enabled(self) -> bool
+```
+
+Whether `docs/adr/0013`'s raw SQL tool is turned on. Off unless an operator wrote
+`tools.run_sql.enabled: true`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`

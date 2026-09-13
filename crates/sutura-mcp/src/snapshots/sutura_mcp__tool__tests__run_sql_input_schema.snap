@@ -1,0 +1,20 @@
+---
+source: crates/sutura-mcp/src/tool.rs
+expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One raw statement, as a tool call carries it.\n\nOne field, bounded by [`RawStatement::parse`] on the way in - `deny_unknown_fields` is what keeps\nthis tool from ever growing a second field a caller could smuggle a table name or a row-id list\nthrough, the same governance boundary [`super::AskArgs`] holds for the certified tool.",
+  "properties": {
+    "statement": {
+      "description": "The literal SQL statement to run, as one statement. A string carrying more than one command\nis not rejected here - nothing in this tool reads a keyword out of it - but the server refuses\nit once it reaches the data system's own parser over the extended query protocol.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "statement"
+  ],
+  "title": "RunSqlArgs",
+  "type": "object"
+}

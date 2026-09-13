@@ -504,24 +504,34 @@ The tool's arguments and its result, and the conversions to and from the domain.
 
 # Why this crate has its own wire type
 
-`sutura-http` already holds one - `QuestionBody`, with the same five fields and the same
-`TryFrom<..> for Query`. Sharing it would mean this adapter depending on that one, and *an
-adapter never calls another adapter* is the rule the whole layout rests on: a shape owned by one
-transport is a shape every other transport has to reach through it. `CatalogContent` is the
-same story against `sutura_http::wire::CatalogBody`.
+`sutura-http` already holds one - `QuestionBody`, with the same five fields. Sharing the STRUCT
+would mean this adapter depending on that one, and *an adapter never calls another adapter* is
+the rule the whole layout rests on: a shape owned by one transport is a shape every other
+transport has to reach through it. `CatalogContent` is the same story against
+`sutura_http::wire::CatalogBody`.
 
-**So the duplication is deliberate, and it is a cost rather than an oversight.** Nothing in the
-compiler makes two wire types stay equal. What guards them is
-`AskArgs`'s own `deny_unknown_fields`, asserted through the transport in `crate::server`, plus
-the committed schema dump in `crate::tool` - a widened input changes a snapshot and the
-byte-compare fails until somebody re-accepts it, which is what puts a new field in a reviewer's
-diff.
+**So the wire STRUCT is deliberately duplicated, and it is a cost rather than an oversight.**
+Nothing in the compiler makes two wire types stay equal. What guards them is `AskArgs`'s own
+`deny_unknown_fields`, asserted through the transport in `crate::server`, plus the committed
+schema dump in `crate::tool` - a widened input changes a snapshot and the byte-compare fails
+until somebody re-accepts it, which is what puts a new field in a reviewer's diff.
 
-**What is now mechanical across the two transports is the TOOL SET, and not these shapes.**
-`sutura_app::Capability` is the one source both of them render, and
-`both_transports_describe_the_same_tools` in `crate::tool` is the assertion. The field lists of
-two wire types with the same job are still kept equal by review, and that limit is worth keeping
-in front of a reader rather than letting the tool-set test read as covering it.
+**What moved inward is the PARSE, and it is not a cost any more.** `TryFrom<AskArgs> for Query`
+used to re-derive the same seven failure modes `sutura-http`'s own `TryFrom` did, out of its own
+copy of `MalformedQuestion`, its own `grain_of`, its own `range_of` - identical logic, kept equal
+only by review. That translation lives in `sutura_domain::question` now, and what this crate
+keeps of its own is the one failure mode a transport's own deserialization step can produce
+before that function is ever reached: `MalformedQuestion::NotAnObject`, for an arguments object
+that fails to deserialize into `AskArgs` at all - which HTTP's Axum extractor rejects earlier
+in its own stack, so `sutura-http` has no arm for it and needs none.
+
+**What is now mechanical across the two transports is the TOOL SET and the QUESTION PARSE, and
+not these wire shapes.** `sutura_app::Capability` is the one source both of them render for the
+first, and `both_transports_describe_the_same_tools` in `crate::tool` is the assertion;
+`sutura_domain::question::parse_query` is the one function both `TryFrom` impls call for the
+second. The field lists of two wire types with the same job are still kept equal by review, and
+that limit is worth keeping in front of a reader rather than letting either test read as
+covering it.
 
 # Why the derive is here and not on `Query`
 
@@ -599,20 +609,10 @@ pub enum MalformedQuestion
 
 Why an arguments object is not a question.
 
-Every variant names the field, and none of them echoes the caller's value back except where the
-value is the thing that failed to parse as an identifier - which is a bounded character set, not
-free text.
-
 #### Variants
 
 - `NotAnObject` - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.
-- `Metric`
-- `Grain`
-- `Date`
-- `Range`
-- `Dimension`
-- `FilterDimension`
-- `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS`.
+- `Question` - Every other way a question can be malformed: which field, and none of the caller's own value except where it already failed an identifier parse - see that type's own documentation. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
 
 #### Implements
 
@@ -737,6 +737,32 @@ One dimension of one metric.
 
 One metric, as much of it as a caller needs to ask a valid question.
 
+### `use MalformedStatement`
+
+Why a `run_sql` call's arguments were not a statement.
+
+### `use RawContent`
+
+What the raw SQL tool produced, as the tool's structured content.
+
+**The load-bearing shape.** No field here is named `provenance`, `definition_version` or
+`definition_digest`, at any depth - there is nowhere on this type to put one, which is what makes
+a raw answer unable to be rendered as certified rather than merely undecorated as one.
+
+**The two variant NAMES deliberately do not carry a `Raw` prefix** (`clippy::enum_variant_names`
+over the type's own already-`Raw`-prefixed name) - only their SERIALIZED tags do, pinned by an
+explicit `#[serde(rename)]` on each rather than derived from the Rust identifier: `Rows` would
+otherwise serialize `outcome: "rows"` and `Refusal` would serialize exactly the certified path's
+own `outcome: "refusal"` - the one collision `docs/adr/0013` forbids.
+
+### `use RunSqlArgs`
+
+One raw statement, as a tool call carries it.
+
+One field, bounded by `RawStatement::parse` on the way in - `deny_unknown_fields` is what keeps
+this tool from ever growing a second field a caller could smuggle a table name or a row-id list
+through, the same governance boundary `super::AskArgs` holds for the certified tool.
+
 ### Module `catalog`
 
 The catalog tool's wire shape: what `describe_catalog` takes, what it answers, and the text half
@@ -825,6 +851,84 @@ pub struct DimensionContent
 ```
 
 One dimension of one metric.
+
+##### Implements
+
+`Debug`, `Serialize`
+
+### Module `raw`
+
+The raw SQL tool's wire shape: what `run_sql` takes, and what it answers.
+
+Its own module for the reason `wire/catalog.rs` has one - one whole tool, sharing nothing with
+`ask`'s shapes but `sutura_domain::warehouse::Value::render`.
+
+# The discriminant, and why it cannot be mistaken for a certified answer's
+
+`docs/adr/0013` requires that a raw result's wire shape share no discriminant VALUE and no
+provenance-shaped key with `crate::wire::OutcomeContent::Answer`'s - a WEAKER claim than "no
+field name in common", and the one this module's own test asserts. `columns` and `rows` ARE
+shared field names (both walk the same rows, so both need the same two labels for them); what
+neither shares is the VALUE at `outcome` - that type tags with `outcome: "answer"` /
+`outcome: "refusal"`, `RawContent` with `outcome: "raw_rows"` / `outcome: "raw_refusal"` - and
+neither raw variant carries a `provenance` or a `definition_digest` key at any depth, which is
+the property that actually keeps a raw result from being rendered as certified.
+
+#### `struct RunSqlArgs`
+
+```rust
+pub struct RunSqlArgs
+```
+
+One raw statement, as a tool call carries it.
+
+One field, bounded by `RawStatement::parse` on the way in - `deny_unknown_fields` is what keeps
+this tool from ever growing a second field a caller could smuggle a table name or a row-id list
+through, the same governance boundary `super::AskArgs` holds for the certified tool.
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`
+
+#### `enum MalformedStatement`
+
+```rust
+pub enum MalformedStatement
+```
+
+Why a `run_sql` call's arguments were not a statement.
+
+##### Variants
+
+- `NotAnObject`
+- `Statement`
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `enum RawContent`
+
+```rust
+pub enum RawContent
+```
+
+What the raw SQL tool produced, as the tool's structured content.
+
+**The load-bearing shape.** No field here is named `provenance`, `definition_version` or
+`definition_digest`, at any depth - there is nowhere on this type to put one, which is what makes
+a raw answer unable to be rendered as certified rather than merely undecorated as one.
+
+**The two variant NAMES deliberately do not carry a `Raw` prefix** (`clippy::enum_variant_names`
+over the type's own already-`Raw`-prefixed name) - only their SERIALIZED tags do, pinned by an
+explicit `#[serde(rename)]` on each rather than derived from the Rust identifier: `Rows` would
+otherwise serialize `outcome: "rows"` and `Refusal` would serialize exactly the certified path's
+own `outcome: "refusal"` - the one collision `docs/adr/0013` forbids.
+
+##### Variants
+
+- `Rows` - The statement executed.
+- `Refusal` - The statement was refused. Still an `Ok` and still a tool result, for `ServerHandler::call_tool`'s reason: a governance outcome is not a fault.
 
 ##### Implements
 

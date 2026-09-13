@@ -53,7 +53,7 @@
 //! from being a mystery is the response: `403` with `code: insufficient_scope` and a sentence naming
 //! the exact scope string, which is RFC 6750's own answer to this and is diagnosable without a log.
 
-use axum::extract::Request;
+use axum::extract::{Request, State};
 use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
@@ -103,7 +103,7 @@ impl GovernedRoute {
 /// `pub` because `crate::router::assemble` reads it to refuse an ungoverned route, and because a test
 /// in `crate::openapi` compares it against the generated document's operation identifiers.
 #[must_use]
-pub fn governed() -> [GovernedRoute; 2] {
+pub fn governed() -> [GovernedRoute; 3] {
     [
         GovernedRoute {
             method: Method::GET,
@@ -114,6 +114,11 @@ pub fn governed() -> [GovernedRoute; 2] {
             method: Method::POST,
             route: format!("{API_V1_PREFIX}{}", base_paths::QUERY),
             capability: Capability::AskMetric,
+        },
+        GovernedRoute {
+            method: Method::POST,
+            route: format!("{API_V1_PREFIX}{}", base_paths::RUN_SQL),
+            capability: Capability::RunSql,
         },
     ]
 }
@@ -134,16 +139,27 @@ pub fn capability_of(method: &Method, route: &str) -> Option<Capability> {
 /// What this request's caller may do.
 ///
 /// See the module documentation for the two cases and for why the second is not a fallback.
+///
+/// `run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
+/// deployment-level switch and a caller's own scope are two different reasons a capability is
+/// absent, and [`Permitted::without`] is what applies the first without `Permitted` growing a
+/// second notion of what a scope is. `docs/adr/0013`'s off-by-default raw SQL tool is the first
+/// capability this applies to; a second one gains a parameter here rather than a widened boolean.
 #[must_use]
-pub fn permitted_for(request: &Request) -> Permitted {
-    request.extensions().get::<VerifiedCaller>().map_or_else(
+pub fn permitted_for(request: &Request, run_sql_enabled: bool) -> Permitted {
+    let permitted = request.extensions().get::<VerifiedCaller>().map_or_else(
         // No verified caller: nothing established an identity, so there is no claim to narrow by.
         Permitted::every_capability,
         // The scopes, and nothing else. `Scopes::iter` yields what the token carried, parsed and
         // bounded by `crate::inbound::caller`; the comparison against the capability's own scope
         // literal happens once, in `sutura_app`, so this transport holds no copy of it.
         |caller| Permitted::granted_by(caller.scopes().iter()),
-    )
+    );
+    if run_sql_enabled {
+        permitted
+    } else {
+        permitted.without(Capability::RunSql)
+    }
 }
 
 /// Refuses a request for a capability this caller was not granted.
@@ -151,9 +167,21 @@ pub fn permitted_for(request: &Request) -> Permitted {
 /// A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
 /// handler to forget. Installed INSIDE `crate::inbound::gate::require_verified_caller`, which is what
 /// makes the extension available here - see `crate::router` for the whole order.
-pub async fn require_capability(request: Request, next: Next) -> Response {
+///
+/// Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. `docs/adr/0013`'s tool
+/// must be absent for every caller when a deployment never turned it on - see [`permitted_for`].
+pub async fn require_capability(State(state): State<crate::state::ServiceState>, request: Request, next: Next) -> Response {
+    let run_sql_enabled = state.settings().tools().run_sql_enabled();
     match asked_for(&request) {
-        Some(capability) if permitted_for(&request).includes(capability) => next.run(request).await,
+        // `permitted_for` is the ONE gate: whether this proceeds turns entirely on whether it
+        // narrowed the deployment switch in, so a defect there (the mutation that no longer
+        // applies `Permitted::without` when off) shows up here as a `200` a router-level test
+        // catches - not as a second check this arm could pass around.
+        Some(capability) if permitted_for(&request, run_sql_enabled).includes(capability) => next.run(request).await,
+        // Not included. WHICH of two reasons decides the BODY, never whether this proceeds -
+        // `sutura:sql.run` would not help a caller told to go get it when the real reason is a
+        // deployment switch (`#666`'s review, finding 2).
+        Some(capability) if capability == Capability::RunSql && !run_sql_enabled => refused_tool_not_enabled(capability),
         Some(capability) => refused(capability),
         // The route is not one this crate governs. Assembly proved that cannot reach here, and it is
         // refused rather than passed anyway: a layer that fell open on a case its author thought
@@ -193,6 +221,20 @@ fn refused(capability: Capability) -> Response {
     );
     Failure::InsufficientScope {
         required: capability.scope(),
+    }
+    .into_response()
+}
+
+/// The `403` for a capability no caller may reach because this DEPLOYMENT never turned it on -
+/// distinct from [`refused`], whose sentence sends a caller looking for a scope grant that would
+/// not help here.
+fn refused_tool_not_enabled(capability: Capability) -> Response {
+    tracing::warn!(
+        capability = capability.id(),
+        "refused: this deployment has not enabled this capability"
+    );
+    Failure::ToolNotEnabled {
+        capability: capability.scope(),
     }
     .into_response()
 }
@@ -270,5 +312,21 @@ mod tests {
         for governed in governed() {
             assert!(!nobody.includes(governed.capability()), "{}", governed.route());
         }
+    }
+
+    /// `#129`'s own named test on this transport.
+    ///
+    /// A caller without `sutura:sql.run` is refused the raw route, and a caller who has every OTHER
+    /// scope still does not reach it - narrowing is per capability, not an all-or-nothing gate.
+    #[test]
+    fn a_caller_without_the_sql_run_scope_cannot_reach_run_sql() {
+        let without_it = Permitted::granted_by([Capability::DescribeCatalog.scope(), Capability::AskMetric.scope()]);
+        assert!(!without_it.includes(Capability::RunSql));
+        let with_it = Permitted::granted_by([Capability::RunSql.scope()]);
+        assert!(with_it.includes(Capability::RunSql));
+        assert_eq!(
+            capability_of(&Method::POST, &format!("{API_V1_PREFIX}{}", base_paths::RUN_SQL)),
+            Some(Capability::RunSql)
+        );
     }
 }

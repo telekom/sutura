@@ -10,13 +10,13 @@ fn the_document_is_byte_stable_across_independent_builds() {
     // each call builds fresh maps - which is what makes this sensitive to a `HashMap`-backed
     // extension rather than only to a process-wide seed. If it ever fails, the module
     // documentation says what to build.
-    let first = document_json().expect("the document serializes");
-    let second = document_json().expect("the document serializes");
+    let first = document_json(true).expect("the document serializes");
+    let second = document_json(true).expect("the document serializes");
     assert_eq!(first, second);
 }
 
 #[test]
-fn the_document_describes_every_governed_route() {
+fn the_document_describes_every_governed_route_when_every_switch_is_on() {
     // The two are generated from one attribute per handler, so this asserts the wiring rather
     // than the generator: a handler registered on the router and not merged into the document
     // is the mistake it catches.
@@ -25,7 +25,7 @@ fn the_document_describes_every_governed_route() {
     // describes the governed operations and NOTHING else - is proved over the public API at
     // `crates/sutura-http/tests/operations.rs`, so a liveness route or an administrative one
     // cannot ride along; this cell is the cheap wiring half.
-    let paths = document().paths;
+    let paths = document(true).paths;
     for route in crate::capability::governed() {
         assert!(
             paths.paths.contains_key(route.route()),
@@ -36,13 +36,33 @@ fn the_document_describes_every_governed_route() {
     }
 }
 
+/// `#666`'s review, finding 2: an off deployment does not document a route every caller gets
+/// `403` from forever - the same absence `sutura_mcp`'s `tools/list` gives the raw tool when a
+/// deployment never turned it on.
+#[test]
+fn the_run_sql_route_is_absent_from_the_document_when_the_deployment_switch_is_off() {
+    let route = format!("{API_V1_PREFIX}{}", base_paths::RUN_SQL);
+    let off = document(false).paths;
+    assert!(
+        !off.paths.contains_key(&route),
+        "{route} is documented even though this deployment never turned it on: {:?}",
+        off.paths.keys().collect::<Vec<_>>()
+    );
+    let on = document(true).paths;
+    assert!(
+        on.paths.contains_key(&route),
+        "{route} is missing even though this deployment turned it on: {:?}",
+        on.paths.keys().collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn liveness_is_not_described_in_the_interface_description() {
     // The probe is mounted on its own router and deliberately left out of the document: it is a
     // property of the process rather than an operation of the API, and a client that turns the
     // document's operations into tools (the local chat demo does) must not be handed a probe to
     // call. The exhaustive set proof is `tests/operations.rs`.
-    let paths = document().paths;
+    let paths = document(true).paths;
     assert!(
         !paths.paths.contains_key(HEALTH_PATH),
         "liveness is in the interface description, so a tool client would list it"
@@ -66,7 +86,7 @@ fn liveness_is_not_described_in_the_interface_description() {
 /// failure rather than something skipped.
 #[test]
 fn both_transports_describe_the_same_tools() {
-    let document = document();
+    let document = document(true);
     let mut documented: Vec<String> = Vec::new();
     for (route, item) in &document.paths.paths {
         for operation in [item.get.as_ref(), item.post.as_ref()].into_iter().flatten() {
@@ -91,7 +111,7 @@ fn the_document_tells_a_reader_that_identity_is_not_access() {
     // The one thing somebody integrating reads, and in the document because it is their surface.
     // The notice is deployment-independent: whichever way a caller is authenticated, no question
     // runs as the asker.
-    let rendered = document_json().expect("the document serializes");
+    let rendered = document_json(true).expect("the document serializes");
     assert!(
         rendered.contains("NEITHER IS PER-CALLER ACCESS"),
         "the description lost the notice"
@@ -106,7 +126,7 @@ fn the_document_tells_a_reader_that_identity_is_not_access() {
 #[test]
 fn every_refusal_status_is_declared_on_the_query_operation() {
     // Read the serialized document a client consumes, not the generator's typed tree.
-    let rendered = document_json().expect("the document serializes");
+    let rendered = document_json(true).expect("the document serializes");
     let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("the document is JSON");
     let responses = &parsed["paths"][format!("{API_V1_PREFIX}{}", base_paths::QUERY)]["post"]["responses"];
     for status in ["200", "403", "404", "409", "413", "422", "503"] {
@@ -130,7 +150,7 @@ fn every_refusal_status_is_declared_on_the_query_operation() {
 fn no_security_scheme_is_declared() {
     // A shared deployment secret is not a caller authentication model.
     assert!(
-        document()
+        document(true)
             .components
             .and_then(|components| { (!components.security_schemes.is_empty()).then_some(components.security_schemes.len()) })
             .is_none(),

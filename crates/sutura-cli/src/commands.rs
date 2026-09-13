@@ -400,11 +400,29 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
             settings.server().request_timeout(),
             data.as_deref(),
         )? {
-            crate::sources::Opened::Files(opened) => answered(&catalog, &question, opened, settings.runtime()),
+            crate::sources::Opened::Files(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+            ),
             #[cfg(feature = "bigquery")]
-            crate::sources::Opened::BigQuery(opened) => answered(&catalog, &question, opened, settings.runtime()),
+            crate::sources::Opened::BigQuery(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+            ),
             #[cfg(feature = "postgres")]
-            crate::sources::Opened::Postgres(opened) => answered(&catalog, &question, opened, settings.runtime()),
+            crate::sources::Opened::Postgres(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+            ),
         }
     })())
 }
@@ -481,6 +499,7 @@ fn answered<W>(
     question: &Query,
     opened: crate::sources::OpenedWith<W>,
     runtime: sutura_config::RuntimeSettings,
+    request_timeout: sutura_config::RequestTimeout,
 ) -> Result<(), String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
@@ -495,7 +514,10 @@ where
     // has no signature for it - and what the leg presents agrees with what the adapter was opened
     // under because ONE decision produced both.
     let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
-    let outcome = service.answer(&context, question).map_err(|e| render(&e))?;
+    // One deadline, opened here: this command has no admission wait and no other caller to share it
+    // with, so the instant it is opened at is this call's own start - `docs/adr/0029`.
+    let deadline = sutura_domain::warehouse::deadline::Deadline::opened_at(std::time::Instant::now(), request_timeout.budget());
+    let outcome = service.answer(&context, question, deadline).map_err(|e| render(&e))?;
     print_outcome(&outcome)
 }
 

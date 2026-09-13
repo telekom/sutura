@@ -34,7 +34,7 @@ pub(crate) fn load(catalogs: &[LocalCatalog]) -> Result<PinnedDefinitions, Strin
         .iter()
         .map(|catalog| catalog.load().map_err(|cause| flatten(&cause)))
         .collect::<Result<Vec<_>, String>>()?;
-    assemble::assemble(bundles).map_err(|cause| cause.to_string())
+    assemble::assemble(&bundles).map_err(|cause| cause.to_string())
 }
 
 /// Opens one declared catalog, dispatching its kind exhaustively.

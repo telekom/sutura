@@ -80,6 +80,7 @@ sutura_questions_total{code="rate_limited"} 0
 sutura_questions_total{code="refused"} 0
 sutura_questions_total{code="timeout"} 0
 sutura_questions_total{code="too_large"} 0
+sutura_questions_total{code="tool_not_enabled"} 0
 sutura_questions_total{code="unauthorized"} 0
 sutura_questions_total{code="unavailable"} 0
 # TYPE sutura_question_duration_seconds histogram
@@ -347,7 +348,9 @@ async fn a_rate_limited_query_moves_both_the_surface_and_question_counters() {
 #[tokio::test]
 async fn a_timed_out_query_is_counted_once() {
     let (engine, held) = warehouse_that_can_be_held();
-    let app = over(bundle(), engine, metrics_settings_with("  request_timeout_seconds: 1\n", ""));
+    // Two seconds is the smallest bound `RequestTimeout::parse` accepts - one second cannot afford
+    // `docs/adr/0029`'s reply margin.
+    let app = over(bundle(), engine, metrics_settings_with("  request_timeout_seconds: 2\n", ""));
     held.arm();
     let (status, _) = call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION))).await;
     held.release();

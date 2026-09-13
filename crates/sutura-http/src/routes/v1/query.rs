@@ -76,10 +76,12 @@
 //! happens under a test profile. The shipped profiles set `panic = "abort"`, so there the process is
 //! gone and the slot is moot.
 
+use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use sutura_domain::query::Query;
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::AtCapacity;
 
 use crate::problem::Failure;
@@ -163,9 +165,11 @@ const TAG: &str = "query";
             status = 413,
             description = "TWO THINGS, and `code` is what tells them apart. `too_large`: the \
                            REQUEST body is larger than this service will read - that body is the \
-                           failure shape. `result_too_large`: the ANSWER exceeded the row cap and \
-                           was NOT truncated to fit - that body is `outcome: refusal`, and the \
-                           detail names the cap and what to narrow.",
+                           failure shape. `result_too_large`: the ANSWER was too much data and was \
+                           NOT truncated to fit - the row cap, a data system that would not hand it \
+                           back in one piece, or this deployment's own bound on the bytes a rendered \
+                           answer may occupy - that body is `outcome: refusal`, and the detail names \
+                           what bound it was and what to narrow.",
             body = OutcomeBody
         ),
         (
@@ -173,10 +177,12 @@ const TAG: &str = "query";
             description = "REFUSED - `outcome: refusal`. The question is well formed and out of \
                            bounds. `code` says which bound: `time_range_too_long`, \
                            `too_many_dimensions`, `duplicate_dimension`, `grain_not_supported` \
-                           (the metric exists; that grain is not defined for it), or \
+                           (the metric exists; that grain is not defined for it), \
                            `resources_exhausted` (answering needed more working memory than this \
                            deployment's ceiling, and it was refused rather than allowed to exhaust \
-                           the process - narrow the period or group by fewer dimensions). \
+                           the process - narrow the period or group by fewer dimensions), or \
+                           `deadline_exceeded` (this deployment stopped the question after its \
+                           configured budget; the detail carries the number of seconds). \
                            Repeating the request unchanged will fail the same way; the detail \
                            carries the limit.",
             body = OutcomeBody
@@ -210,6 +216,11 @@ pub(crate) async fn ask(
     // caller writes - see `crate::principal`, which explains why the check moved from the arity of a
     // function to a type.
     caller: Option<axum::Extension<crate::inbound::VerifiedCaller>>,
+    // Opened by `middleware::enforce_timeout`, before admission - the same extension mechanism
+    // `caller` above uses, and for the analogous reason: a handler has no state of its own to carry
+    // a per-request value through, and this one cannot be reached by anything a caller writes
+    // because nothing a caller sends can insert a request extension.
+    Extension(deadline): Extension<Deadline>,
     body: Result<Json<QuestionBody>, JsonRejection>,
 ) -> Result<Outcome, Failure> {
     let Json(body) = body.map_err(|rejection| rejected(&rejection))?;
@@ -279,7 +290,7 @@ pub(crate) async fn ask(
         // The audit record for this outcome is written INSIDE this call, before it returns - so it
         // is written on the blocking thread, inside the span this helper carries across, and it is
         // written whether or not the caller is still waiting for the response.
-        let answered = surface.answer(&context, &query);
+        let answered = surface.answer(&context, &query, deadline);
         // Explicitly, and here rather than at the top of the closure: the admission `slot` and the
         // in-use `slot_guard` are released when the WORK finishes, which is what makes the bound a
         // bound on execution. Dropping them earlier would let a second question start on top of
@@ -333,7 +344,7 @@ pub(crate) async fn ask(
 /// body over the bound indistinguishable from a body with a typo in it, and the documented `413`
 /// was a status nothing produced. Branching on the rejection's own status rather than on its
 /// variant keeps that true across an `axum` release that adds a variant.
-fn rejected(rejection: &JsonRejection) -> Failure {
+pub(super) fn rejected(rejection: &JsonRejection) -> Failure {
     if rejection.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
         return Failure::TooLarge;
     }
@@ -397,7 +408,7 @@ fn is_identifier(key: &str) -> bool {
 /// `warn` and not `error`: shedding is the control working. It is also the line an operator sizes
 /// from, so it carries the bound and the window the caller waited - which the response body
 /// deliberately does not, because those numbers are this deployment's sizing.
-fn refused(shed: &AtCapacity) -> Failure {
+pub(super) fn refused(shed: &AtCapacity) -> Failure {
     tracing::warn!(
         max_concurrent_queries = shed.bound(),
         admission_timeout_seconds = shed.waited().as_secs(),
@@ -413,7 +424,7 @@ fn refused(shed: &AtCapacity) -> Failure {
 /// The split is the point. A data system that did not answer is a `503` and worth retrying; our own
 /// bundle or generator being wrong is a `500` and is not. Neither response carries the message,
 /// because a driver's complaint names a table, a column or a file.
-fn failed(failure: &SurfaceFailure) -> Failure {
+pub(super) fn failed(failure: &SurfaceFailure) -> Failure {
     // The chain is walked to text HERE, at the sink that writes it, and not inside the error. That
     // is the whole of the difference between a failure that can be inspected and one that has
     // already been turned into prose - see `crate::surface`.

@@ -26,6 +26,7 @@ use sutura_domain::plan::{
     ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, Value};
 
@@ -326,6 +327,15 @@ pub(super) fn leg_of(posture: &SourcePosture) -> Presented {
         },
         SourcePosture::ImpersonationAtSource => a_subject_token("an-exchanged-token-for-the-asker"),
     }
+}
+
+/// The port's deadline every test here executes under - a generous budget, since none of these
+/// assertions are about time.
+pub(super) fn test_deadline() -> Deadline {
+    Deadline::opened_at(
+        std::time::Instant::now(),
+        Budget::parse(std::time::Duration::from_secs(30)).expect("thirty seconds is a budget"),
+    )
 }
 
 pub(super) fn open<T>(transport: T, posture: SourcePosture) -> BigQueryWarehouse<T>

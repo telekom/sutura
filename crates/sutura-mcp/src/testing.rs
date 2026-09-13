@@ -45,6 +45,7 @@ use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::source::{
     AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture, UniformlyExecuted,
 };
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
@@ -186,11 +187,16 @@ impl Warehouse for FakeWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Ok(self.result.clone())
     }
 
@@ -310,7 +316,22 @@ impl Surface for FailingSurface {
         &self.definitions
     }
 
-    fn answer(&self, _context: &sutura_domain::identity::RequestContext, _query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
+    fn answer(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _query: &Query,
+        _deadline: Deadline,
+    ) -> Result<ToolOutcome, SurfaceFailure> {
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
+
+    fn run_sql(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
         Err(SurfaceFailure::Warehouse {
             cause: Box::new(ConnectionRefused),
         })
@@ -385,7 +406,7 @@ impl Surface for HoldingSurface {
         &self.definitions
     }
 
-    fn answer(&self, _context: &RequestContext, _query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
+    fn answer(&self, _context: &RequestContext, _query: &Query, _port_deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure> {
         let inside = self.occupancy.inside.fetch_add(1, Ordering::SeqCst) + 1;
         self.occupancy.peak.fetch_max(inside, Ordering::SeqCst);
         // Held rather than slept, for the reason `sutura_http`'s fixture gives: a `spawn_blocking`
@@ -402,6 +423,19 @@ impl Surface for HoldingSurface {
         Ok(ToolOutcome::Answer {
             provenance: self.definitions.provenance(ran_shared()),
             rows: self.rows.clone(),
+        })
+    }
+
+    /// Not exercised by any test naming this fixture - `HoldingSurface` exists for the admission
+    /// bound, which `Surface::answer` alone is enough to measure. Refuses cleanly rather than
+    /// panicking, so a future test naming it by accident fails on an assertion rather than a trap.
+    fn run_sql(
+        &self,
+        _context: &RequestContext,
+        _statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        Ok(sutura_domain::raw::RawOutcome::Refusal {
+            reason: sutura_domain::raw::RawRefusalReason::StatementFailed,
         })
     }
 }

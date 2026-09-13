@@ -2,24 +2,34 @@
 //!
 //! # Why this crate has its own wire type
 //!
-//! `sutura-http` already holds one - `QuestionBody`, with the same five fields and the same
-//! `TryFrom<..> for Query`. Sharing it would mean this adapter depending on that one, and *an
-//! adapter never calls another adapter* is the rule the whole layout rests on: a shape owned by one
-//! transport is a shape every other transport has to reach through it. [`CatalogContent`] is the
-//! same story against `sutura_http::wire::CatalogBody`.
+//! `sutura-http` already holds one - `QuestionBody`, with the same five fields. Sharing the STRUCT
+//! would mean this adapter depending on that one, and *an adapter never calls another adapter* is
+//! the rule the whole layout rests on: a shape owned by one transport is a shape every other
+//! transport has to reach through it. [`CatalogContent`] is the same story against
+//! `sutura_http::wire::CatalogBody`.
 //!
-//! **So the duplication is deliberate, and it is a cost rather than an oversight.** Nothing in the
-//! compiler makes two wire types stay equal. What guards them is
-//! [`AskArgs`]'s own `deny_unknown_fields`, asserted through the transport in `crate::server`, plus
-//! the committed schema dump in [`crate::tool`] - a widened input changes a snapshot and the
-//! byte-compare fails until somebody re-accepts it, which is what puts a new field in a reviewer's
-//! diff.
+//! **So the wire STRUCT is deliberately duplicated, and it is a cost rather than an oversight.**
+//! Nothing in the compiler makes two wire types stay equal. What guards them is [`AskArgs`]'s own
+//! `deny_unknown_fields`, asserted through the transport in `crate::server`, plus the committed
+//! schema dump in [`crate::tool`] - a widened input changes a snapshot and the byte-compare fails
+//! until somebody re-accepts it, which is what puts a new field in a reviewer's diff.
 //!
-//! **What is now mechanical across the two transports is the TOOL SET, and not these shapes.**
-//! `sutura_app::Capability` is the one source both of them render, and
-//! `both_transports_describe_the_same_tools` in `crate::tool` is the assertion. The field lists of
-//! two wire types with the same job are still kept equal by review, and that limit is worth keeping
-//! in front of a reader rather than letting the tool-set test read as covering it.
+//! **What moved inward is the PARSE, and it is not a cost any more.** `TryFrom<AskArgs> for Query`
+//! used to re-derive the same seven failure modes `sutura-http`'s own `TryFrom` did, out of its own
+//! copy of `MalformedQuestion`, its own `grain_of`, its own `range_of` - identical logic, kept equal
+//! only by review. That translation lives in `sutura_domain::question` now, and what this crate
+//! keeps of its own is the one failure mode a transport's own deserialization step can produce
+//! before that function is ever reached: [`MalformedQuestion::NotAnObject`], for an arguments object
+//! that fails to deserialize into [`AskArgs`] at all - which HTTP's Axum extractor rejects earlier
+//! in its own stack, so `sutura-http` has no arm for it and needs none.
+//!
+//! **What is now mechanical across the two transports is the TOOL SET and the QUESTION PARSE, and
+//! not these wire shapes.** `sutura_app::Capability` is the one source both of them render for the
+//! first, and `both_transports_describe_the_same_tools` in `crate::tool` is the assertion;
+//! `sutura_domain::question::parse_query` is the one function both `TryFrom` impls call for the
+//! second. The field lists of two wire types with the same job are still kept equal by review, and
+//! that limit is worth keeping in front of a reader rather than letting either test read as
+//! covering it.
 //!
 //! # Why the derive is here and not on `Query`
 //!
@@ -46,11 +56,9 @@
 //! and the enforcement come from the same attribute rather than from two decisions that could
 //! disagree.
 
-use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::DimensionValue;
-use sutura_domain::model::{DimensionName, Grain, MetricName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::query::{Filter, Query, ToolOutcome};
+use sutura_domain::query::{Query, ToolOutcome};
+use sutura_domain::question::RawFilter;
 use sutura_domain::warehouse::RowSet;
 
 use crate::refusal;
@@ -69,6 +77,11 @@ mod prose;
 // undocumented stub - see the BigQuery adapter's `wire/bounds.rs`, where that was measured.
 pub mod catalog;
 pub use catalog::{CatalogContent, DescribeCatalogArgs, DimensionContent, MetricContent};
+
+// The third tool's whole wire shape, for the reason `catalog` has its own module: one whole tool,
+// not a share of lines.
+pub mod raw;
+pub use raw::{MalformedStatement, RawContent, RunSqlArgs};
 
 /// One governed question, as a tool call carries it.
 ///
@@ -118,113 +131,53 @@ pub struct FilterArgs {
 }
 
 /// Why an arguments object is not a question.
-///
-/// Every variant names the field, and none of them echoes the caller's value back except where the
-/// value is the thing that failed to parse as an identifier - which is a bounded character set, not
-/// free text.
 #[derive(Debug, thiserror::Error)]
 pub enum MalformedQuestion {
     /// The arguments object did not deserialize at all: a missing field, a wrong type, or - the case
     /// this crate cares about most - a field the tool surface does not declare.
+    ///
+    /// **The one variant with no HTTP analogue**, which is why it lives here rather than in
+    /// `sutura_domain::question`: Axum's JSON extractor rejects a body that fails to deserialize
+    /// before `TryFrom<QuestionBody> for Query` is ever reached, so `sutura-http`'s own
+    /// `MalformedQuestion` has no arm for this case and does not need one. MCP's own
+    /// `serde_json::from_value` step, in `crate::server`, is what can still fail this way here.
     #[error("the arguments are not a question")]
     NotAnObject {
         #[source]
         cause: serde_json::Error,
     },
-    #[error("`metric` is not a metric name")]
-    Metric {
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    #[error("`grain` is not one of: day, week, month, quarter, year")]
-    Grain { found: String },
-    #[error("`range.{field}` is not a date in `YYYY-MM-DD` form")]
-    Date {
-        field: &'static str,
-        #[source]
-        cause: sutura_domain::calendar::InvalidDate,
-    },
-    #[error("`range` is not a period")]
-    Range {
-        #[source]
-        cause: sutura_domain::calendar::InvalidTimeRange,
-    },
-    #[error("`dimensions[{index}]` is not a dimension name")]
-    Dimension {
-        index: usize,
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    #[error("`filters[{index}].dimension` is not a dimension name")]
-    FilterDimension {
-        index: usize,
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    /// The value is not one a catalog could have declared: nothing, more than one line, a control
-    /// character, an invisible or direction-changing code point, spacing a reader cannot see, or
-    /// longer than `sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS`.
-    ///
-    /// **The one variant with no `#[source]`, and the omission is the point.**
-    /// `sutura_domain::catalog::InvalidDimensionValue` carries the offending input, because it
-    /// exists for the author of a catalog - and this error reaches a log and a model's own context,
-    /// which is the one place `sutura_domain::query::RefusalReason` is explicit that a caller's own
-    /// text must not arrive. So the field and the index are reported and the cause is dropped.
-    #[error("`filters[{index}].value` is not a value this catalog could declare")]
-    FilterValue { index: usize },
+    /// Every other way a question can be malformed: which field, and none of the caller's own value
+    /// except where it already failed an identifier parse - see that type's own documentation.
+    /// Shared with `sutura-http`, which parses the same five fields into the same domain types and
+    /// would otherwise carry its own copy of this whole vocabulary.
+    #[error(transparent)]
+    Question(#[from] sutura_domain::question::MalformedQuestion),
 }
 
 impl TryFrom<AskArgs> for Query {
     type Error = MalformedQuestion;
 
+    /// Extracts this transport's own wire fields as plain strings and hands them to
+    /// `sutura_domain::question::parse_query` - the one place a caller's raw question becomes a
+    /// certified [`Query`], shared with `sutura-http`'s own `QuestionBody`. Nothing transport-specific
+    /// happens here beyond the extraction: no field is renamed, widened or defaulted on the way
+    /// through.
     fn try_from(args: AskArgs) -> Result<Self, Self::Error> {
-        let metric = MetricName::parse(&args.metric).map_err(|cause| MalformedQuestion::Metric { cause })?;
-        let grain = grain_of(&args.grain)?;
-        let range = range_of(&args.range)?;
-        let mut dimensions = Vec::with_capacity(args.dimensions.len());
-        for (index, raw) in args.dimensions.iter().enumerate() {
-            dimensions.push(DimensionName::parse(raw).map_err(|cause| MalformedQuestion::Dimension { index, cause })?);
-        }
-        let mut filters = Vec::with_capacity(args.filters.len());
-        for (index, raw) in args.filters.iter().enumerate() {
-            let dimension =
-                DimensionName::parse(&raw.dimension).map_err(|cause| MalformedQuestion::FilterDimension { index, cause })?;
-            // The discard IS the control, so it is spelled out rather than lint-silenced by accident:
-            // `InvalidDimensionValue` names the offending text because it exists for the author of a
-            // catalog, and this error reaches a log and a model's context.
-            #[expect(
-                clippy::map_err_ignore,
-                reason = "the parse error carries the caller's own text, and a tool error must not \
-                          reflect it back - see MalformedQuestion::FilterValue"
-            )]
-            let value = DimensionValue::parse(&raw.value).map_err(|_| MalformedQuestion::FilterValue { index })?;
-            filters.push(Filter::new(dimension, value));
-        }
-        Ok(Self::new(metric, grain, range, dimensions, filters))
+        let filters: Vec<RawFilter<'_>> = args
+            .filters
+            .iter()
+            .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
+            .collect();
+        let query = sutura_domain::question::parse_query(
+            &args.metric,
+            &args.grain,
+            &args.range.start,
+            &args.range.end,
+            &args.dimensions,
+            &filters,
+        )?;
+        Ok(query)
     }
-}
-
-/// The grain, from its name.
-///
-/// A hand-written match rather than the derived `Deserialize`, so the error names the accepted set
-/// instead of quoting serde at a model that then has to guess.
-fn grain_of(raw: &str) -> Result<Grain, MalformedQuestion> {
-    match raw {
-        "day" => Ok(Grain::Day),
-        "week" => Ok(Grain::Week),
-        "month" => Ok(Grain::Month),
-        "quarter" => Ok(Grain::Quarter),
-        "year" => Ok(Grain::Year),
-        other => Err(MalformedQuestion::Grain {
-            found: String::from(other),
-        }),
-    }
-}
-
-fn range_of(args: &RangeArgs) -> Result<TimeRange, MalformedQuestion> {
-    let start = Date::parse(&args.start).map_err(|cause| MalformedQuestion::Date { field: "start", cause })?;
-    let end = Date::parse(&args.end).map_err(|cause| MalformedQuestion::Date { field: "end", cause })?;
-    TimeRange::new(start, end).map_err(|cause| MalformedQuestion::Range { cause })
 }
 
 // ------------------------------------------------------------------ result ----
@@ -490,14 +443,19 @@ mod tests {
 
     #[test]
     fn a_malformed_field_names_the_field_it_was() {
+        use sutura_domain::question::MalformedQuestion as SharedMalformedQuestion;
+
         let error = parse(r#"{"metric":"revenue","grain":"fortnight","range":{"start":"2026-06-01","end":"2026-07-01"}}"#)
             .expect_err("`fortnight` is not a grain");
-        assert!(matches!(error, MalformedQuestion::Grain { .. }), "{error:?}");
+        let MalformedQuestion::Question(ref shared) = error else {
+            panic!("expected a shared parse failure, got {error:?}");
+        };
+        assert!(matches!(shared, SharedMalformedQuestion::Grain), "{shared:?}");
         assert!(error.to_string().contains("quarter"), "{error}");
 
         let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"nope","end":"2026-07-01"}}"#)
             .expect_err("`nope` is not a date");
-        let MalformedQuestion::Date { field, .. } = error else {
+        let MalformedQuestion::Question(SharedMalformedQuestion::Date { field, .. }) = error else {
             panic!("expected a date failure, got {error:?}");
         };
         assert_eq!(field, "start");
@@ -505,6 +463,8 @@ mod tests {
 
     #[test]
     fn a_filter_value_a_catalog_could_not_declare_does_not_come_back_in_the_error() {
+        use sutura_domain::question::MalformedQuestion as SharedMalformedQuestion;
+
         // A zero-width space, which no allowlist entry can hold. Written as a JSON escape inside a
         // raw string - so the source stays ASCII, which this workspace denies departing from, and
         // the JSON parser is what produces the code point.
@@ -513,7 +473,13 @@ mod tests {
                 "filters":[{"dimension":"region","value":"nor\u200Bth"}]}"#,
         )
         .expect_err("a value a catalog could not declare is not a value");
-        assert!(matches!(error, MalformedQuestion::FilterValue { index: 0 }), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0 })
+            ),
+            "{error:?}"
+        );
         let rendered = format!("{error} {error:?}");
         assert!(!rendered.contains("nor"), "{rendered}");
         assert!(rendered.contains("filters[0].value"), "{rendered}");

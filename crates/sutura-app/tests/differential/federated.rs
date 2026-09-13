@@ -84,7 +84,7 @@ use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree
 use sutura_domain::warehouse::{RowSet, Value};
 use sutura_semantic::{Compiled, compile};
 
-use crate::adapters::{a_caller, posture, shared_credential, source, version};
+use crate::adapters::{a_caller, deadline, posture, shared_credential, source, version};
 // `#[path]` for the reason `tests/golden.rs` gives, one level down: a bare `mod corpus;` in a
 // submodule of a test target resolves beside the target root, not beside this file.
 #[path = "federated/corpus.rs"]
@@ -347,6 +347,7 @@ where
         &shared_credential(),
         &side.warehouses,
         BUDGET,
+        deadline(),
     ) {
         Ok(answered) => Ok(answered.into_outcome()),
         Err(error) => Err(chain(&error, name)),

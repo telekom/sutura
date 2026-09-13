@@ -45,6 +45,8 @@ pub(crate) struct RawSettings {
     pub(crate) runtime: RawRuntime,
     #[serde(default)]
     pub(crate) prompt: RawPrompt,
+    #[serde(default)]
+    pub(crate) tools: RawTools,
     /// The data systems this deployment declares, keyed by the alias a model's `source:` names.
     ///
     /// **A map and not a list**, so the key IS the alias and there is one place a source is named. The
@@ -392,6 +394,27 @@ fn catalog_kind_markdown() -> String {
 /// has. `catalog_prose` absent means `quoted`, which is also what `defaults.yaml` says - written
 /// there rather than only here so the value in effect is readable in one file, the way
 /// `rate_limit.client_address` is.
+/// The tool surface's own settings. Off by default, per tool: an absent `tools:` key is exactly the
+/// deployment `docs/adr/0013` calls the normal case, and there is deliberately no plural default
+/// direction to get wrong - each tool defaults to off, named by its own key.
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawTools {
+    #[serde(default)]
+    pub(crate) run_sql: RawRunSql,
+}
+
+/// The raw SQL tool's own settings - `docs/adr/0013`.
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawRunSql {
+    /// Off unless an operator writes `true`. There is no partial or per-source form in this PR: the
+    /// tool targets the sole registered source, and a deployment naming which of several it means
+    /// is `sutura_app::single_raw_capable_warehouse`'s own stated future work.
+    #[serde(default)]
+    pub(crate) enabled: bool,
+}
+
 #[derive(Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawPrompt {

@@ -114,9 +114,12 @@ use refusal::refusals;
 
 /// One operation a transport exposes.
 ///
-/// Two variants, because [`Surface`](crate::surface::Surface) has two methods and this enum is the
-/// prompt's name for each. It is a list rather than a constant because the point is that a caller
-/// passes the subset it actually mounts: `Tool::ALL` is what a transport serving the whole surface
+/// Two variants: the certified surface's own operations, and the prompt's name for each.
+/// [`Surface`](crate::surface::Surface) gained a third method - `run_sql`, `docs/adr/0013`'s tool -
+/// and this enum deliberately did not grow with it: prompt framing for the raw tool is its own
+/// record, not a consequence of this one, so `Tool::ALL` still names only what the certified prompt
+/// talks about. It is a list rather than a constant because the point is that a caller passes the
+/// subset it actually mounts: `Tool::ALL` is what a transport serving the whole certified surface
 /// passes, and a deployment that mounts only one passes only that one.
 ///
 /// **Two entries make this cheap insurance rather than a large win, and it is worth saying so.** The

@@ -255,6 +255,27 @@ async fn an_answer_the_data_system_would_not_return_at_once_is_the_same_413_and_
 }
 
 #[tokio::test]
+async fn a_deadline_exceeded_answer_is_422_and_not_a_503() {
+    // `docs/adr/0029` decision 2, over the wire: an `execute` failure whose
+    // `Warehouse::deadline_exceeded` answers `true` must turn into `422 deadline_exceeded`, never
+    // the retryable `503` a dead data system produces - a caller told to retry a stopped question
+    // would spend the whole budget at the data system again.
+    let app = over(
+        unanchored_bundle(),
+        crate::testing::WarehouseThatOutranItsDeadline::new(crate::testing::source()),
+        settings(Environment::Development, ""),
+    );
+    let (status, code, detail) = refusal(&app, crate::testing::A_QUESTION).await;
+    assert_ne!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "a stopped deadline was reported as an outage: {detail}"
+    );
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(code, "deadline_exceeded");
+}
+
+#[tokio::test]
 async fn an_execute_failure_that_is_not_a_size_bound_is_503_not_413() {
     // The control for the test above, which only a sibling fake can show: an `execute` failure whose
     // predicate answers `false` must leave as the `503` an outage produces, not a size bound's `413`
@@ -367,9 +388,10 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
     // failure shape cannot handle. `middleware::enforce_timeout` exists for this; the assertion is
     // that the assembled router actually uses it.
     //
-    // One second is the smallest bound `RequestTimeout::parse` accepts. The port call is HELD rather
-    // than made slow, and armed only after `start`, because `start` re-executes every anchor.
-    let settings = settings(Environment::Development, "server:\n  request_timeout_seconds: 1\n");
+    // Two seconds is the smallest bound `RequestTimeout::parse` accepts - one second cannot afford
+    // `docs/adr/0029`'s reply margin. The port call is HELD rather than made slow, and armed only
+    // after `start`, because `start` re-executes every anchor.
+    let settings = settings(Environment::Development, "server:\n  request_timeout_seconds: 2\n");
     let (engine, held) = warehouse_that_can_be_held();
     let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
         .expect("the test bundle validates");
@@ -602,3 +624,10 @@ mod logging;
 
 #[cfg(test)]
 mod logging_tests;
+
+// ---------------------------------------------------------------- run_sql (raw SQL tool) ----
+
+/// `POST /v1/sql/run` - `docs/adr/0013`'s tool, off by default. Its own file for the reason
+/// `token` and `catalog_prose` have one: this one is at the `max-lines` bound.
+#[cfg(test)]
+mod run_sql;

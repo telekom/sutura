@@ -36,7 +36,9 @@ fn a_rejected_document_path_does_not_reach_the_warning() {
 
 #[test]
 fn a_timed_out_request_does_not_put_its_raw_path_on_the_warning() {
-    let configured = settings(Environment::Development, "server:\n  request_timeout_seconds: 1\n");
+    // Two seconds is the smallest bound `RequestTimeout::parse` accepts - one second cannot afford
+    // `docs/adr/0029`'s reply margin.
+    let configured = settings(Environment::Development, "server:\n  request_timeout_seconds: 2\n");
     let (engine, held) = warehouse_that_can_be_held();
     let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
         .expect("the test bundle validates");
@@ -69,7 +71,7 @@ fn a_timed_out_request_does_not_put_its_raw_path_on_the_warning() {
 
     assert_eq!(status, StatusCode::REQUEST_TIMEOUT, "{body}");
     let timed_out = warning(&rendered, "gave up on a request that exceeded the configured bound");
-    assert_eq!(timed_out["timeout_seconds"], 1, "{timed_out}");
+    assert_eq!(timed_out["timeout_seconds"], 2, "{timed_out}");
     assert_eq!(timed_out["route"], "/v1/query", "{timed_out}");
     assert!(
         timed_out.get("path").is_none(),

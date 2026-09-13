@@ -38,6 +38,7 @@ use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -152,6 +153,13 @@ pub enum PostgresError {
         #[source]
         cause: core::num::ParseIntError,
     },
+    /// The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run - sutura's own fixed
+    /// text on the simple query protocol (`docs/adr/0013`), never the caller's.
+    #[error("the raw SQL tool's read-only transaction could not be opened")]
+    RawTransaction {
+        #[source]
+        cause: tokio_postgres::Error,
+    },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
@@ -220,6 +228,19 @@ pub struct PostgresWarehouse {
     posture: sutura_domain::source::SourcePosture,
     runtime: tokio::runtime::Runtime,
     client: tokio_postgres::Client,
+    /// Single-flights every exchange on [`Self::client`] - a `PREPARE`, a certified `run`, a raw
+    /// call's `BEGIN`/statement/`ROLLBACK` triple. `Client` PIPELINES rather than serializing
+    /// concurrent callers: measured, two threads in `execute_raw` interleaved their triples, so a
+    /// refused write persisted OUTSIDE any transaction and a concurrent `run` failed with `25P02`.
+    /// `tokio::sync::Mutex<()>` (`clippy.toml` disallows `std::sync::Mutex`), held across the whole
+    /// `block_on` - two certified `run`s wait too, the shared-connection cost `docs/adr/0013` states.
+    execution_lock: tokio::sync::Mutex<()>,
+}
+
+/// Locks [`PostgresWarehouse::execution_lock`]. `blocking_lock` panics off a blocking-pool thread
+/// (like `Runtime::block_on`), which is how both transports call it (`spawn_carrying_span`).
+fn lock_execution(lock: &tokio::sync::Mutex<()>) -> tokio::sync::MutexGuard<'_, ()> {
+    lock.blocking_lock()
 }
 
 impl core::fmt::Debug for PostgresWarehouse {
@@ -275,10 +296,9 @@ impl PostgresWarehouse {
             let (client, connection) = runtime
                 .block_on(config.connect(connector))
                 .map_err(|cause| PostgresError::Connect { cause })?;
-            // The connection's driver task is owned by this runtime, so it is polled exactly
-            // while this adapter is inside a `block_on`. `Client` is `Send + Sync`, so the
-            // multi-thread runtime serializes calls onto its workers. The driver task's
-            // ultimate error has no caller to report to; the next `block_on` fails on its own.
+            // Owned by this runtime, polled independently of any caller's `block_on`. `Client`
+            // PIPELINES - see `execution_lock`. No caller to report the driver's ultimate error to;
+            // the next `block_on` fails on its own.
             #[expect(
                 clippy::let_underscore_must_use,
                 clippy::let_underscore_untyped,
@@ -319,6 +339,7 @@ impl PostgresWarehouse {
             posture,
             runtime,
             client,
+            execution_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -557,6 +578,7 @@ impl PostgresWarehouse {
     fn run(&self, query: &GeneratedQuery) -> Result<RowSet, PostgresError> {
         let bound = Self::bind(query.params());
         let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = bound.iter().map(PgParam::as_ref).collect();
+        let _guard = lock_execution(&self.execution_lock);
         let (columns, rows) = self.runtime.block_on(async {
             let statement = self
                 .client
@@ -895,6 +917,11 @@ impl Warehouse for PostgresWarehouse {
     const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
         sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
 
+    /// The one adapter this build links that may accept a raw statement at all -
+    /// `docs/adr/0013`'s showcase source. The statement is handed to `tokio-postgres` unexamined;
+    /// Postgres's own parser and its own `GRANT`/`REVOKE` model are what authorize or refuse it.
+    const ACCEPTS_RAW_STATEMENTS: bool = true;
+
     fn source(&self) -> &sutura_domain::model::SourceName {
         &self.source
     }
@@ -909,9 +936,15 @@ impl Warehouse for PostgresWarehouse {
     /// bytes, and no money attaches to either - folding a Postgres cost estimate into a
     /// byte-denominated budget would need a conversion this adapter does not attempt.
     /// `docs/adr/0030` names this honest absence rather than a guess.
-    fn dry_run(&self, executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
+    ///
+    /// The deadline is carried, not enforced here; see `docs/adr/0029`. Setting
+    /// `statement_timeout` from what is left of it is a later slice behind
+    /// `telekom/sutura#160`; the connect-time `SUTURA_DEV_STATEMENT_TIMEOUT_MS` stays the boot-path
+    /// bound until then.
+    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
+        let _guard = lock_execution(&self.execution_lock);
         drop(
             self.runtime
                 .block_on(self.client.prepare(query.sql()))
@@ -920,7 +953,8 @@ impl Warehouse for PostgresWarehouse {
         Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         self.run(&query)
@@ -942,7 +976,25 @@ impl Warehouse for PostgresWarehouse {
         let rows = self.run(&query)?;
         KeyUniqueness::read(&rows).map_err(|cause| PostgresError::KeyCounts { cause })
     }
+
+    fn execute_raw(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        presented: &Presented,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        Some(self.run_raw(statement, presented))
+    }
+
+    /// Refuses `25006 read_only_sql_transaction`/`42501 insufficient_privilege` as the data system
+    /// saying no, the same split the certified path already draws - see `raw` for the match itself.
+    fn source_refused(&self, error: &Self::Error) -> bool {
+        raw::source_refused(error)
+    }
 }
+
+// `docs/adr/0013`'s raw SQL tool's own execution path - carved out because this file hit the
+// thousand-line limit `cargo xtask max-lines` enforces.
+mod raw;
 
 #[cfg(test)]
 mod tests;

@@ -79,7 +79,7 @@ mod tests {
     use crate::harness::reading::Reading;
     use crate::harness::{
         LOCAL_SOURCE, LOOKUP_SOURCE, LOOPBACK, RECORD, RESOURCE, SINGLE_USER, TOKEN, VERSION, accepted_by, an_issuer, deployment,
-        example_root, position, question, recurring_revenue_by_region, recurring_revenue_june, refused_to_start,
+        example_root, position, question, recurring_revenue_by_region, recurring_revenue_june, refused_to_start, settings,
         settings_declaring_inbound, settings_spanning_two_sources, start, start_configured, v1, written,
     };
 
@@ -455,7 +455,12 @@ mod tests {
         // capability is covered by this test the day it is added - and a route that is mounted,
         // governed and MISSING from the document fails here rather than at whoever generated a
         // client from it.
-        let served = start("document");
+        //
+        // `tools.run_sql.enabled: true`: `#666`'s review, finding 2 - an off deployment does not
+        // document `/sql/run` at all (the same absence `tools/list` gives it), so `governed()`'s
+        // static table and the served document can only agree here with the switch on.
+        let with_run_sql = format!("{}tools:\n  run_sql:\n    enabled: true\n", settings(&example_root()));
+        let served = start_configured("document", &with_run_sql);
         let reply = served.get(sutura_http::constants::OPENAPI_JSON_PATH, Some(TOKEN));
         assert_eq!(reply.status, 200, "{}", reply.body);
         let document = reply.json();

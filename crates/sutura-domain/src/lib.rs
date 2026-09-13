@@ -51,6 +51,9 @@
 //!   descriptive content.
 //! - [`pinned`] is the hashed snapshot a question resolves against, plus the catalog port.
 //! - [`query`] is the tool surface, defined mostly by what it has no field for.
+//! - [`question`] is the one conversion from a caller's raw fields to a [`query::Query`], shared by
+//!   both transports so a governed field set and its typed refusal exist in one place rather than
+//!   two kept equal by review.
 //! - [`warehouse`] is the execution port. It speaks in plans, so an adapter that executes without
 //!   generating any SQL is a first-class implementation of it rather than a special case.
 //! - [`source`] is what a deployment declares about one source: which identity a query reaches it as,
@@ -85,6 +88,8 @@ pub mod model;
 pub mod pinned;
 pub mod plan;
 pub mod query;
+pub mod question;
+pub mod raw;
 #[cfg(test)]
 mod serialized_form_tests;
 pub mod source;

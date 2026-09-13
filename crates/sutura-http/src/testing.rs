@@ -31,6 +31,7 @@ use sutura_domain::pinned::{
 };
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 use crate::state::ServiceState;
@@ -90,6 +91,16 @@ pub(crate) fn unanchored_bundle() -> PinnedDefinitions {
 /// A question the bundle above can answer, for a test that needs to reach the warehouse.
 pub(crate) fn a_question() -> sutura_domain::query::Query {
     sutura_domain::query::Query::new(metric_name(), Grain::Month, june(), Vec::new(), Vec::new())
+}
+
+/// The port's deadline every fake surface here executes under - a generous budget, since none of
+/// these tests are about time.
+pub(crate) fn deadline() -> Deadline {
+    Deadline::opened_at(
+        std::time::Instant::now(),
+        sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(30))
+            .expect("thirty seconds is a budget"),
+    )
 }
 
 /// The same bundle, with prose a catalog author wrote to be hostile.
@@ -228,6 +239,8 @@ impl sutura_domain::audit::AuditSink for RecordingSink {
         let how = match *record.outcome() {
             RecordedOutcome::Answered { rows, .. } => format!("answered rows={rows}"),
             RecordedOutcome::Refused { reason } => format!("refused reason={reason:?}"),
+            RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows}"),
+            RecordedOutcome::RawRefused { reason, .. } => format!("raw_refused reason={reason:?}"),
         };
         if let Ok(mut lines) = self.lines.lock() {
             lines.push(format!("{who}{named} {how}"));
@@ -314,13 +327,18 @@ impl Warehouse for FailingWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -338,20 +356,20 @@ impl Warehouse for FailingWarehouse {
 #[error("the data system would not return the whole result at once")]
 pub(crate) struct WouldNotReturnAtOnce;
 
+/// `docs/adr/0029`'s own mapping fake, in its own file for this file's `max-lines` reason.
+mod deadline;
+pub(crate) use deadline::WarehouseThatOutranItsDeadline;
+
 /// A data system that will not return the whole result at once.
 ///
 /// **The instrument for the second half of `result_too_large`, reached past a `dry_run` that
 /// accepts.** Its `execute` returns `Err` and [`Warehouse::result_did_not_fit`] answers `true`, so
-/// the size bound leaves as a `413 result_too_large` rather than the `503` an outage produces. It is
-/// deliberately NOT compared to [`FailingWarehouse`] here - that fake fails its `dry_run` first and
-/// never reaches `execute`, so the two do not share a path. Its actual control is
-/// [`WarehouseThatFailsToExecute`]: the same reach, the same `execute` that returns `Err`, and the
-/// DEFAULT `false` predicate. The two are separate types rather than one fake with a flag, because a
-/// flag would let one code path pretend to be both a bound and an outage.
+/// the size bound leaves as a `413 result_too_large` rather than the `503` an outage produces. Its
+/// actual control is [`WarehouseThatFailsToExecute`] - same reach, same `Err`, DEFAULT `false`
+/// predicate; two types rather than one fake with a flag, so no code path pretends to be both.
 ///
-/// `dry_run` is NOT overridden: it takes the port's `NotAsked` default, so a size bound is a property
-/// of the reply and a check that reads no data cannot have hit one. That is also what makes this
-/// reach the `execute` branch rather than being refused a step earlier.
+/// `dry_run` is NOT overridden - the port's `NotAsked` default, so a size bound is a property of the
+/// reply and a check that reads no data cannot have hit one.
 pub(crate) struct WarehouseThatWillNotPage {
     source: SourceName,
     posture: SourcePosture,
@@ -379,7 +397,7 @@ impl Warehouse for WarehouseThatWillNotPage {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(WouldNotReturnAtOnce)
     }
 
@@ -432,7 +450,7 @@ impl Warehouse for WarehouseThatFailsToExecute {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -469,7 +487,12 @@ impl Warehouse for FakeWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         Ok(PreFlight::NotAsked)
     }
 
@@ -481,7 +504,7 @@ impl Warehouse for FakeWarehouse {
         Ok(AnchorRows::of(self.result.clone()))
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         // Held rather than slept, and that is about the test suite rather than about realism. A
         // `spawn_blocking` task that sleeps keeps running after the assertion, and dropping a
         // `tokio` runtime waits for the blocking pool - so a fixed sleep long enough to outrun the
@@ -495,6 +518,38 @@ impl Warehouse for FakeWarehouse {
             std::thread::sleep(Duration::from_millis(5));
         }
         Ok(self.result.clone())
+    }
+
+    // `#666`'s review, finding 2: a router-level test needs this fake to accept a raw statement to
+    // reach `RunSqlOutcome`'s status arms at all - no certified fixture here overrides it otherwise.
+    const ACCEPTS_RAW_STATEMENTS: bool = true;
+
+    /// One row for every statement except two magic strings a router-level test provokes an
+    /// outcome with: `"refuse me"` (a source refusal), `"too many rows"` (over the row cap).
+    fn execute_raw(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        _presented: &Presented,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        if statement.as_str() == "refuse me" {
+            return Some(Err(StatementRejected {
+                cause: ConnectionRefused,
+            }));
+        }
+        if statement.as_str() == "too many rows" {
+            let cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the row cap fits a usize");
+            let rows: Vec<Vec<Value>> = vec![vec![Value::Integer(1)]; cap.saturating_add(1)];
+            return Some(Ok(sutura_domain::warehouse::RawRows::of(vec![String::from("n")], rows)));
+        }
+        Some(Ok(sutura_domain::warehouse::RawRows::of(
+            vec![String::from("n")],
+            vec![vec![Value::Integer(1)]],
+        )))
+    }
+
+    /// `execute` never errs, so this is only ever asked about `execute_raw`'s own `"refuse me"`.
+    fn source_refused(&self, _error: &Self::Error) -> bool {
+        true
     }
 }
 
@@ -536,16 +591,14 @@ fn shared_posture() -> SourcePosture {
 ///
 /// **A fake of the broker port, and the honest one for these fixtures.** Every warehouse here is a
 /// fake over no data system, so the only shape any of them can be handed is the deployment's own
-/// identity for that source - which is what [`shared_posture`] declares and what this grants. A fake
-/// that handed out subject material would provoke the adapter's wiring-defect error on every request
-/// and prove nothing about the transport.
+/// identity for that source - what [`shared_posture`] declares and what this grants. A fake handing
+/// out subject material would provoke the adapter's wiring-defect error on every request instead.
 ///
 /// **Its own error type, and a review is why it is not a refusal.** The one thing minting can fail on
 /// here is `LegCredentials::minted` refusing a set that does not cover the sources it was asked about,
-/// and the map is built from those sources - so it is unreachable. It used to be answered as
-/// `Minted::Refused`, which is the ONE outcome the transport tests here assert on: a fixture that
-/// silently produced it would have made `403 credential_unavailable` pass for the wrong reason. It
-/// leaves as the broker's own failure instead, which is a `503` with a different code.
+/// and the map is built from those sources - so it is unreachable. It used to answer `Minted::Refused`,
+/// the ONE outcome the transport tests here assert on: a fixture silently producing it would have made
+/// `403 credential_unavailable` pass for the wrong reason - it leaves as the broker's own `503` instead.
 pub(crate) struct GrantsTheSharedIdentity;
 
 /// The fixture broker's own defect, which nothing in this suite can provoke.

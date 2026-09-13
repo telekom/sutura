@@ -124,6 +124,32 @@ impl AuditSink for TracingAuditSink {
                 reason = ?reason,
                 "refused"
             ),
+            // The raw path's two arms. **`statement` is logged deliberately** - `docs/adr/0013`'s
+            // ramp section wants exactly this: sutura writes the caller's own SQL into the audit
+            // sink, never into a reply. This is the one line in the workspace that does, and the
+            // reason it is safe here and nowhere else is that this is a SINK, not a channel back to
+            // any caller or any agent's context.
+            RecordedOutcome::RawAnswered { rows, statement } => tracing::info!(
+                subject_established = who.established,
+                subject = who.subject,
+                actors = who.actors,
+                acting = who.acting,
+                task = who.task,
+                rows,
+                statement = statement.as_str(),
+                credential_until = executed_until(record),
+                "raw_answered"
+            ),
+            RecordedOutcome::RawRefused { reason, statement } => tracing::info!(
+                subject_established = who.established,
+                subject = who.subject,
+                actors = who.actors,
+                acting = who.acting,
+                task = who.task,
+                reason = reason.code(),
+                statement = statement.as_str(),
+                "raw_refused"
+            ),
         }
     }
 }
