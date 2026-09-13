@@ -362,6 +362,59 @@ impl Warehouse for WideResult {
     }
 }
 
+/// A data system that answers with one row whose single cell is exactly `bytes` bytes once
+/// rendered.
+///
+/// **The instrument for the response-byte ceiling, and it has to push the OTHER dimension from
+/// [`WideResult`].** `ResponseByteLimit::DEFAULT` is measured in bytes of rendered cell text, and
+/// `plan::MAX_ROWS` bounds rows at ten thousand - so a result built by adding rows of one byte each
+/// hits the row cap millions of rows before it could ever reach the byte ceiling, and the two
+/// refusals would be indistinguishable from this fake. Wide rather than tall: one row, one cell,
+/// however many bytes the test asks for.
+pub(crate) struct HeavyResult {
+    source: SourceName,
+    bytes: usize,
+}
+
+impl HeavyResult {
+    /// A data system whose one answer's one cell renders as `bytes` bytes of text.
+    pub(crate) fn of(bytes: usize) -> Self {
+        Self { source: source(), bytes }
+    }
+}
+
+impl Warehouse for HeavyResult {
+    type Error = Never;
+
+    // Every fake here executes nothing over no data system, in this process, so there is nowhere
+    // for a subject credential to arrive - the same answer the shipped engine gives.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    // No `dry_run`: the port defaults it, and this fake reads nothing to prepare.
+
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "the one-row, one-column shape is a literal here, so a failure to build it is a \n                  broken test rather than an input to handle"
+    )]
+    fn execute(&self, executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        let plan = whole_plan(executable);
+        let cell = Value::Text("x".repeat(self.bytes));
+        Ok(RowSet::new(vec![String::from(plan.metric().as_str())], vec![vec![cell]]).expect("one column and one row"))
+    }
+
+    fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        self.execute(Executable::Query(plan.plan()), &fake_leg()).map(AnchorRows::of)
+    }
+}
+
 // ------------------------------------------------------- the exhausted-engine fake ---
 
 /// Why an engine that ran out of working memory could not answer.

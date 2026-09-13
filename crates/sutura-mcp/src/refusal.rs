@@ -89,6 +89,13 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
                  cut down to fit and retrying will not help. Ask a narrower question - a shorter \
                  period, or fewer dimensions.",
             ),
+            // This deployment's own ceiling, and unlike `Volume` a figure it was told - so the
+            // sentence names it rather than leaving an agent to guess how much to narrow by.
+            ResultBound::Encoded { limit_bytes } => format!(
+                "the answer would have occupied more than {limit_bytes} bytes once rendered; nothing \
+                 was cut down to fit and retrying will not help. Ask a narrower question - a shorter \
+                 period, or fewer dimensions."
+            ),
         },
         RefusalReason::TimeRangeTooLong { days, limit } => {
             format!("the period asked about is {days} days; at most {limit} are allowed")
@@ -329,6 +336,20 @@ mod tests {
             !detail.chars().any(char::is_numeric),
             "the sentence names a bound nobody measured: {detail}"
         );
+        assert!(detail.contains("narrower"), "{detail}");
+        assert!(detail.contains("retrying will not help"), "{detail}");
+    }
+
+    /// The third bound, and unlike `Volume` it names a number - this deployment's own ceiling.
+    #[test]
+    fn the_encoded_bound_names_the_ceiling_it_measured() {
+        let (code, detail) = refused(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Encoded {
+                limit_bytes: 8 * 1024 * 1024,
+            },
+        });
+        assert_eq!(code, "result_too_large");
+        assert!(detail.contains("8388608"), "the sentence does not name the ceiling: {detail}");
         assert!(detail.contains("narrower"), "{detail}");
         assert!(detail.contains("retrying will not help"), "{detail}");
     }

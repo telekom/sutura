@@ -8085,10 +8085,65 @@ agent two paragraphs saying one thing.
 
 - `Rows` - The plan's row cap, in rows.
 - `Volume` - The data system would not hand this result back in one piece.
+- `Encoded` - This deployment's own rendered-response ceiling, in bytes.
 
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct ResponseByteLimit`
+
+```rust
+pub struct ResponseByteLimit
+```
+
+The most bytes an answer's rendered cells may occupy before this deployment declines to encode
+it into a response.
+
+**Parsed rather than a bare constant**, so a caller of this type cannot end up with a zero
+ceiling that refuses every answer while reading as "no bound was set" - the same distinction
+`crate::plan::MAX_ROWS` does not need to make, because nothing constructs a row cap from
+outside this crate.
+
+`Self::DEFAULT` is what every deployment is held to today - see its own documentation for the
+number and the reasoning. **The limit, stated here rather than left for a reader to assume
+otherwise:** nothing yet reads this from a settings file the way `server.max_body_bytes` bounds
+the request side: `sutura_app::answer` and `sutura_app::federated::answer_federated` both use
+`Self::DEFAULT` unconditionally. Making it operator-configurable is future work, threaded the
+same way `working_set_bytes` already is, from a composition root down through
+`sutura_app::surface::LocalService`.
+
+#### Methods
+
+```rust
+pub const fn bytes(self) -> u64
+```
+
+```rust
+pub const fn parse(bytes: u64) -> Result<Self, InvalidResponseByteLimit>
+```
+
+Reads a byte ceiling.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InvalidResponseByteLimit`
+
+```rust
+pub enum InvalidResponseByteLimit
+```
+
+Why a response byte ceiling is not one.
+
+#### Variants
+
+- `Zero` - Zero reads as "no bound was configured" to whoever wrote it, and is the opposite: it refuses every answer without saying it means to.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `enum ToolOutcome`
 
@@ -9072,6 +9127,23 @@ pub fn new(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Self, Malforme
 ```
 
 Builds a result set, rejecting a ragged one.
+
+```rust
+pub fn rendered_byte_len(&self) -> u64
+```
+
+The total bytes every cell would occupy once rendered through `Value::render`.
+
+**A proxy for the encoded response size, and not the wire size itself - stated because the
+gap matters.** This sums the canonical text form of every cell, which is the same rendering
+an anchor is compared against; it is not the JSON a transport wraps that text in, nor the
+tab-delimited text block the agent-facing tool result also sends, and both add quoting,
+escaping and delimiters this number does not count. It exists to give a cheap, monotonic
+figure to compare against a byte ceiling before either transport builds its own wire form,
+which is what lets one measurement serve both without either reaching into the other's
+rendering. Column labels are not counted: they come from the catalog an operator authored,
+not from a caller's own cells, and every other size bound in this module is about what a
+caller's question can make a data system return.
 
 ```rust
 pub fn rows(&self) -> &[Vec<Value>]

@@ -364,6 +364,13 @@ fn too_much_data(bound: ResultBound) -> String {
              it is, so narrow the period or group by fewer dimensions and ask again. Retrying it \
              unchanged returns this same refusal",
         ),
+        // A figure again, and this one IS this deployment's own: unlike the row cap it is not a
+        // count a caller can subtract dimensions from directly, so the sentence names the ceiling
+        // rather than a number of rows or dimensions to remove.
+        ResultBound::Encoded { limit_bytes } => format!(
+            "the answer would occupy more than {limit_bytes} bytes once rendered and was NOT \
+             truncated to fit; narrow the period or group by fewer dimensions and ask again"
+        ),
     }
 }
 
@@ -588,6 +595,25 @@ mod tests {
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
         let detail = body.detail();
         assert!(detail.contains("10000"), "the sentence does not name the cap: {detail}");
+        assert!(detail.contains("NOT truncated"), "{detail}");
+        assert!(detail.contains("narrow"), "{detail}");
+    }
+
+    #[test]
+    fn the_encoded_bound_refusal_names_the_ceiling_and_not_a_row_count() {
+        // The third arm: a result inside the row cap and inside every data system's own reply cap
+        // can still cost more to encode than this deployment will spend, because the row cap counts
+        // rows and this ceiling is bytes. The sentence has to name the ceiling this deployment
+        // measured, at the same status and code the other two bounds use.
+        let (status, body) = refused(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Encoded {
+                limit_bytes: 8 * 1024 * 1024,
+            },
+        });
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(body.code(), "result_too_large");
+        let detail = body.detail();
+        assert!(detail.contains("8388608"), "the sentence does not name the ceiling: {detail}");
         assert!(detail.contains("NOT truncated"), "{detail}");
         assert!(detail.contains("narrow"), "{detail}");
     }

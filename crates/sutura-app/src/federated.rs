@@ -26,7 +26,10 @@ use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{RowSet, Warehouse};
 
-use crate::{Answered, Answering, ServiceError, Warehouses, deadline_exceeded, exceeds_row_cap, now_in_unix_seconds};
+use crate::{
+    Answered, Answering, ServiceError, Warehouses, deadline_exceeded, exceeds_response_bound, exceeds_row_cap,
+    now_in_unix_seconds,
+};
 
 /// The refusal for a source this deployment does not serve, and the one the mono path gives before
 /// a credential is minted.
@@ -206,6 +209,19 @@ where
                     bound: sutura_domain::query::ResultBound::Rows {
                         limit: sutura_domain::plan::MAX_ROWS,
                     },
+                },
+            },
+        ));
+    }
+    // The same third bound the mono-source path checks, over the COMBINED result - a federated
+    // answer can be wide in exactly the same way a single-source one can, and the combiner gives no
+    // more reason to trust its width than `execute` does.
+    if let Some(limit_bytes) = exceeds_response_bound(&combined) {
+        return Ok(Answered::under(
+            &credentials,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Encoded { limit_bytes },
                 },
             },
         ));

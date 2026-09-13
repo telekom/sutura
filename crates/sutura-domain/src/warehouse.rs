@@ -323,6 +323,22 @@ impl RowSet {
             _ => None,
         }
     }
+
+    /// The total bytes every cell would occupy once rendered through [`Value::render`].
+    ///
+    /// **A proxy for the encoded response size, and not the wire size itself - stated because the
+    /// gap matters.** This sums the canonical text form of every cell, which is the same rendering
+    /// an anchor is compared against; it is not the JSON a transport wraps that text in, nor the
+    /// tab-delimited text block the agent-facing tool result also sends, and both add quoting,
+    /// escaping and delimiters this number does not count. It exists to give a cheap, monotonic
+    /// figure to compare against a byte ceiling before either transport builds its own wire form,
+    /// which is what lets one measurement serve both without either reaching into the other's
+    /// rendering. Column labels are not counted: they come from the catalog an operator authored,
+    /// not from a caller's own cells, and every other size bound in this module is about what a
+    /// caller's question can make a data system return.
+    pub fn rendered_byte_len(&self) -> u64 {
+        self.rows.iter().flatten().map(|cell| cell.render().len() as u64).sum()
+    }
 }
 
 /// What a pre-flight established.

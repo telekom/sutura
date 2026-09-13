@@ -42,8 +42,14 @@ use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{CompileFailure, Compiled, compile};
 
+pub(crate) use crate::bounds::{exceeds_response_bound, exceeds_row_cap};
 use crate::federated::answer_federated;
 pub use crate::warehouses::{SourceAlreadyOpen, Warehouses};
+
+// The two "too much data" checks `answer` and `federated::answer_federated` both apply to a result
+// AFTER it executes. Its own file for `cargo xtask max-lines`'s cap, not for thematic tidiness - the
+// same reason `federated` is its own file.
+mod bounds;
 
 // The application-facing interface a transport consumes, with the ports' generics erased: a
 // DRIVING port and its one implementor. The argument for it being here rather than in `sutura-http`
@@ -595,6 +601,22 @@ where
             },
         ));
     }
+    // One measurement further out than the row cap, and it is why this check cannot replace that
+    // one: a result inside `plan.max_rows()` can still be wide - `MAX_DIMENSIONS` grouped columns
+    // of text a data system returns, which no type here bounds the length of - which the row cap
+    // cannot see because it counts rows and not the bytes a caller's own cells add up to. Checked
+    // here, still inside the closure `sutura_runtime::spawn_carrying_span` already moved onto the
+    // blocking pool for `warehouse.execute` above, so this costs no second offload.
+    if let Some(limit_bytes) = exceeds_response_bound(&rows) {
+        return Ok(Answered::under(
+            &credentials,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Encoded { limit_bytes },
+                },
+            },
+        ));
+    }
     // The posture travels with the answer, read off the adapter that just executed rather than off a
     // settings tree - `executed_as` was taken from the registry above, beside the warehouse this
     // question actually ran on. A field derived from configuration would report what was configured
@@ -606,31 +628,6 @@ where
             rows,
         },
     ))
-}
-
-/// Whether a result set came back with more rows than its plan capped it at.
-///
-/// **A governance control, so the direction it fails in is the whole of what this function is for.**
-/// The comparison used to be written inline as
-/// `rows.len() > usize::try_from(plan.max_rows()).unwrap_or(usize::MAX)`, which reads as a cap and
-/// is a cap being lifted: a conversion that came back `Err` produced `usize::MAX`, and no result set
-/// is longer than that, so the one refusal that stops a TRUNCATED total from being certified would
-/// have been skipped. Unreachable on any target with 32-bit pointers or wider, and still the wrong
-/// direction to have written down.
-///
-/// It compares in `u64` instead, where the plan's `u32` cap widens with `From` and cannot fail at
-/// all. The count still needs a conversion, because neither direction between these two types is
-/// infallible - `From<usize> for u64` does not exist, since a target with pointers wider than 64
-/// bits would lose a count, and `From<u32> for usize` does not either, since a 16-bit target could
-/// not hold the cap. What changed is which way the unreachable case falls: a count that does not fit
-/// a `u64` is a count larger than any `u32` cap, so `u64::MAX` here is not a fallback that guesses,
-/// it is the answer. The control refuses rather than opening.
-///
-/// Named rather than inline so the boundary is testable without a data system: the case that decides
-/// a certification is one row over the cap, and reaching it through [`answer`] means fabricating ten
-/// thousand rows through a validated bundle.
-pub(crate) fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
-    u64::try_from(returned).unwrap_or(u64::MAX) > u64::from(max_rows)
 }
 
 /// The refusal for a deadline that ran out, naming the budget it was opened with.

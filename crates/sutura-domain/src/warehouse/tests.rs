@@ -122,6 +122,23 @@ fn a_cell_cannot_hold_a_number_that_is_not_one() {
 }
 
 #[test]
+fn rendered_byte_len_sums_every_cells_canonical_text_and_not_the_labels() {
+    let rows = RowSet::new(
+        vec![String::from("region"), String::from("revenue")],
+        vec![
+            vec![Value::Text(String::from("north")), Value::Integer(197_122)],
+            vec![Value::Text(String::from("south")), Value::Null],
+        ],
+    )
+    .expect("two well-formed rows");
+    // "north" (5) + "197122" (6) + "south" (5) + "null" (4) - the column labels are not counted.
+    assert_eq!(rows.rendered_byte_len(), 20);
+
+    let empty = RowSet::new(vec![String::from("v")], vec![]).expect("no rows is a result");
+    assert_eq!(empty.rendered_byte_len(), 0);
+}
+
+#[test]
 fn a_real_number_renders_the_same_way_wherever_it_is_formatted() {
     // `Value::render` is what an anchor is compared against and `{:.12e}` is what a differential
     // comparison between two engines uses. Both go through this one type, so neither can drift
