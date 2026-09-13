@@ -31,8 +31,8 @@ mod fakes;
 mod results;
 
 use fakes::{
-    Broken, Case, ListingRefused, Paged, Recording, Refusing, a_subject_token, day, impersonating_posture, leg_of, one_cell,
-    open, other_posture, plan, shared_posture, source, test_deadline,
+    Broken, Case, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, impersonating_posture, leg_of,
+    one_cell, open, other_posture, plan, shared_posture, source, test_deadline,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -862,6 +862,27 @@ fn a_refused_job_and_an_unreachable_job_are_not_the_same_source_outcome() {
     assert!(
         !broken.source_refused(&error),
         "an outage must stay a retryable transport failure, not become a source refusal: {error:?}"
+    );
+    // The same shape one predicate over: `deadline_exceeded` asks the transport for the same reason,
+    // and this is the control - a transport that never claimed the deadline running out stays `false`.
+    assert!(
+        !broken.deadline_exceeded(&error),
+        "an outage must not answer `deadline_exceeded`: {error:?}"
+    );
+}
+
+#[test]
+fn the_ports_deadline_running_out_is_reported_through_the_transport() {
+    // The half `a_refused_job_and_an_unreachable_job_are_not_the_same_source_outcome`'s control does
+    // not reach: a transport that DOES claim the deadline running out has to have that answered back
+    // as `true`.
+    let timed_out = open(TimedOut, shared_posture());
+    let error = timed_out
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())
+        .expect_err("the fake transport always refuses");
+    assert!(
+        timed_out.deadline_exceeded(&error),
+        "the port's own deadline running out has to reach the domain as `deadline_exceeded`: {error:?}"
     );
 }
 

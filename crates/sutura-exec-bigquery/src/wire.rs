@@ -38,19 +38,28 @@
 //!   waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
 //!   stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds bytes
 //!   scanned.
-//! - **The time bound is ONE ABSOLUTE DEADLINE PER CALL, not a timeout per HTTP operation, and this
-//!   bullet exists because the earlier shape was the second thing while claiming the first.** A single
-//!   call does a token exchange and then a job; `timeout_global` on the agent gave each of them a full
-//!   budget of its own, so a review measured one ANSWER - `dry_run` then `execute`, two exchanges and
-//!   two jobs - at four independent budgets against a transport whose own request timeout is thirty
-//!   seconds. [`CallDeadline`] is opened once in `submit` and every operation below it gets only what
-//!   is LEFT: the exchange's socket, the job's socket, and the `timeoutMs`/`jobTimeoutMs` the request
-//!   carries. A budget spent before the job is [`WireError::DeadlineSpent`] rather than a send.
-//!   **The limit, because it is the half a type here cannot reach:** neither `Warehouse` nor
-//!   [`JobTransport`] takes a deadline, so the two calls one answer makes cannot share one - an
-//!   answer's worst case is [`QueryDeadline::CALLS_PER_ANSWER`] budgets. That arithmetic is done once,
-//!   in [`QueryDeadline::within_request_timeout`], so a composition root gets a deadline that already
-//!   fits inside the request timeout instead of a number it has to divide correctly.
+//! - **The time bound is ONE ABSOLUTE DEADLINE PER ANSWER, opened by the port and not by this
+//!   adapter, and this bullet exists because the earlier two shapes were each the second thing while
+//!   claiming the first.** `timeout_global` on the agent once gave every HTTP operation a full budget
+//!   of its own, so a review measured one ANSWER - `dry_run` then `execute`, two exchanges and two
+//!   jobs - at four independent budgets against a transport whose own request timeout is thirty
+//!   seconds. [`CallDeadline`], opened once per CALL, fixed that leak - and then could not fix the
+//!   next one, because neither `Warehouse` nor [`JobTransport`] took a deadline, so the two calls one
+//!   answer makes still could not share one; a composition root's own configured job bounds
+//!   substituted an arithmetic that divided the request timeout by how many calls one answer makes,
+//!   checked by nothing outside this crate. **`docs/adr/0029` is what carries a
+//!   `sutura_domain::warehouse::deadline::Deadline` across the port itself** - one absolute instant,
+//!   opened by the transport at the answer's arrival and shared by every leg. `submit` reads
+//!   what it says is left via [`crate::transport::JobRequest::deadline`] and opens a [`CallDeadline`]
+//!   FROM that via [`CallDeadline::opened_at_for`], so a slow token exchange shortens the job that
+//!   follows it rather than being followed by one with a full budget of its own, and `timeoutMs`/
+//!   `jobTimeoutMs` are what is left of THAT rather than of this adapter's own configured job bounds.
+//!   A budget spent before the job is [`WireError::DeadlineSpent`] rather than a send - checked
+//!   BEFORE the credential exchange too, since a caller that ran out of time before this adapter was
+//!   even reached should not spend it on an exchange nobody is still waiting for. **The boot path has
+//!   no port `Deadline` to read** (`verify_anchor`, a fixture load or drop, the identity read - no
+//!   caller, no request timeout) and keeps opening a fresh window from this adapter's own configured
+//!   [`JobBounds`], exactly as every call did before this record.
 //! - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
 //!   `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
 //!   (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
@@ -114,6 +123,8 @@
 //!   ever seen is a dependency decision this change does not take. Stated because a dropped warning
 //!   is exactly the kind of absence that reads as "there were none".
 //!
+use sutura_domain::warehouse::deadline::Deadline;
+
 use crate::transport::{Cell, DatasetAddress, HeldTables, JobRequest, JobRows, JobTransport};
 use crate::wire::credential::{AccessTokens, QuotaProject};
 
@@ -453,11 +464,16 @@ where
     },
     /// This call's budget was gone before the job could be submitted.
     ///
-    /// **Refused rather than sent with whatever budget was left, because there was none.** One call
-    /// does a token exchange and then a job against one absolute deadline - see [`CallDeadline`] - so an
-    /// exchange slow enough to spend the whole of it leaves nothing to bound the job with. Submitting
-    /// anyway would either mean an unbounded wait or a job the service keeps running after the client
-    /// has stopped waiting, which is the pair of failures this whole shape exists to rule out.
+    /// **Refused rather than sent with whatever budget was left, because there was none. Reachable
+    /// two ways, and the first is new with `docs/adr/0029`:** the port's own `Deadline` was already
+    /// spent when `submit` was asked to do anything at all - the exchange included, so a
+    /// caller that ran out of time before this adapter was even reached does not spend it on an
+    /// exchange nobody is still waiting for - and the older way, a token exchange slow enough to spend
+    /// what was left of it before the job could be built. Submitting anyway would either mean an
+    /// unbounded wait or a job the service keeps running after the client has stopped waiting, which
+    /// is the pair of failures this whole shape exists to rule out. `budget_seconds` is the port's own
+    /// configured budget where a request carried a `Deadline`, and this adapter's own configured
+    /// [`JobBounds`] at the boot path, where there is no caller's budget to name.
     #[error("this call's {budget_seconds}-second budget was spent before the job could be submitted")]
     DeadlineSpent { budget_seconds: u64 },
     /// The request could not be serialized.
@@ -525,6 +541,18 @@ where
     /// instant the client stops waiting for it, so an incomplete answer is no longer a live job this
     /// adapter walked away from. `named` carries the endpoint's reason as a closed [`ReasonCode`],
     /// which for a cancelled job is the useful half.
+    ///
+    /// **This is the DOCUMENTED shape [`crate::transport::JobTransport::deadline_exceeded`] answers
+    /// `true` for, and it is stated as documented rather than measured because that is exactly what
+    /// it is.** `timeoutMs` and `jobTimeoutMs` travel as the same number by construction - see
+    /// [`crate::wire::document::body`] - so a synchronous `jobs.query` reply cannot say *the wait
+    /// expired* without also saying *the service was asked to cancel at the same instant*: the
+    /// endpoint's own documentation of `timeoutMs` is that an expired one answers `jobComplete:
+    /// false`, which is this variant. `crates/sutura-exec-bigquery/tests/acceptance.rs`'s
+    /// `a_deliberately_slow_statement_is_stopped_at_its_jobtimeoutms` is the acceptance cell that
+    /// measures this against a real endpoint; if the reply comes back some other shape, that cell
+    /// fails loudly rather than this predicate silently answering `false` for a deadline that did
+    /// fire.
     #[error("the job had not finished when the endpoint answered: {named}")]
     NotComplete { named: ReasonCode },
     /// The answer is one page of more than one.
@@ -622,6 +650,34 @@ pub struct BigQueryWire<C> {
     credentials: C,
 }
 
+/// What one call may spend, read at `now`: the port's own `Deadline` where the request carries one,
+/// or this transport's configured [`JobBounds`] at the boot path. `None` only for the first case,
+/// when the port's own budget is already spent - the boot path always opens a fresh window, so it
+/// has nothing to be spent yet.
+///
+/// **A free function of neither `self` nor the credential source, taking `now` as a parameter rather
+/// than reading a clock**, so a test can ask what two calls sharing one `Deadline` see at two
+/// different instants without sleeping through a real one - [`Deadline`] will not hand out its own
+/// opening instant, by design, which is why `now` has to arrive as an argument here exactly as it
+/// does at [`Deadline::remaining_at`] itself.
+fn remaining_of_the_ports_deadline(
+    deadline: Option<Deadline>,
+    bounds: JobBounds,
+    now: std::time::Instant,
+) -> Option<core::time::Duration> {
+    deadline.map_or_else(|| Some(bounds.deadline().budget()), |deadline| deadline.remaining_at(now))
+}
+
+/// What a [`WireError::DeadlineSpent`] this call produces names: the port's own configured budget
+/// where the request carries a `Deadline`, and this transport's own configured [`JobBounds`] at the
+/// boot path, which has no caller's budget to name.
+fn configured_budget_seconds(deadline: Option<Deadline>, bounds: JobBounds) -> u64 {
+    deadline.map_or_else(
+        || bounds.deadline().budget().as_secs(),
+        |deadline| deadline.budget().seconds(),
+    )
+}
+
 impl<C> BigQueryWire<C>
 where
     C: AccessTokens,
@@ -678,11 +734,19 @@ where
     /// and would fail them - see [`Self::validate_job`] and [`Self::run_job`], which are the two
     /// callers and hold the two different conclusions.
     fn submit(&self, request: &JobRequest<'_>, dry_run: DryRun) -> Wired<QueryAnswer, C::Error> {
-        // **One absolute deadline for everything below, opened before the first operation.** The token
-        // exchange and the job share it, so a slow exchange shortens the job rather than being followed
-        // by one with a full budget of its own - see `CallDeadline` for the measurement that forced
-        // this shape.
-        let call = CallDeadline::opened(self.agent.bounds().deadline());
+        // **One absolute deadline for everything below, and it is the PORT's where a request carries
+        // one.** `docs/adr/0029`: a request-time call reads what `Warehouse::dry_run`/`execute`'s own
+        // `Deadline` says is left, so the token exchange and the job share the same instant every leg
+        // of the answer does - a slow exchange shortens the job rather than being followed by one with
+        // a full budget of its own. The boot path (`verify_anchor`, a fixture load or drop, the
+        // identity read) carries no such `Deadline` and opens a fresh window from this adapter's own
+        // configured `JobBounds` instead, unchanged from before this record. ONE clock read for
+        // either branch, reused by both checks below.
+        let now_instant = std::time::Instant::now();
+        let budget_seconds = configured_budget_seconds(request.deadline(), self.agent.bounds());
+        let whole = remaining_of_the_ports_deadline(request.deadline(), self.agent.bounds(), now_instant)
+            .ok_or(WireError::DeadlineSpent { budget_seconds })?;
+        let call = CallDeadline::opened_at_for(now_instant, whole);
         let now = Self::now()?;
         // **Which bearer authorizes this job is decided HERE, once.** A leg that carries the asking
         // subject's own exchanged credential sends THAT - the whole point of this change, and the
@@ -701,9 +765,7 @@ where
         };
         // What the exchange left. Every number below reads THIS rather than the whole budget: the two
         // timeout fields in the request body and the socket the answer is waited for on.
-        let left = call.remaining().ok_or(WireError::DeadlineSpent {
-            budget_seconds: self.agent.bounds().deadline().budget().as_secs(),
-        })?;
+        let left = call.remaining().ok_or(WireError::DeadlineSpent { budget_seconds })?;
         let document = serde_json::to_vec(&body(request, dry_run, self.agent.bounds(), left))
             .map_err(|cause| WireError::RequestNotSerializable { cause })?;
         // `Secret::expose_secret` is the one greppable call that lets the token out, and it lets it out into
@@ -822,6 +884,19 @@ where
     /// refused read was a listing or a job. `tables::was_refused` holds the match.
     fn job_was_refused(&self, error: &Self::Error) -> bool {
         tables::was_refused(error)
+    }
+
+    /// Whether this JOB failure was the port's own `Deadline` running out.
+    ///
+    /// Two arms, and only the first is unconditionally true: [`WireError::DeadlineSpent`] is a fact
+    /// about this adapter's own clock, checked before anything was sent, and cannot be anything else.
+    /// [`WireError::NotComplete`] is the DOCUMENTED shape a job stopped at `jobTimeoutMs` answers
+    /// with, per that variant's own doc, which also names the acceptance cell that measures it
+    /// against a real endpoint rather than trusting the documentation alone. Every other variant is
+    /// `false`, exhaustively: none of them is reachable through this adapter's own clock or through
+    /// the two timeout fields it sends.
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(*error, WireError::DeadlineSpent { .. } | WireError::NotComplete { .. })
     }
 
     /// One arm, and it is the wire's own reading of the endpoint's page contract.

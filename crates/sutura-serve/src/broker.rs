@@ -33,11 +33,14 @@ pub(crate) fn build_broker(
     use sutura_exec_bigquery::{WorkloadIdentity, WorkloadIdentityBroker};
 
     // The ONE deadline is the deployment-wide query budget, and it is the only thing `StsOverHttp`
-    // reads off its agent's bounds (a socket timeout for the exchange). The ceiling is irrelevant to
-    // an STS metadata call - it is never sent to a billing endpoint - so rather than invent one it is
-    // taken from the first declared `BigQuery` source, of which there is always at least one here:
-    // `one_kind` has already refused a deployment with none.
-    let deadline = QueryDeadline::within_request_timeout(request_timeout.seconds())
+    // reads off its agent's bounds (a socket timeout for the exchange - `StsExchange::exchange` has
+    // no port `Deadline` of its own to read, so this bound still opens fresh from `request_timeout`
+    // directly rather than dividing it - `docs/adr/0029` retired the arithmetic that used to,
+    // `within_request_timeout`, and nothing in this exchange yet carries the port's own instant).
+    // The ceiling is irrelevant to an STS metadata call - it is never sent to a billing endpoint - so
+    // rather than invent one it is taken from the first declared `BigQuery` source, of which there is
+    // always at least one here: `one_kind` has already refused a deployment with none.
+    let deadline = QueryDeadline::parse(request_timeout.seconds())
         .map_err(|cause| format!("`server.request_timeout_seconds` leaves no token-exchange deadline: {cause}"))?;
 
     let mut ceiling_source: Option<u64> = None;

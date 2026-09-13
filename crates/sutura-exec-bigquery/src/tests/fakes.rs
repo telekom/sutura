@@ -450,3 +450,42 @@ impl JobTransport for Paged {
         Err(OnePageOfMore)
     }
 }
+
+/// A transport whose failure IS the port's own deadline running out.
+///
+/// Its own type for [`Paged`]'s reason: what is under test is that `BigQueryWarehouse::deadline_exceeded`
+/// asks the TRANSPORT rather than guessing, and only a transport whose predicate answers `true` for an
+/// error indistinguishable, at this level, from any other can show the delegation happening.
+pub(super) struct TimedOut;
+
+/// The port's budget being gone, as a transport would report it.
+#[derive(Debug, thiserror::Error)]
+#[error("this call's budget was spent")]
+pub(super) struct BudgetSpent;
+
+impl JobTransport for TimedOut {
+    type Error = BudgetSpent;
+
+    fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+        Err(BudgetSpent)
+    }
+
+    fn validate(&self, _request: &JobRequest<'_>) -> Result<crate::transport::DryRunEstimate, Self::Error> {
+        Err(BudgetSpent)
+    }
+
+    fn deadline_exceeded(&self, _error: &Self::Error) -> bool {
+        true
+    }
+
+    // This fake is about a failure, so the listing fails the same way the others do.
+    fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
+        Err(BudgetSpent)
+    }
+
+    // This fake is about a failure, so the fixtures method fails the same way the others do.
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        Err(BudgetSpent)
+    }
+}

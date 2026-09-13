@@ -23,6 +23,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::ParamValue;
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 
 /// How a request writes its bind parameters.
@@ -53,6 +54,7 @@ pub struct JobRequest<'job> {
     billing_project: &'job ProjectId,
     default_dataset: &'job DatasetId,
     subject_bearer: Option<&'job Secret>,
+    deadline: Option<Deadline>,
 }
 
 impl<'job> JobRequest<'job> {
@@ -61,12 +63,23 @@ impl<'job> JobRequest<'job> {
     /// `pub(crate)` so the only thing that can build one is this adapter, from a plan it rendered
     /// itself. A public constructor would be the string entry point the module header says does not
     /// exist: a caller could pass any statement and any parameters.
+    ///
+    /// **`deadline` is `None` at the boot path and `Some` everywhere else, and that is the whole of
+    /// what tells [`crate::wire::BigQueryWire::submit`] which clock this call answers to.** A leg
+    /// `Warehouse::dry_run`/`execute` builds carries the port's own `Deadline` - opened by the
+    /// transport at the answer's arrival, so `timeoutMs`/`jobTimeoutMs` derive from what is really
+    /// left rather than from this adapter's own configured job bounds. `verify_anchor`, a fixture
+    /// load or drop, and the identity read have no caller and no request timeout to read one from -
+    /// `docs/adr/0029` calls that the boot path - so they pass `None`, and `submit` opens a fresh
+    /// window from this transport's own [`crate::wire::JobBounds`] instead, exactly as every call
+    /// did before this parameter existed.
     pub(crate) const fn new(
         statement: &'job str,
         params: &'job [ParamValue],
         billing_project: &'job ProjectId,
         default_dataset: &'job DatasetId,
         subject_bearer: Option<&'job Secret>,
+        deadline: Option<Deadline>,
     ) -> Self {
         Self {
             statement,
@@ -74,6 +87,7 @@ impl<'job> JobRequest<'job> {
             billing_project,
             default_dataset,
             subject_bearer,
+            deadline,
         }
     }
 
@@ -106,6 +120,14 @@ impl<'job> JobRequest<'job> {
     #[must_use]
     pub const fn subject_bearer(&self) -> Option<&Secret> {
         self.subject_bearer
+    }
+
+    /// The port's own `Deadline` for this call, or `None` at the boot path. See the constructor's
+    /// own doc for what each means to [`crate::wire::BigQueryWire::submit`].
+    #[inline]
+    #[must_use]
+    pub const fn deadline(&self) -> Option<Deadline> {
+        self.deadline
     }
 
     /// Which parameter form the values are to be sent as.
@@ -837,6 +859,24 @@ pub trait JobTransport {
     /// Defaulted to `false`, which is the answer a fake gives unless a test is about this split, and
     /// which is the direction that keeps a transport failure retryable.
     fn job_was_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Was this JOB failure the port's own `Deadline` running out - found already spent before this
+    /// call sent anything, or the service stopping the job at `jobTimeoutMs`?
+    ///
+    /// **The `Warehouse::deadline_exceeded` question one port further down, asked here for the
+    /// reason every other predicate on this trait is:** `Self::Error` is the implementor's own type,
+    /// so the adapter above - which holds the failure as `BigQueryError::Endpoint` - cannot read it.
+    ///
+    /// **The reply shape a cancelled job answers with is asserted rather than known**, and that is
+    /// stated here rather than left implicit: `docs/adr/0029` requires it be MEASURED against a real
+    /// endpoint before this predicate is trusted, and `crate::wire::BigQueryWire`'s own
+    /// implementation names the acceptance cell that does the measuring and fails loudly if the
+    /// documented shape turns out to be wrong.
+    ///
+    /// Defaulted to `false`, which is the answer a fake gives unless a test is about this bound.
+    fn deadline_exceeded(&self, _error: &Self::Error) -> bool {
         false
     }
 

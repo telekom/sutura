@@ -933,6 +933,13 @@ paragraph refuses. What would lift it is a settings key meaning *how long a QUES
 than how long a REQUEST may - one number both roots read - and that is a settings decision rather
 than this record's.
 
+**Superseded by `docs/adr/0029`.** `QueryDeadline::within_request_timeout` and `CALLS_PER_ANSWER` are
+deleted: a request-time job now derives `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`,
+opened once per answer and shared by every call it makes, rather than from a share of this adapter's
+own configured job bounds divided in advance. This composition root now fills `JobBounds` from
+`server.request_timeout_seconds` directly - the number this paragraph's limit measured against the
+old arithmetic no longer applies, because there is no longer an arithmetic here to measure.
+
 **Three more things no test observes on the command-line root**, listed because a composition that is
 tested reads as a path that is exercised. `OpenedWith::attached` is `None` for a dataset and no test
 sees that value, because every one of them stops at the credential read - what it feeds is `mcp`'s
