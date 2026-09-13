@@ -164,7 +164,11 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         | DataFusionError::NoPlaceForASubject { .. }
         // And the same for a leg that disagrees with the declared posture: refused in the same place,
         // before a session is built, so there is no reservation for a ceiling to have refused.
-        | DataFusionError::PresentedDisagreesWithPosture { .. } => false,
+        | DataFusionError::PresentedDisagreesWithPosture { .. }
+        // The deadline stopping a question is a different bound entirely - `Warehouse::deadline_exceeded`
+        // is what a caller asks instead, and answering `true` here would tell `working_set_exhausted`
+        // to name a byte ceiling for a question the clock stopped, not the pool.
+        | DataFusionError::DeadlineExceeded { .. } => false,
     }
 }
 
