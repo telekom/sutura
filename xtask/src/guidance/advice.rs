@@ -148,7 +148,13 @@ pub(super) fn advice_problems(root: &Path, files: &[String]) -> (Vec<String>, us
     let mut found = 0_usize;
 
     for rel in in_scope(files) {
-        let Some(text) = read(rel) else {
+        // `read_subject` for the SUBJECT of the walk. `read` above stays because
+        // `printed_citations` hands it to `regions::scope`, which follows a `#[cfg(test)] mod x;`
+        // into the parent file - and that read is NOT closed here: a parent this cannot open makes
+        // a test region invisible, so a citation inside one is judged as production. That is a
+        // narrowing of one file's image rather than a dropped subject, and it lives in
+        // `causality::regions` for every caller of that image, not in this check.
+        let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
             continue;
         };
         for (line, one) in printed_citations(rel, &text, &read) {

@@ -133,9 +133,13 @@ fn gather(root: &Path, dir: &Path, wanted: &Wanted<'_>) -> Census {
 /// count a gate prints afterwards agrees with itself over a tree it never looked at: measured,
 /// `chmod 000 .github/actions` produced `ok - 2 literal(s) across 8 file(s)` at exit 0.
 ///
-/// `NotFound` versus anything else, the split [`is_text_file`]'s neighbour `read_to_string` calls
-/// already make: a directory that is absent was never a subject, while a directory that exists and
-/// will not be read is a subject this walk was meant to reach and could not.
+/// `NotFound` versus anything else, the same split [`read_subject`] makes one level down for a
+/// FILE: a directory that is absent was never a subject, while a directory that exists and will
+/// not be read is a subject this walk was meant to reach and could not.
+///
+/// The link used to name `is_text_file`, which `github.com/telekom/sutura#619` DELETED - and
+/// `broken_intra_doc_links` is `forbid` here, so it was `error: unresolved link` under
+/// `just validate` and a warning under nothing. `just lint` does not run the api-docs leg.
 fn walk(root: &Path, dir: &Path, wanted: &Wanted<'_>, found: &mut Vec<String>, unreachable: &mut Vec<String>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -419,6 +423,41 @@ pub(crate) fn looks_like_text(bytes: &[u8]) -> bool {
     match std::str::from_utf8(head) {
         Ok(_) => true,
         Err(e) => e.valid_up_to() + 4 >= head.len(),
+    }
+}
+
+/// The text of a subject a gate is about to judge, or `None` with the reason recorded.
+///
+/// **For a gate that still holds the listing rather than [`Census::inspect`]'s loop**, which is
+/// where the drop [`looks_like_text`] records survives: `let Ok(text) = read_to_string(..) else {
+/// continue; }` is three lines, reads as caution, and takes the file out of the scan while leaving
+/// it in the count the verdict prints. `github.com/telekom/sutura#619` measured it in three gates;
+/// `check-guidance` then had it in some of its own checks and not others, because each check made
+/// the decision again. **The shape is no longer spellable in one line** - the only failure path
+/// here writes into the caller's own findings, so a gate that wants to drop a subject has to write
+/// a visible discard for a `Vec` it throws away.
+///
+/// **Lossy, so textness is never conflated with reachability.** Scope is a path decision the
+/// caller has already made; these bytes are in scope, so a decode failure must not become an
+/// unread file - #412's trap, where a non-UTF-8 page left a gate at `ok`. Needle searches over
+/// lossily decoded text find what an exact decode would, and a gate wanting the strict answer has
+/// [`looks_like_text`] and the bytes.
+///
+/// **`NotFound` is counted, not refused**, the same split [`Census::inspect`] makes for the same
+/// measured reason: `git ls-files` reads the INDEX, so a tracked file deleted in the working tree
+/// with the deletion unstaged is offered by the listing and is not on disk, and refusing it made
+/// `just hygiene` red for anyone mid-edit. **The limit, next to the claim:** the census prints an
+/// `absent` count and a caller of this has nowhere to put one, so an absent subject is silent here
+/// where it is visible there. That is the remaining reason to migrate a gate rather than to call
+/// this.
+pub(crate) fn read_subject(root: &Path, rel: &str, unreadable: &mut Vec<String>) -> Option<String> {
+    match std::fs::read(root.join(rel)) {
+        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(why) if why.kind() == std::io::ErrorKind::NotFound => None,
+        Err(why) => {
+            unreadable.push(format!("{rel}: cannot be read, so nothing in it was judged - {why}"));
+            None
+        }
     }
 }
 
