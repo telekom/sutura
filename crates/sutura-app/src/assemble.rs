@@ -29,12 +29,9 @@
 use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{MetadataCapabilities, UnfaithfulDeclaration};
-use sutura_domain::catalog::{Definitions, InconsistentDefinitions, Model, Relationship};
+use sutura_domain::catalog::{Definitions, InconsistentDefinitions};
 use sutura_domain::definitions::NotDigestible;
-use sutura_domain::knowledge::{
-    Absence, Caveat, Example, GlossaryEntry, InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteName,
-    Phrase,
-};
+use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteName, Phrase};
 use sutura_domain::model::{MetricName, ModelName, RelationshipName, SourceName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, InvalidManifest, PinnedDefinitions};
 
@@ -90,7 +87,7 @@ pub enum CompositionError {
     /// principle be titled, and neither is today.
     #[error("{first} and {second} both provide {kind} {element}, and exactly one source may provide it")]
     ElementCollision {
-        kind: &'static str,
+        kind: ElementKind,
         element: String,
         first: SourceName,
         second: SourceName,
@@ -124,22 +121,66 @@ pub enum CompositionError {
     },
 }
 
+/// The six kinds of catalog element two sources may collide over.
+///
+/// [`CompositionError::ElementCollision`]'s `kind` field used to be a `&'static str`: a free-text
+/// field on a variant a caller matches by name is a contradiction, because nothing stopped a sixth
+/// call site from spelling one of the five existing kinds differently, or a seventh call site from
+/// naming a kind [`check_no_element_collisions`] does not actually check. Neither `DefinitionKind`
+/// nor `Capability` in `sutura_domain` fits: the first does not distinguish a model from a
+/// relationship (both are `Structure`), and the second has no variant for either. A small closed
+/// enum local to this composition step is what the issue's "existing typed vocabulary or a small
+/// closed enum if needed" resolves to here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElementKind {
+    Model,
+    Relationship,
+    GlossaryTerm,
+    Caveat,
+    Absence,
+    WorkedExample,
+}
+
+impl ElementKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Model => "model",
+            Self::Relationship => "relationship",
+            Self::GlossaryTerm => "glossary term",
+            Self::Caveat => "caveat",
+            Self::Absence => "absence",
+            Self::WorkedExample => "worked example",
+        }
+    }
+}
+
+impl core::fmt::Display for ElementKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// One source's contribution to a composition, taken apart for merging.
 ///
 /// `name` is the manifest key the source's own load stamped and `capabilities` the declaration it
-/// recorded there; everything else is what it read. Owning the values rather than borrowing the
-/// source bundle keeps one contributor a single value through every check below.
-struct Contributor {
+/// recorded there; `definitions` and `knowledge` borrow the bundle this contributor came from rather
+/// than cloning it.
+///
+/// **This used to own three copies of the same content.** `definitions`/`knowledge` were whole
+/// clones of the bundle's own; `models`, `relationships`, `glossary`, `caveats`, `absences` and
+/// `examples` were a second clone of the same elements, collected out of those clones so the
+/// collision checks below had a `Vec` to borrow from; and the final merge cloned the elements a
+/// THIRD time, flattening across contributors. `models()`/`relationships()`/`glossary()`/etc.
+/// already return the map a collision check needs to borrow directly - the six extra fields, and
+/// the middle clone they existed to hold, were never load-bearing. `definitions`/`knowledge`
+/// borrowing the source bundle removes the first clone; the merge's `flat_map(..).cloned()` is the
+/// one clone that remains, and it is the one that has to: it is building a NEW composed value, not
+/// re-reading an old one.
+struct Contributor<'a> {
     name: SourceName,
     capabilities: MetadataCapabilities,
-    definitions: Definitions,
-    knowledge: Knowledge,
-    models: Vec<Model>,
-    relationships: Vec<Relationship>,
-    glossary: Vec<GlossaryEntry>,
-    caveats: Vec<Caveat>,
-    absences: Vec<Absence>,
-    examples: Vec<Example>,
+    definitions: &'a Definitions,
+    knowledge: &'a Knowledge,
 }
 
 /// Composes N contributions into one bundle, refusing a composition ADR 0011 says cannot exist.
@@ -156,7 +197,11 @@ struct Contributor {
 /// one source, two contributions certifying different versions, two sources providing the same
 /// element, a contributor whose content disagrees with its declaration, or definitions/knowledge
 /// that do not assemble once merged.
-pub fn assemble(bundles: Vec<PinnedDefinitions>) -> Result<PinnedDefinitions, CompositionError> {
+///
+/// Takes a slice, not an owned `Vec`: every `Contributor` below borrows its bundle's
+/// `Definitions`/`Knowledge` rather than cloning them, so this function never needs to own a bundle
+/// to begin with - a caller that already has a `Vec` passes `&bundles`.
+pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, CompositionError> {
     let Some(first) = bundles.first() else {
         return Err(CompositionError::Empty);
     };
@@ -184,14 +229,8 @@ pub fn assemble(bundles: Vec<PinnedDefinitions>) -> Result<PinnedDefinitions, Co
         contributions.push(Contributor {
             name,
             capabilities: record.capabilities().clone(),
-            definitions: bundle.definitions().clone(),
-            knowledge: bundle.knowledge().clone(),
-            models: bundle.definitions().models().values().cloned().collect(),
-            relationships: bundle.definitions().relationships().values().cloned().collect(),
-            glossary: bundle.knowledge().glossary().values().cloned().collect(),
-            caveats: bundle.knowledge().caveats().values().cloned().collect(),
-            absences: bundle.knowledge().absences().values().cloned().collect(),
-            examples: bundle.knowledge().examples().values().cloned().collect(),
+            definitions: bundle.definitions(),
+            knowledge: bundle.knowledge(),
         });
     }
 
@@ -205,7 +244,7 @@ pub fn assemble(bundles: Vec<PinnedDefinitions>) -> Result<PinnedDefinitions, Co
     // sources are merged, a check over the whole bundle could not see that one of them supplied a
     // kind it never declared.
     for contribution in &contributions {
-        let produced = MetadataCapabilities::produced(&contribution.definitions, &contribution.knowledge);
+        let produced = MetadataCapabilities::produced(contribution.definitions, contribution.knowledge);
         contribution
             .capabilities
             .checked_against(&produced)
@@ -222,8 +261,18 @@ pub fn assemble(bundles: Vec<PinnedDefinitions>) -> Result<PinnedDefinitions, Co
     let knowledge_declares =
         KnowledgeCapabilities::of(contributions.iter().flat_map(|c| c.knowledge.declares().declared()).copied());
 
-    let models = contributions.iter().flat_map(|c| c.models.iter().cloned()).collect();
-    let relationships = contributions.iter().flat_map(|c| c.relationships.iter().cloned()).collect();
+    // One clone per element here, and it is the one that has to happen: this is building the NEW
+    // merged `Vec` a composed bundle owns, not re-reading a `Vec` that already existed. Each source
+    // map is borrowed straight off `contribution.definitions`/`.knowledge` - no intermediate `Vec`
+    // holds a second copy of it first.
+    let models = contributions
+        .iter()
+        .flat_map(|c| c.definitions.models().values().cloned())
+        .collect();
+    let relationships = contributions
+        .iter()
+        .flat_map(|c| c.definitions.relationships().values().cloned())
+        .collect();
     let metrics = contributions
         .iter()
         .flat_map(|c| c.definitions.metrics().values().cloned())
@@ -235,10 +284,22 @@ pub fn assemble(bundles: Vec<PinnedDefinitions>) -> Result<PinnedDefinitions, Co
         &definitions,
         KnowledgeInput::new(
             knowledge_declares,
-            contributions.iter().flat_map(|c| c.glossary.iter().cloned()).collect(),
-            contributions.iter().flat_map(|c| c.caveats.iter().cloned()).collect(),
-            contributions.iter().flat_map(|c| c.absences.iter().cloned()).collect(),
-            contributions.iter().flat_map(|c| c.examples.iter().cloned()).collect(),
+            contributions
+                .iter()
+                .flat_map(|c| c.knowledge.glossary().values().cloned())
+                .collect(),
+            contributions
+                .iter()
+                .flat_map(|c| c.knowledge.caveats().values().cloned())
+                .collect(),
+            contributions
+                .iter()
+                .flat_map(|c| c.knowledge.absences().values().cloned())
+                .collect(),
+            contributions
+                .iter()
+                .flat_map(|c| c.knowledge.examples().values().cloned())
+                .collect(),
         ),
     )
     .map_err(|cause| CompositionError::Knowledge { cause })?;
@@ -256,7 +317,7 @@ pub fn assemble(bundles: Vec<PinnedDefinitions>) -> Result<PinnedDefinitions, Co
 }
 
 /// No two sources may define one metric; the one element with no precedence at all.
-fn check_no_metric_collisions(contributions: &[Contributor]) -> Result<(), CompositionError> {
+fn check_no_metric_collisions(contributions: &[Contributor<'_>]) -> Result<(), CompositionError> {
     let mut by_name: BTreeMap<&MetricName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
         for metric in contribution.definitions.metrics().keys() {
@@ -274,13 +335,16 @@ fn check_no_metric_collisions(contributions: &[Contributor]) -> Result<(), Compo
 
 /// No two sources may provide the same non-metric element: a model, a relationship, a glossary
 /// term, a caveat, an absence or a worked example, each under its own identifier.
-fn check_no_element_collisions(contributions: &[Contributor]) -> Result<(), CompositionError> {
+///
+/// Every loop below borrows its `Vec` straight off `contribution.definitions`/`.knowledge` -
+/// nothing here iterates a component field, because [`Contributor`] no longer has one.
+fn check_no_element_collisions(contributions: &[Contributor<'_>]) -> Result<(), CompositionError> {
     let mut models: BTreeMap<&ModelName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for model in &contribution.models {
+        for model in contribution.definitions.models().values() {
             if let Some(first) = models.insert(model.name(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
-                    kind: "model",
+                    kind: ElementKind::Model,
                     element: model.name().as_str().to_owned(),
                     first: first.clone(),
                     second: contribution.name.clone(),
@@ -291,10 +355,10 @@ fn check_no_element_collisions(contributions: &[Contributor]) -> Result<(), Comp
 
     let mut relationships: BTreeMap<&RelationshipName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for relationship in &contribution.relationships {
+        for relationship in contribution.definitions.relationships().values() {
             if let Some(first) = relationships.insert(relationship.name(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
-                    kind: "relationship",
+                    kind: ElementKind::Relationship,
                     element: relationship.name().as_str().to_owned(),
                     first: first.clone(),
                     second: contribution.name.clone(),
@@ -305,10 +369,10 @@ fn check_no_element_collisions(contributions: &[Contributor]) -> Result<(), Comp
 
     let mut glossary: BTreeMap<&Phrase, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for entry in &contribution.glossary {
+        for entry in contribution.knowledge.glossary().values() {
             if let Some(first) = glossary.insert(entry.term(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
-                    kind: "glossary term",
+                    kind: ElementKind::GlossaryTerm,
                     element: entry.term().as_str().to_owned(),
                     first: first.clone(),
                     second: contribution.name.clone(),
@@ -319,10 +383,10 @@ fn check_no_element_collisions(contributions: &[Contributor]) -> Result<(), Comp
 
     let mut caveats: BTreeMap<&NoteName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for caveat in &contribution.caveats {
+        for caveat in contribution.knowledge.caveats().values() {
             if let Some(first) = caveats.insert(caveat.name(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
-                    kind: "caveat",
+                    kind: ElementKind::Caveat,
                     element: caveat.name().as_str().to_owned(),
                     first: first.clone(),
                     second: contribution.name.clone(),
@@ -333,10 +397,10 @@ fn check_no_element_collisions(contributions: &[Contributor]) -> Result<(), Comp
 
     let mut absences: BTreeMap<&Phrase, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for absence in &contribution.absences {
+        for absence in contribution.knowledge.absences().values() {
             if let Some(first) = absences.insert(absence.phrase(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
-                    kind: "absence",
+                    kind: ElementKind::Absence,
                     element: absence.phrase().as_str().to_owned(),
                     first: first.clone(),
                     second: contribution.name.clone(),
@@ -347,10 +411,10 @@ fn check_no_element_collisions(contributions: &[Contributor]) -> Result<(), Comp
 
     let mut examples: BTreeMap<&NoteName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for example in &contribution.examples {
+        for example in contribution.knowledge.examples().values() {
             if let Some(first) = examples.insert(example.name(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
-                    kind: "worked example",
+                    kind: ElementKind::WorkedExample,
                     element: example.name().as_str().to_owned(),
                     first: first.clone(),
                     second: contribution.name.clone(),
@@ -380,7 +444,7 @@ mod tests {
     use crate::tests_support::{FixedBroker, FixedWarehouse, shared_posture};
     use crate::{Warehouses, answer, verify_and_validate};
 
-    use super::{CompositionError, assemble};
+    use super::{CompositionError, ElementKind, assemble};
 
     fn version() -> DefinitionVersion {
         DefinitionVersion::parse("test-1").expect("a test version is a version")
@@ -500,7 +564,7 @@ mod tests {
         // The wave-one deployment, and the requirement this issue exists for: DataHub's structure
         // and prose beside the metrics certified here, in ONE bundle, and a question the certified
         // source certifies answered against it.
-        let composed = assemble(vec![certified(), narrow()]).expect("structure and measures compose");
+        let composed = assemble(&[certified(), narrow()]).expect("structure and measures compose");
 
         // The composed bundle carries BOTH contributors, records both in its manifest, and is a
         // different bundle than the certified source alone - the digest moved with the composition.
@@ -553,7 +617,7 @@ mod tests {
         // ADR 0011: for metrics there is no precedence at all, declared or otherwise. Two
         // definitions of one number is the failure this system exists to prevent - and the refusal
         // names both sources so nobody has to guess which won.
-        let err = assemble(vec![certified(), certified()]).expect_err("two definitions of revenue must not compose");
+        let err = assemble(&[certified(), certified()]).expect_err("two definitions of revenue must not compose");
         match err {
             CompositionError::MetricCollision { metric, first, second } => {
                 assert_eq!(metric.as_str(), "recurring_revenue");
@@ -591,7 +655,7 @@ mod tests {
             ),
         )
         .expect("a lying declaration still pins");
-        let err = assemble(vec![lying, narrow()]).expect_err("an undeclared kind must not compose");
+        let err = assemble(&[lying, narrow()]).expect_err("an undeclared kind must not compose");
         match err {
             CompositionError::Unfaithful { source, .. } => assert_eq!(source.as_str(), "lying"),
             other => panic!("expected an unfaithful declaration, got {other:?}"),
@@ -608,13 +672,62 @@ mod tests {
         // off the served path is `Catalogs::parse` in `sutura-config` refusing it at configuration
         // time, before assembly ever runs - this is `assemble`'s own defence, reachable through the
         // public function directly, not only defence in depth behind that gate.
-        let err = assemble(vec![certified(), narrow_declaring_itself_certified()])
+        let err = assemble(&[certified(), narrow_declaring_itself_certified()])
             .expect_err("two contributors under one declared name must not compose silently");
         match err {
             CompositionError::Manifest {
                 cause: InvalidManifest::DuplicateSource { source_name },
             } => assert_eq!(source_name.as_str(), "certified"),
             other => panic!("expected a duplicated source to be refused, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn two_sources_providing_the_same_model_are_refused_with_a_typed_element_kind() {
+        // `ElementCollision::kind` used to be a `&'static str` - this crate had no test on the
+        // variant at all, so this is new coverage as well as a test of the typed replacement.
+        // Compile-time RED against a `main` with the old field: `ElementKind` does not exist there,
+        // so `assert_eq!(kind, ElementKind::Model)` cannot compile. The mutation substitute is
+        // reverting `kind` to `&'static str` and this assertion to `assert_eq!(kind, "model")` -
+        // that version compiles and passes on both sides of the refactor, which is exactly why the
+        // typed version is the one worth keeping.
+        fn model_only(model_name: &str, contributor: &str) -> PinnedDefinitions {
+            let model = Model::new(
+                ModelName::parse(model_name).expect("a test model is a model"),
+                source("local"),
+                TableName::parse(model_name).expect("a test table is a table"),
+                BTreeSet::from([column("id")]),
+                Description::default(),
+            );
+            let definitions = Definitions::assemble(vec![model], vec![], vec![]).expect("one model holds together");
+            let declared = MetadataCapabilities::of(
+                DefinitionCapabilities::of([DefinitionKind::Structure]),
+                KnowledgeCapabilities::none(),
+            );
+            PinnedDefinitions::pin(
+                version(),
+                definitions,
+                Knowledge::none(),
+                ContributionManifest::single(source(contributor), Contribution::of(declared)),
+            )
+            .expect("a single model pins")
+        }
+
+        let err = assemble(&[model_only("geo", "alpha"), model_only("geo", "beta")])
+            .expect_err("two sources providing the same model must not compose");
+        match err {
+            CompositionError::ElementCollision {
+                kind,
+                element,
+                first,
+                second,
+            } => {
+                assert_eq!(kind, ElementKind::Model);
+                assert_eq!(element, "geo");
+                assert_eq!(first.as_str(), "alpha");
+                assert_eq!(second.as_str(), "beta");
+            }
+            other => panic!("expected an element collision, got {other:?}"),
         }
     }
 }
