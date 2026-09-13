@@ -31,15 +31,15 @@ use std::time::Instant;
 
 use sutura_domain::catalog::Anchor;
 use sutura_domain::identity::{
-    Agreed, BoundToTheRequest, CredentialBroker, CredentialsDoNotFitTheRequest, Expiry, PresentedDisagreesWithPosture,
-    RequestContext, SourceSet,
+    Agreed, Attribution, BoundToTheRequest, CredentialBroker, CredentialsDoNotFitTheRequest, Expiry,
+    PresentedDisagreesWithPosture, RequestContext, SourceSet,
 };
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
 use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{RowSet, Warehouse};
+use sutura_domain::warehouse::{PreFlight, RowSet, Warehouse};
 use sutura_semantic::{CompileFailure, Compiled, compile};
 
 pub(crate) use crate::bounds::{exceeds_response_bound, exceeds_row_cap};
@@ -98,10 +98,19 @@ pub mod capability;
 // time something moved in: each helper underneath was byte-identical in the two roots first.
 pub mod preflight;
 
+// The per-replica spend counter: `docs/adr/0030` decides the key, the window and the refusal;
+// this module is the ledger `answer` and `answer_federated` consult after a dry run prices a plan
+// and before anything executes. Here rather than in `sutura-domain` because it is mutable,
+// in-process state shared across every question this replica answers - a resource this crate
+// already owns one of, in `warehouses::Warehouses`, though that one has no lock because it is built
+// once and never mutated after boot.
+pub mod spend;
+
 mod proof;
 
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
+pub use crate::spend::{Charge, SpendBudget, SpendLedger};
 
 /// Why the service could not produce an outcome.
 ///
@@ -343,6 +352,7 @@ pub fn answer<W, B>(
     warehouses: &Warehouses<W>,
     working_set_bytes: u64,
     deadline: Deadline,
+    ledger: &SpendLedger,
 ) -> Answering<W, B>
 where
     W: Warehouse,
@@ -356,7 +366,16 @@ where
     let plan = match compiled {
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
         Compiled::Federated { plan } => {
-            return answer_federated(pinned, &plan, context, broker, warehouses, working_set_bytes, deadline);
+            return answer_federated(
+                pinned,
+                &plan,
+                context,
+                broker,
+                warehouses,
+                working_set_bytes,
+                deadline,
+                ledger,
+            );
         }
         Compiled::Planned { plan } => plan,
     };
@@ -451,26 +470,35 @@ where
             },
         ));
     }
-    if let Err(cause) = warehouse.dry_run(Executable::Query(&plan), presented, deadline) {
-        if warehouse.deadline_exceeded(&cause) {
-            return Ok(Answered::under(
-                &credentials,
-                ToolOutcome::Refusal {
-                    reason: deadline_exceeded(deadline),
-                },
-            ));
-        }
-        if warehouse.source_refused(&cause) {
-            return Ok(Answered::under(
-                &credentials,
-                ToolOutcome::Refusal {
-                    reason: RefusalReason::SourceRefused {
-                        source: warehouse.source().clone(),
+    let preflight = match warehouse.dry_run(Executable::Query(&plan), presented, deadline) {
+        Ok(preflight) => preflight,
+        Err(cause) => {
+            if warehouse.deadline_exceeded(&cause) {
+                return Ok(Answered::under(
+                    &credentials,
+                    ToolOutcome::Refusal {
+                        reason: deadline_exceeded(deadline),
                     },
-                },
-            ));
+                ));
+            }
+            if warehouse.source_refused(&cause) {
+                return Ok(Answered::under(
+                    &credentials,
+                    ToolOutcome::Refusal {
+                        reason: RefusalReason::SourceRefused {
+                            source: warehouse.source().clone(),
+                        },
+                    },
+                ));
+            }
+            return Err(ServiceError::Warehouse { cause });
         }
-        return Err(ServiceError::Warehouse { cause });
+    };
+    // The spend ledger, consulted with the dry run's own price and nobody else's - an adapter that
+    // did not price charges nothing, "not counted" rather than "free", so this only ever refuses
+    // for the one adapter that prices today (BigQuery). See `budget_exhausted`'s own doc.
+    if let Some(reason) = budget_exhausted(ledger, context, preflight) {
+        return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
     }
     // **The deadline again, and this is the call that can fire in production.** The check above runs
     // microseconds after the broker minted, so what it catches is a broker minting something already
@@ -632,8 +660,9 @@ where
 
 /// The refusal for a deadline that ran out, naming the budget it was opened with.
 ///
-/// One function so `answer` and [`crate::federated::execute_leg`] build the same reason the same
-/// way, whether the cause was a spent budget caught before a call or an adapter's own failure
+/// One function so `answer`, [`crate::federated::dry_run_leg`] and [`crate::federated::run_leg`]
+/// build the same reason the same way, whether the cause was a spent budget caught before a call
+/// or an adapter's own failure
 /// [`Warehouse::deadline_exceeded`](sutura_domain::warehouse::Warehouse::deadline_exceeded)
 /// recognised.
 pub(crate) const fn deadline_exceeded(deadline: Deadline) -> RefusalReason {
@@ -645,6 +674,32 @@ pub(crate) const fn deadline_exceeded(deadline: Deadline) -> RefusalReason {
 // `docs/adr/0013`'s raw SQL tool - carved out because this file hit the thousand-line limit.
 pub mod raw;
 pub use raw::{AnsweredRaw, RunSqlError, RunningRaw, run_sql};
+
+/// The refusal for a spent per-replica byte ceiling, if this dry run's own price puts `context`'s
+/// subject over it.
+///
+/// `None` for every case that is not a refusal: no ceiling configured, an adapter that did not
+/// price (`PreFlight::NotAsked`), one that priced and could not (`Accepted { estimated_bytes: None
+/// }`), or a priced dry run the ledger still admits. `docs/adr/0030` decides the key - the subject
+/// `PrincipalChain::attribution()` names, never the acting chain - and the shape; this function is
+/// shared by `answer` and `federated::answer_federated` so both consult the ledger the same way.
+pub(crate) fn budget_exhausted(ledger: &SpendLedger, context: &RequestContext, preflight: PreFlight) -> Option<RefusalReason> {
+    let PreFlight::Accepted {
+        estimated_bytes: Some(estimated_bytes),
+    } = preflight
+    else {
+        return None;
+    };
+    let subject = match context.chain().attribution() {
+        Attribution::BareSubject { subject } | Attribution::ActingFor { subject, .. } => subject,
+    };
+    match ledger.charge(subject, estimated_bytes.bytes(), Instant::now()) {
+        Charge::Admitted => None,
+        Charge::Refused { reset_after } => Some(RefusalReason::BudgetExhausted {
+            reset_after_seconds: reset_after.as_secs(),
+        }),
+    }
+}
 
 /// Re-executes every declared anchor and reports what each produced.
 ///

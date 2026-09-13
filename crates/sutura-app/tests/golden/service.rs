@@ -109,6 +109,7 @@ fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
         &elsewhere,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -148,6 +149,7 @@ fn a_refused_question_never_reaches_the_data_system() {
             &fake,
             1 << 30,
             crate::adapters::deadline(),
+            &sutura_app::SpendLedger::no_budget(),
         )
         .expect("a refusal is not an error")
         .into_outcome();
@@ -180,6 +182,7 @@ fn a_working_set_exhaustion_wins_over_a_result_too_large_when_an_adapter_reports
         &both,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("a both-predicate failure is still a refusal, not an error")
     .into_outcome();
@@ -212,6 +215,7 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
         &exhausted,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("exhaustion is a refusal, not an error")
     .into_outcome();
@@ -236,6 +240,7 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
         &broken,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect_err("a failure that is not the ceiling is not a refusal");
     assert!(matches!(failure, sutura_app::ServiceError::Warehouse { .. }), "{failure:?}");
@@ -269,6 +274,7 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &too_wide,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -304,6 +310,7 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &at_the_cap,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -332,6 +339,7 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         &heavy,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -356,6 +364,7 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         &light,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -385,6 +394,7 @@ fn a_result_the_data_system_would_not_return_at_once_is_refused_and_not_reported
         &would_not_fit,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("a result the data system would not return is a refusal, not an error")
     .into_outcome();
@@ -408,6 +418,7 @@ fn a_result_the_data_system_would_not_return_at_once_is_refused_and_not_reported
         &broken,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect_err("a failure that is not a size bound is not a refusal");
     assert!(matches!(failure, sutura_app::ServiceError::Warehouse { .. }), "{failure:?}");

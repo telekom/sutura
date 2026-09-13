@@ -104,6 +104,7 @@ pub mod api;
 pub mod catalog;
 pub mod credentials;
 pub mod environment;
+pub mod governance;
 pub mod inbound;
 pub mod limits;
 pub mod prompt;
@@ -122,6 +123,7 @@ pub use crate::api::ApiSettings;
 pub use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
 pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};
 pub use crate::environment::{Environment, UnknownEnvironment};
+pub use crate::governance::SpendBudget;
 pub use crate::inbound::{
     InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader,
     ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenRequirement, TokenType,

@@ -198,7 +198,7 @@ where
     // for every one of its own. `Admission::from_settings` is what stops the two keys being read
     // from different places.
     Ok((
-        started(catalog, opened, settings.runtime())?,
+        started(catalog, opened, settings.runtime(), settings.spend_budget())?,
         catalog_prose(settings.prompt().catalog_prose()),
         Admission::from_settings(settings.runtime()),
         // **The peer's wait, and `telekom/sutura#339` is that it had no bound at all.** The same key

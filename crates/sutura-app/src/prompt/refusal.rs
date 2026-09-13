@@ -214,6 +214,18 @@ const DEADLINE_EXCEEDED: Guide = Guide {
              not a passing condition, so this is not an outage to wait out.",
 };
 
+// The one guide that says wait rather than narrow, and it is deliberately the only one that does:
+// every other entry either has a change that helps or has none at all, and this is the one refusal
+// where the SAME question, unmodified, becomes answerable once the window resets - `docs/adr/0030`.
+const BUDGET_EXHAUSTED: Guide = Guide {
+    reason: "budget_exhausted",
+    meaning: "the person you are acting for has spent this deployment's per-replica byte ceiling \
+              for the current window",
+    remedy: "Do not narrow the question - the ceiling is about how much has already been spent, \
+             not about this question's shape, so a narrower one is refused the same way. Wait for \
+             the window named in the refusal to reset, then ask exactly the same question again.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -240,6 +252,10 @@ pub(super) const GUIDES: &[&Guide] = &[
     // Actionable, and grouped with `ResourcesExhausted` for the same reason: a configured bound
     // this deployment enforces, not a passing outage, and the same narrowing remedy.
     &DEADLINE_EXCEEDED,
+    // Grouped with the two configured-bound refusals above it rather than with the two an agent
+    // cannot act on at all: there IS a move, and it is unique among every entry here - wait, do
+    // not narrow.
+    &BUDGET_EXHAUSTED,
     &PLAN_SPANS_TOO_MANY_SOURCES,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
@@ -292,6 +308,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
         RefusalReason::LegsDecideIdentityDifferently { .. } => &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
+        RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
     }
 }
 

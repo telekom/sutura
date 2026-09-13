@@ -15,16 +15,21 @@
 //! [`ExecutedAs::and`](sutura_domain::source::ExecutedAs::and) records the same shared posture
 //! twice. Single-player federation.
 
-use sutura_domain::identity::{Agreed, CredentialBroker, RequestContext, SourceSet};
+use std::time::Instant;
+
+use sutura_domain::identity::{Agreed, Attribution, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{FederatedFailure, FederatedPlan, LegPlan};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{RowSet, Warehouse};
+use sutura_domain::warehouse::{PreFlight, RowSet, Warehouse};
 
-use crate::{Answered, Answering, ServiceError, Warehouses, exceeds_response_bound, exceeds_row_cap, now_in_unix_seconds};
+use crate::{
+    Answered, Answering, Charge, ServiceError, SpendLedger, Warehouses, exceeds_response_bound, exceeds_row_cap,
+    now_in_unix_seconds,
+};
 
 /// The refusal for a source this deployment does not serve, and the one the mono path gives before
 /// a credential is minted.
@@ -50,9 +55,12 @@ impl<E, Q> From<ServiceError<E, Q>> for LegError<E, Q> {
     }
 }
 
-/// The leg execution's return type, named so `execute_leg`'s signature is not a `type_complexity`
+/// The leg execution's return type, named so `run_leg`'s signature is not a `type_complexity`
 /// finding.
 pub(crate) type LegResult<W, B> = Result<RowSet, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+
+/// The leg pre-flight's return type, named for the same `type_complexity` reason [`LegResult`] is.
+pub(crate) type LegPreflight<W, B> = Result<PreFlight, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
 
 /// Executes a two-source question: one leg per data system, combined above them.
 ///
@@ -75,6 +83,7 @@ pub(crate) fn answer_federated<W, B>(
     warehouses: &Warehouses<W>,
     working_set_bytes: u64,
     deadline: Deadline,
+    ledger: &SpendLedger,
 ) -> Answering<W, B>
 where
     W: Warehouse,
@@ -165,15 +174,60 @@ where
         Agreed::Granted { credentials } => credentials,
     };
 
-    let fact = match execute_leg::<_, B>(fact_warehouse, &credentials, plan.fact(), deadline) {
-        Ok(rows) => rows,
+    // Both legs pre-flighted before either one executes, and the pair's own estimates summed and
+    // charged against the ledger BEFORE either `execute` runs - `docs/adr/0030`'s "all-or-nothing":
+    // a two-source answer is refused as a whole rather than after one leg has already spent.
+    let fact_preflight = match dry_run_leg::<_, B>(fact_warehouse, &credentials, plan.fact(), deadline) {
+        Ok(preflight) => preflight,
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
     // The SAME `Deadline`, shared rather than divided (`docs/adr/0029` decision 3).
-    let lookup = match execute_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
+    let lookup_preflight = match dry_run_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
+        Ok(preflight) => preflight,
+        Err(LegError::Refusal(reason)) => {
+            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+        }
+        Err(LegError::Failure(error)) => return Err(error),
+    };
+    // Only a `Some` leg is counted, and a leg that priced nothing contributes nothing - "not
+    // counted", never "free". Nothing is charged at all when NEITHER leg priced, so an
+    // all-`None` federated answer (every adapter but BigQuery, today) never touches the ledger.
+    let priced = |preflight: PreFlight| match preflight {
+        PreFlight::Accepted {
+            estimated_bytes: Some(bytes),
+        } => Some(bytes.bytes()),
+        PreFlight::Accepted { estimated_bytes: None } | PreFlight::NotAsked => None,
+    };
+    let fact_estimate = priced(fact_preflight);
+    let lookup_estimate = priced(lookup_preflight);
+    if fact_estimate.is_some() || lookup_estimate.is_some() {
+        let total = fact_estimate.unwrap_or(0).saturating_add(lookup_estimate.unwrap_or(0));
+        let subject = match context.chain().attribution() {
+            Attribution::BareSubject { subject } | Attribution::ActingFor { subject, .. } => subject,
+        };
+        if let Charge::Refused { reset_after } = ledger.charge(subject, total, Instant::now()) {
+            return Ok(Answered::under(
+                &credentials,
+                ToolOutcome::Refusal {
+                    reason: RefusalReason::BudgetExhausted {
+                        reset_after_seconds: reset_after.as_secs(),
+                    },
+                },
+            ));
+        }
+    }
+
+    let fact = match run_leg::<_, B>(fact_warehouse, &credentials, plan.fact(), deadline) {
+        Ok(rows) => rows,
+        Err(LegError::Refusal(reason)) => {
+            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+        }
+        Err(LegError::Failure(error)) => return Err(error),
+    };
+    let lookup = match run_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
         Ok(rows) => rows,
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
@@ -228,11 +282,15 @@ where
     ))
 }
 
-// `execute_leg`, split out to `federated/leg.rs` for `cargo xtask max-lines`'s cap. Its tests stay
-// here, in `mod tests` below, exercising it through `answer_federated` exactly as before the split
-// - moving PRODUCTION code across files is the gate's ordinary case, unlike moving tests away from
-// the implementation they hold red-before-green evidence for (see that module's own doc for why).
-pub(crate) use leg::execute_leg;
+// The leg's own pre-flight and its own execute, split out to `federated/leg.rs` for
+// `cargo xtask max-lines`'s cap AND for `docs/adr/0030`'s "all-or-nothing before any leg
+// executes": both legs are dry-run (`dry_run_leg`) - and the pair's own estimates summed and
+// charged against the spend ledger, here in `answer_federated` - before either one's `execute`
+// (`run_leg`) runs. Their tests stay here, in `mod tests` below, exercising them through
+// `answer_federated` exactly as `execute_leg`'s did before the split - moving PRODUCTION code
+// across files is the gate's ordinary case, unlike moving tests away from the implementation they
+// hold red-before-green evidence for (see that module's own doc for why).
+pub(crate) use leg::{dry_run_leg, run_leg};
 mod leg;
 
 /// The federated answer orchestration: the two-source answer path exercised above fake leg-executing
@@ -257,6 +315,7 @@ mod tests {
 
     use super::answer_federated;
     use crate::Warehouses;
+    use crate::spend::SpendLedger;
     use crate::tests::{asked_by_a_person, bundle, june, metric, shared, test_deadline};
     use crate::tests_support::{
         AdapterFailure, DryRunOutcome, FixedBroker, LegDeadlineExceededWarehouse, LegPreflightWarehouse, RecordingLegsWarehouse,
@@ -403,6 +462,7 @@ mod tests {
             &warehouses,
             FEDERATED_BUDGET,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect("a federated answer is not an error")
         .into_outcome();
@@ -427,140 +487,8 @@ mod tests {
     /// `max-lines` cap it was already at before this record.
     mod deadline_test;
 
-    #[test]
-    fn a_federated_leg_that_hits_the_volume_bound_is_refused_not_a_503() {
-        // The federated half of the volume bound, and the reason `execute_leg` asks the predicates at
-        // all. A leg against a data system that will not return the whole result at once used to leave
-        // as `ServiceError::Warehouse` - the `503` a dead data system produces - so a caller was told
-        // to retry a reply that returns the same page. Both legs here answer `Err` with
-        // `result_did_not_fit` true, and the fact leg runs first, so it must be refused as
-        // `ResultTooLarge` carrying `Volume`.
-        let shared = shared();
-        let warehouses = Warehouses::of(crate::tests_support::PageBoundLegsWarehouse::new(
-            SourceName::parse("facts").expect("a test source"),
-            shared.clone(),
-        ))
-        .and(crate::tests_support::PageBoundLegsWarehouse::new(
-            SourceName::parse("geo").expect("a test source"),
-            shared,
-        ))
-        .expect("two sources, one registry");
-
-        let plan = federated_plan();
-        let outcome = answer_federated(
-            &bundle(),
-            &plan,
-            &asked_by_a_person(),
-            &FixedBroker::GrantsShared,
-            &warehouses,
-            FEDERATED_BUDGET,
-            test_deadline(),
-        )
-        .expect("a bound is a refusal, not an error")
-        .into_outcome();
-        assert!(
-            matches!(
-                outcome,
-                ToolOutcome::Refusal {
-                    reason: RefusalReason::ResultTooLarge {
-                        bound: ResultBound::Volume
-                    }
-                }
-            ),
-            "a leg the data system will not return at once must be refused as the volume bound, not {outcome:?}"
-        );
-    }
-
-    /// Lookup rows one byte over [`sutura_domain::query::ResponseByteLimit::DEFAULT`] - neither
-    /// the row cap nor the volume bound is what fires.
-    fn oversized_lookup_rows() -> RowSet {
-        use sutura_domain::plan::InternalLabel;
-        let ceiling = usize::try_from(sutura_domain::query::ResponseByteLimit::DEFAULT.bytes()).expect("fits a usize");
-        let oversized = "x".repeat(ceiling + 1);
-        let row = |link: &str| vec![Value::Text(link.into()), Value::Text(oversized.clone())];
-        RowSet::new(vec![InternalLabel::Link.label(), "region".into()], vec![row("c1"), row("c2")])
-            .expect("a well-formed test lookup result")
-    }
-
-    /// The federated half of the mono-source golden cell: a JOINED dimension's own value is not
-    /// something either leg's own bound was measuring.
-    #[test]
-    fn a_federated_answer_within_the_row_cap_but_too_wide_to_encode_is_refused() {
-        let shared = shared();
-        let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-            SourceName::parse("facts").expect("a test source"),
-            shared.clone(),
-            federated_fact_rows(),
-        ))
-        .and(crate::tests_support::LegsWarehouse::answering(
-            SourceName::parse("geo").expect("a test source"),
-            shared,
-            oversized_lookup_rows(),
-        ))
-        .expect("two sources, one registry");
-        let outcome = answer_federated(
-            &bundle(),
-            &federated_plan(),
-            &asked_by_a_person(),
-            &FixedBroker::GrantsShared,
-            &warehouses,
-            FEDERATED_BUDGET,
-            test_deadline(),
-        )
-        .expect("a bound is a refusal, not an error")
-        .into_outcome();
-        let limit_bytes = sutura_domain::query::ResponseByteLimit::DEFAULT.bytes();
-        assert_eq!(
-            outcome,
-            ToolOutcome::Refusal {
-                reason: RefusalReason::ResultTooLarge {
-                    bound: ResultBound::Encoded { limit_bytes },
-                },
-            }
-        );
-    }
-
-    #[test]
-    fn a_federated_leg_the_source_refuses_is_refused_not_a_503() {
-        // The federated half of the identity/authorization refusal, and the reason `execute_leg`
-        // is given the `source_refused` predicate. A leg the data system refuses because the
-        // identity it runs as may not ask it used to leave as `LegError::Failure` - the `503` a
-        // dead data system produces - so a caller was told to retry a refusal that returns the
-        // same reply. Both legs refuse at the identity/authorization level, and the fact leg runs
-        // first, so the answer must be refused as `SourceRefused` carrying the source.
-        let shared = shared();
-        let warehouses = Warehouses::of(crate::tests_support::RefusingLegsWarehouse::new(
-            SourceName::parse("facts").expect("a test source"),
-            shared.clone(),
-        ))
-        .and(crate::tests_support::RefusingLegsWarehouse::new(
-            SourceName::parse("geo").expect("a test source"),
-            shared,
-        ))
-        .expect("two sources, one registry");
-
-        let plan = federated_plan();
-        let outcome = answer_federated(
-            &bundle(),
-            &plan,
-            &asked_by_a_person(),
-            &FixedBroker::GrantsShared,
-            &warehouses,
-            FEDERATED_BUDGET,
-            test_deadline(),
-        )
-        .expect("a source refusal is a refusal, not an error")
-        .into_outcome();
-        assert!(
-            matches!(
-                outcome,
-                ToolOutcome::Refusal {
-                    reason: RefusalReason::SourceRefused { .. }
-                }
-            ),
-            "a leg the data system refuses at the identity/authorization level must be refused, not {outcome:?}"
-        );
-    }
+    /// Three leg-level refusals, split out for the same `max-lines` reason `deadline_test` was.
+    mod leg_refusal_test;
 
     #[test]
     fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
@@ -586,6 +514,7 @@ mod tests {
             &warehouses,
             FEDERATED_BUDGET,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect("a pre-flight refusal is a governed answer")
         .into_outcome();
@@ -611,7 +540,15 @@ mod tests {
     }
 
     #[test]
-    fn a_federated_lookup_preflight_refusal_discards_the_completed_fact_leg() {
+    fn a_federated_lookup_preflight_refusal_means_neither_leg_ever_executes() {
+        // **Renamed, and the number this test pins CHANGED with it.** Before the spend ledger, the
+        // fact leg's own `dry_run` and `execute` ran as one step, so a fact leg that dry-ran clean
+        // executed before the lookup leg's `dry_run` was even asked - a refusal on the lookup side
+        // then discarded a fact leg that had ALREADY run. Now every leg is dry-run before either one
+        // executes (`docs/adr/0030`'s "all-or-nothing", needed so the two legs' estimates can be
+        // summed and charged once before any leg spends anything real) - so a lookup pre-flight
+        // refusal is caught before the fact leg's own `execute` is ever reached, and the fact data
+        // system is never asked at all.
         let shared = shared();
         let fact = LegPreflightWarehouse::new(
             SourceName::parse("facts").expect("a test source"),
@@ -634,6 +571,7 @@ mod tests {
             &warehouses,
             FEDERATED_BUDGET,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect("a pre-flight refusal is a governed answer")
         .into_outcome();
@@ -647,7 +585,9 @@ mod tests {
                 .get(&SourceName::parse("facts").expect("a test source"))
                 .expect("facts is registered")
                 .executions(),
-            1
+            0,
+            "the fact leg's own dry run succeeded, but its execute must never be reached once the \
+             lookup leg's pre-flight refuses"
         );
         assert_eq!(
             warehouses
@@ -682,6 +622,7 @@ mod tests {
             &warehouses,
             FEDERATED_BUDGET,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect_err("a transient pre-flight failure remains a warehouse error");
         assert!(matches!(
@@ -710,7 +651,11 @@ mod tests {
     }
 
     #[test]
-    fn a_federated_lookup_preflight_failure_keeps_warehouse_error_and_discards_fact_rows() {
+    fn a_federated_lookup_preflight_failure_means_the_fact_leg_never_executes() {
+        // Renamed for the same reason and with the same pinned number changed as
+        // `a_federated_lookup_preflight_refusal_means_neither_leg_ever_executes` above: every leg is
+        // now dry-run before either one executes, so a failure discovered while pre-flighting the
+        // lookup leg is caught before the fact leg's own `execute` ever runs.
         let shared = shared();
         let fact = LegPreflightWarehouse::new(
             SourceName::parse("facts").expect("a test source"),
@@ -733,6 +678,7 @@ mod tests {
             &warehouses,
             FEDERATED_BUDGET,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect_err("a transient pre-flight failure remains a warehouse error");
         assert!(matches!(
@@ -748,8 +694,9 @@ mod tests {
                 .get(&SourceName::parse("facts").expect("a test source"))
                 .expect("facts is registered")
                 .executions(),
-            1,
-            "the completed fact leg is discarded when lookup pre-flight fails"
+            0,
+            "the fact leg's own dry run succeeded, but its execute must never be reached once the \
+             lookup leg's pre-flight fails"
         );
         assert_eq!(
             warehouses
@@ -786,6 +733,7 @@ mod tests {
             &warehouses,
             1,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect("a refusal is an Ok")
         .into_outcome();
@@ -833,6 +781,7 @@ mod tests {
             &warehouses,
             FEDERATED_BUDGET,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect("a refusal is an Ok")
         .into_outcome();
@@ -902,6 +851,7 @@ mod tests {
             &warehouses,
             FEDERATED_BUDGET,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect("two shared legs are answered")
         .into_outcome();
@@ -956,6 +906,7 @@ mod tests {
             &warehouses,
             FEDERATED_BUDGET,
             test_deadline(),
+            &SpendLedger::no_budget(),
         )
         .expect("a refusal is an Ok")
         .into_outcome();

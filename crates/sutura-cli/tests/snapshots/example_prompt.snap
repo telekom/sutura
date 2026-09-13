@@ -101,6 +101,11 @@ Every reason you can be given, and what to do about each:
   Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same question
   unchanged returns the same refusal: the budget is a configured number, not a passing condition, so
   this is not an outage to wait out.
+- **budget_exhausted** - the person you are acting for has spent this deployment's per-replica byte
+  ceiling for the current window.
+  Do not narrow the question - the ceiling is about how much has already been spent, not about this
+  question's shape, so a narrower one is refused the same way. Wait for the window named in the
+  refusal to reset, then ask exactly the same question again.
 - **plan_spans_too_many_sources** - answering would need to read from more data systems than this
   deployment serves (two at most).
   Nothing you can change. Report it to a person: it is a fact about how the metric is defined, not

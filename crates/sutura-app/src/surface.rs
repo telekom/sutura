@@ -86,6 +86,7 @@ use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
 
+use crate::spend::SpendLedger;
 use crate::warehouses::Warehouses;
 use crate::{ServiceError, Validated, verify_and_validate};
 
@@ -305,12 +306,19 @@ pub enum ServiceNotStarted {
 /// answer mints once, for every source its plan reads, and `sutura_domain::warehouse::Warehouse`
 /// has no signature that runs without the result - so a service with no broker is not a service
 /// that answers as the process, it is a service that does not compile.
+/// **It also holds the spend ledger, unbounded unless a composition root opts in.** `Self::start`
+/// and `Self::start_composed` build one with [`SpendLedger::no_budget`] - today's behaviour, before
+/// this counter existed - and [`Self::with_spend_ledger`] is how a root that read a configured
+/// ceiling out of its settings replaces it. Not a constructor argument, unlike every other field
+/// here: those are what a service cannot exist without, and an unbounded ledger is a real, working
+/// default rather than an omission this type should refuse to start without.
 pub struct LocalService<W, S, B> {
     definitions: Validated<PinnedDefinitions>,
     warehouses: Warehouses<W>,
     sink: S,
     broker: B,
     working_set_bytes: u64,
+    spend_ledger: SpendLedger,
 }
 
 impl<W, S, B> LocalService<W, S, B>
@@ -382,7 +390,21 @@ where
             sink,
             broker,
             working_set_bytes,
+            spend_ledger: SpendLedger::no_budget(),
         })
+    }
+
+    /// Replaces the spend ledger, for a composition root that read a configured per-replica
+    /// ceiling out of its settings.
+    ///
+    /// A setter rather than a constructor argument, so every existing caller of [`Self::start`] and
+    /// [`Self::start_composed`] - most of which configure no ceiling at all - keeps its original
+    /// argument list. `docs/adr/0030` is the record; `governance.per_replica_spend_ceiling` absent
+    /// is the state every one of those callers is already in.
+    #[must_use]
+    pub fn with_spend_ledger(mut self, spend_ledger: SpendLedger) -> Self {
+        self.spend_ledger = spend_ledger;
+        self
     }
 }
 
@@ -407,6 +429,7 @@ where
             &self.warehouses,
             self.working_set_bytes,
             deadline,
+            &self.spend_ledger,
         )
         .map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own

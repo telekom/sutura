@@ -175,6 +175,17 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              budget for one answer. Retrying it unchanged will be refused again: narrow the \
              period, ask for fewer dimensions, or add a filter."
         ),
+        // Written for an agent, and the one refusal here that DOES self-heal: unlike every other
+        // arm above, waiting is a real remedy and not a false promise. `docs/adr/0030` is the
+        // record. The sentence says how long, so an agent can decide to wait rather than guessing
+        // that a retry now would succeed.
+        RefusalReason::BudgetExhausted { reset_after_seconds } => format!(
+            "the person you are acting for has spent this deployment's per-replica byte ceiling \
+             for the current window. Asking again right now will be refused again; it becomes \
+             answerable in {reset_after_seconds} seconds, when the window resets. Narrowing the \
+             question does not help - the ceiling is about how much has already been spent, not \
+             about this question's shape."
+        ),
     };
     (code, detail)
 }
@@ -249,6 +260,7 @@ mod tests {
                 postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
+            RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
         ]
     }
 
@@ -319,6 +331,16 @@ mod tests {
         assert!(
             detail.contains("29 seconds"),
             "the sentence does not name the budget: {detail}"
+        );
+    }
+
+    #[test]
+    fn a_spent_budget_names_its_code_and_its_reset_in_the_sentence() {
+        let (code, detail) = refused(&RefusalReason::BudgetExhausted { reset_after_seconds: 41 });
+        assert_eq!(code, "budget_exhausted");
+        assert!(
+            detail.contains("41 seconds"),
+            "the sentence does not name when the window resets: {detail}"
         );
     }
 

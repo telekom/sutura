@@ -261,3 +261,13 @@ prompt:
   #
   # An EMPTY string is an error rather than an absence: an empty path resolves to the working
   # directory. Remove the key to mean "no operator text".
+
+# `governance` is deliberately absent. Uncommenting `per_replica_spend_ceiling` turns on a
+# per-replica, in-process byte ceiling per subject - PER REPLICA, not a deployment-wide budget: N
+# replicas give N times this ceiling before every one of them has independently refused, and it
+# resets on every restart in addition to its own window. `docs/adr/0030` is the record.
+#
+# governance:
+#   per_replica_spend_ceiling:
+#     bytes: 1073741824
+#     window_seconds: 3600
