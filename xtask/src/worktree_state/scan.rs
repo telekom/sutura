@@ -370,7 +370,7 @@ fn occurrences(text: &str, needle: &str) -> Vec<usize> {
 }
 
 /// The 1-based line an offset sits on.
-fn line_of(text: &str, at: usize) -> usize {
+pub(super) fn line_of(text: &str, at: usize) -> usize {
     text.get(..at)
         .map_or(1, |before| before.matches('\n').count().saturating_add(1))
 }
