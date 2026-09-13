@@ -1064,6 +1064,18 @@ cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is th
 statement-issuing method - present only in a build that loads fixtures, so no deployment can
 reach it.
 
+### `type_alias DryRunEstimate`
+
+A dry run's own byte estimate, when it priced one - `None` is `docs/adr/0030`'s honest absence,
+never a defaulted zero.
+
+**A named alias rather than `Option<EstimatedBytes>` written out at every return type**, because
+this exact shape - wrapped in a `Result` - is the return type of `JobTransport::validate` and
+every one of its implementors, fake and real; a name spares each of those sites the `Option` and
+says what the value MEANS at the read site, which the bare composed type would not. It does not
+cross this workspace's `clippy::type-complexity` threshold - it is well under it - so the alias
+earns its place on readability alone, not on a lint that does not fire either way.
+
 ## Module `wire`
 
 The WIRE: one `JobTransport` that speaks to a `BigQuery` endpoint over HTTP.
@@ -1422,6 +1434,7 @@ every other variant and `clippy::result_large_err` is on.
   That is why failure is derived from the shape here rather than from `errors` being non-empty -
   see `reported`.
 - `NotATotal` - The total was not a number.
+- `NotAnEstimate` - `totalBytesProcessed` was present and not a number.
 
   It arrives as text, because the endpoint writes 64-bit integers as JSON strings.
 - `NoSchema` - A complete job with rows and no schema to read them against.

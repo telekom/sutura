@@ -81,6 +81,7 @@
 //! golden of the stored form, which `crates/sutura-app/tests/golden/catalogs.rs` holds for a catalog
 //! and nothing holds for a phrase.
 //!
+//!
 //! # Measured, not asserted: what breaking each half of this actually reports
 //!
 //! Each half was checked by breaking the invariant and reading the counterexample, because a

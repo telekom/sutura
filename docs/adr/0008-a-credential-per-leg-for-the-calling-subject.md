@@ -1879,6 +1879,11 @@ Until then this is a design, and `AGENTS.md`'s *Built And Not Wired* section is 
 what to do with a claim whose mechanism does not exist yet: write it where a reader cannot mistake it
 for the table.
 
+**Corrected: the precedent moved, which the note below already says of two OTHER `AGENTS.md`
+sections and should have said of this one too.** The register is
+`.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired* now. The precedent itself -
+writing an unbuilt claim where a reader cannot mistake it for the table - is unchanged.
+
 **Two things in `AGENTS.md` this record now contradicts, and they are changes to that file rather than
 to this one.** Recorded here so the contradiction is visible from the record that caused it.
 **Corrected: neither citation resolves any more, and the addressee changed rather than the point.**

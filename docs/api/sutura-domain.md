@@ -9538,12 +9538,11 @@ pub enum PreFlight
 
 What a pre-flight established.
 
-**`Self::NotAsked` is not `Self::Accepted`, and no caller can read it as one.** Before
-`dry_run` took a credential, a default of `Ok(())` was defensible: with nothing to be wrong
-about, "nothing went wrong" is honest. With a subject in the signature it stops being honest,
-because `Ok(())` from an adapter that did not look is indistinguishable from `Ok(())` from an
-adapter that asked the data system as that subject and was told yes - so a defaulted pre-flight
-would read as "this subject may run this plan" for every adapter that declined to implement one.
+**`Self::NotAsked` is not `Self::Accepted`, and no caller can read it as one.** Before `dry_run` took a credential, a
+default of `Ok(())` was defensible: with nothing to be wrong about, "nothing went wrong" is honest. With a subject in the
+signature it stops being honest, because `Ok(())` from an adapter that did not look is indistinguishable from `Ok(())`
+from an adapter that asked the data system as that subject and was told yes - so a defaulted pre-flight would read as
+"this subject may run this plan" for every adapter that declined to implement one.
 
 The shape is the one the row cap already uses, where `row_limit()` is `max_rows + 1` so a result
 *at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 is the decision.
@@ -9556,7 +9555,7 @@ that would stop it - skipping a check on the strength of `Accepted` is a review 
 #### Variants
 
 - `NotAsked` - The adapter did not ask. The default, and the honest answer for an adapter where checking costs what running costs.
-- `Accepted` - The data system was asked, as this subject, and accepted the plan.
+- `Accepted` - The data system was asked, as this subject, and accepted the plan - see `estimate::EstimatedBytes`.
 
 #### Implements
 
@@ -9874,6 +9873,60 @@ Header names are then parsed as `ColumnName`s, so a column that maps to a DDL st
 `DuckDB` `types` argument, the engine's Arrow schema, Postgres's `CREATE TABLE`) cannot carry
 another unparseable spelling. A malformed name is `InvalidIdentifier`, the same refusal the
 Postgres importer made.
+
+### Module `estimate`
+
+A dry run's own byte estimate, and nothing else.
+
+**Split out of `warehouse.rs` when that file crossed the thousand-line cap `cargo xtask
+max-lines` enforces**, at a real seam rather than an arbitrary cut: `EstimatedBytes` is one
+type with one job, and `PreFlight` - which carries it - stays in the parent module where the
+rest of the pre-flight vocabulary lives.
+
+**`pub mod` with no re-export beside it, for `crate::warehouse::preflight`'s own documented
+reason.** The domain's usual shape is a private submodule plus a `pub use`, which rustdoc
+inlines into the parent - and that shape produced an undocumented `### use None` stub for types
+reached only through a re-export. A public module gets documented at its own path instead.
+
+#### `struct EstimatedBytes`
+
+```rust
+pub struct EstimatedBytes
+```
+
+A dry run's own estimate of the bytes a statement would scan.
+
+**A newtype over `u64` rather than a bare integer carried on `super::PreFlight::Accepted`**,
+so a byte count read off a dry run cannot be confused with any of the plan's other `u64`s.
+`docs/adr/0030` decides this shape and the `Option` it sits inside together.
+
+**Zero is a legitimate estimate, not a stand-in for "unknown".** A cached result or a trivial
+`SELECT` can genuinely cost nothing to scan, so `Self::parse` cannot fail: this type validates
+nothing beyond fitting in a `u64`. That is unlike a bound such as
+`BytesBilledCeiling`, where zero would refuse every question and is refused itself - an estimate
+of zero is simply the truth for some questions. What means "could not price" is the `Option`
+around this type on `super::PreFlight::Accepted`, never a reserved value inside it.
+
+##### Methods
+
+```rust
+pub const fn bytes(self) -> u64
+```
+
+The estimate, in bytes.
+
+```rust
+pub const fn parse(bytes: u64) -> Self
+```
+
+Wraps a byte count a dry run reported.
+
+Infallible, on purpose: every `u64` is a byte count some statement could scan, and the
+ambiguity this type exists to remove is one level up, in whether an estimate exists at all.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
 
 ### Module `preflight`
 

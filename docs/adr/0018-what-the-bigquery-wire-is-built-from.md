@@ -146,6 +146,16 @@ Four parts, each with its own reason:
    part of that change.** Nothing here is a step towards it, which the *Consequences* section below
    also states.
 
+   **Corrected: both the constant and the "reads it only to call `deliverable`" clause are stale.**
+   `IMPERSONATION` is `ImpersonationCapability::PerSubjectCredential` now, and `BigQueryWarehouse`
+   does more with a presented subject than call `deliverable` - `subject_bearer` extracts a
+   `SubjectToken`'s material and rides it as the job's bearer. The three-signature argument about
+   *this port* is otherwise unaffected: nothing here lets an implementation select a credential FOR
+   the subject or tell two concurrent subjects apart, which is a property of `AccessTokens::bearer`'s
+   signature rather than of the constant. What carries the leg's subject through per-leg execution is
+   `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`, composed in `sutura-serve`
+   (#284) - wired in serve, not proven live.
+
 ### Which shipped artifact links what, per target
 
 **The answer today is: none of them link either half of this crate**, and that is checkable rather
@@ -350,6 +360,17 @@ everybody who asks. So what is established is *accepted, and correct for that id
 `BigQueryWarehouse::IMPERSONATION` still reads `NoPlaceForASubject`, and nothing here is a step towards
 per-subject execution.
 
+**Corrected: the constant moved, and this section did not follow it.** `IMPERSONATION` is
+`ImpersonationCapability::PerSubjectCredential` now. A leg presenting `Presented::SubjectToken` has
+somewhere to go: the token rides as the job's bearer - `Presented::SubjectPrincipal` is still refused
+(`BigQueryError::NoPrincipalSwitch`), since this adapter has no connection-level principal switch to
+give it. **What this section's premise still gets right:** the corpus leg tested here runs on the
+service-account credential, so a green run says nothing about the per-subject path. What that path
+needs is built, not unbuilt: `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`
+mints the per-leg credential and `sutura-serve`'s `bigquery` composition attaches it (#284). The
+limit is narrower - wired in serve, not proven live: no exchanged token has ever run against a real
+STS (`.agents/skills/sutura/identity/SKILL.md`, `docs/where-identity-is-proven.md`).
+
 ### The service-account flow, and what it cost
 
 `0017`'s fixture decision named a developer's own login, and CI can only hold a key - so the credential
@@ -470,12 +491,20 @@ remove the property the test would be checking around.
 
 - `sutura-exec-bigquery` stays in AGENTS.md's *Built And Not Wired* section, one line further along.
   Nothing in it may be cited as an invariant.
+  **Corrected: the section is `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not
+  wired* now** - `AGENTS.md` carries no such section. Nothing named there may be cited as an
+  invariant either.
 - The `data_systems:` axis of `crates/sutura-app/tests/adapters/adapters.rs` still gains **no** entry.
   That registry's rule is that an entry is something somebody could deploy, and a cell that has never
   executed reads as coverage. It gains one in the change that pastes a green acceptance run.
 - `sutura-serve` still refuses `kind: bigquery` by name, and correctly: it links no `BigQuery`
   adapter. Un-refusing it is a composition change that also has to answer where the deployment's
   credential comes from, and the only source built today reads a developer's own login.
+
+  **Corrected: `sutura-serve` links the adapter now**, behind the default-off `bigquery` feature -
+  `crates/sutura-serve/src/main.rs`'s `OpenedSources::BigQuery` and `BigQuerySource` type alias to
+  `sutura_exec_bigquery::BigQueryWarehouse`. A default build (the feature off) still links none of
+  it, which is the sense in which "refuses `kind: bigquery` by name" survives.
 - **`just validate` does not cover the acceptance leg and cannot.** The nix check sandbox has no
   network, this repository is public so a workflow secret is unavailable to a fork's pull request,
   and a gate that fails for an environment reason gets disabled. The acceptance evidence for this

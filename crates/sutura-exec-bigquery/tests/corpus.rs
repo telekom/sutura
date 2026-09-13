@@ -781,10 +781,12 @@ mod tests {
             let verdict = warehouse
                 .dry_run(Executable::Query(&plan), &presented())
                 .unwrap_or_else(|e| panic!("{name}: the endpoint did not accept the corpus statement: {e:?}"));
-            assert_eq!(
-                verdict,
-                PreFlight::Accepted,
-                "{name}: the endpoint did not accept the statement"
+            // The estimate itself is not asserted on: what the endpoint reports for
+            // `totalBytesProcessed` is real data, not a fixture, and pinning a byte count here would
+            // make this leg flake on the corpus's own tables changing size.
+            assert!(
+                matches!(verdict, PreFlight::Accepted { .. }),
+                "{name}: the endpoint did not accept the statement: {verdict:?}"
             );
             accepted = accepted.saturating_add(1);
         }

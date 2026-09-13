@@ -290,6 +290,11 @@ everybody who asks - so this establishes *accepted, and correct for that identit
 whatever about per-subject execution. `BigQueryWarehouse::IMPERSONATION` still reads
 `NoPlaceForASubject`.
 
+**Corrected: the constant moved and this sentence did not.** `IMPERSONATION` is
+`ImpersonationCapability::PerSubjectCredential` now, so a source declared `impersonation-at-source`
+can be opened here; what remains true of this paragraph is that the run it describes still used the
+service-account credential, so it establishes nothing about the per-subject path.
+
 ### One finding the live run produced that no local check could have
 
 The first submission came back `400 invalidQuery`: *"Cannot access field day on a value with type
@@ -350,6 +355,10 @@ one thing every version of this page, and `AGENTS.md`'s *Built And Not Wired*, k
 *no composition root links the crate, and `sutura-serve` refuses `kind: bigquery` by name.* Both
 sentences are now false, and this records what replaced them so a reader does not have to infer it
 from a diff.
+
+**Corrected: `AGENTS.md`'s register is the one that moved, not this page's finding.** The section is
+now `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired*; the two sentences this
+amendment already retired stay retired.
 
 ### What is wired
 
@@ -427,6 +436,15 @@ execution arriving. And the corpus-wide leg this page specifies - #78's importer
 pointed at a dataset - was still not built when this amendment was written. **It is now**, and the
 third amendment below is its record; this sentence is left as the pointer rather than deleted,
 because a reader arriving at an amendment wants to know which of its limits a later one spent.
+
+**Corrected: the premise moved and the consequence with it.** `IMPERSONATION` is
+`ImpersonationCapability::PerSubjectCredential` now, so an `impersonation-at-source` declaration
+against this adapter is no longer refused by the posture cross-check alone - `deliverable_by`
+accepts it. The broker is built too: `crates/sutura-exec-bigquery/src/sts.rs`'s
+`WorkloadIdentityBroker` performs the exchange, and `sutura-serve`'s `bigquery` composition
+attaches it (#284). What gates per-subject execution is narrower than "nothing composes it" -
+wired in serve, not proven live: no exchanged token has ever run against a real STS
+(`.agents/skills/sutura/identity/SKILL.md`, `docs/where-identity-is-proven.md`).
 
 ## Third amendment, 2026-08-31: the corpus leg is built, and two of the four bullets are answered
 
@@ -603,6 +621,9 @@ rather than anything this repository can carry.
 - **Identity is untouched.** A service-account key and an application-default login are each one
   identity for everybody who asks. `BigQueryWarehouse::IMPERSONATION` still reads
   `NoPlaceForASubject`, so a green here is *accepted, and correct for that identity*.
+  **Corrected: `IMPERSONATION` is `PerSubjectCredential` now** - this leg's own credential is still
+  one identity for everybody who asks, so the sentence's conclusion about THIS run survives; its
+  premise about the constant does not.
 - **The `data_systems:` axis of `crates/sutura-app/tests/adapters/adapters.rs` still gains no entry**, and
   the *Consequences* below still hold on that point: a cell in that registry runs inside `just test`,
   and this cannot, because the nix sandbox has no network. The corpus leg is a second `#[ignore]`d
