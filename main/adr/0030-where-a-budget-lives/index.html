@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="How a metadata document names a table in another dataset or another project - why a qualified name is a composition of parsed identifiers rather than a string with dots in it, why cross-project is emphatically not federation and must not reach the splitter, how deep a path each dialect resolves, and the label collision a live BigQuery run found.">
+        <meta name="description" content="Why the budget key is the subject from PrincipalChain::attribution() and not the whole chain, why the first counter is per-replica and says so rather than adding a shared store, why a spent budget is a 429 and not the 422 ResourcesExhausted already uses, and what PreFlight has to carry before any of this can be checked.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0019-a-table-outside-the-connections-dataset/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0030-where-a-budget-lives/">
       
       
-        <link rel="prev" href="../0018-what-the-bigquery-wire-is-built-from/">
+        <link rel="prev" href="../0028-who-may-see-a-metric/">
       
       
-        <link rel="next" href="../0020-a-credential-the-compiler-refuses-to-print/">
+        <link rel="next" href="../../api/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>A table outside the connection's own dataset - sutura</title>
+        <title>Where a budget lives - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#a-table-outside-the-connections-own-dataset" class="md-skip">
+        <a href="#where-a-budget-lives" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              A table outside the connection's own dataset
+              Where a budget lives
             
           </span>
         </div>
@@ -1391,37 +1391,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A table outside the connection's own dataset
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
         
   
   
@@ -1437,114 +1410,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#the-report-and-why-the-failure-mode-is-a-wrong-number" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The report, and why the failure mode is a wrong number
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-1-a-qualified-name-is-a-composition-of-parsed-identifiers-never-a-string-with-dots" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 1 - a qualified name is a composition of parsed identifiers, never a string with dots
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-2-cross-project-is-not-federation-and-must-not-reach-the-splitter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 2 - cross-project is NOT federation, and must not reach the splitter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-3-how-deep-a-path-a-data-system-resolves-is-declared-not-guessed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 3 - how deep a path a data system resolves is declared, not guessed
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-4-a-label-may-not-be-spelled-the-same-as-a-table-the-statement-reads" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 4 - a label may not be spelled the same as a table the statement reads
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 5 - two tables whose paths end in one name are refused, not aliased around
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-the-goldens-pin-and-where" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What the goldens pin, and where
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is claimed, and what is not
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1806,10 +1671,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../0030-where-a-budget-lives/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where a budget lives
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1825,6 +1717,48 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-key-the-subject-from-attribution-not-the-whole-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The key: the subject from attribution(), not the whole chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2662,10 +2596,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-report-and-why-the-failure-mode-is-a-wrong-number" class="md-nav__link">
+  <a href="#context" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The report, and why the failure mode is a wrong number
+        Context
       
     </span>
   </a>
@@ -2673,76 +2607,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#decision-1-a-qualified-name-is-a-composition-of-parsed-identifiers-never-a-string-with-dots" class="md-nav__link">
+  <a href="#the-key-the-subject-from-attribution-not-the-whole-chain" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Decision 1 - a qualified name is a composition of parsed identifiers, never a string with dots
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-2-cross-project-is-not-federation-and-must-not-reach-the-splitter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 2 - cross-project is NOT federation, and must not reach the splitter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-3-how-deep-a-path-a-data-system-resolves-is-declared-not-guessed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 3 - how deep a path a data system resolves is declared, not guessed
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-4-a-label-may-not-be-spelled-the-same-as-a-table-the-statement-reads" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 4 - a label may not be spelled the same as a table the statement reads
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 5 - two tables whose paths end in one name are refused, not aliased around
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-the-goldens-pin-and-where" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What the goldens pin, and where
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is claimed, and what is not
+        The key: the subject from attribution(), not the whole chain
       
     </span>
   </a>
@@ -2769,293 +2637,230 @@
   
 
 
-<h1 id="a-table-outside-the-connections-own-dataset">A table outside the connection's own dataset<a class="headerlink" href="#a-table-outside-the-connections-own-dataset" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted.</strong> Built, gated and pinned by goldens across four dialects, and a <strong>qualified
-read</strong> is proved against a real project - a <code>project.dataset.table</code> path is resolved by the service
-and a wrong dataset in one is refused. <strong>A cross-PROJECT read is not proved</strong>, because the acceptance
-credential's IAM refuses <code>datasets.create</code> and there was no second project to read across; <em>What is
-claimed, and what is not</em> at the end is the section to read before taking that green for more than it
-is.</p>
-<p><a href="../0017-what-a-bigquery-test-runs-against/">0017</a> and
-<a href="../0018-what-the-bigquery-wire-is-built-from/">0018</a> got a statement of ours accepted by a real
-<code>BigQuery</code> dataset. This record is about the gap between <em><code>BigQuery</code> works</em> and <em><code>BigQuery</code> works
-here</em>: the deployment this ships into is <strong>multi-project</strong>, and a metadata document could not name a
-table outside the one dataset its connection defaults to.</p>
-<h2 id="the-report-and-why-the-failure-mode-is-a-wrong-number">The report, and why the failure mode is a wrong number<a class="headerlink" href="#the-report-and-why-the-failure-mode-is-a-wrong-number" title="Permanent link">&para;</a></h2>
-<p>Three things blocked it, all verified in the tree rather than inferred:</p>
-<ol>
-<li><strong>A qualified name was unrepresentable.</strong> <code>catalog::Model</code> held one <code>table: TableName</code>, and
-   <code>TableName</code> parses through <code>parse_identifier</code>, which accepts <code>[A-Za-z_][A-Za-z0-9_]*</code> and rejects
-   a dot as <code>IllegalCharacter</code>. There was no field for a path and no value that would have passed.</li>
-<li><strong>The statement was emitted bare, for every dialect</strong> - <code>builder::select(..).from(table)</code>.</li>
-<li><strong>Resolution was a single connection-level default.</strong> The <code>BigQuery</code> adapter holds one
-   <code>default_dataset</code>, fixed when the warehouse opens and put into every <code>JobRequest</code>, so an
-   unqualified name resolves there and nowhere else.</li>
-</ol>
-<p><strong>The interesting half is what happens when the table exists in both places.</strong> A table absent from
-the default dataset is a clean <code>404</code> - honest. A table of the <em>same name</em> present in the default
-dataset is read instead, and a plausible number comes back under a certified metric with its
-definition digest unmoved. And same-name tables are the <em>normal</em> shape of a multi-project estate:
-dev/prod splits, per-tenant datasets and staging copies all reuse table names deliberately. So this
-sits in the same class as a wrong date bucket - valid SQL, nothing raised, wrong answer - and that is
-what decides every choice below in favour of a refusal over a best effort.</p>
-<h2 id="decision-1-a-qualified-name-is-a-composition-of-parsed-identifiers-never-a-string-with-dots">Decision 1 - a qualified name is a composition of parsed identifiers, never a string with dots<a class="headerlink" href="#decision-1-a-qualified-name-is-a-composition-of-parsed-identifiers-never-a-string-with-dots" title="Permanent link">&para;</a></h2>
-<p><code>sutura_domain::model::qualified</code> holds <code>QualifiedTable</code>, which is an <code>Option&lt;TableQualifier&gt;</code> and a
-<code>TableName</code>; <code>TableQualifier</code> is an <code>Option&lt;ProjectName&gt;</code> and a <strong>non-optional</strong> <code>DatasetName</code>.</p>
-<p><strong>Relaxing <code>TableName</code> to admit a <code>.</code> would have been one line, and it would have silently
-invalidated the reasoning two invariants rest on.</strong> <em>No identifier reaches the statement unquoted</em>
-and <em>no value from a question reaches the statement as text</em> are both asserted over the golden corpus
-by <strong>stripping quoted spans</strong> with a single toggle, and <code>golden/shared.rs</code> says in as many words why
-that toggle is sound: an identifier is <code>[A-Za-z0-9_]</code> and nothing else, <em>"which is what makes that a
-fact rather than an assumption - so neither a <code>"</code> nor a <code>'</code> can occur inside a name."</em> A dotted string
-would have put a whole path where those assertions expect one name, and nothing would have failed.</p>
-<p>So each part is parsed by the parser for its position and the generator quotes <strong>per part</strong>.
-<code>QualifiedTable::parse</code> is a <em>splitter in front of the canonical constructor</em> for the convenience of
-whoever writes a catalog document - it splits on <code>.</code>, which no part can contain, and hands each piece
-onward. Nothing stores the text it was handed.</p>
-<p>Three consequences worth stating because each was a decision:</p>
+<h1 id="where-a-budget-lives">Where a budget lives<a class="headerlink" href="#where-a-budget-lives" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted for the estimate; the counter and the refusal are follow-on branches, undecided
+in code and decided here.</strong> <code>maximumBytesBilled</code> bounds one BigQuery job. Nothing bounds a subject,
+an agent or a deployment across many jobs, and #139 is the report that measured this against
+<code>main</code>: <code>PreFlight</code> carries <code>NotAsked</code> and <code>Accepted</code> and no number, <code>RefusalReason</code>'s variants
+include none for spend, and every <code>Budget</code>-named value in the tree (<code>FEDERATED_BUDGET</code>, the MCP test
+durations) bounds bytes or time already answered, not money not yet spent.</p>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>The pieces this decision assembles already exist and none of them talk to each other, stated here at
+the time of this record (<code>main</code> before #662 - <code>PreFlight</code> gains the field this section says it lacks
+in the PR this ADR ships beside):</p>
 <ul>
-<li><strong>A project without a dataset is unrepresentable rather than refused.</strong> <code>project..table</code> is not a
-  thing any data system names, and <code>TableQualifier</code> has no constructor taking a project alone and no
-  optional dataset field. There is no check to get wrong.</li>
-<li><strong><code>ProjectName</code> is the one name shape in this workspace that admits a hyphen, and it is not a
-  loosening of the property above.</strong> A <code>BigQuery</code> project id is lowercase letters, digits and hyphens</li>
-<li>the credential this repository's acceptance leg runs under has one, which is how this was found
-    rather than assumed - while a dataset id is letters, digits and underscore, exactly
-    <code>parse_identifier</code>'s set. <code>model::Hyphens</code> is a flag on <strong>one</strong> parser rather than a second parser,
-    and its documentation states the licence precisely: a hyphen is not <code>"</code>, <code>'</code> or <code>`</code>, so the
-    stripping argument is intact. A variant admitting a quote character, a dot or whitespace would
-    invalidate it, and that is written where the flag is. A legacy domain-scoped project -
-    <code>example.com:project</code> - is <strong>refused</strong>, because a <code>:</code> or a second <code>.</code> inside one part is the defect
-    this module exists to prevent.</li>
-<li><strong><code>Serialize</code> is hand-written to emit the dotted text.</strong> <code>serde(try_from)</code> affects <code>Deserialize</code>
-  alone, and a derived <code>Serialize</code> here would write a struct this type's own <code>Deserialize</code> refuses -
-  the asymmetry that shipped in this workspace on <code>Date</code>. It matters because the definition digest is
-  taken over the serialized form: a derived one would have covered a field layout appearing in no
-  catalog file. An unqualified table therefore serializes exactly as a <code>TableName</code> did, which is why
-  <strong>no existing golden moved</strong> and no existing digest moved.</li>
+<li><strong><code>Warehouse::dry_run</code></strong> returns <code>PreFlight</code>, asked before <code>execute</code> spends anything.
+  <code>PreFlight::Accepted</code> carries no field - <code>crates/sutura-domain/src/warehouse.rs</code> - so an adapter
+  that priced its own dry run has nowhere to put the number.</li>
+<li><strong>BigQuery's dry run is free and slotless</strong> and its <code>QueryResponse</code> already carries
+  <code>totalBytesProcessed</code> as a top-level field, beside <code>kind</code>, <code>jobReference</code> and <code>cacheHit</code> -
+  <code>crates/sutura-exec-bigquery/src/wire/document.rs</code>'s own header names it among the fields nothing
+  here reads. <code>crates/sutura-exec-bigquery/src/wire.rs</code>'s <code>validate_job</code> discards it today, in words:
+  <em>"a dry run returns <code>totalBytesProcessed</code>, and this discards it... <code>PreFlight::Accepted</code> also
+  carries no field for an estimate, so there is nowhere to put it."</em></li>
+<li><strong><code>PrincipalChain</code></strong> is the key a budget would use, and says so in its own doc comment:
+  <em>"what a budget would be keyed on if a budget existed... <code>Eq</code> and <code>Hash</code> are derived so that it
+  can be one when something does."</em> <code>attribution()</code> returns a two-variant <code>Attribution</code> -
+  <code>BareSubject</code> or <code>ActingFor { subject, actors }</code> - so a subject asking directly is already
+  distinguishable, in the type, from an agent asking for them.</li>
+<li><strong><code>FEDERATED_BUDGET</code></strong> in <code>crates/sutura-app/src/federated.rs</code> is a <em>working-set byte ceiling</em> for
+  one combine, unrelated to money and already spent by the time it is checked.</li>
 </ul>
-<p>The authoring surface is the same <code>table:</code> key carrying one part, two or three. There is no second
-key for an author to get out of step with the first, and every document already on disk loads byte
-for byte.</p>
-<h2 id="decision-2-cross-project-is-not-federation-and-must-not-reach-the-splitter">Decision 2 - cross-project is NOT federation, and must not reach the splitter<a class="headerlink" href="#decision-2-cross-project-is-not-federation-and-must-not-reach-the-splitter" title="Permanent link">&para;</a></h2>
-<p><strong>A source is a credential plus a billing project, not a project.</strong> Two datasets, or two projects,
-reached by one credential in one statement is <strong>one</strong> source, and neither the splitter nor
-<code>PlanSpansTooManySources</code> (<code>PlanSpansTwoSources</code> when this was written, before <a href="../0007-federating-across-different-data-systems/">0007</a>'s
-federation landed) must fire on it.</p>
-<p>This is the most expensive thing in this record to get wrong, and it was live rather than
-hypothetical: row 10's splitter and combiner were being built in parallel. <code>BigQuery</code> joins across
-projects <strong>natively</strong> - one credential, one job, one engine - and pushes the join down. Routing that
-through a splitter and a client-side combiner would replace a pushed-down join with a slower one and
-discard exactly the pushdown that makes the adapter worth having.</p>
-<p>So the mechanism is a <em>shape</em> rather than a check: <code>sutura_semantic::plan</code> collects <code>SourceName</code> and
-<strong>nothing from any table path</strong>, and the paragraph saying why now sits at that collection rather than
-in a document. <code>PlanJoin</code> carries its own <code>QualifiedTable</code>, so a fact table in one dataset joined to a
-dimension table in another is one <code>JOIN</code> in one statement. What the source count still acts on is a
-second <strong>credential</strong>, which is the case it was always for: two are split into legs, and more are
-refused.</p>
-<h2 id="decision-3-how-deep-a-path-a-data-system-resolves-is-declared-not-guessed">Decision 3 - how deep a path a data system resolves is declared, not guessed<a class="headerlink" href="#decision-3-how-deep-a-path-a-data-system-resolves-is-declared-not-guessed" title="Permanent link">&para;</a></h2>
-<p><code>Dialect::qualification</code> returns <code>sutura_domain::model::Qualification</code> from an exhaustive match, on
-the <code>DateTruncShape</code> and <code>identifier_quote</code> precedent - a fifth dialect cannot compile without
-answering.</p>
-<p>It has to be a declaration because <strong>the dialect layer will render three parts for any target</strong>: its
-<code>TableRef</code> is a name plus two <code>Option</code>s with no per-dialect arity check. So without this, a
-<code>project.dataset.table</code> rendered for a target with no third position produces a statement that fails
-at the data system or, worse, resolves the leading part as something else.</p>
-<table>
-<thead>
-<tr>
-<th>Dialect</th>
-<th>Resolves</th>
-<th>Why that arm</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>BigQuery</code></td>
-<td><code>project.dataset.table</code></td>
-<td>A first-class path. One credential reaches several projects, and a cross-project join is native. This is the reason the feature exists</td>
-</tr>
-<tr>
-<td>Postgres</td>
-<td><code>schema.table</code></td>
-<td>Cross-<em>database</em> is not a thing it does. Its three-part form is accepted only when the leading part is the database already connected to, so rendering one would work or fail on a connection detail no catalog can see</td>
-</tr>
-<tr>
-<td><code>ClickHouse</code></td>
-<td><code>database.table</code></td>
-<td>It has databases and no catalog above them. A rendering claim, not an execution one - nothing here executes <code>ClickHouse</code></td>
-</tr>
-<tr>
-<td><code>DuckDB</code></td>
-<td>the table alone</td>
-<td><strong>The arm worth reading twice, because it is narrower than what DuckDB can parse.</strong> DuckDB has schemas and attached catalogs. This is declared for what a DuckDB deployment <em>here</em> can resolve: <code>sutura-exec-duckdb</code> registers one view per model in the default schema and <code>sutura-exec-datafusion</code> registers one file per model in its own registry, so a qualified name resolves to nothing in either. Widening this arm is a change to what those adapters attach</td>
-</tr>
-</tbody>
-</table>
-<p>A path deeper than the target is <code>GenerateError::QualificationUnsupported</code>, naming both depths.
-<strong>Never a dropped qualifier</strong> - dropping the part that does not fit is the wrong-number failure at
-the top of this record, moved rather than fixed. It is a <code>GenerateError</code> and not a <code>RefusalReason</code>
-because no question a caller could ask produces one: a table path comes from a catalog document,
-which is upstream.</p>
-<p>The engine and the two binaries that link it refuse the same thing independently:
-<code>DataFusionWarehouse::scan</code> before it consults the registry, and <code>sutura-serve</code> and <code>sutura-cli</code>
-<strong>at boot</strong>, so a deployment that could not serve its bundle does not start.</p>
-<p><strong>No explicit table alias is emitted, and that is a declaration rather than an oversight.</strong> A column
-is qualified by the table's bare name, and <code>FROM a.b.c</code> gives the reference an implicit alias of <code>c</code>
-in all four targets. Saying so explicitly with <code>AS "c"</code> would be better, and it is not reachable
-through the fluent builder this repository uses deliberately: <code>left_join</code> takes a <code>&amp;str</code> and the
-aliasing constructor is private, so it would mean hand-building the AST. The implicit alias is what
-holds, the live run is what measures it on the target where a misquoted identifier is not a syntax
-error, and <code>sutura_sql::generate::table_path</code> carries this paragraph beside the code.</p>
-<h2 id="decision-4-a-label-may-not-be-spelled-the-same-as-a-table-the-statement-reads">Decision 4 - a label may not be spelled the same as a table the statement reads<a class="headerlink" href="#decision-4-a-label-may-not-be-spelled-the-same-as-a-table-the-statement-reads" title="Permanent link">&para;</a></h2>
-<p><code>Definitions::assemble</code> already refused a dimension named after its metric or after the time bucket.
-It now also refuses <code>LabelShadowsTable</code>: the metric's own name, <code>TIME_BUCKET_LABEL</code> and every
-dimension name, against the metric model's table <strong>and every joined model's table</strong>.</p>
-<p><strong>This one is a report, not a prediction.</strong> The first live <code>BigQuery</code> submission returned <code>400
-invalidQuery</code> - <em>"Cannot access field day on a value with type INT64"</em> - because a metric label
-equalled the table name and <code>GoogleSQL</code> resolved the qualifier in <code>table.column</code> to the <strong>select-list
-alias</strong> instead of to the table. Same root cause as the unqualified table itself: a physical name that
-nothing checked against the labels beside it.</p>
-<p>It is refused for <strong>every</strong> dialect rather than for the one that reported it, because a rule about
-which of two things a qualifier binds to is precisely the kind of difference nobody should maintain
-per target - and the alternative outcomes across four dialects are a wrong number, a rejected
-statement and silence.</p>
-<p><strong>It checks every label against every table, which is stricter than the collision that has to bite.</strong>
-A joined table is in the <code>FROM</code> only when a dimension reached through it is asked for, but any other
-dimension can be asked for in the same question - so which pairs meet at query time is a function of
-the question, and a load-time check that tried to predict it would sometimes let one through.
-Refusing the cross product costs a catalog author one rename and cannot be wrong in the direction that
-returns a number. The check reads the table's <strong>bare</strong> name, because that is what a qualifier binds
-to: a metric named after the <em>dataset</em> collides with nothing.</p>
-<p><strong>Amended, because the first version of this check compared for equality and a review reproduced the
-gap.</strong> GoogleSQL's lexical reference lists <em>aliases within a query</em>, <em>column names</em> and <em>field names</em>
-as NOT case-sensitive - checked 2026-08-30 - while its <strong>table</strong> names are case-sensitive by default.
-So a table named <code>Orders</code> is a distinct table, the qualifier <code>Orders</code> still resolves to a select-list
-alias spelled <code>orders</code>, and an equality check let every such pair through to collide exactly as the
-same-case one did.</p>
-<p>The comparison now folds ASCII case, and it folds it for the two older checks too - a dimension named
-after the time bucket, and a dimension named after its metric - because GoogleSQL documents a result
-column's <em>name</em> as case-insensitive as well, so <code>Period</code> beside <code>period</code> is one column there. Neither
-needed a new variant; what changed is the comparison.</p>
-<p><strong>Which rule to compare under is a decision rather than an implementation detail, and it is made where
-the vocabulary is.</strong> <code>sutura_domain::model::IdentifierCase</code> is the vocabulary and
-<code>sutura_sql::Dialect::identifier_case</code> is the per-dialect declaration, on the <code>Qualification</code> and
-<code>DateTruncShape</code> precedent from Decision 3: the domain names what the difference is, a target answers
-for itself, and a comparison decides. <code>BigQuery</code> is <code>InsensitiveAscii</code> from the reference above, and
-<code>DuckDb</code> is too - <strong>measured</strong> on the pinned DuckDB 1.5.5, where a table created as a quoted <code>Orders</code>
-is bound by a quoted <code>orders</code> qualifier and returns a result.</p>
-<p>A bundle is dialect-agnostic, so both this check and Decision 5's compare under
-<code>IdentifierCase::COARSEST</code> whatever a dialect declares. <strong>That makes the declaration a self-check and
-not a barrier, and saying which is the point:</strong> a value declared <code>Sensitive</code> cannot make a bundle
-unsafe, which is why <code>Postgres</code> and <code>ClickHouse</code> are declared from documented behaviour and not
-measured - neither has a server in this repository to ask. What the declaration buys is
-<code>every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes</code>, so a variant folding <em>more</em> than
-ASCII case fails a test instead of quietly making both comparisons too fine.</p>
-<p><strong>Corrected: both now have a server in this repository, so that reason is spent while the
-declarations are unchanged.</strong> <code>nix/postgres-tier.nix</code> provisions Postgres from nixpkgs and
-<code>clickhouse</code> is a default service of the docker dev tier <code>just dev-up</code> brings up;
-<code>sutura_sql::Dialect::identifier_case</code> already carries the Postgres half of this correction.
-<strong>The limit on the other half:</strong> no ClickHouse adapter exists in this workspace -
-<code>compose.services.yaml</code> says so beside the service - so asking that server would mean a client
-rather than this renderer. So
-the two are <strong>not yet</strong> measured rather than unmeasurable. <strong>What that does not change is the
-decision</strong>, for the reason the paragraph above gives: a value declared <code>Sensitive</code> cannot make a
-bundle unsafe, so measuring either one tightens the self-check and moves no comparison.</p>
-<h2 id="decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around">Decision 5 - two tables whose paths end in one name are refused, not aliased around<a class="headerlink" href="#decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around" title="Permanent link">&para;</a></h2>
-<p>Decision 1 says a column is qualified by the <strong>last</strong> part of a path, because <code>FROM a.b.orders</code> gives
-the reference an implicit alias of <code>orders</code> in all four targets. What Decision 1 did not say is what
-happens when two of the tables in one statement end their paths the same way, and a review reproduced
-it by changing one fixture: a fact table at <code>analytics-prod.sales.orders</code> joined to a dimension table
-at <code>reference-data.crm.orders</code> rendered an <code>ON</code> clause reading <code>orders.customer_id = orders.id</code> - one
-table compared with itself - with every projected column qualified by an identifier naming two tables.
-A real DuckDB 1.5.5 answers that statement <code>Binder Error: Ambiguous reference to table "orders"</code>; a
-target that binds it to one side instead returns a number under a certified metric name. Same-name
-tables across datasets are the estate shape this record exists for, so it is reachable rather than
-exotic.</p>
-<p><strong>Distinct explicit aliases are the fix that keeps the question answerable, and they are not reachable
-through the builder this workspace renders with.</strong> Measured against <code>polyglot-sql</code> 0.9.2:
-<code>SelectBuilder::from_expr</code> takes an expression, so the <code>FROM</code> side could carry an <code>AS</code>, but
-<code>left_join</code> and every other join method take a <code>&amp;str</code> table name and <code>join_with_kind</code> is private - so
-the joined side cannot be aliased without hand-building a select expression with upwards of thirty
-fields, which <code>sutura_sql::generate</code>'s own header rules out. An alias on one side of a join and not
-the other is not a fix.</p>
-<p>So the decision is the other one, and it is made <strong>unrepresentable rather than checked at render
-time</strong>: <code>sutura_domain::plan::StatementTables</code> is the only way to a <code>QueryPlan</code> <em>or</em> to a
-<code>LegPlan::Fact</code> - <code>QueryPlan::new</code> takes it instead of a table plus a vector of joins, and the leg
-variant holds one as a field - and its <code>parse</code> refuses two occurrences answering to one identifier
-under <code>IdentifierCase::COARSEST</code>. There is therefore no ambiguous plan of either shape for any dialect
-to render. <code>sutura_semantic::plan</code> turns that refusal into
-<code>RefusalReason::PlanTablesShareAnIdentifier</code>, beside <code>PlanSpansTooManySources</code>, which is the other
-refusal that stage produces about the shape of a statement rather than about anything a caller wrote.</p>
-<p><strong>A QUERY-time refusal and not a load-time one, which is the opposite of Decision 4 and deliberately
-so.</strong> A colliding <em>label</em> costs its author a rename; a colliding <em>table</em> is a physical name nobody
-here can change, and refusing the metric at load would make this record's own estate shape
-unauthorable. So the metric stays authorable and only a question that actually puts both tables in one
-statement is declined - a dimension on the fact table's own model is still answered, which
-<code>golden/service.rs</code> asserts as the second half of the same test.</p>
-<p>The comparison is over <strong>positions</strong> rather than over distinct paths, so the same table joined twice
-through two relationships is refused too: two occurrences under one identifier is a duplicate alias
-whether or not they name the same rows.</p>
-<p><strong>The limit this section used to state was the fact leg, and it was reached rather than left
-hypothetical - which is why the correction is recorded here instead of the claim being quietly
-widened.</strong> This record shipped saying the guard did not reach a <code>LegPlan::Fact</code>, that nothing outside
-a test constructed a leg, and that <em>"the change that gives a leg a producer is the change that should
-route it through <code>StatementTables</code>"</em>. <a href="../0007-federating-across-different-data-systems/">0007</a>'s
-splitter is that change, and the first version of it built both legs by struct literal: a federated
-question with a same-source hop to a colliding table rendered
-<code>FROM ...sales.orders LEFT JOIN ...crm.orders ON orders.customer_id = orders.customer_id</code>, measured
-through <code>generate_leg</code> for <code>Dialect::BigQuery</code>. Worse than the whole-answer case rather than equal to
-it, because a leg's rows are combined above it and nothing downstream sees the statement. <code>Fact</code> now
-carries a <code>StatementTables</code> as its field, pinned by a <code>compile_fail</code> doctest with a compiling twin
-(E0559 on <code>table</code> and <code>joins</code>), and <code>golden/service.rs</code> provokes the refusal through a three-model
-catalog. <strong>A prediction in a doc comment is not a mechanism.</strong></p>
-<p>What remains is narrow: a <code>LegPlan::Lookup</code> reads one table and declares no joins, so it has no pair
-to compare, and two LEGS whose tables collide are not this defect - each leg is its own statement on
-its own data system, and what the combiner joins on is a label rather than a table qualifier.</p>
-<h2 id="what-the-goldens-pin-and-where">What the goldens pin, and where<a class="headerlink" href="#what-the-goldens-pin-and-where" title="Permanent link">&para;</a></h2>
-<p><code>crates/sutura-app/tests/golden/qualified.rs</code>, a third file on the dialect axis for the reason
-<code>golden/legs.rs</code> is a second one: <strong>the question corpus cannot produce these.</strong> A question has no
-field naming a table, so a path comes from a catalog document - and the shipped corpus under
-<code>examples/single-player</code> is deliberately left unqualified, because the two data systems that
-<em>execute</em> it register one file per model and would have nothing to resolve a project against.
-Qualifying the corpus would have moved every existing golden and broken the executed axis in order to
-demonstrate a rendering.</p>
-<p>Three fixtures - a dataset qualifier, a project above a dataset, and that fact table joined to a
-dimension table in <strong>another project</strong> - expanded over every registered dialect. Each cell handles
-both outcomes, read off <code>Dialect::qualification</code> rather than listed, so a fifth dialect is covered
-without an edit. Five statements carry the row cap, which moves <code>AGENTS.md</code>'s golden count from 88 to
-93.</p>
-<h2 id="what-is-claimed-and-what-is-not">What is claimed, and what is not<a class="headerlink" href="#what-is-claimed-and-what-is-not" title="Permanent link">&para;</a></h2>
-<p><strong>Claimed, and measured against a real project on 2026-08-31.</strong> The acceptance leg reads <strong>the same
-table three ways in one test</strong> - unqualified through the job's <code>defaultDataset</code>, then <code>dataset.table</code>,
-then <code>project.dataset.table</code> - and all three answer 42 for June and 99 for July. So a qualified path
-both <em>renders</em> and <em>resolves</em>, and the implicit-alias declaration in Decision 3 holds on the target
-where a misquoted identifier would not have been a syntax error.</p>
-<p><strong>The negative control is what makes that a measurement rather than an inference</strong>, and it is the
-half worth insisting on: the same table name asked for in <code>sutura_no_such_dataset.&lt;table&gt;</code> is
-<strong>refused</strong>. Without it, a service that ignored the qualifier and resolved the last part in its
-default dataset would have produced three identical green legs while proving nothing - which is this
-record's own opening failure, one layer further out.</p>
-<p><strong>Not claimed, and each of these is a gap rather than a hedge:</strong></p>
+<p>Three questions, and each has a real alternative:</p>
+<h2 id="the-key-the-subject-from-attribution-not-the-whole-chain">The key: the subject from <code>attribution()</code>, not the whole chain<a class="headerlink" href="#the-key-the-subject-from-attribution-not-the-whole-chain" title="Permanent link">&para;</a></h2>
+<p><strong>Decision: the map key is the <code>Subject</code></strong> - specifically, the subject <code>PrincipalChain::attribution()</code>
+returns, whether the case is <code>BareSubject</code> or <code>ActingFor</code>. The actor chain, when <code>ActingFor</code> names
+one, is not part of the key; it does not disappear, it moves - see below - to the refusal and the
+audit record, so a spend is billed to the subject but a reader can still see which actor incurred it.</p>
+<p><strong>Alternative declined, reversing this lane's own first draft: the whole <code>PrincipalChain</code> (subject,
+actors when present, task when present) as one opaque key via its derived <code>Eq</code>/<code>Hash</code>.</strong> The draft
+this replaces picked the chain and named its own cost honestly - <em>"a subject who can mint new agent
+identities gets a fresh, unspent budget per identity"</em> - and then kept the pick anyway, on the
+reasoning that a budget keyed this finely governs an identity that asks a lot, not one that
+multiplies. On review that reasoning had it backwards: a key fine enough to tell an agent apart from
+the subject it acts for is exactly a key an agent can walk around by asking under a new chain, and</p>
+<h1 id="139-opens-against-a-shape-that-multiplies-a-thousand-jobs-not-one-relentless-asker-from-one">139 opens against a shape that multiplies - <em>a thousand jobs</em>, not one relentless asker from one<a class="headerlink" href="#139-opens-against-a-shape-that-multiplies-a-thousand-jobs-not-one-relentless-asker-from-one" title="Permanent link">&para;</a></h1>
+<p>fixed identity. A chain key gives every minted identity a fresh, unspent allowance; the multiplying
+threat is the one this record has to close, and a key that includes the actors cannot close it.</p>
+<p><strong>The cost of the pick, stated where the claim is:</strong> collapsing <code>ActingFor</code> into its <code>subject</code> pools
+every agent acting for a person into that person's own allowance. An agent that retries - the exact
+threat #139 opens with, read the other way - then spends the human's own budget, so their own direct
+next question can be refused by their tool's mistake. This is a real cost and it is the same one the
+first draft declined the subject key over; it is accepted here because it is bounded and diagnosable
+where the chain key's cost was neither: the subject's own tooling caused it and the subject's own
+tooling can be fixed, the counter still refuses at the same ceiling either way, and - because the
+actor chain travels with the refusal and the audit record instead of disappearing - <em>whose</em> retry
+spent the budget is answerable after the fact even though the counter did not key on it in advance.
+A subject who cannot see or govern their own agents is exposed to this cost; a subject is never
+exposed to another subject's agents, because the key is still per-subject. <strong>That per-subject
+isolation is itself conditional on <code>security.inbound</code> being configured:</strong> on a deployment that
+declares none, <code>PrincipalChain::attribution()</code>'s subject is <code>Subject::TheDeploymentItself</code> for every
+caller (<code>crates/sutura-http/src/principal.rs</code>), so the per-subject key collapses to one shared key and
+the budget this record designs becomes, on that shape, a deployment-wide budget in per-subject
+clothing - one caller's runaway refuses everyone.</p>
+<p><strong>Where the actor chain goes instead.</strong> Not into the key, and not discarded: <code>PR2</code>'s refusal shape
+and whatever audit record already carries <code>PrincipalChain</code> (<code>crates/sutura-domain/src/audit.rs</code>
+already accepts one) name the acting chain beside the subject the spend was billed to, so a spent
+budget's record answers both <em>whose allowance</em> (the key) and <em>who asked</em> (the chain) without
+conflating them into one bucket.</p>
+<p><strong>Alternative declined: key on the source or the deployment.</strong> A single deployment-wide counter
+answers a different question - <em>can this deployment as a whole afford this</em> - which is real and is
+listed under <em>Consequences</em> as a control this decision does not replace. It cannot answer <em>whose</em>
+spend to refuse, which is the question <code>attribution()</code> exists to make answerable and the reason</p>
+<h1 id="139-cites-it-by-name">139 cites it by name.<a class="headerlink" href="#139-cites-it-by-name" title="Permanent link">&para;</a></h1>
+<h2 id="where-the-counter-lives-per-replica-for-the-first-version-stated-as-such">Where the counter lives: per-replica for the first version, stated as such<a class="headerlink" href="#where-the-counter-lives-per-replica-for-the-first-version-stated-as-such" title="Permanent link">&para;</a></h2>
+<p><strong>Decision: the first counter is in-process, one per replica, keyed by the subject from
+<code>attribution()</code>, windowed - it resets on a fixed period as well as on restart, never only on
+restart.</strong> No new dependency, no new failure mode, and it ships with the estimate rather than behind
+a store decision. Windowed rather than a lifetime cap is decided here, not deferred to
+<code>feat/budget-refusal</code>, because <em>What a spent budget produces</em> below argues a <code>429</code> from the
+self-healing property a window gives and a lifetime cap does not have: a cap that only clears on
+restart makes the refusal permanent until a redeploy, which is #139's own complaint about a <code>429</code>
+inviting a retry that will also fail - so the counter shape and the refusal's status are one decision,
+made together here rather than the status assuming a shape nothing had picked yet.</p>
+<p><strong>Alternative declined, for now: a shared store across replicas.</strong> This is the strictly better
+control - #139's own premise is that per-pod counters are not a budget - and it is declined here
+only because it is a second decision hiding inside this one: which store, and <strong>what a store that is
+down does to the questions that do not need it</strong>. <code>docs/implementation-plan.md</code>'s own rule for the
+identity path is <em>"anything that cannot be reached on the authorization path must fail closed"</em> -
+but a budget is not identity, and a store failure that refuses every question because the counter is
+unreachable turns an availability incident in a side dependency into an outage of the certified path,
+which is worse than the ungoverned spend it replaces. Whether an unreachable store should fail open
+(spend ungoverned until it returns) or fail closed (refuse until it returns) is exactly the decision</p>
+<h1 id="139-named-as-not-a-detail-and-it-deserves-its-own-record-once-a-store-is-chosen-rather-than-an">139 named as <em>not a detail</em>, and it deserves its own record once a store is chosen rather than an<a class="headerlink" href="#139-named-as-not-a-detail-and-it-deserves-its-own-record-once-a-store-is-chosen-rather-than-an" title="Permanent link">&para;</a></h1>
+<p>answer picked to unblock this one.</p>
+<p><strong>Alternative declined: the data system's own quota, sutura only reporting.</strong> BigQuery has
+project-level quotas that a deployment can set independently of anything sutura does, and that is a
+real, already-available, cross-replica control <strong>for BigQuery</strong>. It is not a general answer: DuckDB
+and Postgres meter nothing sutura can attach a quota to, so a decision that only BigQuery can enforce
+is not a decision about <em>a budget</em>, it is a decision about one adapter's own service. It belongs
+beside this record as an operator note for BigQuery deployments, not instead of the counter.</p>
+<p><strong>The cost of the pick, stated where the claim is:</strong> a deployment with N replicas gets N times the
+configured ceiling before every replica has independently refused, and a counter resets on every
+restart or rolling deploy, in addition to its own window. This is not the budget #139 asks for; it is
+the smallest piece of it that adds nothing to reason about failing, and the settings key it reads
+MUST say so in its own
+description rather than name itself <code>budget</code> unqualified - <code>per_replica_spend_ceiling</code>, not
+<code>spend_budget</code>, so a deployment that reads its own configuration cannot mistake the limit for the
+goal.</p>
+<h2 id="what-a-spent-budget-produces">What a spent budget produces<a class="headerlink" href="#what-a-spent-budget-produces" title="Permanent link">&para;</a></h2>
+<p><strong>Decision: a <code>RefusalReason</code> variant, and a <code>429</code>, not the <code>422</code> <code>ResourcesExhausted</code> already
+uses.</strong> Every existing 4xx row in <code>docs/adr/0005-a-refusal-carries-a-status.md</code>'s table is
+permanent in the sense that matters to a client: the same question refused now is the same question
+refused on the next identical attempt, because nothing about the refusal changes with time -
+<code>ResourcesExhausted</code>'s ceiling does not move, <code>SourceRefused</code>'s grant does not appear, narrowing is
+always the only way out. A spent budget is the one shape here that is <strong>not</strong> permanent: the same
+question, asked again after the window this record's key tracks rolls over, is a different answer,
+because the thing that changed is nothing about the question - it is only that time passed. That is
+what a <code>429</code> states and a <code>422</code> or <code>403</code> do not, and it is why #139's own worry - <em>"a <code>429</code> invites a
+retry that will also fail"</em> - does not apply to an immediate retry, which this decision expects to
+fail exactly once more, but does apply to <em>no</em> retry, which is wrong for a refusal that resolves on
+its own. A <code>Retry-After</code> naming the window's reset, where the counter's shape makes one knowable, is
+the detail that turns <em>"try again"</em> from a guess into a fact the response carries.</p>
+<p><strong>Alternative declined: <code>403</code>, matching <code>CredentialUnavailable</code> and <code>SourceRefused</code>.</strong> Declined
+because those two are permanent - a grant does not reappear on a timer - and reusing their status for
+a refusal that self-heals would teach a caller that <code>403</code> from this service sometimes means <em>come
+back later</em>, which spends the meaning <code>docs/adr/0005</code> built <code>403</code> to have.</p>
+<p><strong>Alternative declined: reuse <code>ResourcesExhausted</code>'s <code>422</code> with a new payload.</strong> Declined for the
+same reason as declining <code>403</code>: <code>422</code>'s row says <em>narrowing helps and repeating does not</em>, and a
+budget refusal is not that - narrowing does not help (the question already fits the metric and the
+range), and repeating <strong>does</strong>, once the window resets. A shared variant with two different retry
+semantics behind one status is the kind of finding <code>docs/adr/0005</code> was written to stop.</p>
+<p><strong>Not decided here: the variant's exact fields.</strong> The counter is windowed, decided above, so a
+<code>Retry-After</code> naming the window's reset is possible; the field carrying it, and whatever else the
+variant names, follow from <code>feat/budget-refusal</code>'s own implementation. The refusal's status and its
+category - self-healing, not narrowable - are decided; its exact payload is not.</p>
+<p><strong>This decision amends <code>docs/adr/0005-a-refusal-carries-a-status.md</code> before the code exists to amend
+it with.</strong> That record's Context section states <em>"the two [statuses retried by convention, <code>429</code>
+and <code>408</code>] and no refusal maps to either"</em> (0005, Context), and
+<code>crates/sutura-http/src/wire/refusal.rs</code>'s own header comment repeats it; both become false the day
+<code>feat/budget-refusal</code> lands a <code>RefusalReason</code> at <code>429</code>. Recorded here, ahead of that PR, in the same
+spirit 0005 already amends itself in place for a landed row (0008's <code>CredentialUnavailable</code>) - <code>0005</code>
+gets its own amendment paragraph and status-table row, and <code>refusal.rs</code>'s header comment its own
+edit, in the commit that lands the variant, not this one.</p>
+<p><strong><code>429</code> is already spent on this surface, by a different key.</strong> <code>Failure::RateLimited</code>
+(<code>crates/sutura-http/src/problem.rs</code>) is <code>429</code> today, keyed on the caller's address by the rate
+limiter - "you personally asked too often" about a connection, not a subject. A budget refusal keyed
+on <code>attribution()</code>'s subject would share the status and differ in <code>code</code>, the same shape <code>problem.rs</code>
+already uses for <code>Unavailable</code>/<code>IdentityUnavailable</code>/<code>AtCapacity</code> sharing <code>503</code>: two keys, address and
+subject, behind one status, told apart by the reader that matters - the client branching on <code>code</code>.
+Stated here so the shared status is a decision rather than a collision noticed later.</p>
+<h2 id="what-spend-means-per-data-system">What "spend" means per data system<a class="headerlink" href="#what-spend-means-per-data-system" title="Permanent link">&para;</a></h2>
+<p><strong>BigQuery</strong> already has a service-enforced, per-job money bound (<code>maximumBytesBilled</code>) and a free
+estimate (<code>totalBytesProcessed</code>) this record's estimate step reads. What sutura adds is
+the thing BigQuery's own bound cannot see: a ceiling that sums across many jobs by the same asking
+identity, which is exactly the shape #139 opens with - <em>a thousand jobs that each scan just under
+the per-job bound.</em></p>
+<p><strong>The in-process engine (DataFusion) and DuckDB bill nobody.</strong> There is no money bound to add for
+either. "Spend" for them is bytes scanned, and neither adapter's <code>dry_run</code> produces that number
+today - DuckDB answers <code>PreFlight::Accepted</code> because <code>prepare</code> really resolves the statement and
+reads no plan statistics that would estimate bytes touched; DataFusion answers the port's own
+<code>NotAsked</code> default and does not override it at all, because checking its plan means running most of
+the answer twice - see its own <code>dry_run</code> doc comment. Either way an estimate for these two is <code>None</code>
+honestly, the same as it is for Postgres, and the budget this record's counter enforces is checked
+against <strong>whatever legs did estimate</strong>, with an unestimated leg contributing nothing to the sum
+rather than refusing the plan for lacking a number nobody promised. Whether an
+engine-side estimate is worth building - from table statistics, or from <code>EXPLAIN</code> - is not decided
+here and is not blocking: the smallest honest slice ships with BigQuery's number and everyone else's
+honest absence.</p>
+<p><strong>Postgres</strong> has <code>EXPLAIN</code>, which estimates rows and a planner cost unit, not bytes, and no money
+attaches to either. Folding a Postgres cost estimate into a byte-denominated budget would need a
+conversion this record does not attempt; Postgres's <code>dry_run</code> stays <code>prepare</code>-only and its
+contribution to a byte budget stays <code>None</code>, same as the engine.</p>
+<h2 id="preflight-carries-an-estimate"><code>PreFlight</code> carries an estimate<a class="headerlink" href="#preflight-carries-an-estimate" title="Permanent link">&para;</a></h2>
+<p><strong>Decision: <code>PreFlight::Accepted</code> gains one field, <code>estimated_bytes: Option&lt;EstimatedBytes&gt;</code>, where
+<code>EstimatedBytes</code> is a one-field newtype over <code>u64</code></strong> (not a bare integer, so a byte count cannot be
+confused with any of the other <code>u64</code>s a plan carries) rather than a <code>u64</code>, and not a required field,
+because most adapters have nothing to put there and <code>NotAsked</code> already exists to keep <em>did not ask</em>
+distinct from <em>asked and accepted</em> - <code>Some</code>/<code>None</code> on <code>Accepted</code> keeps <em>asked, accepted, priced</em> apart
+from <em>asked, accepted, could not price</em>, the same discipline one level in. Zero is a legitimate
+estimate (a cached result, a trivial <code>SELECT</code>), so the newtype validates nothing beyond existing -
+unlike <code>BytesBilledCeiling</code>, which forbids zero because zero would refuse every question, an estimate
+of zero is simply the truth for some questions.</p>
+<p><strong>Alternative declined: a required <code>estimated_bytes: u64</code> with <code>0</code> standing for "unknown."</strong> Declined
+because it is exactly the ambiguity <code>PreFlight::NotAsked</code> was written to remove one level up: <code>0</code>
+from an adapter that could not price and <code>0</code> from a genuinely free question become the same value,
+and a caller cannot tell a real number from an absent one - the defect this whole record's key
+citation names.</p>
+<p><strong>Blast radius, named rather than discovered in review:</strong> every existing construction and match of
+<code>PreFlight::Accepted</code> - <code>sutura-app</code>, <code>sutura-conformance</code>, <code>sutura-exec-bigquery</code>'s own tests and
+acceptance suite, <code>sutura-conformance/tests/bound.rs</code> - becomes <code>Accepted { estimated_bytes: None }</code>
+except the one call site with a real number to put there
+(<code>crates/sutura-exec-bigquery/src/lib.rs</code>'s <code>dry_run</code>, which already discards
+<code>totalBytesProcessed</code> and now keeps it). This is mechanical and it is one commit, per
+<code>AGENTS.md</code>'s own rule for a repeated change.</p>
+<h2 id="consequences-and-limits">Consequences and limits<a class="headerlink" href="#consequences-and-limits" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>No second dataset was reached, and no second project.</strong> Measured rather than assumed: the
-  acceptance service account can see one dataset, and <code>datasets.insert</code> returns
-  <code>403 accessDenied ... does not have bigquery.datasets.create permission</code>, so neither a second
-  dataset nor a second project could be created to read across. <strong>What that leaves unproved is
-  narrower than it sounds and is worth stating exactly:</strong> the three-part path is proved to <em>resolve</em> -
-  the qualifier is read, and a wrong dataset in it is refused - and what is unproved is a read whose
-  leading part is a project the credential does not already bill to. That is an IAM grant rather than
-  a code change; the statement is identical in shape either way. It is the one thing to re-run when a
-  second project exists.</li>
-<li><strong>A cross-project JOIN was not executed.</strong> It is rendered, parse-checked, and pinned as one
-  statement with one <code>JOIN</code> and one <code>SourceName</code> - which is the design claim of Decision 2 - but no
-  local test can show a service performing it, and none pretends to.</li>
-<li><strong>Nothing about the corpus.</strong> The live legs are hand-built statements, exactly as
-  <a href="../0018-what-the-bigquery-wire-is-built-from/">0018</a> says of its own.</li>
-<li><strong>Nothing about identity.</strong> A service-account key is <code>SharedServiceUser</code>. Cross-project reads under
-  a per-subject credential are <a href="../0008-a-credential-per-leg-for-the-calling-subject/">0008</a>'s
-  business, and this record touches none of it.</li>
+<li><strong>What this record ships nothing new for.</strong> No port method, no <code>RefusalReason</code> variant, no
+  counter, no store. <code>PreFlight</code> carrying a number is the only type change this record authorizes
+  directly; the key, the counter's home and the refusal's status are decided so the two follow-on
+  branches build the same shape rather than three different guesses.</li>
+<li><strong>The per-replica counter is not the budget #139 asked for</strong>, and its own settings key must say so.
+  It stops one replica's runaway, not a deployment's. A shared store is the strictly better control
+  and is deliberately not decided here - see <em>Where the counter lives</em> above for why forcing that
+  choice now would answer the wrong question first.</li>
+<li><strong>An agent acting for a subject spends that subject's own budget, not a budget of its own.</strong> Stated
+  once above, held here as the standing limit: a misbehaving or retrying agent can exhaust the
+  allowance the subject needed for their own next direct question. The actor chain travels with the
+  refusal and the audit record so the spend is diagnosable after the fact, but the counter itself
+  cannot tell the subject's own asking apart from an agent's on the way to the ceiling.</li>
+<li><strong>On a deployment with no <code>security.inbound</code>, the per-subject key is a deployment-wide key.</strong>
+  Every caller's <code>attribution()</code> names <code>Subject::TheDeploymentItself</code>, so the isolation <em>The key</em>
+  section claims between subjects holds only once leg 1 is configured; on the shape that ships
+  before it, this budget is one shared allowance and any caller's runaway refuses every other.</li>
+<li><strong>The estimate is a plan-time number and not a promise.</strong> <code>PreFlight::Accepted</code> already carries this
+  limit for acceptance - <em>"the data system's opinion at pre-flight time and not a guarantee about
+  execute"</em> - and an estimate inherits it: what a job is actually billed for can differ from
+  <code>totalBytesProcessed</code>, which is why #139's own verification section calls that gap "the one number
+  here that cannot be assumed" and routes the live check to <code>just bigquery-acceptance</code> rather than a
+  fake.</li>
+<li><strong>A federated answer's estimate is the sum of every leg's <code>Some</code>, ignoring every leg's <code>None</code>.</strong>
+  This under-counts whenever a <code>None</code> leg would have scanned real bytes, which today is every leg
+  that is not BigQuery. Stated here so the follow-on branch cannot silently treat a partial sum as a
+  complete one.</li>
+<li><strong>Nothing here enforces anything.</strong> A number that nothing refuses against is a metric, not a
+  budget. <code>feat/preflight-estimate-carries-a-number</code> ships the number; <code>feat/budget-refusal</code> ships
+  the refusal this record already named the shape of.</li>
 </ul>
 
 

@@ -839,6 +839,8 @@
       
         
       
+        
+      
     
     
     
@@ -1793,6 +1795,34 @@
     
   
     Who may see a metric
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0030-where-a-budget-lives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where a budget lives
   
 
     
@@ -2763,6 +2793,13 @@ sentence below - <em>"the <code>403</code>s are not a statement about a credenti
 <code>RefusalReason::CredentialUnavailable</code> arrived with a <code>403</code> of its own. The amendment is written where
 that sentence is, and the status table below carries the new row. A review is what found this record
 unamended while the code that amended it had already merged.</p>
+<p><strong>Prospectively amended by <a href="../0030-where-a-budget-lives/">Where a budget lives</a>, ahead of the code
+that will land it.</strong> The Context sentence below - <em>"the two [statuses retried by convention, <code>429</code>
+and <code>408</code>] and no refusal maps to either"</em> - and <code>crates/sutura-http/src/wire/refusal.rs</code>'s own
+header comment, which repeats it, both stop being true the day <code>feat/budget-refusal</code> lands a spent
+budget as a <code>RefusalReason</code> at <code>429</code>. 0030 decides the status now; this record and <code>refusal.rs</code>'s
+header get their own edit - a status-table row and a rewritten sentence, not this note - in the
+commit that lands the variant.</p>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
 <p><code>POST /v1/query</code> answered <code>200</code> for both outcomes. An answer and a refusal arrived with the same
 status, and the <code>outcome</code> field was what a caller branched on:</p>

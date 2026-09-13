@@ -837,6 +837,8 @@
       
         
       
+        
+      
     
     
     
@@ -1650,6 +1652,34 @@
     
   
     Who may see a metric
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0030-where-a-budget-lives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Where a budget lives
   
 
     
@@ -3168,6 +3198,15 @@ nothing; <code>list_tables</code> sends a metadata read rather than a statement,
 cheap enough for a boot check; and <code>apply</code>, behind the <code>fixtures</code> feature, is the second
 statement-issuing method - present only in a build that loads fixtures, so no deployment can
 reach it.</p>
+<h3 id="type_alias-dryrunestimate"><code>type_alias DryRunEstimate</code><a class="headerlink" href="#type_alias-dryrunestimate" title="Permanent link">&para;</a></h3>
+<p>A dry run's own byte estimate, when it priced one - <code>None</code> is <code>docs/adr/0030</code>'s honest absence,
+never a defaulted zero.</p>
+<p><strong>A named alias rather than <code>Option&lt;EstimatedBytes&gt;</code> written out at every return type</strong>, because
+this exact shape - wrapped in a <code>Result</code> - is the return type of <code>JobTransport::validate</code> and
+every one of its implementors, fake and real; a name spares each of those sites the <code>Option</code> and
+says what the value MEANS at the read site, which the bare composed type would not. It does not
+cross this workspace's <code>clippy::type-complexity</code> threshold - it is well under it - so the alias
+earns its place on readability alone, not on a lint that does not fire either way.</p>
 <h2 id="module-wire">Module <code>wire</code><a class="headerlink" href="#module-wire" title="Permanent link">&para;</a></h2>
 <p>The WIRE: one <code>JobTransport</code> that speaks to a <code>BigQuery</code> endpoint over HTTP.</p>
 <p><strong>This is the seam <code>docs/adr/0017</code> left open, filled in by the decision <code>docs/adr/0018</code> records.</strong>
@@ -3413,6 +3452,7 @@ every other variant and <code>clippy::result_large_err</code> is on.</p>
 <li><code>MoreThanOnePage</code> - The answer is one page of more than one.</li>
 <li><code>NoTotal</code> - A complete job that stated no total.</li>
 <li><code>NotATotal</code> - The total was not a number.</li>
+<li><code>NotAnEstimate</code> - <code>totalBytesProcessed</code> was present and not a number.</li>
 <li><code>NoSchema</code> - A complete job with rows and no schema to read them against.</li>
 <li><code>NotAScalar</code> - A cell that is neither a string nor a null.</li>
 <li><code>NotAListing</code> - The answer to a table listing was not one. Distinct from <code>Self::NotADocument</code>, the same failure for a query answer: two documents, two shapes, and one message per request.</li>
