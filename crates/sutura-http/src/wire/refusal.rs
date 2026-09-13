@@ -311,6 +311,24 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                 postures.iter().copied().collect::<Vec<&str>>().join(" and ")
             ),
         ),
+        // 422, for `ResourcesExhausted`'s exact reason: this used to be a data-system failure and
+        // leave as a retryable `503`, and a deadline is a configured bound the deployment decided
+        // and the data system enforced - something WAS judged. Retrying spends the whole budget at
+        // the data system again, and on a networked adapter bills again; 422's own definition -
+        // "repeating the request without modification will fail with the same error" - is what is
+        // true here, load permitting. `docs/adr/0029` argues both directions once.
+        //
+        // The sentence names the configured budget and nothing about how long the question would
+        // have taken, which nobody knows, and nothing about which leg spent it if this was a
+        // federated answer - see the domain variant for why.
+        RefusalReason::DeadlineExceeded { budget_seconds } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "this deployment stopped the question after {budget_seconds} seconds, its configured \
+                 budget for one answer; narrow the period, group by fewer dimensions or add a filter \
+                 and ask again. Retrying it unchanged returns this same refusal"
+            ),
+        ),
     };
     (
         status,
@@ -504,6 +522,11 @@ mod tests {
                 StatusCode::CONFLICT,
                 "legs_decide_identity_differently",
             ),
+            (
+                RefusalReason::DeadlineExceeded { budget_seconds: 29 },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "deadline_exceeded",
+            ),
         ]
     }
 
@@ -620,6 +643,22 @@ mod tests {
             "the sentence does not name the ceiling: {detail}"
         );
         assert!(detail.contains("unchanged"), "{detail}");
+    }
+
+    #[test]
+    fn a_stopped_deadline_names_its_budget_in_the_sentence() {
+        // `docs/adr/0029`'s own claim for this wire: "the sentence names the configured budget in
+        // seconds". `RefusalBody` is `{code, status, detail}`, so the sentence is the ONLY place
+        // `budget_seconds` reaches this wire at all - the sibling of
+        // `exhaustion_is_not_the_status_a_dead_data_system_comes_back_as`'s ceiling assertion.
+        let (status, body) = refused(&RefusalReason::DeadlineExceeded { budget_seconds: 29 });
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body.code(), "deadline_exceeded");
+        let detail = body.detail();
+        assert!(
+            detail.contains("29 seconds"),
+            "the sentence does not name the budget: {detail}"
+        );
     }
 
     #[test]

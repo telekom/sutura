@@ -509,6 +509,7 @@ mod tests {
         use sutura_domain::pinned::PinnedDefinitions;
         use sutura_domain::plan::{AnchorPlan, Executable};
         use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+        use sutura_domain::warehouse::deadline::Deadline;
         use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
         use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
@@ -567,7 +568,12 @@ mod tests {
                 &SourcePosture::ImpersonationAtSource
             }
 
-            fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+            fn execute(
+                &self,
+                _executable: Executable<'_>,
+                _presented: &Presented,
+                _deadline: Deadline,
+            ) -> Result<RowSet, Self::Error> {
                 Err(CouldNotAsk)
             }
 

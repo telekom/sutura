@@ -331,6 +331,7 @@ mod tests {
     use crate::model::{QualifiedTable, SourceName};
     use crate::plan::{AnchorPlan, Executable};
     use crate::source::{ImpersonationCapability, SourcePosture};
+    use crate::warehouse::deadline::Deadline;
     use crate::warehouse::{AnchorRows, RowSet, Warehouse};
 
     fn table(raw: &str) -> QualifiedTable {
@@ -462,7 +463,12 @@ mod tests {
             &self.posture
         }
 
-        fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        fn execute(
+            &self,
+            _executable: Executable<'_>,
+            _presented: &Presented,
+            _deadline: Deadline,
+        ) -> Result<RowSet, Self::Error> {
             Err(core::fmt::Error)
         }
 

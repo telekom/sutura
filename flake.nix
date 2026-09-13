@@ -482,21 +482,22 @@
             # snapshot a failure rather than something quietly created and passed.
             INSTA_UPDATE = "no";
           }) // {
+            # The disposable demo's fake-child contract is stdlib-only and runs from the same
+            # unfiltered source tree as the Rust tests, before the tier is provisioned.
+            nativeCheckInputs = [ postgresTier.tier pkgs.git pkgs.python3 ];
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
             # the postgres corpus and differential cells run HERE (in this single sandboxed test
             # pass) rather than in a separate `nix develop` job. `ciArtifacts` - the expensive
-            # dependent
-            # closure - is untouched, so its cache key does not move; only this cheap derivation
-            # gains the server. The same `nix/postgres-tier.nix` script `just test` runs starts
-            # and stops it, so the two places cannot drift. `SUTURA_DEV_REQUIRE_TIER` makes a tier
-            # that quietly failed to provision a RED run rather than a loud skip.
-            nativeCheckInputs = [ postgresTier.tier pkgs.git ];
-            # `start`, then the credential it published: the adapter refuses rather than
-            # defaulting one (`github.com/telekom/sutura#455`), so this sandbox has to carry the
-            # three `SUTURA_POSTGRES_TIER_*` exports into `checkPhase` the way `nix/with-tier.sh`
-            # carries them into `just test`. `runHook preCheck` evaluates this in the phase's own
-            # shell, so an `export` here reaches the tests.
-            preCheck = "${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\"";
+            # dependent closure - is untouched, so its cache key does not move; only this cheap
+            # derivation gains the server. The same `nix/postgres-tier.nix` script `just test` runs
+            # starts and stops it, so the two places cannot drift. `SUTURA_DEV_REQUIRE_TIER` makes a
+            # tier that quietly failed to provision a RED run rather than a loud skip.
+            # `start` precedes reading the credential it published: the adapter refuses rather than
+            # defaulting one (`github.com/telekom/sutura#455`), so this sandbox has to carry all
+            # three `SUTURA_POSTGRES_TIER_*` exports into `checkPhase` just as `nix/with-tier.sh`
+            # carries them into `just test`. `runHook preCheck` evaluates in the phase shell, so
+            # exports there reach the tests.
+            preCheck = "${pkgs.python3}/bin/python3 -m unittest demo.test_behavior -v && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\"";
             postCheck = "${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
           });

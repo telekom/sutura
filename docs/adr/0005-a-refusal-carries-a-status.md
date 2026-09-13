@@ -18,6 +18,14 @@ sentence below - *"the `403`s are not a statement about a credential"* - stopped
 that sentence is, and the status table below carries the new row. A review is what found this record
 unamended while the code that amended it had already merged.
 
+**Prospectively amended by [Where a budget lives](0030-where-a-budget-lives.md), ahead of the code
+that will land it.** The Context sentence below - *"the two \[statuses retried by convention, `429`
+and `408`\] and no refusal maps to either"* - and `crates/sutura-http/src/wire/refusal.rs`'s own
+header comment, which repeats it, both stop being true the day `feat/budget-refusal` lands a spent
+budget as a `RefusalReason` at `429`. 0030 decides the status now; this record and `refusal.rs`'s
+header get their own edit - a status-table row and a rewritten sentence, not this note - in the
+commit that lands the variant.
+
 ## Context
 
 `POST /v1/query` answered `200` for both outcomes. An answer and a refusal arrived with the same
@@ -107,6 +115,7 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.
 | `ResourcesExhausted`            | `422`  | **Added after this record was accepted, with the engine's memory pool.** Answering would have needed more working memory than the deployment's configured ceiling, so it was refused rather than allowed to exhaust the process. `422` under this record's own rule - narrowing helps and repeating does not - and deliberately not `413`, which this route already uses for a body over the limit and for `result_too_large`, nor `507`, which is a `5xx` and reads as the server's fault to any client branching on the class. The sentence names the ceiling, which is a configured number, and nothing about what the question demanded                                                                                  |
 | `SourceRefused`                 | `403`  | **Added after this record was accepted, when a data-source refusal became a class of its own, distinct from a transient failure.** The data system itself refused the statement, which is neither this deployment declining to answer nor the data system being down. `403` rather than `503`: retrying changes nothing, because the decision was made at the far end                                                                                                                                                                                                                                                                                                                                                        |
 | `LegsDecideIdentityDifferently` | `409`  | **Added after this record was accepted, with the rule that one answer's legs must decide identity the same way.** Two legs of one answer would run under different identity postures, so the answer is refused rather than combined and disclosed. The same grouping as the `409`s above and for the same reason: answerable in principle, and this deployment will not express it as one answer                                                                                                                                                                                                                                                                                                                             |
+| `DeadlineExceeded`              | `422`  | **Added by [0029](0029-where-a-deadline-lives.md).** This answer ran out of the time it was given - at the data system, or found already spent before it was ever asked. `422` under this record's own rule: the deployment decided the bound and the data system enforced it, so something WAS judged, and repeating the request unchanged spends the whole budget again. Not `503` or `408`, for the reasons `ResourcesExhausted` already established for a configured bound. The sentence names the configured budget in seconds                                                                                                                                                                                          |
 
 **Corrected:** the three rows above were missing while the exhaustive match in
 `sutura_http::wire::refusal` already decided all three, which made the claim above this table - *one

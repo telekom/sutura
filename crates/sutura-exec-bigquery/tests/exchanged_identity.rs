@@ -286,6 +286,7 @@ mod tests {
                 WireError::NotComplete { .. } => String::from("the job did not finish inside its deadline"),
                 WireError::MoreThanOnePage => String::from("the answer arrived in more than one page"),
                 WireError::NoTotal { .. } | WireError::NotATotal { .. } => String::from("the answer carried no readable total"),
+                WireError::NotAnEstimate { .. } => String::from("the answer's byte estimate was not a number"),
                 WireError::NoSchema { .. } => String::from("the answer carried no schema"),
                 WireError::NotAScalar { .. } => String::from("a cell was not a scalar"),
                 WireError::NotAListing { .. } => String::from("the answer was not a listing"),

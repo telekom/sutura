@@ -34,6 +34,26 @@ use sutura_sql::Dialect;
 /// deployment passes a commit id.
 const DEFAULT_VERSION: &str = "local-working-tree";
 
+/// The label `catalog` and `describe` print beside a metric's `sutura_domain::expression::Computation`:
+/// `measure` for the ordinary case, `authored` for the authored-SQL one - a metric whose
+/// `authored_sql:` combines two aggregates is not a measure, and printing it as one misnames the
+/// field the same reader is told, two lines below, uses the named escape hatch.
+const fn computation_label(computation: &sutura_domain::expression::Computation) -> &'static str {
+    if computation.authored_sql().is_some() {
+        "authored"
+    } else {
+        "measure"
+    }
+}
+
+// The `{:<11}` column both call sites pad this label into leaves no space before the value once a
+// label reaches 11 characters - `const _` rather than a named constant for the same reason as
+// `capabilities.rs`: a name nothing reads, and `dead_code` is denied in this workspace.
+const _: () = assert!(
+    "measure".len() < 11 && "authored".len() < 11,
+    "a label this long touches the value in the padded column catalog/describe print it in"
+);
+
 /// The metric's definitional filters, for a person reading a catalog.
 ///
 /// Worth showing rather than hiding: a caller cannot choose these and they change what the number
@@ -133,7 +153,7 @@ pub(crate) fn catalog(args: &[String]) -> ExitCode {
                 .map(sutura_domain::model::DimensionName::as_str)
                 .collect();
             println!("{name}");
-            println!("  measure    {}", metric.measure());
+            println!("  {:<11}{}", computation_label(metric.computation()), metric.computation());
             println!("  filters    {}", render_filters(metric.required_filters()));
             println!("  grains     {}", grains.join(", "));
             println!(
@@ -178,7 +198,7 @@ pub(crate) fn describe(args: &[String]) -> ExitCode {
             .ok_or_else(|| format!("this catalog defines no metric called {wanted}"))?;
         println!("{name}");
         println!("  model      {}", metric.model());
-        println!("  measure    {}", metric.measure());
+        println!("  {:<11}{}", computation_label(metric.computation()), metric.computation());
         println!("  filters    {}", render_filters(metric.required_filters()));
         println!("  time       {}", metric.time_column());
         for (dimension_name, dimension) in metric.dimensions() {
@@ -380,11 +400,29 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
             settings.server().request_timeout(),
             data.as_deref(),
         )? {
-            crate::sources::Opened::Files(opened) => answered(&catalog, &question, opened, settings.runtime()),
+            crate::sources::Opened::Files(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+            ),
             #[cfg(feature = "bigquery")]
-            crate::sources::Opened::BigQuery(opened) => answered(&catalog, &question, opened, settings.runtime()),
+            crate::sources::Opened::BigQuery(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+            ),
             #[cfg(feature = "postgres")]
-            crate::sources::Opened::Postgres(opened) => answered(&catalog, &question, opened, settings.runtime()),
+            crate::sources::Opened::Postgres(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+            ),
         }
     })())
 }
@@ -461,6 +499,7 @@ fn answered<W>(
     question: &Query,
     opened: crate::sources::OpenedWith<W>,
     runtime: sutura_config::RuntimeSettings,
+    request_timeout: sutura_config::RequestTimeout,
 ) -> Result<(), String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
@@ -475,7 +514,10 @@ where
     // has no signature for it - and what the leg presents agrees with what the adapter was opened
     // under because ONE decision produced both.
     let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
-    let outcome = service.answer(&context, question).map_err(|e| render(&e))?;
+    // One deadline, opened here: this command has no admission wait and no other caller to share it
+    // with, so the instant it is opened at is this call's own start - `docs/adr/0029`.
+    let deadline = sutura_domain::warehouse::deadline::Deadline::opened_at(std::time::Instant::now(), request_timeout.budget());
+    let outcome = service.answer(&context, question, deadline).map_err(|e| render(&e))?;
     print_outcome(&outcome)
 }
 

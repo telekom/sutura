@@ -95,6 +95,11 @@ Every reason you can be given, and what to do about each:
   Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same question
   returns the same refusal: the ceiling is a configured number, not a passing condition, so this is
   not an outage to wait out.
+- **deadline_exceeded** - this deployment stopped the question after its configured time budget,
+  rather than let it keep running.
+  Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same question
+  unchanged returns the same refusal: the budget is a configured number, not a passing condition, so
+  this is not an outage to wait out.
 - **plan_spans_too_many_sources** - answering would need to read from more data systems than this
   deployment serves (two at most).
   Nothing you can change. Report it to a person: it is a fact about how the metric is defined, not

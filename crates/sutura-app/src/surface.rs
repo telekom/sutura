@@ -84,6 +84,7 @@ use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
+use sutura_domain::warehouse::deadline::Deadline;
 
 use crate::warehouses::Warehouses;
 use crate::{ServiceError, Validated, verify_and_validate};
@@ -119,7 +120,17 @@ pub trait Surface: Send + Sync + 'static {
     /// returns**. That ordering is the requirement rather than an optimisation: a record written
     /// after the response is the record a crash loses, and the call worth having a record of is the
     /// one that went wrong.
-    fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure>;
+    ///
+    /// # The deadline is opened by the transport, before this call
+    ///
+    /// `deadline` is one absolute [`Deadline`], opened at the instant the request arrived - before
+    /// admission, so the wait for a concurrency slot sits inside the caller's own bound rather than
+    /// adds to it. Taking it here, as a parameter rather than a field this trait's own state holds,
+    /// is the same shape the working-set ceiling already uses: a transport cannot forget to open one
+    /// because there is nowhere else for the value to come from. `docs/adr/0029` is the record; in
+    /// this slice the deadline is carried through to the port and refused on when already spent, and
+    /// nothing yet stops a data system mid-call with it.
+    fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure>;
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -368,7 +379,7 @@ where
         self.definitions.get()
     }
 
-    fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
+    fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure> {
         let answered = crate::answer(
             &self.definitions,
             query,
@@ -376,6 +387,7 @@ where
             &self.broker,
             &self.warehouses,
             self.working_set_bytes,
+            deadline,
         )
         .map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
@@ -423,5 +435,107 @@ impl<W, S, B> core::fmt::Debug for LocalService<W, S, B> {
             .field("definition_version", &self.definitions.get().version())
             .field("definition_digest", &self.definitions.get().digest())
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sutura_domain::model::Grain;
+    use sutura_domain::pinned::NotValidated;
+    use sutura_domain::query::Query;
+
+    use super::{LocalService, ServiceNotStarted};
+    use crate::tests::{june, metric, shared, source};
+    use crate::tests_support::{AuthoredWarehouse, DiscardingAuditSink, FixedBroker, FixedCatalog, authored_bundle};
+    use crate::{Warehouses, verify_and_validate};
+
+    #[test]
+    fn an_authored_metric_does_not_boot_against_the_in_process_engine() {
+        // The mechanism under test is `Warehouse::EXECUTES_AUTHORED_SQL` read inside
+        // `verify_and_validate`, through the real composition path and the one adapter every shipped
+        // binary links. Red on base by construction (`authored_bundle` cannot be built there); the
+        // compiled mutation is `const EXECUTES_AUTHORED_SQL: bool = true;` on `DataFusionWarehouse`,
+        // under which this test alone goes red.
+        let catalog = FixedCatalog::of(authored_bundle(metric(), source()));
+        let ceiling = core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive");
+        let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
+            source(),
+            shared(),
+            sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
+        )
+        .expect("the in-process engine starts");
+        let error = LocalService::start(
+            &catalog,
+            Warehouses::of(engine),
+            DiscardingAuditSink,
+            FixedBroker::GrantsShared,
+            1 << 30,
+        )
+        .expect_err("the in-process engine cannot execute authored SQL");
+        let ServiceNotStarted::NotValidated { cause } = error else {
+            panic!("the authored computation must be the startup refusal: {error:?}");
+        };
+        assert_eq!(cause, NotValidated::AuthoredSqlNotExecutable { metric: metric() });
+    }
+
+    #[test]
+    fn the_authored_sql_example_does_not_boot_against_the_in_process_engine() {
+        // The other half of the fixture above, over the directory `examples/authored-sql` and the
+        // README under it actually claim about: not a hand-built bundle, but
+        // `LocalCatalog::load` through the real composition path `sutura query`, `sutura mcp` and
+        // `sutura-serve` all take. `LocalCatalog::capabilities()` is `everything()`
+        // (`crates/sutura-catalog-local/src/lib.rs`), so composing this directory first requires the
+        // example to carry every kind that declares: a second model, a relationship, a dimension
+        // reached through it, a required filter, an anchor, and the four knowledge documents. Red
+        // before those existed, at `CompositionError::Unfaithful` - a one-model, one-metric catalog
+        // does not compose, which a review of this checkpoint found before the example carried
+        // enough to reach the authored check at all. The compiled mutation is the same as the test
+        // above.
+        use std::path::Path;
+
+        use sutura_catalog_local::LocalCatalog;
+        use sutura_domain::pinned::DefinitionVersion;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/authored-sql/catalog");
+        let version = DefinitionVersion::parse("authored-sql-example").expect("a fixed version is a version");
+        let catalog = LocalCatalog::new(source(), root, version);
+        let ceiling = core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive");
+        let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
+            source(),
+            shared(),
+            sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
+        )
+        .expect("the in-process engine starts");
+        let error = LocalService::start(
+            &catalog,
+            Warehouses::of(engine),
+            DiscardingAuditSink,
+            FixedBroker::GrantsShared,
+            1 << 30,
+        )
+        .expect_err("the example carries an authored metric the in-process engine cannot execute");
+        let ServiceNotStarted::NotValidated { cause } = error else {
+            panic!("the example must compose and then hit the authored-SQL refusal: {error:?}");
+        };
+        let metric = sutura_domain::model::MetricName::parse("order_value_spread").expect("the example metric name is a name");
+        assert_eq!(cause, NotValidated::AuthoredSqlNotExecutable { metric });
+    }
+
+    #[test]
+    fn an_adapter_declaring_authored_sql_support_passes_only_the_capability_gate() {
+        // The other direction, so the gate above is a capability read and not an unconditional
+        // refusal of the key. What the declaring fake does NOT get is an answer: the plan carries no
+        // SQL, so the compiler names the metric rather than substituting a measure. No adapter this
+        // workspace ships makes the declaration; the fake exists to hold the gate's shape.
+        let pinned = authored_bundle(metric(), source());
+        verify_and_validate(pinned.clone(), &Warehouses::of(AuthoredWarehouse::new(source(), shared())))
+            .expect("the declaring fake passes startup because this bundle has no anchors");
+        let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+        let error = sutura_semantic::compile(&question, &pinned)
+            .expect_err("an authored computation has no representation in the semantic plan");
+        match error {
+            sutura_semantic::CompileFailure::AuthoredSqlNotPlanned { metric: failed } => assert_eq!(failed, metric()),
+            other => panic!("the compiler must name the authored metric rather than substitute a measure: {other:?}"),
+        }
     }
 }

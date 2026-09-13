@@ -27,6 +27,8 @@
 //! second transport would have had to depend on the first to reach it. Nothing in that module names
 //! a framework type, so this crate still holds none.
 
+use std::time::Instant;
+
 use sutura_domain::catalog::Anchor;
 use sutura_domain::identity::{
     Agreed, BoundToTheRequest, CredentialBroker, CredentialsDoNotFitTheRequest, Expiry, PresentedDisagreesWithPosture,
@@ -36,6 +38,7 @@ use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
 use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{CompileFailure, Compiled, compile};
 
@@ -89,145 +92,11 @@ pub mod capability;
 pub mod preflight;
 
 mod boot_root;
+mod proof;
 
 pub use crate::boot_root::{BootIdentity, BootRoot};
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
-
-/// The proof, and the only operation that can mint it.
-///
-/// A module rather than two items in `lib.rs`, and a PRIVATE one, because that is the mechanism: the
-/// field of [`Validated`] and its tuple constructor are visible exactly here, so
-/// [`verify_and_validate`] is the only safe code anywhere that can produce one. Moving either item
-/// out of this module, or adding a second `pub fn` to it that does not call a `Warehouse`, is what a
-/// reviewer has to notice - and it is a one-item diff in one place rather than a property of every
-/// call site.
-mod proof {
-    use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
-    use sutura_domain::warehouse::Warehouse;
-
-    use crate::warehouses::Warehouses;
-
-    /// A `T` that has been shown to hold up.
-    ///
-    /// **The service accepts only this, so an unvalidated bundle is unrepresentable rather than
-    /// merely refused.** The field is private to the module this type is declared in, and
-    /// [`verify_and_validate`] is the only thing in that module which builds one.
-    ///
-    /// Generic in the type it wraps, but obtainable only for [`PinnedDefinitions`], and that
-    /// asymmetry is the point: validating means re-running every anchor the bundle declares, so
-    /// whatever mints this has to be able to enumerate them and to execute them. A blanket
-    /// constructor for any `T` would be a wrapper that proves nothing, which is worse than no
-    /// wrapper because it reads like proof.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct Validated<T>(T);
-
-    impl<T> Validated<T> {
-        #[inline]
-        pub const fn get(&self) -> &T {
-            &self.0
-        }
-
-        #[inline]
-        pub fn into_inner(self) -> T {
-            self.0
-        }
-    }
-
-    /// Holds every cardinality declaration and re-runs every anchor, and returns the bundle only if
-    /// both held.
-    ///
-    /// **Two checks rather than one, and the second was added against a defect the first cannot
-    /// see.** An anchor is one range and one number, so a dimension row that duplicates a join key
-    /// outside that range moves nothing an anchor compares - while it changes a grouped answer, and
-    /// changes it differently depending on how the plan was shaped. `crate::declared_keys` carries
-    /// the measurement, the three outcomes that are deliberately not refusals, and what the pair
-    /// still does not cover.
-    ///
-    /// The one operation that produces a [`Validated`] bundle. It takes the `Warehouse` and calls
-    /// it, which is the whole of what the type is now allowed to claim: not "somebody asserted these
-    /// anchors match", but "these statements were executed against this data system and reproduced
-    /// the numbers their author certified".
-    ///
-    /// **What it still does not claim.** `W` is a port, so a caller may pass a fake - and a fake is
-    /// exactly what the golden suite passes, deliberately, because the alternative is a test suite
-    /// that needs a database to check a refusal. What the type proves is that a warehouse was
-    /// called; that the warehouse was the one holding the business's data is a composition-root
-    /// decision no signature can make. `answer` narrows it a little further by refusing a plan whose
-    /// source is not the adapter's own.
-    ///
-    /// The forgery this closes does not compile:
-    ///
-    /// ```compile_fail
-    /// use sutura_app::Validated;
-    /// use sutura_domain::model::MetricName;
-    /// use sutura_domain::pinned::{AnchorCheck, AnchorReport, PinnedDefinitions};
-    ///
-    /// // Enumerate the anchors, claim each one matched, hand the claim to the validator.
-    /// // No data system is opened and no statement is executed.
-    /// fn _forge(pinned: PinnedDefinitions) -> Validated<PinnedDefinitions> {
-    ///     let names: Vec<MetricName> = pinned.anchored_metrics().map(|(name, _)| name.clone()).collect();
-    ///     let mut report = AnchorReport::new();
-    ///     for name in names {
-    ///         report.record(name, AnchorCheck::Matched);
-    ///     }
-    ///     // Neither the constructor that was here nor the tuple constructor is reachable.
-    ///     Validated::new(pinned, &report).unwrap()
-    /// }
-    ///
-    /// fn _wrap(pinned: PinnedDefinitions) -> Validated<PinnedDefinitions> {
-    ///     Validated(pinned)
-    /// }
-    /// ```
-    ///
-    /// The twin of that block, which pins the names so a rename cannot make it pass vacuously:
-    ///
-    /// ```
-    /// use sutura_app::{Validated, Warehouses, verify_and_validate};
-    /// use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
-    /// use sutura_domain::warehouse::Warehouse;
-    ///
-    /// fn _served(_bundle: &Validated<PinnedDefinitions>) {}
-    ///
-    /// fn _mint<W: Warehouse>(
-    ///     pinned: PinnedDefinitions,
-    ///     warehouses: &Warehouses<W>,
-    /// ) -> Result<Validated<PinnedDefinitions>, NotValidated> {
-    ///     verify_and_validate(pinned, warehouses)
-    /// }
-    /// ```
-    ///
-    /// # It takes the registry, not one warehouse
-    ///
-    /// Each metric's anchor runs against the data system that metric's own plan names, so a bundle
-    /// spanning two configured sources verifies both halves. Under one warehouse every anchor on the
-    /// second source came back as a source mismatch, which is a bundle that cannot be validated for a
-    /// reason that has nothing to do with its numbers.
-    ///
-    /// **What it still does not take is an identity**, and that is the honest limit on what an executed
-    /// anchor proves. The registry says which posture each adapter was handed; it does not hand the
-    /// adapter a credential to re-run the anchor under, because the port has no parameter for one yet.
-    /// So the bundle is proven to compute its certified numbers for whatever identity each adapter is
-    /// configured with - the process, for the file engine that ships - and the composition root refuses
-    /// a bundle with an anchor on a source that declared no verification identity, which is the half
-    /// available before the port changes.
-    pub fn verify_and_validate<W>(
-        pinned: PinnedDefinitions,
-        warehouses: &Warehouses<W>,
-    ) -> Result<Validated<PinnedDefinitions>, NotValidated>
-    where
-        W: Warehouse,
-    {
-        // The cardinality declarations first. `declared_keys` carries why that order, and why a
-        // violated `many_to_one` is a bundle that cannot be validated rather than a question that
-        // cannot be answered: the same question answers differently on one data system and on two,
-        // and neither topology refused it.
-        super::declared_keys::hold(&pinned, warehouses)?;
-        let report = super::verify_anchors(&pinned, warehouses);
-        report.verdict(&pinned)?;
-        Ok(Validated(pinned))
-    }
-}
 
 /// Why the service could not produce an outcome.
 ///
@@ -468,6 +337,7 @@ pub fn answer<W, B>(
     broker: &B,
     warehouses: &Warehouses<W>,
     working_set_bytes: u64,
+    deadline: Deadline,
 ) -> Answering<W, B>
 where
     W: Warehouse,
@@ -481,7 +351,7 @@ where
     let plan = match compiled {
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
         Compiled::Federated { plan } => {
-            return answer_federated(pinned, &plan, context, broker, warehouses, working_set_bytes);
+            return answer_federated(pinned, &plan, context, broker, warehouses, working_set_bytes, deadline);
         }
         Compiled::Planned { plan } => plan,
     };
@@ -565,7 +435,26 @@ where
     // level, whichever call surfaced it. `working_set_exhausted` and `result_did_not_fit` are
     // deliberately not asked here - the port's contract is that a check reads no data, so there is
     // no reservation and no reply for either bound to refuse.
-    if let Err(cause) = warehouse.dry_run(Executable::Query(&plan), presented) {
+    // The deadline, checked before a call is made and never re-derived: `docs/adr/0029` is the
+    // record. A budget already spent here means the pre-flight is refused before the data system is
+    // asked at all - the same shape `still_usable_at` below gives the credential's own expiry.
+    if deadline.remaining_at(Instant::now()).is_none() {
+        return Ok(Answered::under(
+            &credentials,
+            ToolOutcome::Refusal {
+                reason: deadline_exceeded(deadline),
+            },
+        ));
+    }
+    if let Err(cause) = warehouse.dry_run(Executable::Query(&plan), presented, deadline) {
+        if warehouse.deadline_exceeded(&cause) {
+            return Ok(Answered::under(
+                &credentials,
+                ToolOutcome::Refusal {
+                    reason: deadline_exceeded(deadline),
+                },
+            ));
+        }
         if warehouse.source_refused(&cause) {
             return Ok(Answered::under(
                 &credentials,
@@ -594,6 +483,17 @@ where
     credentials
         .still_usable_at(now_in_unix_seconds())
         .map_err(|cause| ServiceError::Credentials { cause })?;
+    // The time budget, re-checked for the pre-flight round trip's exact reason: a dry run against a
+    // networked data system spends part of it, so a budget with time left when this function began
+    // may have none by the time execution would start.
+    if deadline.remaining_at(Instant::now()).is_none() {
+        return Ok(Answered::under(
+            &credentials,
+            ToolOutcome::Refusal {
+                reason: deadline_exceeded(deadline),
+            },
+        ));
+    }
     // The working-set ceiling, on its way out as a refusal rather than as an error. Exhaustion is a
     // governance outcome - the question is well formed and this deployment will not spend more than
     // a configured number of bytes on it - and it used to leave here as `ServiceError::Warehouse`,
@@ -616,7 +516,7 @@ where
     // refusal a caller sees must not be line order nobody wrote down. Ask the adapters in a real tree
     // whether a single error could genuinely satisfy both; until one does, the order is pinned here by
     // a both-predicate fake and the comment at `sutura_app::tests`.
-    let rows = match warehouse.execute(Executable::Query(&plan), presented) {
+    let rows = match warehouse.execute(Executable::Query(&plan), presented, deadline) {
         Ok(rows) => rows,
         Err(cause) => {
             if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
@@ -645,6 +545,18 @@ where
                         reason: RefusalReason::ResultTooLarge {
                             bound: ResultBound::Volume,
                         },
+                    },
+                ));
+            }
+            // The deadline, after the two size bounds and before the identity refusal - the order
+            // `docs/adr/0029` states. An adapter's own failure IS the stopped question here, unlike
+            // the two checks above this function makes on its own: this one only ever answers what
+            // the adapter reports, because in this slice no adapter stops on the deadline at all.
+            if warehouse.deadline_exceeded(&cause) {
+                return Ok(Answered::under(
+                    &credentials,
+                    ToolOutcome::Refusal {
+                        reason: deadline_exceeded(deadline),
                     },
                 ));
             }
@@ -719,6 +631,18 @@ where
 /// thousand rows through a validated bundle.
 pub(crate) fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
     u64::try_from(returned).unwrap_or(u64::MAX) > u64::from(max_rows)
+}
+
+/// The refusal for a deadline that ran out, naming the budget it was opened with.
+///
+/// One function so `answer` and [`crate::federated::execute_leg`] build the same reason the same
+/// way, whether the cause was a spent budget caught before a call or an adapter's own failure
+/// [`Warehouse::deadline_exceeded`](sutura_domain::warehouse::Warehouse::deadline_exceeded)
+/// recognised.
+pub(crate) const fn deadline_exceeded(deadline: Deadline) -> RefusalReason {
+    RefusalReason::DeadlineExceeded {
+        budget_seconds: deadline.budget().seconds(),
+    }
 }
 
 /// Re-executes every declared anchor and reports what each produced.

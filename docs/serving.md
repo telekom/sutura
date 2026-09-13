@@ -375,6 +375,7 @@ depends on why:
 | `source_unavailable`               | `503`  | The one refusal worth retrying                                                                                                                                                                                                                                                                                                               |
 | `credential_unavailable`           | `403`  | Nothing you can send. You have no access to that data system, and this deployment will not read it as itself instead - the missing grant is at the data system                                                                                                                                                                               |
 | `legs_decide_identity_differently` | `409`  | Ask the same metric without the dimension on the second data system. The two data systems decide who is asking in two different ways, and a total made of rows read under two identities is a number neither is entitled to. No published build can reach it - every linked adapter serves everyone as one identity                          |
+| `deadline_exceeded`                | `422`  | Narrow the period, group by fewer dimensions or add a filter. This deployment stopped the question after its configured budget (`server.request_timeout_seconds` minus a one-second margin); the sentence names it. `docs/adr/0029` records the shape - no adapter this release links stops mid-flight on it yet                             |
 
 **The refusal `403`s are not about your credential.** No token and no scope widens a metric's
 dimension set; a refusal `403` is the catalog's answer to "may this be asked of this metric", and the
@@ -416,7 +417,7 @@ The two are now separable by `code` as well as by status, and a test asserts the
 This used to be a `200` for both outcomes, on the argument that an error status invites a client
 library to retry a governance decision until it succeeds. The second half of that is right and the
 first half does not survive checking: nothing mainstream retries a `4xx` by default, and `422` - where
-four of the codes above land - is documented the other way round, as a status a client should expect
+five of the codes above land - is documented the other way round, as a status a client should expect
 to fail again on an unchanged request. What the `200` did cost was legibility to everything that reads
 a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose
 success branch is `2xx`. A deployment refusing every question read as perfectly healthy.

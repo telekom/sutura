@@ -25,6 +25,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 /// How a fake's answer differs from the corpus's.
@@ -167,15 +168,20 @@ impl<const LEGS: bool> Warehouse for Fake<LEGS> {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
         match self.check {
             Check::NotAsked => Ok(PreFlight::NotAsked),
-            Check::Accepted => Ok(PreFlight::Accepted),
+            Check::Accepted => Ok(PreFlight::Accepted { estimated_bytes: None }),
             Check::Refused => Err(FakeFailure::PreFlightRefused),
         }
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         // Matched exhaustively, for the reason every real adapter does: a fake that accepted subject
         // material it cannot use would let a pack pass an adapter that reported a leg as
         // impersonated when it ran shared.

@@ -206,7 +206,7 @@ rather than computed safely. That is deliberate - a refusal beats a wrong number
 declaration is a trusted precondition nothing checks against the data. The consequence, plainly:
 **a question wren would answer, sutura declines.** Do not later file that as a bug. The closed measure
 vocabulary is narrower than wren's calculated fields for the same reason, and the authored-SQL hatch is
-the escape valve that exists and is not wired.
+the escape valve that loads and is refused at boot - nothing published compiles or executes it.
 
 ### Spice is compared, never mined
 

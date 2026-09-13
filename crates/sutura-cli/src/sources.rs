@@ -804,6 +804,7 @@ mod tests {
             &opened.broker,
             &opened.engines,
             1 << 30,
+            sutura_domain::warehouse::deadline::Deadline::opened_at(std::time::Instant::now(), timeout().budget()),
         )
         .expect("a declared source answers rather than failing")
         .into_outcome();

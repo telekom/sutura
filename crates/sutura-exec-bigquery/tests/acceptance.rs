@@ -187,6 +187,15 @@ mod tests {
     use crate::fixture::{Fixture, NO_SUCH_TABLE, absent_table, no_such_table, plan, plan_in_the_internal_namespace, source};
     use crate::support::{Wired, bounds, opened, presented};
 
+    /// The port's deadline this leg's calls execute under - a generous budget, since this leg is
+    /// about the round trip and not about time.
+    fn deadline() -> sutura_domain::warehouse::deadline::Deadline {
+        sutura_domain::warehouse::deadline::Deadline::opened_at(
+            std::time::Instant::now(),
+            sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(60)).expect("60s"),
+        )
+    }
+
     /// The model the seam leg's bundles declare over the table the dataset really holds.
     const MODEL_ON_A_HELD_TABLE: &str = "held_here";
 
@@ -260,9 +269,21 @@ mod tests {
         let plan = plan(&table);
 
         let accepted = warehouse
-            .dry_run(Executable::Query(&plan), &presented())
+            .dry_run(Executable::Query(&plan), &presented(), deadline())
             .expect("the endpoint accepted the generated statement");
-        assert_eq!(accepted, PreFlight::Accepted);
+        // The one live check `docs/adr/0030` cannot fake: whether a real dry run against a real
+        // dataset actually prices a `totalBytesProcessed`, not merely that this adapter can decode
+        // one if it arrives. The number itself is not asserted - what it is TODAY is not a promise
+        // about tomorrow's storage layout - only that this generated statement got one.
+        assert!(
+            matches!(
+                accepted,
+                PreFlight::Accepted {
+                    estimated_bytes: Some(_)
+                }
+            ),
+            "a real dry run over real data did not report an estimate: {accepted:?}"
+        );
     }
 
     #[test]
@@ -283,7 +304,7 @@ mod tests {
         let plan = plan(&table);
 
         let rows = warehouse
-            .execute(Executable::Query(&plan), &presented())
+            .execute(Executable::Query(&plan), &presented(), deadline())
             .expect("the endpoint answered with a complete result");
         assert_eq!(
             rows.columns(),
@@ -323,7 +344,7 @@ mod tests {
         let leaf = InternalLabel::Leaf(0).label();
 
         let rows = warehouse
-            .execute(Executable::Query(&plan), &presented())
+            .execute(Executable::Query(&plan), &presented(), deadline())
             .expect("the endpoint accepted a digit-leading quoted alias");
         assert_the_fixtures_numbers("the internal namespace", [link.as_str(), leaf.as_str()], &rows);
     }
@@ -396,7 +417,7 @@ mod tests {
             println!("bigquery-acceptance: reading the fixture table as {named}");
             let plan = plan(path);
             let rows = warehouse
-                .execute(Executable::Query(&plan), &presented())
+                .execute(Executable::Query(&plan), &presented(), deadline())
                 .unwrap_or_else(|e| panic!("{named}: the endpoint did not answer: {e:?}"));
             assert_the_fixtures_numbers(named, ["period", "total_amount"], &rows);
         }
@@ -425,7 +446,7 @@ mod tests {
         let plan = plan(&absent);
 
         let refused = warehouse
-            .dry_run(Executable::Query(&plan), &presented())
+            .dry_run(Executable::Query(&plan), &presented(), deadline())
             .expect_err("a dataset that is not there is refused");
         // **Printing the error is safe HERE for a reason that is not local to this test**, and it is
         // worth naming because this leg provokes an endpoint refusal deliberately: the wire carries the
@@ -455,7 +476,7 @@ mod tests {
         let plan = plan(&absent);
 
         let refused = warehouse
-            .dry_run(Executable::Query(&plan), &presented())
+            .dry_run(Executable::Query(&plan), &presented(), deadline())
             .expect_err("a table that is not there is refused");
         assert!(
             core::error::Error::source(&refused).is_some(),
@@ -851,6 +872,7 @@ mod tests {
                     &Presented::SubjectToken {
                         material: material.clone(),
                     },
+                    deadline(),
                 )
                 .expect("the endpoint answered the query");
             // **This cell compares the DISPLAY form, and it is deliberately not under

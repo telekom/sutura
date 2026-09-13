@@ -46,6 +46,7 @@ use sutura_domain::identity::{CredentialBroker, Expiry, LegCredentials, Minted, 
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
 use sutura_exec_bigquery::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
 
@@ -188,7 +189,7 @@ impl Warehouse for RecordsWhatItWasHanded {
         reason = "the recording fake exists to report WHICH credential reached the adapter, which is \
                   the property two subjects driving two credentials is measured on"
     )]
-    fn execute(&self, _executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| Disagreed { cause })?;

@@ -377,6 +377,7 @@ mod tests {
     use sutura_domain::query::{Query, ToolOutcome};
     use sutura_domain::warehouse::{RowSet, Value};
 
+    use crate::tests::test_deadline;
     use crate::tests_support::{FixedBroker, FixedWarehouse, shared_posture};
     use crate::{Warehouses, answer, verify_and_validate};
 
@@ -539,6 +540,7 @@ mod tests {
             &FixedBroker::GrantsShared,
             &registry,
             1 << 30,
+            test_deadline(),
         )
         .expect("the composed bundle answers")
         .into_outcome();

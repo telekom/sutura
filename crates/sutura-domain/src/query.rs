@@ -453,6 +453,31 @@ pub enum RefusalReason {
     /// two `shared-service-user` legs may be two different deployment-held identities and this
     /// passes them.
     LegsDecideIdentityDifferently { postures: BTreeSet<&'static str> },
+    /// This answer ran out of the time it was given, at the data system or before it was ever
+    /// asked.
+    ///
+    /// **A refusal rather than a failure, and `docs/adr/0029` argues both directions once rather
+    /// than asserting the choice.** For a failure: time is load-dependent in a way memory is not, so
+    /// *repeating this without modification will fail the same way* is likely here rather than
+    /// certain. For a refusal, which wins: the deployment decided the bound and the data system
+    /// enforced it, so something WAS judged; the failure this replaces used to leave as a retryable
+    /// `503`, which invites an automatic retry that spends the whole budget at the data system
+    /// again, and on a networked adapter billed for the call, bills again; and an `Err` writes no
+    /// audit record, so a question a configured bound stopped would leave no outcome anywhere.
+    ///
+    /// Mapped from [`crate::warehouse::Warehouse::deadline_exceeded`] after
+    /// [`ResourcesExhausted`](RefusalReason::ResourcesExhausted) and
+    /// [`ResultTooLarge`](RefusalReason::ResultTooLarge), before
+    /// [`SourceRefused`](RefusalReason::SourceRefused); also raised directly, with no adapter
+    /// involved at all, when the budget is already spent before `dry_run`, before `execute`, or
+    /// before the next leg of a federated answer starts.
+    ///
+    /// Carries the configured budget in seconds - the same reason
+    /// [`ResourcesExhausted`](RefusalReason::ResourcesExhausted) carries its ceiling: a number an
+    /// operator configured, the same for every caller, safe in a log. Not how long the question
+    /// would have taken, which nobody knows, and not which leg spent it, which would tell a caller
+    /// how a deployment's sources compare.
+    DeadlineExceeded { budget_seconds: u64 },
 }
 
 impl RefusalReason {
@@ -491,6 +516,7 @@ impl RefusalReason {
             Self::CredentialUnavailable { .. } => "credential_unavailable",
             Self::SourceRefused { .. } => "source_refused",
             Self::LegsDecideIdentityDifferently { .. } => "legs_decide_identity_differently",
+            Self::DeadlineExceeded { .. } => "deadline_exceeded",
         }
     }
 }
@@ -739,6 +765,7 @@ mod tests {
             RefusalReason::LegsDecideIdentityDifferently {
                 postures: crate::source::SourcePosture::NAMES.iter().copied().collect(),
             },
+            RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         ]
     }
 

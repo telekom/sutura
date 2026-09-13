@@ -2,7 +2,7 @@
 
 use super::{
     BigQueryError, BigQueryWarehouse, Broken, Case, Cell, Executable, Field, FieldType, JobRows, Paged, Recording, Value,
-    Warehouse as _, leg_of, one_cell, open, plan, shared_posture,
+    Warehouse as _, leg_of, one_cell, open, plan, shared_posture, test_deadline,
 };
 
 #[test]
@@ -169,7 +169,7 @@ fn a_federated_leg_is_refused_because_there_is_nothing_above_it_to_combine_legs(
     let warehouse = open(Recording::empty(), shared_posture());
     let leg = crate::tests::a_leg();
     let error = warehouse
-        .execute(Executable::Leg(&leg), &leg_of(&shared_posture()))
+        .execute(Executable::Leg(&leg), &leg_of(&shared_posture()), test_deadline())
         .expect_err("a leg has no combiner above it");
     match error {
         BigQueryError::LegWithoutCombiner { ref table } => assert_eq!(table, "fct_subscription_monthly"),
@@ -190,7 +190,7 @@ fn a_result_the_endpoint_would_not_return_at_once_is_a_size_bound_and_not_an_out
     // indistinguishable to `BigQueryError::Endpoint` and answer differently.
     let paged = open(Paged, shared_posture());
     let error = paged
-        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())
         .expect_err("a paged result is not a result");
     assert!(
         paged.result_did_not_fit(&error),
@@ -202,7 +202,7 @@ fn a_result_the_endpoint_would_not_return_at_once_is_a_size_bound_and_not_an_out
     // bound. It must stay a failure.
     let broken = open(Broken, shared_posture());
     let refused = broken
-        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()))
+        .execute(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())
         .expect_err("the endpoint said no");
     assert!(
         !broken.result_did_not_fit(&refused),

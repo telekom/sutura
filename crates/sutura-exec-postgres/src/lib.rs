@@ -38,6 +38,7 @@ use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -903,7 +904,18 @@ impl Warehouse for PostgresWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
+    /// Prepares the statement without running it, as the identity this leg presents.
+    ///
+    /// `estimated_bytes` is `None`: `EXPLAIN` gives this adapter rows and a planner cost unit, not
+    /// bytes, and no money attaches to either - folding a Postgres cost estimate into a
+    /// byte-denominated budget would need a conversion this adapter does not attempt.
+    /// `docs/adr/0030` names this honest absence rather than a guess.
+    ///
+    /// The deadline is carried, not enforced here; see `docs/adr/0029`. Setting
+    /// `statement_timeout` from what is left of it is a later slice behind
+    /// `telekom/sutura#160`; the connect-time `SUTURA_DEV_STATEMENT_TIMEOUT_MS` stays the boot-path
+    /// bound until then.
+    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         drop(
@@ -911,10 +923,11 @@ impl Warehouse for PostgresWarehouse {
                 .block_on(self.client.prepare(query.sql()))
                 .map_err(|cause| PostgresError::Prepare { cause })?,
         );
-        Ok(PreFlight::Accepted)
+        Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+    /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         self.run(&query)

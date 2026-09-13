@@ -115,7 +115,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64) -> Answering<W, B>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline) -> Answering<W, B>
 ```
 
 Answers one question, or says why it will not.
@@ -418,6 +418,24 @@ So the bundle is proven to compute its certified numbers for whatever identity e
 configured with - the process, for the file engine that ships - and the composition root refuses
 a bundle with an anchor on a source that declared no verification identity, which is the half
 available before the port changes.
+
+# What is refused before any anchor runs
+
+A metric whose computation is catalog-authored SQL, unless `W` declares
+`Warehouse::EXECUTES_AUTHORED_SQL`. The fragment is stored as written and nothing published
+compiles it, so an adapter taking the default cannot execute the metric; refusing the bundle
+here, naming the metric, is what stands between that and a served bundle with a metric that
+is silently skipped or a measure quietly substituted. Read off the ONE adapter type
+`Warehouses<W>` holds, the way `EXECUTES_LEGS` is - so it is a fact about the build, not
+about the data. No adapter this workspace ships opts in; `docs/adr/0004` is the decision.
+
+**"Before any anchor runs" is a placement, not an assertion.** It is true because this check
+sits ahead of `declared_keys::hold` and `verify_anchors` in the body below, and the ordering
+ahead of `declared_keys::hold` is held INCIDENTALLY, by the `examples/authored-sql` cell: that
+catalog declares a relationship and attaches no data to it, so a block moved below `hold`
+fails there first, on `declared_keys::hold`'s own refusal, rather than on this one. Nothing
+separates the placement from `verify_anchors` alone, and no fixture's fake counts an anchor
+or a declared key that was never touched.
 
 ## `type_alias Answering`
 

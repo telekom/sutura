@@ -153,17 +153,19 @@ where
     for case in corpus::cases() {
         let executable = Executable::Query(case.plan());
         let checked = warehouse
-            .dry_run(executable, &corpus::presented())
+            .dry_run(executable, &corpus::presented(), corpus::deadline())
             .map_err(|cause| Fault::PreFlightRefused {
                 case: case.name(),
                 cause,
             })?;
         match checked {
             PreFlight::NotAsked => {}
-            PreFlight::Accepted => {
+            // The estimate is not this pack's business: what is under test here is that a pre-flight
+            // and an execution cannot disagree about what an adapter accepts, not what either priced.
+            PreFlight::Accepted { .. } => {
                 accepted = accepted.saturating_add(1);
                 warehouse
-                    .execute(executable, &corpus::presented())
+                    .execute(executable, &corpus::presented(), corpus::deadline())
                     .map_err(|cause| Fault::AcceptedThenDidNotAnswer {
                         case: case.name(),
                         cause,
@@ -191,7 +193,7 @@ where
 {
     let case = corpus::leg_case();
     let answered = warehouse
-        .execute(Executable::Leg(case.leg()), &corpus::presented())
+        .execute(Executable::Leg(case.leg()), &corpus::presented(), corpus::deadline())
         .map_err(|cause| Fault::NotAnswered {
             case: case.name(),
             cause,
@@ -245,7 +247,7 @@ where
     };
     drop(answer(warehouse, case)?);
     let leg = corpus::leg_case();
-    if let Ok(answered) = warehouse.execute(Executable::Leg(leg.leg()), &corpus::presented()) {
+    if let Ok(answered) = warehouse.execute(Executable::Leg(leg.leg()), &corpus::presented(), corpus::deadline()) {
         return Err(Fault::ALegWasAnswered {
             case: leg.name(),
             rows: answered.rows().len(),
@@ -260,7 +262,7 @@ where
     W: Warehouse,
 {
     warehouse
-        .execute(Executable::Query(case.plan()), &corpus::presented())
+        .execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline())
         .map_err(|cause| Fault::NotAnswered {
             case: case.name(),
             cause,

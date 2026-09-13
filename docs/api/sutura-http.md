@@ -2434,7 +2434,7 @@ a configured limit in a log and in a review, and it is not one.
 ### `fn enforce_timeout`
 
 ```rust
-pub async fn enforce_timeout(__arg0: axum::extract::State<std::time::Duration>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+pub async fn enforce_timeout(__arg0: axum::extract::State<sutura_config::RequestTimeout>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
 ```
 
 Gives up on a request that outran the configured bound, with the documented body.
@@ -2449,6 +2449,12 @@ constructed. Ten lines here is the whole cost of the response shape being one sh
 It bounds *the response*, which is what a caller experiences, and not the work: a question
 already handed to the blocking pool keeps running until the data system answers it. Cancelling
 that needs a cancellation token the `Warehouse` port does not have.
+
+**Also where the port's `Deadline` is opened**, at the instant this layer is reached - before
+admission, so the wait for a concurrency slot sits inside the caller's own bound rather than
+adds to it (`docs/adr/0029`). Inserted as a request extension, which is what lets the route
+handler read it with no state of its own to thread it through: `crate::inbound::VerifiedCaller`
+reaches the handler the same way, for the same reason.
 
 ### `type_alias RateLimit`
 
@@ -2534,6 +2540,14 @@ The whole document: the derived shell plus one fragment per version.
 
 A `v2` adds one line here and nothing else, which is what makes versioning additive: the
 fragment carries its own absolute paths because the prefix is applied by the `nest` below.
+
+**It describes the GOVERNED operations and nothing else.** Liveness is mounted on its own
+router (`crate::router`) and deliberately left out: it is a property of the process rather than
+an operation of the API (`crate::constants::HEALTH_PATH` says so), and every operation this
+document lists becomes a tool a client such as a chat interface may offer its model. A probe in
+that list is a tool nothing should call. The set is exhaustive in both directions - a route the
+document describes that `crate::capability::governed` does not name, and a governed route it
+omits, are each a failure (`tests/operations.rs`).
 
 ### `fn document_json`
 
