@@ -1538,6 +1538,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-12-the-age-bound-excludes-a-failing-refresh-and-where-the-read-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-12: the age bound excludes a failing refresh, and where the read runs
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2997,6 +3008,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-12-the-age-bound-excludes-a-failing-refresh-and-where-the-read-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-12: the age bound excludes a failing refresh, and where the read runs
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3527,6 +3549,44 @@ unaffected: the agent surface still answers <code>Subject::TheDeploymentItself</
 <code>sutura_http::inbound</code> is reachable from it, and wiring a caller identity to it still needs the two
 decisions this section names. Only the "without a binary" half is spent, so the sentence is amended
 rather than the section rewritten.</p>
+<h2 id="second-amendment-2026-09-12-the-age-bound-excludes-a-failing-refresh-and-where-the-read-runs">Second amendment, 2026-09-12: the age bound excludes a failing refresh, and where the read runs<a class="headerlink" href="#second-amendment-2026-09-12-the-age-bound-excludes-a-failing-refresh-and-where-the-read-runs" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted.</strong> The <em>What is built</em> row above reads <em>"</em><em>Removed</em><em> → re-read
+once per <code>MAX_KEY_SET_AGE</code>"</em> and states the rate limit is measured from the last attempt "so a
+failing source is limited too". Both halves are true and together they read as a revocation bound
+that holds unconditionally. It does not, and the row is amended rather than the section rewritten:</p>
+<ul>
+<li><strong>The bound covers a refresh that WORKS.</strong> A read that fails and a document the cache refuses both
+  keep the previous keys verifying, and the reservation stamps the <em>attempt</em> - which is exactly what
+  the rate limit needs, and is not a record that anything confirmed the keys. So while refresh is
+  unavailable, <code>MAX_KEY_SET_AGE</code> bounds nothing and the cached signing keys are retained for as long
+  as it stays that way. <strong>What that permits is continued trust in signing keys an earlier refresh
+  established. It bypasses neither the signature check nor the token's own expiry.</strong></li>
+<li><strong>The measurement now exists and there is no ceiling on it, and no record owns that decision.</strong>
+  <code>KeySetCache::stale_for</code> is how long since a look last came back with a document this deployment
+  could use - the last <strong>success</strong>, which <code>last_attempt</code> could never be. Nothing refuses on it:
+  refusing is an availability-breaking policy, and a sidecar part-way through rewriting a mounted key
+  set would take a deployment's whole authentication down with it. Which way that default points
+  was to be decided with degradation per dependency under
+  <a href="https://github.com/telekom/sutura/issues/141">#141</a>; that issue was closed by
+  <a href="https://github.com/telekom/sutura/pull/637">#637</a> without taking it, and as of this amendment no
+  issue or record does. So the bound and its limit, stated together: <strong>a removed key stops verifying
+  within <code>MAX_KEY_SET_AGE</code> plus one read while refresh works, and after no bounded time while it does
+  not.</strong> The staleness is on a <code>WARN</code> for every look that could not confirm the keys, and refused on
+  by nothing.</li>
+<li><strong>Where the read runs was also not what this record implied.</strong> <em>"One small read per minute"</em> ran
+  inline on the async worker thread that was serving requests, from the timer as much as from a
+  caller, over a document read with no size bound at all. The read and the parse now go to the
+  blocking pool through <code>sutura_runtime::spawn_carrying_span</code>, the file source refuses a document
+  over <code>MAX_KEY_SET_BYTES</code>, and a look already in flight loses the reservation - which is what keeps
+  a source slower than its own window from accumulating detached reads, and what makes two of them
+  completing out of order unreachable rather than merely unlikely. The reservation is a value with
+  a <code>Drop</code> (<code>InFlight</code>) and not a flag, because the look is awaited on the request task and a
+  request that timed out or disconnected mid-look would otherwise have held the reservation for the
+  life of the process. <strong>A blocking task still cannot be aborted</strong>, so a read whose awaiter left runs
+  to its end on the pool and nothing installs its result; a look that never returns under an awaiter
+  that stays - the timer's - holds refresh for as long as it hangs, visible as a staleness that only
+  grows.</li>
+</ul>
 
 
 

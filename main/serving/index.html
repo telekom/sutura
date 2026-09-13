@@ -3441,7 +3441,7 @@ a client that followed it would start putting credentials in a header this deplo
 <tr>
 <td>has a key been <strong>removed</strong></td>
 <td>age: the cached set is re-read once a minute</td>
-<td>one minute. This is the one the caller cannot influence, and it is the one that matters for revocation - a caller presenting a revoked key presents an id the cache <em>has</em>, so nothing else would ever trigger</td>
+<td>one minute <strong>while the source keeps answering with a usable document</strong>, and no bounded time while it does not: a failing re-read keeps the previous keys verifying and logs <code>stale_for_ms</code>, and nothing refuses on that number. This is the one the caller cannot influence, and it is the one that matters for revocation - a caller presenting a revoked key presents an id the cache <em>has</em>, so nothing else would ever trigger</td>
 </tr>
 </tbody>
 </table>
