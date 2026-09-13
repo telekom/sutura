@@ -161,12 +161,14 @@ mod raw {
     /// call did persists". `PostgresWarehouse::execution_lock` is the fix: single-flighting every
     /// exchange on the shared client by construction rather than by scheduling luck.
     ///
-    /// **Timing-dependent, honestly.** This cell was run three times in a row while landing this
-    /// fix and was green all three times - `execution_lock` makes the two loops fully serialize
+    /// **Timing-dependent, honestly.** This cell has been green every time it has run while
+    /// landing this fix and its review - `execution_lock` makes the two loops fully serialize
     /// rather than merely narrowing the window the review measured, so nothing here is expected to
-    /// flake. But a single green run - or three - is not a proof of absence for a race: it is
-    /// evidence this run's scheduler did not find a gap the lock was supposed to close, and the
-    /// lock is what closes it, not the count of green runs.
+    /// flake. But no number of green runs is a proof of absence for a race: each is evidence that
+    /// run's scheduler did not find a gap the lock was supposed to close, and the lock is what
+    /// closes it, not the count of green runs. (`#666` round 2, row 2a-c: 3/3 RED across
+    /// independent runs with `run_raw`'s own guard removed - `select_failures` 168, 167, 131 of
+    /// 400 - which is the evidence this is a regression guard rather than a coincidence.)
     #[test]
     fn concurrent_raw_calls_on_one_connection_never_let_a_write_escape_the_read_only_transaction() {
         let Some(warehouse) = open("concurrency") else { return };
@@ -218,17 +220,116 @@ mod raw {
             .expect("the admin connection reads the fixture table back")
             .get(0);
 
-        assert_eq!(
-            select_failures, 0,
-            "a concurrent write's refusal must never abort another caller's transaction (25P02)"
+        // One `assert!` naming all three counts, `persisted_count` first: it is the security
+        // property (did a write escape the read-only transaction), and `select_failures` is the
+        // collateral (did a concurrent caller's transaction get aborted from under it) - a red run
+        // must report both rather than stopping at whichever assertion came first.
+        assert!(
+            persisted_count == 1 && select_failures == 0 && inserts_accepted == 0,
+            "persisted_count={persisted_count} (want 1 - a write must never escape the read-only \
+             transaction) select_failures={select_failures} (want 0 - a concurrent write's refusal \
+             must never abort another caller's transaction, 25P02) inserts_accepted={inserts_accepted} \
+             (want 0 - a write inside the read-only transaction must never be accepted)"
         );
-        assert_eq!(
-            inserts_accepted, 0,
-            "a write inside the read-only transaction must never be accepted"
+    }
+
+    /// **`#666` round 2, BLOCKING 1's certified half.** The landed cell above races raw-vs-raw;
+    /// `execution_lock` is taken in `run` too (the certified path), and nothing proved that half
+    /// before this cell - round 2's own falsifier measured `certified_failures=194` of 400 with
+    /// `run`'s guard removed, all `25P02` inside a raw caller's aborted transaction. A concurrent
+    /// certified `execute` and a raw insert on ONE adapter must never interleave their exchanges
+    /// on the wire, the same property the raw-vs-raw cell holds for the other pairing.
+    #[test]
+    fn certified_execute_racing_a_raw_insert_never_fails_with_25p02() {
+        use sutura_domain::plan::Executable;
+        let Some(warehouse) = open("certrace") else { return };
+        let Some(AdminConnection {
+            runtime: admin_runtime,
+            client: admin_client,
+            schema,
+        }) = admin("certrace")
+        else {
+            return;
+        };
+        warehouse
+            .load_fixture_csv(&corpus::table(), &corpus::on_disk())
+            .expect("the corpus loads");
+        admin_runtime
+            .block_on(admin_client.batch_execute(&format!(
+                "create table \"{schema}\".race_t (x int); insert into \"{schema}\".race_t values (1)"
+            )))
+            .expect("the admin connection seeds the fixture table");
+        let cases = corpus::cases();
+        let case = cases.first().expect("the corpus has a case");
+
+        let mut certified_failures: Vec<String> = Vec::new();
+        let mut inserts_accepted = 0usize;
+        std::thread::scope(|scope| {
+            let certified = scope.spawn(|| {
+                let mut failures = Vec::new();
+                for _ in 0..400 {
+                    if let Err(cause) = warehouse.execute(Executable::Query(case.plan()), &corpus::presented()) {
+                        failures.push(format!("{cause:?}"));
+                    }
+                }
+                failures
+            });
+            let inserts = scope.spawn(|| {
+                let mut accepted = 0usize;
+                for _ in 0..400 {
+                    if matches!(
+                        warehouse.execute_raw(&statement("insert into race_t values (2)"), &corpus::presented()),
+                        Some(Ok(_))
+                    ) {
+                        accepted += 1;
+                    }
+                }
+                accepted
+            });
+            certified_failures = certified.join().expect("the certified thread does not panic");
+            inserts_accepted = inserts.join().expect("the insert thread does not panic");
+        });
+
+        let persisted_count: i64 = admin_runtime
+            .block_on(admin_client.query_one(&format!("select count(*) from \"{schema}\".race_t"), &[]))
+            .expect("the admin connection reads the fixture table back")
+            .get(0);
+
+        assert!(
+            persisted_count == 1 && inserts_accepted == 0 && certified_failures.is_empty(),
+            "persisted_count={persisted_count} (want 1) inserts_accepted={inserts_accepted} (want 0) \
+             certified_failures={} (want 0), first={:?}",
+            certified_failures.len(),
+            certified_failures.first()
         );
+    }
+
+    /// **`#666` round 2, finding 2.** `run_raw_statement` streams via `Client::query_raw` and stops
+    /// COLLECTING one row past `MAX_ROWS` - proved here by a statement that would return far more,
+    /// asserting the adapter handed back exactly `MAX_ROWS + 1` rows rather than every row the
+    /// statement could produce.
+    ///
+    /// **What this does NOT prove**, stated because the doc comment above `run_raw_statement` used
+    /// to overstate it: the stop bounds this process's own heap, not the wire. The server still
+    /// computes and ships the whole result, and the driver's connection task drains every `DataRow`
+    /// off the socket - only after that does `ROLLBACK` get to run - so a statement's wall time and
+    /// the server's own work stay proportional to what the STATEMENT would return, not to what the
+    /// cap kept. `docs/adr/0013`'s `statement_timeout` is what bounds that, not this stop.
+    #[test]
+    fn a_statement_over_the_row_cap_returns_exactly_the_capped_count() {
+        let Some(warehouse) = open("rowcap") else { return };
+        let over_cap = sutura_domain::plan::MAX_ROWS + 2;
+        let rows = warehouse
+            .execute_raw(
+                &statement(&format!("select generate_series(1, {over_cap})")),
+                &corpus::presented(),
+            )
+            .expect("this adapter accepts a raw statement")
+            .expect("a statement over the cap is not itself a server-side error");
         assert_eq!(
-            persisted_count, 1,
-            "only the fixture's own row may exist once every call has completed"
+            rows.rows().len(),
+            usize::try_from(sutura_domain::plan::MAX_ROWS + 1).expect("the cap plus one fits a usize"),
+            "the adapter must stop one row past the cap, neither at it nor at the statement's own count"
         );
     }
 }

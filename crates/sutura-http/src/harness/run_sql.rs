@@ -11,6 +11,7 @@ use axum::http::StatusCode;
 use sutura_config::Environment;
 
 use super::{over, settings};
+use crate::constants::OPENAPI_JSON_PATH;
 use crate::testing::{bundle, call, fake_warehouse, request};
 
 fn run_sql_body(statement: &str) -> String {
@@ -94,4 +95,33 @@ async fn a_statement_the_data_system_refuses_is_a_403_carrying_the_domain_shape(
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert!(body.contains(r#""outcome":"raw_refusal""#), "{body}");
     assert!(body.contains(r#""code":"source_refused""#), "{body}");
+}
+
+/// **`#666` round 2, finding 3.** `crate::openapi::document`'s own unit test proves the FUNCTION
+/// omits `/sql/run` when told the switch is off; nothing proved the SERVED route actually calls it
+/// with the deployment's real setting rather than a literal - `crates/sutura-http/src/router.rs`'s
+/// `document_json(settings.tools().run_sql_enabled())` could regress to `document_json(true)` and
+/// every existing cell would stay green. These two go through `GET /openapi.json` on the real
+/// router, over settings that differ only in the one key.
+#[tokio::test]
+async fn the_served_document_omits_run_sql_when_the_switch_is_off_and_carries_it_when_on() {
+    let off = over(bundle(), fake_warehouse(), settings(Environment::Development, ""));
+    let (status, body) = call(&off, request("GET", OPENAPI_JSON_PATH, None, Body::empty())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        !body.contains("/v1/sql/run"),
+        "the served document names /v1/sql/run even though this deployment never turned it on: {body}"
+    );
+
+    let on = over(
+        bundle(),
+        fake_warehouse(),
+        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+    );
+    let (status, body) = call(&on, request("GET", OPENAPI_JSON_PATH, None, Body::empty())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body.contains("/v1/sql/run"),
+        "the served document is missing /v1/sql/run even though this deployment turned it on: {body}"
+    );
 }

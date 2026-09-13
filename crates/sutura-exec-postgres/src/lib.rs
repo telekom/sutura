@@ -236,13 +236,13 @@ pub struct PostgresWarehouse {
     /// concurrent callers: measured, two threads in `execute_raw` interleaved their triples, so a
     /// refused write persisted OUTSIDE any transaction and a concurrent certified `run` failed
     /// with `25P02`. `tokio::sync::Mutex<()>` (`clippy.toml` disallows `std::sync::Mutex`), held
-    /// across the whole `block_on` since it never yields the thread back mid-guard - so two
-    /// certified `run`s now wait on each other too, the shared-connection cost `docs/adr/0013`
-    /// states as a limit.
+    /// across the whole `block_on` - so two certified `run`s wait on each other too, the shared-
+    /// connection cost `docs/adr/0013` states as a limit.
     execution_lock: tokio::sync::Mutex<()>,
 }
 
-/// Locks [`PostgresWarehouse::execution_lock`]; `blocking_lock` since every caller is sync.
+/// Locks [`PostgresWarehouse::execution_lock`]. `blocking_lock` panics off a blocking-pool thread
+/// (like `Runtime::block_on`), which is how both transports call it (`spawn_carrying_span`).
 fn lock_execution(lock: &tokio::sync::Mutex<()>) -> tokio::sync::MutexGuard<'_, ()> {
     lock.blocking_lock()
 }

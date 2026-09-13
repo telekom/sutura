@@ -87,6 +87,18 @@ impl PostgresWarehouse {
     /// One row past the cap - not exactly at it - so the caller's own `exceeds_row_cap` check
     /// still sees a count over the limit and refuses it, rather than a truncated result that
     /// looks like a complete answer of exactly the cap's size.
+    ///
+    /// **The limit, named rather than left implied (`#666` round 2, finding 2):** this stop bounds
+    /// the HEAP, not the wire. The server still computes and ships the whole result regardless of
+    /// how many rows this loop keeps, and dropping the stream early does not cancel the query - the
+    /// connection's own driver task drains every remaining `DataRow` off the socket before
+    /// `ROLLBACK` can run. A statement that would return far more than the cap still costs the
+    /// server the full computation and this connection the full transfer, bounded only by the
+    /// connect-time `statement_timeout`. The real bound - a portal opened with `max_rows` via
+    /// `Client::transaction`/`Transaction::query_portal`, which asks the SERVER to send only that
+    /// many rows per `Execute` - needs `&mut Client`, which `execution_lock` does not yet provide;
+    /// see that field's own documentation for why a `Mutex<Client>` is the follow-up this stop is
+    /// standing in for.
     async fn run_raw_statement(&self, sql: &str) -> Result<sutura_domain::warehouse::RawRows, PostgresError> {
         let prepared = self
             .client
