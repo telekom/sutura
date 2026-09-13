@@ -7,10 +7,16 @@
 //!
 //! ## Limits
 //!
-//! - `NoTls`, unconditional: a `hostssl`-only server refuses this connection.
+//! - **No transport of its own.** [`PostgresWarehouse::connect`] opens with no TLS at all; the
+//!   verifying path is [`PostgresWarehouse::connect_secured`], which takes the
+//!   `rustls::ClientConfig` a composition root built from the declared channel
+//!   ([`tls::client_config`]). Which source gets which is `sutura_config::sources::transport`'s
+//!   decision and never this adapter's, so a caller that builds no config gets a cleartext
+//!   connection - including to a server that offers TLS.
 //! - A `statement_timeout` is set at connect, so a slow server statement cannot hold a
 //!   blocking-pool thread past the caller's request deadline.
 
+pub mod connection;
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///
 /// **Behind the default-off `fixtures` feature**, because both callers are tests
@@ -22,7 +28,7 @@
 #[cfg(feature = "fixtures")]
 pub mod fixture;
 mod importer;
-
+pub mod tls;
 use std::path::Path;
 
 use bytes::Bytes;
@@ -158,9 +164,54 @@ pub enum PostgresError {
         #[source]
         cause: PresentedDisagreesWithPosture,
     },
-    /// One leg of a federated answer, which nothing here can assemble above.
+    /// A leg without a combiner.
     #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
     LegWithoutCombiner { table: String },
+    /// The declared trust anchors could not be read or parsed.
+    #[error("the declared trust anchors could not be read as a PEM bundle at {path}")]
+    AnchorsRead {
+        path: String,
+        #[source]
+        cause: std::io::Error,
+    },
+    /// The declared trust anchors parsed to no certificates.
+    #[error("the trust-anchor bundle at {path} parsed to no certificates - a store of nothing verifies nothing")]
+    AnchorsEmpty { path: String },
+    /// The declared client identity could not be read.
+    #[error("the declared client identity could not be read at {path}")]
+    IdentityRead {
+        path: String,
+        #[source]
+        cause: std::io::Error,
+    },
+    /// The declared client certificate parsed to no certificate, or the key to no key.
+    #[error("the client identity pair is incomplete: expected a certificate and a key, and found {what} at {path}")]
+    IdentityIncomplete { path: String, what: &'static str },
+    /// The client key was not an RSA/EC key this build can present.
+    #[error("the client private key at {path} is not a private key this build can present")]
+    IdentityKey { path: String, what: &'static str },
+    /// The explicitly selected host trust store could not be read completely.
+    #[error("the host trust store reported {errors} errors while it was read")]
+    SystemStoreRead {
+        errors: usize,
+        #[source]
+        cause: rustls_native_certs::Error,
+    },
+    /// The explicitly selected host trust store held no roots.
+    #[error("the host trust store held no certificates - a store of nothing verifies nothing")]
+    SystemStoreEmpty,
+    /// A certificate returned by the host trust-store reader was not a usable root.
+    #[error("the host trust store returned a certificate this TLS implementation cannot use as a root")]
+    SystemStoreCertificate {
+        #[source]
+        cause: rustls::Error,
+    },
+    /// The cryptographic provider could not construct a client verifier.
+    #[error("the TLS client verifier could not be constructed")]
+    TlsConfiguration {
+        #[source]
+        cause: rustls::Error,
+    },
 }
 
 /// A `PostgreSQL` connection, behind the [`Warehouse`] port.
@@ -180,35 +231,79 @@ impl core::fmt::Debug for PostgresWarehouse {
             .finish_non_exhaustive()
     }
 }
-
 impl PostgresWarehouse {
     /// Opens one connection under the supplied [`tokio_postgres::Config`] and keeps it for this
-    /// adapter's life.
+    /// adapter's life, over no transport security. The fixture tier's path (unix socket, loopback),
+    /// and the composition root's `plaintext` choice - the caller has already refused a
+    /// non-loopback plaintext host.
     pub fn connect(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
         config: &tokio_postgres::Config,
     ) -> Result<Self, PostgresError> {
+        Self::connect_secured(source, posture, config, None)
+    }
+
+    /// Opens one connection under the supplied `config`, secured as the caller resolved.
+    ///
+    /// `tls` is `None` for a `plaintext` channel and a ready-built `rustls::ClientConfig` for
+    /// `verified` and `mutual` channels. Both are produced by the composition root, which is the
+    /// only place that can see the declared `sutura_config::sources::transport::SourceTransport` -
+    /// this adapter takes the resolved material rather than a second copy of the three-state shape.
+    pub fn connect_secured(
+        source: sutura_domain::model::SourceName,
+        posture: sutura_domain::source::SourcePosture,
+        config: &tokio_postgres::Config,
+        tls: Option<rustls::ClientConfig>,
+    ) -> Result<Self, PostgresError> {
+        let mut config = config.clone();
+        // `Prefer` is the driver's default and falls back to plaintext when a server refuses SSL.
+        // A supplied verifier means the caller declared TLS, so make the handshake mandatory here,
+        // beside the connection itself, rather than relying on every composition root to remember.
+        if tls.is_some() {
+            config.ssl_mode(tokio_postgres::config::SslMode::Require);
+        }
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .map_err(|cause| PostgresError::Runtime { cause })?;
-        let (client, connection) = runtime
-            .block_on(config.connect(tokio_postgres::NoTls))
-            .map_err(|cause| PostgresError::Connect { cause })?;
-        // The connection's driver task is owned by this runtime, so it is polled exactly while this
-        // adapter is inside a `block_on`. `Client` is `Send + Sync`, so the multi-thread runtime
-        // serializes calls onto its workers. The driver task's ultimate error has no caller to
-        // report to; the next `block_on` fails on its own.
-        #[expect(
-            clippy::let_underscore_must_use,
-            clippy::let_underscore_untyped,
-            reason = "the connection driver task's own error has no caller to route to, and the next \
-                      block_on fails on the connection's state"
-        )]
-        runtime.spawn(async move {
-            let _ = connection.await;
-        });
+        // Each arm CONNECTS and SPAWNS the driver task, so the two arms unify on the `Client` and
+        // the connection's differing stream type does not leak into the match. `runtime.spawn`
+        // accepts both `Connection` shapes because each is `Send` once its stream is.
+        let client = if let Some(client_config) = tls {
+            let connector = tokio_postgres_rustls::MakeRustlsConnect::new(client_config);
+            let (client, connection) = runtime
+                .block_on(config.connect(connector))
+                .map_err(|cause| PostgresError::Connect { cause })?;
+            // The connection's driver task is owned by this runtime, so it is polled exactly
+            // while this adapter is inside a `block_on`. `Client` is `Send + Sync`, so the
+            // multi-thread runtime serializes calls onto its workers. The driver task's
+            // ultimate error has no caller to report to; the next `block_on` fails on its own.
+            #[expect(
+                clippy::let_underscore_must_use,
+                clippy::let_underscore_untyped,
+                reason = "the connection driver task's own error has no caller to route to, and the next \
+                              block_on fails on the connection's state"
+            )]
+            runtime.spawn(async move {
+                let _ = connection.await;
+            });
+            client
+        } else {
+            let (client, connection) = runtime
+                .block_on(config.connect(tokio_postgres::NoTls))
+                .map_err(|cause| PostgresError::Connect { cause })?;
+            #[expect(
+                clippy::let_underscore_must_use,
+                clippy::let_underscore_untyped,
+                reason = "the connection driver task's own error has no caller to route to, and the next \
+                              block_on fails on the connection's state"
+            )]
+            runtime.spawn(async move {
+                let _ = connection.await;
+            });
+            client
+        };
         // The transport that calls this adapter holds a request timeout, but the server-side work a
         // `block_on` here is polling is NOT cancelled by it - a slow statement would hold this
         // blocking-pool thread past the caller's deadline. `statement_timeout` is the cheap guard:
@@ -844,145 +939,4 @@ impl Warehouse for PostgresWarehouse {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use sutura_domain::warehouse::Value;
-
-    /// The wire bytes for a `NUMERIC`: two bytes each of digit count, weight, sign and display
-    /// scale, then the base-10000 digits. Built big-endian exactly as the documented format.
-    #[expect(
-        clippy::big_endian_bytes,
-        reason = "the NUMERIC wire format is documented big-endian, which is exactly what the test \
-                  helper writes"
-    )]
-    fn numeric_bytes(digits: &[u16], weight: i16, sign: u16, dscale: u16) -> Vec<u8> {
-        let mut out = Vec::with_capacity(8 + 2 * digits.len());
-        out.extend_from_slice(&u16::try_from(digits.len()).unwrap_or(0).to_be_bytes());
-        out.extend_from_slice(&weight.to_be_bytes());
-        out.extend_from_slice(&sign.to_be_bytes());
-        out.extend_from_slice(&dscale.to_be_bytes());
-        for &digit in digits {
-            out.extend_from_slice(&digit.to_be_bytes());
-        }
-        out
-    }
-
-    fn decode(digits: &[u16], weight: i16, sign: u16, dscale: u16) -> PgNumeric {
-        decode_numeric(&numeric_bytes(digits, weight, sign, dscale)).expect("a valid NUMERIC decodes")
-    }
-
-    #[test]
-    fn an_integral_numeric_that_fits_is_an_integer_cell() {
-        // 300 as NUMERIC(,0): one base-10000 digit, weight 0.
-        assert_eq!(
-            numeric_cell(&decode(&[300], 0, 0x0000, 0), "total").unwrap(),
-            Value::Integer(300)
-        );
-        // 10000 = 1·10000^1, weight 1.
-        assert_eq!(
-            numeric_cell(&decode(&[1], 1, 0x0000, 0), "total").unwrap(),
-            Value::Integer(10_000)
-        );
-    }
-
-    #[test]
-    fn a_fractional_numeric_is_exact_text() {
-        // 100.5 = 100·10000^0 + 5000·10000^-1, declared scale 1.
-        assert_eq!(
-            numeric_cell(&decode(&[100, 5000], 0, 0x0000, 1), "mean").unwrap(),
-            Value::Text(String::from("100.5"))
-        );
-        // The declared scale renders 5000·10000^-1 as 0.5, not 0.5000.
-        assert_eq!(
-            numeric_cell(&decode(&[5000], -1, 0x0000, 1), "mean").unwrap(),
-            Value::Text(String::from("0.5"))
-        );
-        // The wire's declared scale is preserved exactly.
-        assert_eq!(
-            numeric_cell(&decode(&[100], 0, 0x0000, 2), "mean").unwrap(),
-            Value::Text(String::from("100.00"))
-        );
-        // The absent 10^-4 group implied by weight -2 is still part of the value.
-        assert_eq!(
-            numeric_cell(&decode(&[1000], -2, 0x0000, 5), "mean").unwrap(),
-            Value::Text(String::from("0.00001"))
-        );
-    }
-
-    #[test]
-    fn a_negative_numeric_keeps_its_sign_exactly() {
-        assert_eq!(
-            numeric_cell(&decode(&[300], 0, 0x4000, 0), "total").unwrap(),
-            Value::Integer(-300)
-        );
-        assert_eq!(
-            numeric_cell(&decode(&[100, 5000], 0, 0x4000, 1), "mean").unwrap(),
-            Value::Text(String::from("-100.5"))
-        );
-    }
-
-    #[test]
-    fn a_non_finite_numeric_is_refused_as_a_non_finite_cell() {
-        assert!(matches!(
-            numeric_cell(&decode(&[0], 0, 0xC000, 0), "mean"),
-            Err(PostgresError::NotFinite { .. })
-        ));
-        assert!(matches!(
-            numeric_cell(&decode(&[0], 0, 0xD000, 2), "mean"),
-            Err(PostgresError::NotFinite { .. })
-        ));
-    }
-
-    #[test]
-    fn a_numeric_wider_than_i64_stays_exact_text() {
-        // 10^20 is beyond i64 and must not be rounded or refused.
-        assert_eq!(
-            numeric_cell(&decode(&[1], 5, 0x0000, 0), "total").unwrap(),
-            Value::Text(String::from("100000000000000000000"))
-        );
-    }
-
-    #[test]
-    fn a_truncated_numeric_header_is_a_decoder_error() {
-        let short = decode_numeric(&[0, 1, 0]).expect_err("fewer than the eight header bytes");
-        assert!(short.to_string().contains("shorter"), "{short}");
-        // Eight header bytes but claims a digit it does not carry.
-        let missing_digit = decode_numeric(&[0, 1, 0, 0, 0, 0, 0, 0]).expect_err("claims a digit that is not there");
-        assert!(missing_digit.to_string().contains("value was truncated"), "{missing_digit}");
-    }
-
-    #[test]
-    fn pg_date_round_trips_through_the_epoch_offset() {
-        // The driver's epoch (2000-01-01) is day 0 in its own numbering.
-        assert_eq!(PgDate { days: 0 }.to_domain_days(), 10_957);
-        // The domain epoch (1970-01-01) is the driver's -10957.
-        assert_eq!(PgDate::from_domain(0).days, -10_957);
-        assert_eq!(PgDate::from_domain(0).to_domain_days(), 0);
-    }
-
-    #[test]
-    fn a_statement_timeout_is_a_u32_ceiling_or_it_is_refused() {
-        // The tuning value becomes a `SET statement_timeout = N` line verbatim, so it is a typed
-        // ceiling at the boundary: a number that fits parses...
-        assert_eq!(parse_statement_timeout("15000").expect("a number parses"), 15_000);
-        assert_eq!(parse_statement_timeout("0").expect("zero is a valid timeout"), 0);
-        assert_eq!(
-            parse_statement_timeout(&u32::MAX.to_string()).expect("the ceiling parses"),
-            u32::MAX
-        );
-        // ...and anything that cannot be a `u32` is refused rather than reaching the statement.
-        // `u32::MAX + 1` is the ceiling's far side, and decimals are refused rather than truncated.
-        assert!(matches!(
-            parse_statement_timeout("not-a-number"),
-            Err(PostgresError::InvalidStatementTimeout { .. })
-        ));
-        assert!(matches!(
-            parse_statement_timeout("4294967296"),
-            Err(PostgresError::InvalidStatementTimeout { .. })
-        ));
-        assert!(matches!(
-            parse_statement_timeout("15000.5"),
-            Err(PostgresError::InvalidStatementTimeout { .. })
-        ));
-    }
-}
+mod tests;

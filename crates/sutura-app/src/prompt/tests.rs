@@ -10,6 +10,7 @@
 // hostile fixture; the fixture itself stays here, because `definitions` above declares it.
 mod column_zero;
 mod injection_corpus;
+mod physical_schema;
 mod refusal_corpus;
 
 use std::collections::BTreeSet;

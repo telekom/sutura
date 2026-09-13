@@ -135,6 +135,36 @@ pub(crate) struct RawSource {
     /// deployment hands a subject's token to, and the scope the exchanged credential is minted for.
     #[serde(default)]
     pub(crate) workload_identity: Option<RawWorkloadIdentity>,
+    /// The host a `postgres` source dials over TCP. Mutual with `unix_socket`.
+    #[serde(default)]
+    pub(crate) host: Option<String>,
+    /// The unix socket directory a `postgres` source connects through. Mutual with `host`.
+    #[serde(default)]
+    pub(crate) unix_socket: Option<String>,
+    /// The TCP port a `postgres` source dials, when `host` is set.
+    #[serde(default)]
+    pub(crate) port: Option<u16>,
+    /// The database a `postgres` source connects to.
+    #[serde(default)]
+    pub(crate) database: Option<String>,
+    /// The role a `postgres` source connects as.
+    #[serde(default)]
+    pub(crate) user: Option<String>,
+    /// The file a `postgres` source's password is read from at boot.
+    #[serde(default)]
+    pub(crate) password_file: Option<String>,
+    /// How the channel to a `postgres` source is secured: `plaintext`, `verified`, or `mutual`.
+    #[serde(default)]
+    pub(crate) transport_mode: Option<String>,
+    /// The trust anchors a TLS `postgres` source verifies against: `system` or an absolute PEM path.
+    #[serde(default)]
+    pub(crate) transport_anchors: Option<String>,
+    /// The client certificate a `mutual` `postgres` source presents. Absolute.
+    #[serde(default)]
+    pub(crate) client_certificate: Option<String>,
+    /// The client key a `mutual` `postgres` source presents. Absolute. A secret; never inlined.
+    #[serde(default)]
+    pub(crate) client_key: Option<String>,
 }
 
 /// One source's Workload Identity Federation provider, as read.

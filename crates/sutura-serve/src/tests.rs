@@ -81,6 +81,8 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::Files(files)) => files,
         #[cfg(feature = "bigquery")]
         Ok(OpenedSources::BigQuery(_)) => panic!("expected the file engine, got the BigQuery arm"),
+        #[cfg(feature = "postgres")]
+        Ok(OpenedSources::Postgres(_)) => panic!("expected the file engine, got the Postgres arm"),
         Err(message) => panic!("{message}"),
     }
 }
