@@ -734,6 +734,11 @@ Bounded at both ends. Zero is a service that answers nothing, and an hour is a c
 held open long enough that a handful of them are the outage: a question here is one
 aggregate over a bounded range, so a minute is already generous and five is the ceiling.
 
+Carries its own `Budget` beside the duration, computed once in `Self::parse` rather than
+re-derived on every `Self::budget` read: `parse` is the one place that already proves the
+timeout can afford `Self::REPLY_MARGIN`, so recomputing it later would be the same fact
+re-argued at a second call site with an `expect` standing in for the proof.
+
 ## `use ServerSettings`
 
 Everything about the socket, the two per-request bounds, and the TLS material if there is any.
@@ -3447,20 +3452,44 @@ Bounded at both ends. Zero is a service that answers nothing, and an hour is a c
 held open long enough that a handful of them are the outage: a question here is one
 aggregate over a bounded range, so a minute is already generous and five is the ceiling.
 
+Carries its own `Budget` beside the duration, computed once in `Self::parse` rather than
+re-derived on every `Self::budget` read: `parse` is the one place that already proves the
+timeout can afford `Self::REPLY_MARGIN`, so recomputing it later would be the same fact
+re-argued at a second call site with an `expect` standing in for the proof.
+
 #### Methods
+
+```rust
+pub const fn budget(self) -> Budget
+```
+
+The execution port's budget: this timeout minus `Self::REPLY_MARGIN`, computed once in
+`Self::parse` so every caller reads the same number rather than re-deriving it.
 
 ```rust
 pub const fn duration(self) -> Duration
 ```
 
 ```rust
-pub const fn parse(seconds: u64) -> Result<Self, InvalidBound>
+pub fn parse(seconds: u64) -> Result<Self, InvalidBound>
 ```
 
 Reads a timeout in whole seconds.
 
 Seconds and not a duration string: sub-second precision is meaningless for a bound this
 coarse, and a parser for a suffixed number is a second grammar for a single value.
+
+**Refuses a timeout that cannot afford `Self::REPLY_MARGIN`**, which moves the floor from
+one second to two: the smallest accepted value is the smallest one `Self::budget` can open
+a non-zero `Budget` from. Checked here rather than in `budget` because a value that fails
+this refuses at startup, naming the margin - `budget` is then infallible.
+
+**The margin check is `Budget::parse`'s own zero check, read back rather than re-argued**:
+this function does not separately compare `seconds` against `Self::REPLY_MARGIN` and then
+trust that comparison to make a second, later `Budget::parse` call infallible - it asks
+`Budget::parse` once, on the subtracted duration, and turns the one way it can fail into
+`InvalidBound::CannotAffordReplyMargin`. One fact, checked once, instead of a promise one
+call site keeps and another has to take on faith.
 
 ```rust
 pub const fn seconds(self) -> u64
@@ -3535,6 +3564,7 @@ Why a bound is not a bound.
 - `Zero` - Nothing here may be zero: a zero timeout answers nothing and a zero body limit accepts nothing, and both read as no limit at all to somebody writing the file.
 - `TooLarge` - Above the ceiling this type declares.
 - `AboveAvailableMemory` - Above the memory this process can actually reach.
+- `CannotAffordReplyMargin` - `server.request_timeout_seconds` does not exceed `RequestTimeout::REPLY_MARGIN`, so the port's own budget - the timeout minus that margin - would be zero or negative.
 
 #### Implements
 

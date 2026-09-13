@@ -75,6 +75,7 @@ use sutura_domain::plan::{
     PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::{ParamValue, Real, RowSet, Value};
 
 /// The data system name every plan in this corpus resolves to.
@@ -179,6 +180,18 @@ pub fn posture() -> SourcePosture {
 #[must_use]
 pub fn presented() -> Presented {
     Presented::SharedServiceUser { declared: declared() }
+}
+
+/// The port's deadline every pack executes under.
+///
+/// A generous budget, opened now: these packs assert content and refusal shapes, not timing, so the
+/// only requirement is that it not run out before an adapter answers.
+#[must_use]
+pub fn deadline() -> Deadline {
+    Deadline::opened_at(
+        std::time::Instant::now(),
+        Budget::parse(std::time::Duration::from_secs(30)).expect("thirty seconds is a budget"),
+    )
 }
 
 /// The one acknowledgement both halves of the identity declaration read.

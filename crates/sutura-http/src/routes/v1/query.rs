@@ -76,10 +76,12 @@
 //! happens under a test profile. The shipped profiles set `panic = "abort"`, so there the process is
 //! gone and the slot is moot.
 
+use axum::Extension;
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use sutura_domain::query::Query;
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::AtCapacity;
 
 use crate::problem::Failure;
@@ -163,9 +165,11 @@ const TAG: &str = "query";
             status = 413,
             description = "TWO THINGS, and `code` is what tells them apart. `too_large`: the \
                            REQUEST body is larger than this service will read - that body is the \
-                           failure shape. `result_too_large`: the ANSWER exceeded the row cap and \
-                           was NOT truncated to fit - that body is `outcome: refusal`, and the \
-                           detail names the cap and what to narrow.",
+                           failure shape. `result_too_large`: the ANSWER was too much data and was \
+                           NOT truncated to fit - the row cap, a data system that would not hand it \
+                           back in one piece, or this deployment's own bound on the bytes a rendered \
+                           answer may occupy - that body is `outcome: refusal`, and the detail names \
+                           what bound it was and what to narrow.",
             body = OutcomeBody
         ),
         (
@@ -173,10 +177,12 @@ const TAG: &str = "query";
             description = "REFUSED - `outcome: refusal`. The question is well formed and out of \
                            bounds. `code` says which bound: `time_range_too_long`, \
                            `too_many_dimensions`, `duplicate_dimension`, `grain_not_supported` \
-                           (the metric exists; that grain is not defined for it), or \
+                           (the metric exists; that grain is not defined for it), \
                            `resources_exhausted` (answering needed more working memory than this \
                            deployment's ceiling, and it was refused rather than allowed to exhaust \
-                           the process - narrow the period or group by fewer dimensions). \
+                           the process - narrow the period or group by fewer dimensions), or \
+                           `deadline_exceeded` (this deployment stopped the question after its \
+                           configured budget; the detail carries the number of seconds). \
                            Repeating the request unchanged will fail the same way; the detail \
                            carries the limit.",
             body = OutcomeBody
@@ -210,6 +216,11 @@ pub(crate) async fn ask(
     // caller writes - see `crate::principal`, which explains why the check moved from the arity of a
     // function to a type.
     caller: Option<axum::Extension<crate::inbound::VerifiedCaller>>,
+    // Opened by `middleware::enforce_timeout`, before admission - the same extension mechanism
+    // `caller` above uses, and for the analogous reason: a handler has no state of its own to carry
+    // a per-request value through, and this one cannot be reached by anything a caller writes
+    // because nothing a caller sends can insert a request extension.
+    Extension(deadline): Extension<Deadline>,
     body: Result<Json<QuestionBody>, JsonRejection>,
 ) -> Result<Outcome, Failure> {
     let Json(body) = body.map_err(|rejection| rejected(&rejection))?;
@@ -279,7 +290,7 @@ pub(crate) async fn ask(
         // The audit record for this outcome is written INSIDE this call, before it returns - so it
         // is written on the blocking thread, inside the span this helper carries across, and it is
         // written whether or not the caller is still waiting for the response.
-        let answered = surface.answer(&context, &query);
+        let answered = surface.answer(&context, &query, deadline);
         // Explicitly, and here rather than at the top of the closure: the admission `slot` and the
         // in-use `slot_guard` are released when the WORK finishes, which is what makes the bound a
         // bound on execution. Dropping them earlier would let a second question start on top of

@@ -311,7 +311,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         // the status with an EMPTY body, and every `408` this surface documents carries a
         // `ProblemBody`. See `middleware::enforce_timeout`.
         .layer(axum::middleware::from_fn_with_state(
-            settings.server().request_timeout().duration(),
+            settings.server().request_timeout(),
             middleware::enforce_timeout,
         ))
         // Outermost, so a request refused by any layer below still produces a span and a timing.

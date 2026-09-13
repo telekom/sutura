@@ -53,7 +53,7 @@ const QUERY: Subject = Subject {
     name: "RefusalReason",
     declared_in: DECLARED_IN,
     allow_file: ALLOW_FILE,
-    variants: variants(19),
+    variants: variants(20),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

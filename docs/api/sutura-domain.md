@@ -60,6 +60,9 @@ types it speaks in:
   descriptive content.
 - `pinned` is the hashed snapshot a question resolves against, plus the catalog port.
 - `query` is the tool surface, defined mostly by what it has no field for.
+- `question` is the one conversion from a caller's raw fields to a `query::Query`, shared by
+  both transports so a governed field set and its typed refusal exist in one place rather than
+  two kept equal by review.
 - `warehouse` is the execution port. It speaks in plans, so an adapter that executes without
   generating any SQL is a first-class implementation of it rather than a special case.
 - `source` is what a deployment declares about one source: which identity a query reaches it as,
@@ -8029,6 +8032,7 @@ somebody else's input.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
 - `SourceRefused` - The data system refused the executed statement because the identity it ran it as may not ask it.
 - `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
+- `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
 
 #### Methods
 
@@ -8081,10 +8085,65 @@ agent two paragraphs saying one thing.
 
 - `Rows` - The plan's row cap, in rows.
 - `Volume` - The data system would not hand this result back in one piece.
+- `Encoded` - This deployment's own rendered-response ceiling, in bytes.
 
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct ResponseByteLimit`
+
+```rust
+pub struct ResponseByteLimit
+```
+
+The most bytes an answer's rendered cells may occupy before this deployment declines to encode
+it into a response.
+
+**Parsed rather than a bare constant**, so a caller of this type cannot end up with a zero
+ceiling that refuses every answer while reading as "no bound was set" - the same distinction
+`crate::plan::MAX_ROWS` does not need to make, because nothing constructs a row cap from
+outside this crate.
+
+`Self::DEFAULT` is what every deployment is held to today - see its own documentation for the
+number and the reasoning. **The limit, stated here rather than left for a reader to assume
+otherwise:** nothing yet reads this from a settings file the way `server.max_body_bytes` bounds
+the request side: `sutura_app::answer` and `sutura_app::federated::answer_federated` both use
+`Self::DEFAULT` unconditionally. Making it operator-configurable is future work, threaded the
+same way `working_set_bytes` already is, from a composition root down through
+`sutura_app::surface::LocalService`.
+
+#### Methods
+
+```rust
+pub const fn bytes(self) -> u64
+```
+
+```rust
+pub const fn parse(bytes: u64) -> Result<Self, InvalidResponseByteLimit>
+```
+
+Reads a byte ceiling.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InvalidResponseByteLimit`
+
+```rust
+pub enum InvalidResponseByteLimit
+```
+
+Why a response byte ceiling is not one.
+
+#### Variants
+
+- `Zero` - Zero reads as "no bound was configured" to whoever wrote it, and is the opposite: it refuses every answer without saying it means to.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `enum ToolOutcome`
 
@@ -8164,6 +8223,91 @@ bounding the work that produced it: the groups are built, and then the answer is
 refusal is not a budget. A day count is also only a proxy for rows: ten years of a small table and
 ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 scanned, which needs something from the data system that no port asks for yet.
+
+## Module `question`
+
+Parsing a caller's raw question fields into a certified `crate::query::Query`.
+
+**The one conversion two transports used to duplicate.** `sutura-http`'s `QuestionBody` and
+`sutura-mcp`'s `AskArgs` carry the same five fields, for the reason every wire shape here does:
+they are both the whole of what a caller may ask, extracted as plain strings so a parse failure
+can name the field rather than quote a deserializer. Before this module existed, each transport
+re-derived `crate::query::Query` from those fields with its own copy of this logic, its own
+copy of `MalformedQuestion`, and its own copy of the grain and range parsers - identical code,
+kept equal only by review, because *an adapter may not depend on another adapter*. The shared
+part moves here, inward of both, where nothing has to be kept equal by hand any more.
+
+What stays with each transport is genuinely transport-shaped: the `#[derive(serde::Deserialize)]`
+/ `schemars::JsonSchema` wire struct itself, and the one extra failure a transport's own
+deserialization step can produce before this function is ever reached - MCP's arguments object
+failing to deserialize as an object at all, which HTTP's extractor rejects earlier in its own
+stack and which therefore has no analogue here. `parse_query` takes the five fields already
+extracted, as borrowed strings, so it carries no serde of its own and no framework.
+
+### `struct RawFilter`
+
+```rust
+pub struct RawFilter<'a>
+```
+
+One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
+wire struct a transport deserialized.
+
+Fields are private - a `pub` field on a `pub struct` fails `cargo xtask check-boundaries` in
+this crate - even though nothing here is validated yet: the two strings are exactly what a
+transport extracted, unchanged, and `new` is the only way to pair them.
+
+#### Methods
+
+```rust
+pub const fn new(dimension: &'a str, value: &'a str) -> Self
+```
+
+Pairs a caller's raw dimension name and value, as a transport extracted them.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
+
+### `enum MalformedQuestion`
+
+```rust
+pub enum MalformedQuestion
+```
+
+Why a caller's raw fields did not become a `Query`.
+
+Every variant names the field, and none of them echoes the caller's value back except where the
+value is the thing that failed to parse as an identifier - which is a bounded character set, not
+free text.
+
+#### Variants
+
+- `Metric`
+- `Grain` - **Carries no field, and that is on purpose.** The accepted set is fixed and finite, so the sentence names all five instead of echoing back the one that did not match - the caller's text would otherwise sit in a `Debug` rendering unread by any transport, the shape `MalformedQuestion` is elsewhere careful never to carry.
+- `Date`
+- `Range`
+- `Dimension`
+- `FilterDimension`
+- `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `crate::catalog::MAX_DIMENSION_VALUE_CHARS`.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `fn parse_query`
+
+```rust
+pub fn parse_query(metric: &str, grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>]) -> Result<crate::query::Query, MalformedQuestion>
+```
+
+Parses a caller's raw question fields into a `Query`.
+
+**This is the whole translation a transport is allowed to do**: extract each field from its own
+wire shape as a plain string, hand them here, get back a certified `Query` or a
+`MalformedQuestion` naming the field. Nothing here decides what may be asked - that is
+`sutura_app::compile`'s job, against the pinned catalog this function never sees and cannot
+widen.
 
 ## Module `source`
 
@@ -8934,6 +9078,14 @@ One function so there is one answer. An anchor comparison that formatted the val
 call site would compare differently in two places, and the failure would look like a data
 problem rather than a formatting one.
 
+```rust
+pub fn rendered_len(&self) -> usize
+```
+
+The byte length `Self::render` would produce, without the allocation when a cheaper
+answer exists - `Text` is measured rather than cloned, for `RowSet::rendered_byte_len`.
+`Integer`/`Real` still render: a few bytes, cheaper than duplicating `Display`'s counting.
+
 #### Implements
 
 `Clone`, `Debug`, `PartialEq`, `Serialize`
@@ -8983,6 +9135,15 @@ pub fn new(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Self, Malforme
 ```
 
 Builds a result set, rejecting a ragged one.
+
+```rust
+pub fn rendered_byte_len(&self) -> u64
+```
+
+The total bytes every cell would occupy once rendered (via `Value::rendered_len`, so a
+wide `Text` cell is counted rather than cloned) - a proxy for the encoded response size, not
+the wire size: the same canonical text an anchor compares against, not the JSON or
+tab-delimited bytes a transport wraps it in. Column labels are not counted.
 
 ```rust
 pub fn rows(&self) -> &[Vec<Value>]
@@ -9165,6 +9326,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::SourcePosture;
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
 struct Undeclared {
@@ -9184,7 +9346,7 @@ impl Warehouse for Undeclared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -9202,6 +9364,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
 struct Declared {
@@ -9222,7 +9385,7 @@ impl Warehouse for Declared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -10279,3 +10442,129 @@ than by position, and a label that no column can shadow is what makes reading by
 #### `constant DISTINCT_LABEL`
 
 The label the distinct count is projected under. See `ROWS_LABEL`.
+
+### Module `deadline`
+
+One absolute deadline per answer, and the budget it was opened from.
+
+A module of its own rather than a type or two added here, for the reason `cardinality`
+already gives - and because this file was at the `max-lines` cap the day the record needed
+somewhere to grow (`docs/adr/0029`). `Deadline` and `Budget` are used unqualified below, the
+same way `cardinality`'s two types are.
+One absolute deadline per answer: how long is left, read against an instant a caller supplies.
+
+The domain reads no clock - `crate::identity::Expiry::passed_by` is the precedent, and the same
+shape applies here: `now` arrives as an argument to `Deadline::remaining_at` rather than being
+read, so the one comparison this module makes lives here and not at whichever call site happens
+to hold a clock. `docs/adr/0029` is the record; this module is its first slice, carried by the
+port and not yet enforced by any adapter this release links.
+
+#### `struct Deadline`
+
+```rust
+pub struct Deadline
+```
+
+The instant one answer's execution has to be finished by.
+
+Opened ONCE per request, by the transport, at the instant the request arrived - before
+admission, so the wait for a concurrency slot sits inside the caller's bound rather than adds to
+it. Shared by the pre-flight, every leg of a federated answer and the re-check between them:
+`Self::remaining_at` is a comparison against an instant every reader shares, so *what is left*
+is a read and never a division.
+
+Two `Copy` words - an `Instant` and a `Budget` - so it crosses into a
+`sutura_runtime::spawn_carrying_span` closure by value and carries no secret.
+
+`PartialEq`/`Eq` so a test can assert that two legs of one federated answer were handed the SAME
+value - one instant, never re-derived - without exposing the instant itself as an accessor a
+caller could otherwise be tempted to compare against its own clock.
+
+##### Methods
+
+```rust
+pub const fn budget(self) -> Budget
+```
+
+The budget this deadline opened with - what a refusal that ran out of time names, and never
+how long is left (that is `Self::remaining_at`, and it needs a `now` this type does not
+have).
+
+```rust
+pub const fn opened_at(opened: Instant, budget: Budget) -> Self
+```
+
+Opens a deadline at `opened`, good for `budget`.
+
+```rust
+pub fn remaining_at(self, now: Instant) -> Option<Duration>
+```
+
+What is left at `now`, or `None` when it is spent.
+
+**Never a zero duration.** `Some(Duration::ZERO)` reads as *no timeout at all* to
+`tokio::time::timeout` and to every client underneath it, so handing one on would turn a
+spent budget into an unbounded wait rather than a stopped one - the same rule
+`sutura_exec_bigquery`'s `CallDeadline::remaining` already follows for its own budget.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct Budget`
+
+```rust
+pub struct Budget
+```
+
+How long one answer may execute.
+
+Parses: non-zero. A zero budget would read as *no timeout* the moment it reached a client
+underneath - the same rule `Deadline::remaining_at` applies to what is left mid-flight,
+applied here to what a caller may configure to begin with.
+
+The only production constructor is `sutura_config::RequestTimeout::budget`, which subtracts a
+fixed reply margin from the configured request timeout once. `Self::parse` stays `pub`
+because a test - and a third transport - needs to build one directly; what holds production is
+that one call site and review, and `docs/adr/0029` states the limit next to the claim.
+
+##### Methods
+
+```rust
+pub const fn duration(self) -> Duration
+```
+
+The duration, for the one call site (`Deadline::remaining_at`) that does arithmetic on it.
+
+```rust
+pub const fn parse(budget: Duration) -> Result<Self, NoBudget>
+```
+
+Parses a budget, refusing zero.
+
+```rust
+pub const fn seconds(self) -> u64
+```
+
+The budget, in whole seconds - what `RefusalReason::DeadlineExceeded` carries, because it is
+a configured number and not how long the question would have taken, which nobody knows.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct NoBudget`
+
+```rust
+pub struct NoBudget
+```
+
+Why a duration is not a budget: it is zero.
+
+Declared last in this file: `xtask check-boundaries`'s pub-field scan misreads a unit struct
+followed by an `impl` block as the struct's own fields, a gate defect noted as a PR follow-up
+rather than worked around with more prose here.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`

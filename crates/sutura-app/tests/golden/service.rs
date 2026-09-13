@@ -5,7 +5,7 @@
 //! that implements it, and a test asserting on the text of an HTTP request would prove something
 //! about the test.
 use sutura_domain::plan::MAX_ROWS;
-use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, ToolOutcome};
+use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason, ResponseByteLimit, ResultBound, ToolOutcome};
 use sutura_semantic::compile;
 
 use crate::shared::{PROVOKED, question, settings};
@@ -108,6 +108,7 @@ fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
         &crate::adapters::shared_credential(),
         &elsewhere,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -146,6 +147,7 @@ fn a_refused_question_never_reaches_the_data_system() {
             &crate::adapters::shared_credential(),
             &fake,
             1 << 30,
+            crate::adapters::deadline(),
         )
         .expect("a refusal is not an error")
         .into_outcome();
@@ -177,6 +179,7 @@ fn a_working_set_exhaustion_wins_over_a_result_too_large_when_an_adapter_reports
         &crate::adapters::shared_credential(),
         &both,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("a both-predicate failure is still a refusal, not an error")
     .into_outcome();
@@ -208,6 +211,7 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
         &crate::adapters::shared_credential(),
         &exhausted,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("exhaustion is a refusal, not an error")
     .into_outcome();
@@ -231,6 +235,7 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
         &crate::adapters::shared_credential(),
         &broken,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect_err("a failure that is not the ceiling is not a refusal");
     assert!(matches!(failure, sutura_app::ServiceError::Warehouse { .. }), "{failure:?}");
@@ -263,6 +268,7 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &crate::adapters::shared_credential(),
         &too_wide,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -297,6 +303,7 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &crate::adapters::shared_credential(),
         &at_the_cap,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("a refusal is not an error")
     .into_outcome();
@@ -304,6 +311,55 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         panic!("a result of exactly the cap is answerable, not {outcome:?}");
     };
     assert_eq!(rows.rows().len(), cap);
+}
+
+#[test]
+fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
+    // The bound the row cap cannot see: a result well inside `plan::MAX_ROWS` can still be more
+    // bytes than this deployment will spend encoding, if its cells are wide rather than its rows
+    // many. `WideResult` cannot provoke this - it would hit the row cap millions of rows first - so
+    // the instrument here pushes the other dimension: one row, one cell, one byte over the ceiling.
+    let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
+    let ceiling = ResponseByteLimit::DEFAULT.bytes();
+    let heavy_bytes = usize::try_from(ceiling).expect("the default ceiling fits a usize on every target this builds for") + 1;
+
+    let heavy = sutura_app::Warehouses::of(crate::support::HeavyResult::of(heavy_bytes));
+    let outcome = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &heavy,
+        1 << 30,
+        crate::adapters::deadline(),
+    )
+    .expect("a refusal is not an error")
+    .into_outcome();
+    assert_eq!(
+        outcome.refusal(),
+        Some(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Encoded { limit_bytes: ceiling }
+        }),
+        "a result over the response byte ceiling must be refused, and refused for being too large"
+    );
+
+    // A cell of EXACTLY the ceiling still answers, so this pins `>` rather than `>=`: the ceiling
+    // itself is not over it, and a result at the ceiling is not a test that would pass with every
+    // result refused.
+    let at_the_ceiling = usize::try_from(ceiling).expect("the default ceiling fits a usize on every target this builds for");
+    let light = sutura_app::Warehouses::of(crate::support::HeavyResult::of(at_the_ceiling));
+    let outcome = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &light,
+        1 << 30,
+        crate::adapters::deadline(),
+    )
+    .expect("a refusal is not an error")
+    .into_outcome();
+    assert!(matches!(outcome, ToolOutcome::Answer { .. }), "{outcome:?}");
 }
 
 #[test]
@@ -328,6 +384,7 @@ fn a_result_the_data_system_would_not_return_at_once_is_refused_and_not_reported
         &crate::adapters::shared_credential(),
         &would_not_fit,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect("a result the data system would not return is a refusal, not an error")
     .into_outcome();
@@ -350,6 +407,7 @@ fn a_result_the_data_system_would_not_return_at_once_is_refused_and_not_reported
         &crate::adapters::shared_credential(),
         &broken,
         1 << 30,
+        crate::adapters::deadline(),
     )
     .expect_err("a failure that is not a size bound is not a refusal");
     assert!(matches!(failure, sutura_app::ServiceError::Warehouse { .. }), "{failure:?}");

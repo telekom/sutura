@@ -504,24 +504,34 @@ The tool's arguments and its result, and the conversions to and from the domain.
 
 # Why this crate has its own wire type
 
-`sutura-http` already holds one - `QuestionBody`, with the same five fields and the same
-`TryFrom<..> for Query`. Sharing it would mean this adapter depending on that one, and *an
-adapter never calls another adapter* is the rule the whole layout rests on: a shape owned by one
-transport is a shape every other transport has to reach through it. `CatalogContent` is the
-same story against `sutura_http::wire::CatalogBody`.
+`sutura-http` already holds one - `QuestionBody`, with the same five fields. Sharing the STRUCT
+would mean this adapter depending on that one, and *an adapter never calls another adapter* is
+the rule the whole layout rests on: a shape owned by one transport is a shape every other
+transport has to reach through it. `CatalogContent` is the same story against
+`sutura_http::wire::CatalogBody`.
 
-**So the duplication is deliberate, and it is a cost rather than an oversight.** Nothing in the
-compiler makes two wire types stay equal. What guards them is
-`AskArgs`'s own `deny_unknown_fields`, asserted through the transport in `crate::server`, plus
-the committed schema dump in `crate::tool` - a widened input changes a snapshot and the
-byte-compare fails until somebody re-accepts it, which is what puts a new field in a reviewer's
-diff.
+**So the wire STRUCT is deliberately duplicated, and it is a cost rather than an oversight.**
+Nothing in the compiler makes two wire types stay equal. What guards them is `AskArgs`'s own
+`deny_unknown_fields`, asserted through the transport in `crate::server`, plus the committed
+schema dump in `crate::tool` - a widened input changes a snapshot and the byte-compare fails
+until somebody re-accepts it, which is what puts a new field in a reviewer's diff.
 
-**What is now mechanical across the two transports is the TOOL SET, and not these shapes.**
-`sutura_app::Capability` is the one source both of them render, and
-`both_transports_describe_the_same_tools` in `crate::tool` is the assertion. The field lists of
-two wire types with the same job are still kept equal by review, and that limit is worth keeping
-in front of a reader rather than letting the tool-set test read as covering it.
+**What moved inward is the PARSE, and it is not a cost any more.** `TryFrom<AskArgs> for Query`
+used to re-derive the same seven failure modes `sutura-http`'s own `TryFrom` did, out of its own
+copy of `MalformedQuestion`, its own `grain_of`, its own `range_of` - identical logic, kept equal
+only by review. That translation lives in `sutura_domain::question` now, and what this crate
+keeps of its own is the one failure mode a transport's own deserialization step can produce
+before that function is ever reached: `MalformedQuestion::NotAnObject`, for an arguments object
+that fails to deserialize into `AskArgs` at all - which HTTP's Axum extractor rejects earlier
+in its own stack, so `sutura-http` has no arm for it and needs none.
+
+**What is now mechanical across the two transports is the TOOL SET and the QUESTION PARSE, and
+not these wire shapes.** `sutura_app::Capability` is the one source both of them render for the
+first, and `both_transports_describe_the_same_tools` in `crate::tool` is the assertion;
+`sutura_domain::question::parse_query` is the one function both `TryFrom` impls call for the
+second. The field lists of two wire types with the same job are still kept equal by review, and
+that limit is worth keeping in front of a reader rather than letting either test read as
+covering it.
 
 # Why the derive is here and not on `Query`
 
@@ -599,20 +609,10 @@ pub enum MalformedQuestion
 
 Why an arguments object is not a question.
 
-Every variant names the field, and none of them echoes the caller's value back except where the
-value is the thing that failed to parse as an identifier - which is a bounded character set, not
-free text.
-
 #### Variants
 
 - `NotAnObject` - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.
-- `Metric`
-- `Grain`
-- `Date`
-- `Range`
-- `Dimension`
-- `FilterDimension`
-- `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS`.
+- `Question` - Every other way a question can be malformed: which field, and none of the caller's own value except where it already failed an identifier parse - see that type's own documentation. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
 
 #### Implements
 

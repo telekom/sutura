@@ -133,6 +133,16 @@ pub(crate) fn presented() -> sutura_domain::identity::Presented {
     }
 }
 
+/// The port's deadline every adapter in this matrix executes under - a generous budget, since
+/// nothing in this suite is about time.
+pub(crate) fn deadline() -> sutura_domain::warehouse::deadline::Deadline {
+    sutura_domain::warehouse::deadline::Deadline::opened_at(
+        std::time::Instant::now(),
+        sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(30))
+            .expect("thirty seconds is a budget"),
+    )
+}
+
 /// Never returned: this broker mints from a constant.
 #[derive(Debug, thiserror::Error)]
 #[error("the matrix's credential broker cannot fail")]

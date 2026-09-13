@@ -96,7 +96,7 @@ mod tests {
         )
         .expect("a bundle with no anchor validates against a warehouse that answers nothing");
         let failure = service
-            .answer(&crate::principal::established(), &a_question())
+            .answer(&crate::principal::established(), &a_question(), crate::testing::deadline())
             .expect_err("a warehouse that rejects every statement answers nothing");
         let SurfaceFailure::Warehouse { ref cause } = failure else {
             panic!("expected a warehouse failure, got {failure:?}");
@@ -138,7 +138,7 @@ mod tests {
         .expect("an anchored bundle over a warehouse that answers validates");
 
         let outcome = service
-            .answer(&crate::principal::established(), &a_question())
+            .answer(&crate::principal::established(), &a_question(), crate::testing::deadline())
             .expect("the fake warehouse answers");
         // The instant after the call returns, and before anything else can have written.
         ordering.push(String::from("answer returned"));
@@ -178,7 +178,7 @@ mod tests {
         .expect("a bundle with no anchor validates against any warehouse");
 
         let outcome = service
-            .answer(&crate::principal::established(), &a_question())
+            .answer(&crate::principal::established(), &a_question(), crate::testing::deadline())
             .expect("a result past the cap is a refusal, not a failure");
         assert!(outcome.is_refusal(), "the fixture refuses: {outcome:?}");
 
@@ -214,7 +214,7 @@ mod tests {
         .expect("an anchored bundle over a warehouse that answers validates");
         drop(
             service
-                .answer(&crate::principal::established(), &a_question())
+                .answer(&crate::principal::established(), &a_question(), crate::testing::deadline())
                 .expect("the fake warehouse answers"),
         );
 

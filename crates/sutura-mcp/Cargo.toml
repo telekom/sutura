@@ -60,6 +60,15 @@ tracing = { workspace = true }
 # The committed schema dump. Reviewed as a diff, never typed: a new or widened tool input changes
 # the snapshot and the byte-compare fails until somebody re-accepts it.
 insta = { workspace = true }
+# The other transport, for ONE differential test: that its `QuestionBody` and this crate's own
+# `AskArgs` parse the same wire input into the same `Query`, through the one shared conversion now
+# inward of both in `sutura_domain::question`. *An adapter never calls another adapter* is a NORMAL-
+# dependency rule - `cargo xtask check-boundaries` walks `Edges::Normal` only - and a dev-dependency
+# between two adapters of the same class is exempt for exactly this reason: it is how a differential
+# reaches a second real implementation to compare against, the same shape
+# `sutura-exec-bigquery` dev-depends on `sutura-exec-datafusion` for. Adds no PACKAGE to
+# `Cargo.lock`: `sutura-http`'s whole tree is already resolved there, by `sutura-serve`.
+sutura-http = { workspace = true }
 # The far side of every test in `src/server.rs`: a REAL MCP client from the same SDK, over an
 # in-memory duplex. That is what "with no client of ours in the loop" means - nothing this crate
 # wrote sits between the assertion and the protocol.

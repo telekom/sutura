@@ -158,6 +158,8 @@
 
 use std::sync::Arc;
 
+use std::time::Instant;
+
 use rmcp::model::{
     CallToolRequestMethod, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorCode, Implementation,
     ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
@@ -168,6 +170,7 @@ use sutura_app::surface::{Surface, SurfaceFailure, cause_chain};
 use sutura_app::{Capability, Permitted};
 use sutura_config::RequestTimeout;
 use sutura_domain::query::Query;
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::{Admission, AtCapacity};
 
 use crate::tool;
@@ -463,7 +466,11 @@ async fn answer<S>(service: &Arc<S>, admission: &Admission, reply: RequestTimeou
 where
     S: Surface,
 {
-    match tokio::time::timeout(reply.duration(), admitted(service, admission, query)).await {
+    // Opened here, before `admitted` - the same instant this function's own reply deadline starts
+    // counting from, so the port's budget is inside the caller's whole wait for the same reason
+    // `reply` itself wraps the admission window: `docs/adr/0029`.
+    let deadline = Deadline::opened_at(Instant::now(), reply.budget());
+    match tokio::time::timeout(reply.duration(), admitted(service, admission, query, deadline)).await {
         Ok(result) => result,
         Err(_elapsed) => outran_its_deadline(reply),
     }
@@ -481,7 +488,7 @@ where
 /// a handle detaches the task rather than ending it - so the question runs on holding the slot the
 /// closure owns. Dropped while still WAITING for a slot, it takes none, which is the same cost a
 /// shed waiter has: a dropped future rather than a thread.
-async fn admitted<S>(service: &Arc<S>, admission: &Admission, query: Query) -> CallToolResult
+async fn admitted<S>(service: &Arc<S>, admission: &Admission, query: Query, deadline: Deadline) -> CallToolResult
 where
     S: Surface,
 {
@@ -493,7 +500,7 @@ where
     };
     let service = Arc::clone(service);
     let working = sutura_runtime::spawn_carrying_span(move || {
-        let answered = service.answer(&crate::principal::established(), &query);
+        let answered = service.answer(&crate::principal::established(), &query, deadline);
         // Explicitly, and here rather than at the top of the closure: the slot is released when the
         // WORK finishes, so it is not handed back by a peer that stopped waiting - and the closure
         // owning it is what makes that structural rather than an ordering somebody maintains.
