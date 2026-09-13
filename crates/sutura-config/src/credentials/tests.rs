@@ -33,6 +33,16 @@ fn shared(written: &str) -> RawSourceEntry<'_> {
         acknowledged_because: Some("one process reading a directory of files as itself"),
         verification_identity: None,
         workload_identity: None,
+        host: None,
+        unix_socket: None,
+        port: None,
+        database: None,
+        user: None,
+        password_file: None,
+        transport_mode: None,
+        transport_anchors: None,
+        client_certificate: None,
+        client_key: None,
     }
 }
 
@@ -58,6 +68,16 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         acknowledged_because: None,
         verification_identity: None,
         workload_identity: Some(wif()),
+        host: None,
+        unix_socket: None,
+        port: None,
+        database: None,
+        user: None,
+        password_file: None,
+        transport_mode: None,
+        transport_anchors: None,
+        client_certificate: None,
+        client_key: None,
     }
 }
 

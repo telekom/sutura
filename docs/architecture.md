@@ -24,11 +24,11 @@ says why they look the way they do.
 ## Serving is MCP
 
 **Both transports are built, and one property this section describes is not.** `sutura-http` serves
-a versioned `v1` tree, a liveness probe, a generated interface description, rate limiting and a
-bearer gate; `sutura-mcp` serves the tool surface over a process's own standard input and output,
-and `just mcp-e2e` drives that one end to end. What is absent is a caller identity on the agent
-surface: a pipe has no header a token could arrive in, so it answers as the deployment and offers
-every capability, and a network-reachable agent surface needs the identity leg
+a versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated
+interface description, rate limiting and a bearer gate; `sutura-mcp` serves the tool surface over a
+process's own standard input and output, and `just mcp-e2e` drives that one end to end. What is absent
+is a caller identity on the agent surface: a pipe has no header a token could arrive in, so it answers
+as the deployment and offers every capability, and a network-reachable agent surface needs the identity leg
 [how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md) designs.
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
@@ -166,15 +166,15 @@ against.
 
 ### What can be plugged in today, and what the shipped binary actually uses
 
-Three adapters exist. **They are chosen at compile time, in the composition root - there is no
-configuration that names one.** If you are looking for a setting to point sutura at a different
-catalogue or a different data system, there is not one yet.
+The adapters below exist. Which ones a binary can open is chosen at compile time in its composition
+root; within that set, a deployment selects a data system by writing `sources.<alias>.kind`.
 
-| Port              | Adapter                  | What it is                                                                                            | In the shipped binary?                           |
-| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                | **Yes.** The only catalogue adapter there is     |
-| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL | **Yes**, and it is what `sutura query` runs      |
-| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                       | **No.** A development dependency of `sutura-app` |
+| Port              | Adapter                  | What it is                                                                                                            | In the shipped binary?                                             |
+| ----------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                                | **Yes.** The only catalogue adapter there is                       |
+| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL                 | **Yes**, and it is what `sutura query` runs                        |
+| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                                       | **No.** A development dependency of `sutura-app`                   |
+| `Warehouse`       | `sutura-exec-postgres`   | A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify | **No.** A default-off `postgres` feature on both composition roots |
 
 So the combination a PUBLISHED binary supports is **local markdown with YAML frontmatter for the
 metadata, and the in-process engine over the CSV or Parquet files in a directory**. `sutura query
@@ -215,6 +215,17 @@ building: nixpkgs has no musl `libduckdb`, and the binary never asks for one.
 statement for `DuckDB`, Postgres, `ClickHouse` or `BigQuery`, and the goldens parse-check each one.
 Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere, and there is no
 `ClickHouse` adapter: the port takes a plan, and rendering is one adapter's private business.
+
+**`kind: postgres` is openable behind its own default-off `postgres` feature, and the CHANNEL is the
+part that is new.** A Postgres source declares `plaintext`, `verified` or `mutual`; a TLS mode must
+name its trust store, because there is no default to inherit, and a source with no transport security
+and a host that is not a loopback literal is a startup refusal naming the key rather than a
+connection. `sutura-exec-postgres` connects over `rustls` with the declared anchors and the handshake
+mandatory. The tier proves a chain is verified, an untrusted issuer is refused, and a
+certificate-authenticated role rejects a client with no certificate. Its served cell loads the
+single-player corpus into the tier, starts the composed binary over verified loopback TLS and pins
+the certified answer and shared-identity provenance. That is a local real-server deployment; it is
+not evidence about a particular external Postgres installation or per-subject execution.
 
 **`BigQuery` is the one where that distinction has a nearer edge, so it is worth stating - and the
 edge moved once, without the distinction moving with it.** A `BigQuery` adapter *does* exist,
@@ -740,9 +751,11 @@ door: what the port bought is that the day a real source arrives, there is no co
 read as the process through.
 
 **The HTTP transport is here now**, and this sentence used to say it was not: an axum surface with a
-versioned `v1` tree, a liveness probe, a generated interface description, rate limiting, a bearer
-gate and optional in-process TLS. What it does **not** carry is a per-caller identity - the token
-authenticates the deployment - so none of the identity claims above are made true by its arrival.
+versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
+description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
+the deployment; `security.inbound` instead establishes the caller in `direct` or `behind-gateway`
+mode. Neither makes a data system execute as that caller: leg 2 remains absent from every published
+adapter.
 
 Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
 the row cap and the ten-year span. The spliced-statement path is designed, documented above, and

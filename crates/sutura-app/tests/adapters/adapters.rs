@@ -260,6 +260,22 @@ impl CatalogUnderTest for sutura_catalog_datahub::DataHubCatalog<sutura_catalog_
     }
 }
 
+/// The narrowest metadata source: `Rdbms`, opened over its recorded dictionary corpus.
+///
+/// Like `datahub`, its corpus is NOT the example markdown - a database dictionary is not a directory
+/// of YAML either - so this opens over the crate's own recorded corpus, which is what a
+/// `sources.<alias>`-per database deployment reads. The universal cells hold because the dictionary
+/// bundle is measured against the adapter's declaration, which is the whole point of the `declaring`
+/// path. It provides no measure at all - the narrowest declaration - so it answers no certified
+/// question, which the declare cells assert rather than the golden cells (it gets no golden cell).
+impl CatalogUnderTest for sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::fixture::FixtureReader> {
+    const NAME: &'static str = "rdbms";
+
+    fn open() -> Self {
+        sutura_catalog_rdbms::fixture::over_fixture_source(source(), version())
+    }
+}
+
 /// A `Warehouse` adapter this suite executes the example corpus against.
 ///
 /// [`open`] takes the bundle because attaching a table per model is what makes a data system able to
@@ -490,6 +506,18 @@ macro_rules! registered {
             datahub,
             declaring,
             sutura_catalog_datahub::DataHubCatalog<sutura_catalog_datahub::fixture::FixtureReader>
+        );
+        // `sutura-catalog-rdbms`, the narrowest metadata source: a DECLARING adapter over an RDBMS
+        // dictionary that supplies the physical model, the descriptions and the join columns a
+        // foreign key records and NOTHING else - no measure, no grain, no definitional filter, no
+        // value allowlist and no anchor. It gets the universal cells and no golden-only cell and is
+        // measured against its own declaration - `docs/adr/0011` specifies it, `docs/adr/0016`
+        // decides the declaring path. Its corpus is the crate's recorded dictionary rather than the
+        // example markdown.
+        $cell!(
+            rdbms,
+            declaring,
+            sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::fixture::FixtureReader>
         );
     };
 

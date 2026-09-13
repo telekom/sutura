@@ -53,6 +53,11 @@ and there are exactly two ways in: one takes no argument, and the other takes a
 every field it might have is a field handed to anybody who can route a packet. No version, no
 build, no configuration, no catalog. A test asserts the body byte for byte.
 
+A directly validating deployment also exposes its RFC 9728 protected-resource metadata without a
+token. That document is deliberately only the exact resource identifier and the configured
+authorization server; it is absent in gateway and single-player deployments and shares the probe
+rate limit with liveness.
+
 # What is deliberately absent
 
 * **No CORS layer.** A browser is not a client of this surface. An allow-list nobody needs is an
@@ -748,26 +753,22 @@ is asking and still reads every row as one identity. The startup log prints that
 boot, out of `sutura_config::InboundIdentity::what_it_does_not_do`, rather than leaving a reader to
 infer it.
 
-# The five things this does not build, and each is named rather than left to be discovered
+# The four things this does not build, and each is named rather than left to be discovered
 
 An overstated claim is itself the defect, so each of these is written down here rather than found:
 
 1. **A JWKS endpoint.** Keys are read from a file. The cache, the unknown-key refetch and the rate
    limit on it are built and are what a URL source would need anyway - see `keys` for the whole
    argument and for the one property a file cannot have.
-2. **The two metadata documents.** A directly validating deployment is supposed to serve
-   protected-resource metadata a client can read to learn which authorization server governs it.
-   There is no such route. The `401` carries an RFC 6750 challenge naming the realm and no
-   `resource_metadata` parameter, so a client is configured with its issuer out of band.
-3. **Anything about client registration or client authentication.** Those are decisions for the
+2. **Anything about client registration or client authentication.** Those are decisions for the
    authorization server and for the client; this deployment is a resource server and validates what
    arrives.
-4. **A ceiling derived from a scope.** `Scopes` is now read by exactly one thing -
+3. **A ceiling derived from a scope.** `Scopes` is now read by exactly one thing -
    `crate::capability`, which decides which of this surface's *operations* a caller may invoke and
    decides nothing about which rows an answer contains. A per-caller *budget* still has no port to
    live behind, and `docs/adr/0013`'s raw tool is not built. See `caller` for the limit stated
    beside the claim.
-5. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
+4. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
    deployment chose - and inside that window an intercepted assertion replays. There is no nonce
    store and nothing hashes a method, a path or a body into the assertion. That is why nothing here
@@ -925,19 +926,25 @@ under the first lock is what keeps two concurrent misses from becoming two reads
 
 Where a key set is read from.
 
-One method, so a JWKS endpoint is a second implementor and nothing else in this file moves. See
-the module documentation for why the only implementor today reads a file.
+One method, so a JWKS endpoint is a second implementor and nothing else in this module moves. See
+`super`'s module documentation for why the only implementor today reads a file.
 
 **It returns the document's BYTES rather than a parsed key set**, and that is what lets
-`KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
+`super::KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
 comparison of parsed keys could not: the library's key type implements no equality, so the
 alternative was comparing key *ids*, which would miss a key whose material rotated under the same
 id.
 
-**Synchronous, deliberately.** The one implementor reads a small local file, at most once per
-`MAX_KEY_SET_AGE`, and making the trait `async` would either need a boxed future in the
-signature or force the file source to pretend. A URL source arrives with a real decision about
-where its I/O runs, and that decision belongs in the same change as the client.
+**Synchronous, deliberately**, and it runs on the blocking pool rather than on the executor -
+see `super::KeySetCache::look`. Making the trait `async` would either need a boxed future in the
+signature or force the file source to pretend; what it would not fix is that a synchronous read
+has to run somewhere, and where that is is the cache's decision rather than the source's.
+
+**Bounding the document is the IMPLEMENTOR's job and cannot be the cache's.** This returns an
+owned `String`, so an unbounded read has already allocated by the time anything above it could
+object. `MAX_KEY_SET_BYTES` is the number to check against, `FileKeySet` checks it, and
+nothing in this module makes a second implementor do the same - a type cannot express it, so this
+paragraph is the whole of the mechanism.
 
 ### `use KeySetUnavailable`
 
@@ -962,6 +969,12 @@ only ever wants to be *smaller*, so the cost is what sets it. One minute is one 
 minute per process, which is the same order as
 `crate::middleware::REAP_INTERVAL` and is nothing next to a signature verification.
 
+**What it bounds is the age of a SUCCESSFUL re-read, and the argument a reviewer should have with
+it is that one.** A read that fails and a document that is rejected both keep the previous keys
+verifying, so while refresh is unavailable this number bounds nothing.
+`KeySetCache::stale_for` is the measurement of that case; the module documentation is the
+argument for why nothing here refuses on it.
+
 ### `use MIN_REFETCH_INTERVAL`
 
 How long after one attempt to reach the source another may be made.
@@ -980,10 +993,9 @@ Why a string is not a key identifier.
 
 What one look at the source did.
 
-The same three outcomes `crate::tls::Renewed` has, and for the same reasons: an unreadable source
-is not a change, and a candidate that was examined and rejected is recorded as examined so
-identical bytes on the next tick are silent rather than logging a rejection once per interval
-forever.
+Close to the outcomes `crate::tls::Renewed` has, and for the same reasons: a candidate that was
+examined and rejected is recorded as examined, so identical bytes on the next tick are silent
+rather than logging a rejection once per interval forever.
 
 ### `use MAX_TOKEN_BYTES`
 
@@ -1255,11 +1267,12 @@ header.
 # What a refused request is told, and what it is not
 
 A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
-validating deployment is its own resource identifier. `docs/adr/0014` step 1 asks for *"a challenge
-naming where to look"*, and this is the half of that which exists: **the two metadata documents the
-record describes are not built**, so the challenge carries no `resource_metadata` parameter and a
-client learns the authorization server out of band. That is a named gap rather than a silent one -
-see `crate::inbound`.
+validating deployment is its own resource identifier. When an origin-form target and raw `Host`
+reproduce that exact resource, its `resource_metadata` parameter is the absolute URL of the public
+RFC 9728 document built from the same token requirement as the validator. It is omitted for any
+other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
+gateway assertion arrives somewhere other than `Authorization: Bearer`, so that mode offers no
+Bearer challenge.
 
 What the response does **not** say is which check failed. The log says - through the `#[source]`
 chain on `TokenRejected` - and the caller does not, because "the signature verified and the
@@ -1283,7 +1296,7 @@ attach one a startup failure rather than an open door.
 ##### Methods
 
 ```rust
-pub fn challenge(&self) -> Option<String>
+pub fn challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> Option<String>
 ```
 
 The RFC 6750 challenge a refused request carries, where one is meaningful.
@@ -1298,6 +1311,11 @@ read.
 **No `error_description`** in the direct case, and that is the same decision the response body
 makes: a description would have to say which check failed to be worth anything, and that is the
 one thing a caller must not learn.
+
+Both request parts are required because an origin-form target carries its path in the URI and
+its authority in the raw `Host` value. Absolute-form targets are not matched: `http::Uri`
+canonicalises standard schemes, so a match there would compare against a normalised spelling
+rather than the configured identifier's exact bytes.
 
 ```rust
 pub async fn describe_keys(&self) -> (usize, Vec<String>)
@@ -1408,6 +1426,9 @@ So there are two triggers and they answer different questions:
 | an unknown key id | "has a key been ADDED that I have not seen" | `MIN_REFETCH_INTERVAL`, because the trigger is caller-controlled |
 | age | "has a key been REMOVED" | `MAX_KEY_SET_AGE`, because the trigger is the clock and a caller cannot make it fire faster |
 
+The second row holds **while the source answers**, and not otherwise - see *the revocation bound
+excludes a failing refresh*, below.
+
 The age trigger fires from two places, deliberately. `KeySetCache::watch_until_shutdown` is a
 timer - the same shape `crate::tls::Renewal::watch_until_shutdown` already uses, spawned from the
 composition root inside the runtime - so revocation latency is bounded *whether or not this
@@ -1437,6 +1458,46 @@ reading the clock. That is what makes the interesting cases - a forged key id ar
 window, a key set going stale, and two callers arriving at the same instant - assertable without a
 sleep, which is the same reason `Renewal::poll_once` is public. **A concurrency bound proved by a
 sleep being long enough is worse than none**, and this file is the second attempt at this bound.
+
+# Where the read runs, and the three separate things that bound it
+
+`KeySetSource::read` is synchronous and the parse behind it is CPU work over a foreign
+document, and both used to run inline in `KeySetCache::poll_once` - on the async worker thread
+that was serving requests, reached from the timer as well as from a caller.
+`sutura_runtime::spawn_carrying_span` moves both onto the blocking pool. **That is not by itself
+a bound**, and the helper's own documentation says why: a started blocking task cannot be
+aborted, so a caller that gave up does not stop the read and runtime shutdown waits for it.
+Three different things bound three different growths:
+
+| What could grow | What bounds it | What that does not reach |
+| --- | --- | --- |
+| the bytes read, and the parse over them | `MAX_KEY_SET_BYTES`, inside the source | a second implementor's read - the port hands back a `String`, so by then the allocation happened |
+| how many looks start | one per window by `Cached::last_attempt`, and none while an `InFlight` exists - both decided in the acquisition that reserves | a read whose awaiter left keeps its pool thread until the source answers; nothing installs what it returns |
+| how long a caller waits for one | the deployment's own request timeout | nothing here: a second deadline beside a documented one is the defect, not the fix |
+
+# The revocation bound EXCLUDES a failing refresh, and there is no freshness ceiling
+
+`MAX_KEY_SET_AGE` bounds revocation *while the source answers with a document this deployment
+can use*. It does not bound it while refresh is failing: an unreadable source and a rejected
+document both leave the previous keys verifying, and `KeySetCache::reserve` stamps the
+**attempt** - which is what the rate limit needs and says nothing about freshness. So a source
+that stays unreadable, or that holds a document this deployment will not adopt, retains the
+cached signing keys for as long as it stays that way.
+
+**What that permits, and what it does not.** It permits continued trust in signing keys an
+earlier refresh established. It bypasses nothing else: a token still has to carry a signature one
+of those keys verifies, and still has to be inside its own expiry.
+
+**The measurement is here and there is no ceiling on it.** `Cached::last_success` and
+`KeySetCache::stale_for` are the instant a look last came back with a usable document, which is
+the number a freshness ceiling would have to be compared against - deliberately not the last
+attempt. Nothing refuses on it, because refusing is an availability-breaking policy - a sidecar
+part-way through rewriting a mounted file would take a deployment's whole authentication down
+with it - and no record in this repository has decided that a deployment should degrade that way
+rather than keep verifying. So the bound and its limit, in one sentence: **a removed key stops
+verifying within `MAX_KEY_SET_AGE` plus one read while refresh works, and after no bounded time
+while it does not** - the staleness is reported as `stale_for_ms` on every look that could not
+confirm the keys, and refused on by nothing.
 
 # What a key set is read from, and the gap that is named rather than hidden
 
@@ -1592,72 +1653,6 @@ outage. `docs/adr/0014`'s posture is fail-closed on the query path and this is t
 
 `Clone`, `Debug`
 
-#### `trait KeySetSource`
-
-```rust
-pub trait KeySetSource
-```
-
-Where a key set is read from.
-
-One method, so a JWKS endpoint is a second implementor and nothing else in this file moves. See
-the module documentation for why the only implementor today reads a file.
-
-**It returns the document's BYTES rather than a parsed key set**, and that is what lets
-`KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
-comparison of parsed keys could not: the library's key type implements no equality, so the
-alternative was comparing key *ids*, which would miss a key whose material rotated under the same
-id.
-
-**Synchronous, deliberately.** The one implementor reads a small local file, at most once per
-`MAX_KEY_SET_AGE`, and making the trait `async` would either need a boxed future in the
-signature or force the file source to pretend. A URL source arrives with a real decision about
-where its I/O runs, and that decision belongs in the same change as the client.
-
-#### `enum KeySetUnavailable`
-
-```rust
-pub enum KeySetUnavailable
-```
-
-The source could not be read, or what it returned is not a key set.
-
-##### Variants
-
-- `Unreadable`
-- `Invalid`
-
-##### Implements
-
-`Debug`, `Display`, `Error`
-
-#### `struct FileKeySet`
-
-```rust
-pub struct FileKeySet
-```
-
-A key set on the local filesystem.
-
-##### Methods
-
-```rust
-pub fn at(path: impl Into<PathBuf>) -> Self
-```
-
-Names the file. Does not read it: `Self::read` is the read, and the composition root reads
-once before the listener opens so an unreadable key set is a refusal to start.
-
-```rust
-pub fn path(&self) -> &Path
-```
-
-The path, for a startup log line.
-
-##### Implements
-
-`Clone`, `Debug`, `KeySetSource`
-
 #### `enum KeyUnavailable`
 
 ```rust
@@ -1688,14 +1683,14 @@ pub enum Refreshed
 
 What one look at the source did.
 
-The same three outcomes `crate::tls::Renewed` has, and for the same reasons: an unreadable source
-is not a change, and a candidate that was examined and rejected is recorded as examined so
-identical bytes on the next tick are silent rather than logging a rejection once per interval
-forever.
+Close to the outcomes `crate::tls::Renewed` has, and for the same reasons: a candidate that was
+examined and rejected is recorded as examined, so identical bytes on the next tick are silent
+rather than logging a rejection once per interval forever.
 
 ##### Variants
 
-- `Unchanged` - The document is byte-for-byte what is already in use, or it could not be read.
+- `Unchanged` - The document is byte-for-byte the one the last look examined.
+- `Unavailable` - **The source could not be looked at**, or the look did not finish.
 - `Rotated` - A new document parsed, held a key of the pinned family, and is now in use.
 - `Rejected` - A new document was read and is NOT usable. The previous key set keeps verifying.
 - `NotDue` - **The source was not looked at**, because the window has not opened or another caller already reserved this look.
@@ -1744,9 +1739,11 @@ a look at the source actually happens is decided once, atomically, inside `poll_
 not wait. It answers from whatever is cached, which during a rotation may be an
 `KeyUnavailable::UnknownKeyId` for a key the winner is about to install, or - on the age path -
 one more use of a key the winner is about to remove. So revocation is bounded by
-`MAX_KEY_SET_AGE` plus the duration of one source read, and a rotation can cost a concurrent
-caller one `401` it can retry. Making it wait instead would put N request tasks behind one file
-read, which is the primitive this whole file is arranged against.
+`MAX_KEY_SET_AGE` plus the duration of one source read **while the source keeps answering
+with a usable document, and by nothing while refresh is failing** - see the module
+documentation for what that permits and for why there is no ceiling. A rotation can
+cost a concurrent caller one `401` it can retry. Making it wait instead would put N request
+tasks behind one file read, which is the primitive this whole file is arranged against.
 
 ```rust
 pub async fn poll_once(&self, now: Instant) -> Refreshed
@@ -1783,6 +1780,18 @@ rate limit would keep it that way for thirty seconds at a time. It also fails wh
 holds no key of the pinned family - see `InvalidKeySet::NoKeyOfThePinnedFamily`.
 
 ```rust
+pub async fn stale_for(&self, now: Instant) -> Duration
+```
+
+How long since a look at the source last came back with a document this deployment could use.
+
+**A measurement and not a policy**: nothing here refuses on it, and the module documentation
+states the bound and its limit together. It is the number a freshness ceiling
+would be compared against, and it is deliberately not the last *attempt* - a reservation
+stamps the attempt before the read, so a source that has failed every time for an hour
+reports an attempt one window old and a success an hour old.
+
+```rust
 pub fn watch_until_shutdown(cache: &Arc<Self>, interval: Duration, shutdown: Shutdown)
 ```
 
@@ -1800,6 +1809,53 @@ anyway. What the timer adds is a bound that holds while nothing is being asked.
 ##### Implements
 
 `Debug`
+
+#### `use FileKeySet`
+
+A key set on the local filesystem.
+
+#### `use KeySetSource`
+
+Where a key set is read from.
+
+One method, so a JWKS endpoint is a second implementor and nothing else in this module moves. See
+`super`'s module documentation for why the only implementor today reads a file.
+
+**It returns the document's BYTES rather than a parsed key set**, and that is what lets
+`super::KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
+comparison of parsed keys could not: the library's key type implements no equality, so the
+alternative was comparing key *ids*, which would miss a key whose material rotated under the same
+id.
+
+**Synchronous, deliberately**, and it runs on the blocking pool rather than on the executor -
+see `super::KeySetCache::look`. Making the trait `async` would either need a boxed future in the
+signature or force the file source to pretend; what it would not fix is that a synchronous read
+has to run somewhere, and where that is is the cache's decision rather than the source's.
+
+**Bounding the document is the IMPLEMENTOR's job and cannot be the cache's.** This returns an
+owned `String`, so an unbounded read has already allocated by the time anything above it could
+object. `MAX_KEY_SET_BYTES` is the number to check against, `FileKeySet` checks it, and
+nothing in this module makes a second implementor do the same - a type cannot express it, so this
+paragraph is the whole of the mechanism.
+
+#### `use KeySetUnavailable`
+
+The source could not be read, or what it returned is not a key set.
+
+#### `use MAX_KEY_SET_BYTES`
+
+The largest key set document a source may hand back.
+
+**The bound at the edge**, and the edge is where it has to be: a document is read into memory and
+then parsed, so an unbounded one is work proportional to whatever happens to be at the path -
+which is a denial-of-service primitive whatever else it is. Sixty-four kilobytes is two orders of
+magnitude above a JWK set holding a handful of keys, and small enough that one read and one parse
+are bounded work.
+
+**It bounds an implementor and cannot bound the port.** `KeySetSource::read` hands back a
+`String`, so by the time `super::KeySetCache` sees a document the allocation has already happened.
+`FileKeySet` checks it; a second implementor carries its own check against this constant, and
+nothing in this module can make it.
 
 #### `constant MIN_REFETCH_INTERVAL`
 
@@ -1821,6 +1877,12 @@ rather than a key for the same reason the limit above is one - and unlike that l
 only ever wants to be *smaller*, so the cost is what sets it. One minute is one small read per
 minute per process, which is the same order as
 `crate::middleware::REAP_INTERVAL` and is nothing next to a signature verification.
+
+**What it bounds is the age of a SUCCESSFUL re-read, and the argument a reviewer should have with
+it is that one.** A read that fails and a document that is rejected both keep the previous keys
+verifying, so while refresh is unavailable this number bounds nothing.
+`KeySetCache::stale_for` is the measurement of that case; the module documentation is the
+argument for why nothing here refuses on it.
 
 ### Module `token`
 
@@ -2576,12 +2638,13 @@ Assembling the router: three tiers, and what guards each.
 
 | Tier | Reachable by | Rate limit | Token |
 | --- | --- | --- | --- |
-| liveness | anybody who can route a packet | public | no |
+| liveness and direct protected-resource discovery | anybody who can route a packet | public | no |
 | documentation | anybody, when it is served at all | public | yes, when one is configured |
 | `v1` | a caller with the token, when one is configured | general | yes, when one is configured |
 
 Liveness has no token because a probe has no credential to present, which is exactly why its
-body carries nothing.
+body carries nothing. Protected-resource metadata has no token because it tells a direct-mode
+client where authorization happens; its two configured fields are the whole public document.
 
 # Layer order, and why it reads backwards
 
@@ -2618,8 +2681,9 @@ under the version prefix without also applying to the liveness probe merged in b
 **The consequence, stated rather than discovered later:** a path under the version prefix that
 matches no route skips the gate and falls through to the top-level `404`. So an unauthenticated
 caller can learn which paths exist, though not what is behind them - and the paths are in the
-published interface description anyway. Every path that resolves to a handler does hold a
-credential. There is a test on each half of that.
+published interface description anyway. Apart from liveness and the direct-only protected-resource
+document, every path that resolves to a handler does hold a credential when one is configured.
+There is a test on each half of that.
 
 # Why this returns a `Result`
 
