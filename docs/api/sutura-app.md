@@ -430,9 +430,12 @@ is silently skipped or a measure quietly substituted. Read off the ONE adapter t
 about the data. No adapter this workspace ships opts in; `docs/adr/0004` is the decision.
 
 **"Before any anchor runs" is a placement, not an assertion.** It is true because this check
-sits ahead of `declared_keys::hold` and `verify_anchors` in the body below, and it is
-unasserted: no fixture's fake records that an anchor or a declared key was never touched, so
-a change that moved the block after them would not go red for that reason on its own.
+sits ahead of `declared_keys::hold` and `verify_anchors` in the body below, and the ordering
+ahead of `declared_keys::hold` is held INCIDENTALLY, by the `examples/authored-sql` cell: that
+catalog declares a relationship and attaches no data to it, so a block moved below `hold`
+fails there first, on `declared_keys::hold`'s own refusal, rather than on this one. Nothing
+separates the placement from `verify_anchors` alone, and no fixture's fake counts an anchor
+or a declared key that was never touched.
 
 ## `type_alias Answering`
 
