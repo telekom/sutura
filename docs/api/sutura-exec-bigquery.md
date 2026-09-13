@@ -970,6 +970,16 @@ cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is th
 statement-issuing method - present only in a build that loads fixtures, so no deployment can
 reach it.
 
+### `type_alias DryRunEstimate`
+
+A dry run's own byte estimate, when it priced one - `None` is `docs/adr/0030`'s honest absence,
+never a defaulted zero.
+
+**A named alias rather than `Option<EstimatedBytes>` written out at every return type**, because
+composed with a `Result` it crossed this workspace's tightened `clippy::type-complexity`
+threshold at the two call sites that return it. Naming it is also more honest than shortening it
+would be: the type IS an option, and a caller matching on it should see that.
+
 ## Module `wire`
 
 The WIRE: one `JobTransport` that speaks to a `BigQuery` endpoint over HTTP.
@@ -1273,6 +1283,7 @@ every other variant and `clippy::result_large_err` is on.
 - `MoreThanOnePage` - The answer is one page of more than one.
 - `NoTotal` - A complete job that stated no total.
 - `NotATotal` - The total was not a number.
+- `NotAnEstimate` - `totalBytesProcessed` was present and not a number.
 - `NoSchema` - A complete job with rows and no schema to read them against.
 - `NotAScalar` - A cell that is neither a string nor a null.
 - `NotAListing` - The answer to a table listing was not one. Distinct from `Self::NotADocument`, the same failure for a query answer: two documents, two shapes, and one message per request.
