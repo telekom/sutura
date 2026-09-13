@@ -1,8 +1,8 @@
 //! `docs/adr/0029`'s Postgres row, measured against a real server rather than asserted from the
-//! driver's documentation - `SET LOCAL statement_timeout` actually stops a running statement, the
-//! certified path's per-request value is not the connect-time ceiling, and the raw path (which
-//! carries no per-request `Deadline` at all - `telekom/sutura#129`'s limit, stated in `raw.rs`) is
-//! still stopped by that ceiling.
+//! driver's documentation - `SET LOCAL statement_timeout` actually stops a running statement AND a
+//! blocked `PREPARE`, the certified path's per-request value is not the connect-time ceiling, and
+//! the raw path (which carries no per-request `Deadline` at all - `telekom/sutura#129`'s limit,
+//! stated in `raw.rs`) is still stopped by the connect-time ceiling that pre-dates this record.
 //!
 //! Same tier, same absence handling as `tests/conformance.rs` and `tests/raw.rs`: every venue that
 //! runs the suite provisions the tier, so these cells RUN; a developer machine with none writes
@@ -81,6 +81,44 @@ mod deadline {
 
     fn statement(sql: &str) -> RawStatement {
         RawStatement::parse(sql).expect("a test statement is a statement")
+    }
+
+    /// A second, PLAIN connection holding `table` locked `ACCESS EXCLUSIVE` in an open, uncommitted
+    /// transaction - for as long as this value lives. Dropping it closes the connection, which
+    /// terminates the backend and releases the lock; there is no explicit `ROLLBACK` to run.
+    struct LockHolder {
+        _runtime: tokio::runtime::Runtime,
+        _client: tokio_postgres::Client,
+    }
+
+    /// `None` when the tier is absent (same skip as `open`) - the caller must skip the test too, it
+    /// cannot proceed without something to block on.
+    fn hold_exclusive_lock(case: &str, schema: &str, table: &TableName) -> Option<LockHolder> {
+        let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
+            Provisioned::At(endpoint) => endpoint,
+            Provisioned::Skipped(absent) => {
+                eprintln!("deadline::{case}: NOT RUN - {absent}");
+                return None;
+            }
+        };
+        let credential = FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        let config = PostgresWarehouse::local_config(endpoint.host(), endpoint.port(), &credential);
+        let runtime = tokio::runtime::Runtime::new().expect("a runtime builds");
+        let (client, connection) = runtime
+            .block_on(config.connect(tokio_postgres::NoTls))
+            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        runtime.spawn(async move {
+            drop(connection.await);
+        });
+        runtime
+            .block_on(client.batch_execute(&format!(
+                "SET search_path TO \"{schema}\"; BEGIN; LOCK TABLE \"{table}\" IN ACCESS EXCLUSIVE MODE"
+            )))
+            .unwrap_or_else(|e| panic!("the admin connection could not lock {table}: {e}"));
+        Some(LockHolder {
+            _runtime: runtime,
+            _client: client,
+        })
     }
 
     fn column(table: &TableName, name: &str) -> PlanColumn {
@@ -281,6 +319,69 @@ mod deadline {
         assert!(
             (4321 - 200..=4321).contains(&seen_ms),
             "expected close to the 4321ms budget, saw {seen_ms}ms"
+        );
+    }
+
+    /// **The `Prepare` arm.** `SET LOCAL statement_timeout` is sent before the `PREPARE`
+    /// `dry_run` makes, so it must bound that round trip too, not only `execute`'s. A second
+    /// connection holds `conformance_events` locked `ACCESS EXCLUSIVE` in an open transaction, so
+    /// resolving the table's shape during `Parse` blocks on that lock rather than answering -
+    /// `telekom/sutura#687`'s review, finding 3: before this cell, no test drove the `Prepare` arm
+    /// of `deadline_exceeded` in either direction, and `SET LOCAL` could have been dropped from
+    /// `dry_run` with nothing reddening.
+    #[test]
+    fn dry_run_blocked_on_a_table_lock_is_stopped_at_its_deadline() {
+        let Some((warehouse, schema)) = open("lockedprepare") else {
+            return;
+        };
+        warehouse
+            .load_fixture_csv(&corpus::table(), &corpus::on_disk())
+            .expect("the corpus loads");
+        let table = corpus::table();
+        let Some(lock_holder) = hold_exclusive_lock("lockedprepare", &schema, &table) else {
+            return;
+        };
+
+        let metric = MetricName::parse("locked_probe").expect("a test metric name is a name");
+        let (range, bindings) = range_over(
+            Date::new(2000, 1, 1).expect("year 2000 is in range"),
+            Date::new(2099, 12, 31).expect("year 2099 is in range"),
+            &table,
+        );
+        let plan = QueryPlan::new(
+            corpus::source(),
+            metric.clone(),
+            StatementTables::only(table.clone()),
+            PlanBucket::new(ResultLabel::bucket(), Grain::Day, column(&table, "day")),
+            Vec::new(),
+            PlanMeasure::Simple {
+                term: PlanTerm::Aggregate {
+                    aggregate: Aggregate::Sum,
+                    column: column(&table, "amount_cents"),
+                },
+            },
+            ResultLabel::measure(&metric),
+            bindings,
+            range,
+        );
+        let deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(300)).expect("300ms is a budget"),
+        );
+
+        let started = Instant::now();
+        let outcome = warehouse.dry_run(Executable::Query(&plan), &corpus::presented(), deadline);
+        let elapsed = started.elapsed();
+        drop(lock_holder);
+
+        let error = outcome.expect_err("a PREPARE blocked past its budget must not silently accept");
+        assert!(
+            warehouse.deadline_exceeded(&error),
+            "a PREPARE stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "stopped at ~300ms plus tolerance, not left blocked on the lock: {elapsed:?}"
         );
     }
 }

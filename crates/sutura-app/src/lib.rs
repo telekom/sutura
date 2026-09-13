@@ -557,7 +557,8 @@ where
             // The deadline, after the two size bounds and before the identity refusal - the order
             // `docs/adr/0029` states. An adapter's own failure IS the stopped question here, unlike
             // the two checks above this function makes on its own: this one only ever answers what
-            // the adapter reports, because in this slice no adapter stops on the deadline at all.
+            // the adapter reports - Postgres now stops on the deadline itself (`SET LOCAL
+            // statement_timeout`); the engine and BigQuery still do not.
             if warehouse.deadline_exceeded(&cause) {
                 return Ok(Answered::under(
                     &credentials,

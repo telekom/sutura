@@ -5,7 +5,11 @@
 //! [`PostgresWarehouse::run`] is the boot path's own statement runner - no deadline, the
 //! connect-time ceiling alone - and [`PostgresWarehouse::run_with_deadline`] is what
 //! `Warehouse::execute` calls; both end at [`PostgresWarehouse::prepare_and_query`], reading `lib.rs`'s
-//! private `bind` and `cell` the same way `raw.rs` already does.
+//! private `bind` and `cell` the same way `raw.rs` already does. [`deadline_exceeded`] is what
+//! `Warehouse::deadline_exceeded` delegates to, the same shape `raw::source_refused` has.
+
+use core::num::NonZeroU32;
+use std::time::Instant;
 
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{RowSet, Value};
@@ -36,25 +40,53 @@ impl PostgresWarehouse {
     /// Runs a statement inside a transaction this adapter opens and always rolls back, with `SET
     /// LOCAL statement_timeout` set to what `deadline` has left - `docs/adr/0029`'s Postgres row.
     ///
-    /// **One extra round trip for the `BEGIN`/`SET LOCAL` pair, one more for the `ROLLBACK`** -
-    /// `SET LOCAL` only takes effect inside a transaction block, so scoping it to one statement
-    /// needs one, and there is nothing here to commit: a certified plan only ever `SELECT`s, so
-    /// discarding the transaction either way is exact. The rollback's own outcome is dropped, the
-    /// same choice `raw::run_raw` makes for its own wrapper - a rollback that itself fails is the
-    /// connection's problem on its way out, not this statement's.
+    /// **The lock is acquired FIRST, then the deadline is re-checked** (via [`refuse_if_spent`]):
+    /// waiting for `execution_lock` is itself outside the deadline - unbounded, and invisible to
+    /// `sutura_app`'s own pre-call check, which runs before this wait starts
+    /// (`telekom/sutura#687`'s review, finding 2).
+    ///
+    /// **`ROLLBACK` always runs, even when `BEGIN`/`SET LOCAL` itself failed** - a refused `SET
+    /// LOCAL` (an out-of-range value, say) still opens the transaction it rode beside, leaving the
+    /// connection ABORTED for every later caller otherwise (finding NIT 6). `SET LOCAL` needs a
+    /// transaction block to take effect at all, and there is nothing here to commit - a certified
+    /// plan only ever `SELECT`s - so discarding it either way is exact.
     pub(crate) fn run_with_deadline(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<RowSet, PostgresError> {
-        let timeout_ms = deadline_statement_timeout_ms(self.statement_timeout_ceiling_ms, deadline);
         let _guard = lock_execution(&self.execution_lock);
+        refuse_if_spent(deadline)?;
+        let timeout_ms = deadline_statement_timeout_ms(self.statement_timeout_ceiling_ms, deadline);
         let (columns, rows) = self.runtime.block_on(async {
-            self.client
-                .batch_execute(&format!("BEGIN; SET LOCAL statement_timeout = {timeout_ms}"))
-                .await
-                .map_err(|cause| PostgresError::Transaction { cause })?;
-            let outcome = Self::prepare_and_query(&self.client, query).await;
+            let began = begin_with_timeout(&self.client, timeout_ms).await;
+            let outcome = match began {
+                Ok(()) => Self::prepare_and_query(&self.client, query).await,
+                Err(cause) => Err(cause),
+            };
             drop(self.client.batch_execute("ROLLBACK").await);
             outcome
         })?;
         Self::rows_from_columns(&columns, rows)
+    }
+
+    /// `Warehouse::dry_run`'s own transaction: the same lock-then-check, `BEGIN`/`SET LOCAL`,
+    /// always-`ROLLBACK` shape as [`Self::run_with_deadline`], but only `PREPARE`s and never runs
+    /// the statement - that method's own contract.
+    pub(crate) fn prepare_with_deadline(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<(), PostgresError> {
+        let _guard = lock_execution(&self.execution_lock);
+        refuse_if_spent(deadline)?;
+        let timeout_ms = deadline_statement_timeout_ms(self.statement_timeout_ceiling_ms, deadline);
+        self.runtime.block_on(async {
+            let began = begin_with_timeout(&self.client, timeout_ms).await;
+            let outcome = match began {
+                Ok(()) => self
+                    .client
+                    .prepare(query.sql())
+                    .await
+                    .map(drop)
+                    .map_err(|cause| PostgresError::Prepare { cause }),
+                Err(cause) => Err(cause),
+            };
+            drop(self.client.batch_execute("ROLLBACK").await);
+            outcome
+        })
     }
 
     /// The one round trip both [`Self::run`] and [`Self::run_with_deadline`] make: prepare, bind,
@@ -97,6 +129,33 @@ impl PostgresWarehouse {
     }
 }
 
+/// The `BEGIN`/`SET LOCAL statement_timeout` pair [`PostgresWarehouse::run_with_deadline`] and
+/// [`PostgresWarehouse::prepare_with_deadline`] both open their transaction with, in one round
+/// trip over the simple query protocol.
+async fn begin_with_timeout(client: &tokio_postgres::Client, timeout_ms: NonZeroU32) -> Result<(), PostgresError> {
+    client
+        .batch_execute(&format!("BEGIN; SET LOCAL statement_timeout = {timeout_ms}"))
+        .await
+        .map_err(|cause| PostgresError::Transaction { cause })
+}
+
+/// Refuses locally, no round trip, if `deadline` is already spent - the check
+/// [`PostgresWarehouse::run_with_deadline`]'s and `dry_run`'s own doc explain: `sutura_app`'s own
+/// pre-call check runs before the wait for `execution_lock`, so it cannot see a budget spent
+/// DURING that wait.
+pub(crate) fn refuse_if_spent(deadline: Deadline) -> Result<(), PostgresError> {
+    if deadline.remaining_at(Instant::now()).is_none() {
+        return Err(PostgresError::DeadlineSpent);
+    }
+    Ok(())
+}
+
+/// Postgres's `statement_timeout` GUC is a signed `int`, so `i32::MAX` milliseconds (~24.8 days)
+/// is the largest value the server accepts as a `SET LOCAL` - `4294967295` (`u32::MAX`) is refused
+/// as "value exceeds integer range" and leaves the transaction ABORTED
+/// (`telekom/sutura#687`'s review, probe E).
+const POSTGRES_TIMEOUT_MAX_MS: u32 = 0x7FFF_FFFF; // i32::MAX, 2_147_483_647
+
 /// The `SET LOCAL statement_timeout` value for one statement under `deadline`: what is left of it,
 /// clamped to `ceiling_ms` - `PostgresWarehouse::statement_timeout_ceiling_ms`, the connect-time
 /// value, which `docs/adr/0029` keeps as the outer bound a request's own budget may only narrow,
@@ -108,19 +167,37 @@ impl PostgresWarehouse {
 /// rather than as the tightest one - clamping to a zero-to-zero range would panic, and reading zero
 /// as unbounded matches Postgres's own meaning for the setting.
 ///
-/// **Never zero**, for `Deadline::remaining_at`'s reason: zero reads as *no timeout at all* to the
-/// server. `remaining_at` returning `None` here is not re-checked as a refusal - `sutura_app::answer`
-/// and `federated::execute_leg` already ask before this call is ever reached - so the smallest
-/// non-zero value is what a statement this close to spent gets, and the server's own `57014` on that
-/// statement, through this adapter's own `deadline_exceeded`, is how it is refused.
-pub(crate) fn deadline_statement_timeout_ms(ceiling_ms: u32, deadline: Deadline) -> u32 {
+/// **`NonZeroU32`, so the compiler holds "never zero" the way `Budget::parse` holds zero out of a
+/// budget** (`telekom/sutura#687`'s review, finding 1) - a `u32` result with a `.max(1)` floor held
+/// the same claim by one expression only, and a mutation deleting it went unnoticed because no cell
+/// drove the branch where a LIVE remaining under 1 ms truncates to `0` in `as_millis` (the only
+/// existing cell over a spent deadline hits the `None` arm, already defaulted). `0` reads as *no
+/// timeout at all* to the server, so this is the one value further from *stopped* than every other.
+/// `remaining_at` returning `None` here is not re-checked as a refusal: [`refuse_if_spent`] is
+/// checked before this is ever reached.
+pub(crate) fn deadline_statement_timeout_ms(ceiling_ms: u32, deadline: Deadline) -> NonZeroU32 {
     let remaining_ms = deadline
-        .remaining_at(std::time::Instant::now())
-        .map_or(1, |left| u32::try_from(left.as_millis()).unwrap_or(u32::MAX))
-        .max(1);
-    if ceiling_ms == 0 {
+        .remaining_at(Instant::now())
+        .map_or(0, |left| u32::try_from(left.as_millis()).unwrap_or(POSTGRES_TIMEOUT_MAX_MS));
+    let clamped = if ceiling_ms == 0 {
         remaining_ms
     } else {
         remaining_ms.min(ceiling_ms)
+    };
+    NonZeroU32::new(clamped).unwrap_or(NonZeroU32::MIN)
+}
+
+/// `Warehouse::deadline_exceeded` delegates to this, the same shape `raw::source_refused` has for
+/// its own two codes: `DeadlineSpent` is [`refuse_if_spent`]'s own local refusal, and `57014
+/// query_canceled` (via `Prepare` or `Execute`) is what `SET LOCAL statement_timeout` produces when
+/// it fires - `docs/adr/0029`'s limit: the same code is what a manual `pg_cancel_backend` produces,
+/// and this predicate cannot tell the two apart.
+pub(crate) fn deadline_exceeded(error: &PostgresError) -> bool {
+    match *error {
+        PostgresError::DeadlineSpent => true,
+        PostgresError::Prepare { ref cause } | PostgresError::Execute { ref cause } => {
+            cause.code() == Some(&tokio_postgres::error::SqlState::QUERY_CANCELED)
+        }
+        _ => false,
     }
 }

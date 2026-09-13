@@ -14,10 +14,12 @@
 //!   decision and never this adapter's, so a caller that builds no config gets a cleartext
 //!   connection - including to a server that offers TLS.
 //! - **`dry_run` and `execute` stop at the port's deadline**, with `SET LOCAL statement_timeout` -
-//!   `docs/adr/0029`'s Postgres row. The raw SQL tool's own path (`execute_raw`) carries no
-//!   per-request deadline, so its own `SET LOCAL` is always the connect-time ceiling. `57014
-//!   query_canceled` is what either firing looks like, and is also what a manual `pg_cancel_backend`
-//!   produces - indistinguishable to `deadline_exceeded`.
+//!   `docs/adr/0029`'s Postgres row. The wait for `execution_lock` is itself outside the deadline;
+//!   a caller already spent once the lock is held is refused locally as `DeadlineSpent`. `57014
+//!   query_canceled` is also what a manual `pg_cancel_backend` produces - indistinguishable to
+//!   `deadline_exceeded`. The raw SQL tool's own path (`execute_raw`) carries no per-request
+//!   deadline; it is stopped by the connect-time `SET statement_timeout` that already existed, and
+//!   this record adds only classifying that stop.
 
 pub mod connection;
 /// The fixture tier's credential - a value that cannot exist unconfigured.
@@ -170,6 +172,10 @@ pub enum PostgresError {
         #[source]
         cause: tokio_postgres::Error,
     },
+    /// The deadline was already spent once [`Self::execution_lock`] was acquired - refused locally,
+    /// no round trip: that unbounded wait is outside `sutura_app`'s own pre-call check.
+    #[error("the deadline was already spent by the time the connection's lock was acquired")]
+    DeadlineSpent,
     /// The credential broker handed this adapter subject material it has nowhere to put.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
@@ -912,27 +918,14 @@ impl Warehouse for PostgresWarehouse {
     /// `docs/adr/0030` names this honest absence rather than a guess.
     ///
     /// **`SET LOCAL statement_timeout` is what is left of `deadline`, scoped to a transaction this
-    /// call opens and always rolls back** - `docs/adr/0029`'s Postgres row. The `PREPARE` here is a
-    /// round trip too, and a slow one is exactly what a pre-flight is for bounding.
+    /// call opens and always rolls back** - `docs/adr/0029`'s Postgres row. The lock is acquired
+    /// FIRST, then the deadline is re-checked: the wait for it is itself outside the deadline, so a
+    /// caller queued behind a slow statement can arrive already spent, refused locally as
+    /// `DeadlineSpent` rather than sent to the server.
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let timeout_ms = deadline::deadline_statement_timeout_ms(self.statement_timeout_ceiling_ms, deadline);
-        let _guard = lock_execution(&self.execution_lock);
-        self.runtime.block_on(async {
-            self.client
-                .batch_execute(&format!("BEGIN; SET LOCAL statement_timeout = {timeout_ms}"))
-                .await
-                .map_err(|cause| PostgresError::Transaction { cause })?;
-            let outcome = self
-                .client
-                .prepare(query.sql())
-                .await
-                .map(drop)
-                .map_err(|cause| PostgresError::Prepare { cause });
-            drop(self.client.batch_execute("ROLLBACK").await);
-            outcome
-        })?;
+        self.prepare_with_deadline(&query, deadline)?;
         Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
@@ -974,16 +967,11 @@ impl Warehouse for PostgresWarehouse {
         raw::source_refused(error)
     }
 
-    /// `57014 query_canceled` is what `SET LOCAL statement_timeout` produces when it fires -
-    /// `docs/adr/0029`'s limit: the same code is what a manual `pg_cancel_backend` produces, and
-    /// this predicate cannot tell the two apart. Matched on `Prepare`/`Execute` exactly as
-    /// `raw::source_refused` matches its own two codes on the same two variants.
+    /// `57014 query_canceled` (via `Prepare`/`Execute`) or a local `DeadlineSpent` - see
+    /// `deadline::deadline_exceeded` for the match itself, the same split `raw::source_refused`
+    /// draws for its own two codes.
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
-        matches!(
-            *error,
-            PostgresError::Prepare { ref cause } | PostgresError::Execute { ref cause }
-                if cause.code() == Some(&tokio_postgres::error::SqlState::QUERY_CANCELED)
-        )
+        deadline::deadline_exceeded(error)
     }
 }
 
