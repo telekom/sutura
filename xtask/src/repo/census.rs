@@ -431,6 +431,20 @@ impl Inspected {
             self.judged, self.discovered, self.out_of_scope, self.absent, self.read_bytes
         )
     }
+
+    /// How many subjects this census opened and handed to the closure. Incremented by
+    /// [`Census::inspect`] itself, after the closure returns, whatever the closure did inside -
+    /// so a caller that also keeps its own per-file tally can compare the two rather than trust
+    /// that an early `return` inside its closure left both counts moving together.
+    ///
+    /// `github.com/telekom/sutura#689`: `check-worktree-state` kept a `Vec<String>` of its own,
+    /// pushed to on the closure's happy path, and printed its length as the file half of its
+    /// verdict. Nothing compared it to this number, so a return inside the closure ahead of the
+    /// push read as a clean, smaller tree rather than as a drop - even though this count, taken
+    /// independently, did not move.
+    pub(crate) const fn judged(&self) -> usize {
+        self.judged
+    }
 }
 
 #[cfg(test)]

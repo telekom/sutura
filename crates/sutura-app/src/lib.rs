@@ -673,7 +673,13 @@ pub(crate) const fn deadline_exceeded(deadline: Deadline) -> RefusalReason {
 }
 
 // `docs/adr/0013`'s raw SQL tool - carved out because this file hit the thousand-line limit.
-pub mod raw;
+//
+// **Private, not `pub`.** `xtask check-boundaries`'s answer-path gate holds `run_sql` at ONE
+// spelling - the re-export below - by guarding it at the crate root only; a `pub mod raw` would
+// give every caller a second, ungated spelling (`sutura_app::raw::run_sql`) the gate's classifier
+// cannot see (`#703` review, finding 1: it compiled clean and the gate printed `ok`). Every item
+// this module needs to expose is re-exported here, so nothing outside this crate loses access.
+mod raw;
 pub use raw::{AnsweredRaw, RunSqlError, RunningRaw, run_sql};
 
 /// Charges `bytes` against `context`'s own subject, and turns a refusal into the domain's own

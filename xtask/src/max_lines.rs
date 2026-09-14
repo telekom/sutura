@@ -207,7 +207,7 @@ struct Measured {
 /// Textness is decided from the bytes the census already read, so *not text* and *could not look*
 /// cannot be conflated, and a binary file is out of the LENGTH rule without being refused - which
 /// is #412's trap, where `check-shipped-binaries` reddened a correct tree over a PNG.
-fn measure(census: repo::Census, must_judge: &[&str], max: usize, ignores: &Ignores) -> Result<Measured, repo::Refusal> {
+fn measure(census: repo::Census, must_judge: &[&str], max: usize, ignores: &Ignores) -> Result<Measured, MeasureError> {
     let mut measured = Measured {
         files: Vec::new(),
         violations: Vec::new(),
@@ -238,9 +238,59 @@ fn measure(census: repo::Census, must_judge: &[&str], max: usize, ignores: &Igno
             measured.violations.push((String::from(rel), lines));
         }
     })?;
+    tally_agrees(measured.files.len(), inspected.judged())?;
     measured.files.sort();
     measured.witness = inspected.verdict();
     Ok(measured)
+}
+
+/// `github.com/telekom/sutura#689`'s law, available here because `files.push` above is this
+/// closure's FIRST statement: nothing can run ahead of it and drop a file from `files` while the
+/// census still counts it `judged`, so `files.len() == judged` holds by construction and a
+/// mismatch is never legitimate. `xtask/src/text.rs`'s own `census.inspect` closure carries the
+/// same shape and CANNOT take this refusal - its own `checked` only increments under
+/// `looks_like_text`, so `checked < judged` is the correct, narrower count there.
+const fn tally_agrees(recorded: usize, judged: usize) -> Result<(), MeasureError> {
+    if recorded == judged {
+        Ok(())
+    } else {
+        Err(MeasureError::TallyMismatch { recorded, judged })
+    }
+}
+
+/// Either the census's own refusal, or this gate's own file tally disagreeing with it.
+///
+/// The second arm is a caller-level conservation law, not a census-level one - see
+/// `github.com/telekom/sutura#689` - so it stays out of [`repo::Refusal`], whose own doc reserves
+/// its arms for defects the WALK itself measured.
+#[derive(Debug)]
+enum MeasureError {
+    Census(repo::Refusal),
+    /// `recorded` is this gate's own `files.len()`; `judged` is the census's independent count.
+    TallyMismatch {
+        recorded: usize,
+        judged: usize,
+    },
+}
+
+impl MeasureError {
+    fn describe(&self) -> String {
+        match self {
+            Self::Census(refusal) => refusal.describe(),
+            Self::TallyMismatch { recorded, judged } => format!(
+                "this walk recorded {recorded} file(s) of its own and the census independently \
+                 judged {judged}. One of the two counts moved without the other - a closure that \
+                 returns before recording a file drops it from this side, or the census's own \
+                 count moved independently of the closure - and either way the two no longer agree"
+            ),
+        }
+    }
+}
+
+impl From<repo::Refusal> for MeasureError {
+    fn from(refusal: repo::Refusal) -> Self {
+        Self::Census(refusal)
+    }
 }
 
 /// Every subject, because textness is a question about bytes and a [`repo::Scope`] is handed a
@@ -430,7 +480,7 @@ mod tests {
         tree: &crate::scratch_tree::Tree,
         anchors: &[&str],
         ignores: &Ignores,
-    ) -> Result<Measured, crate::repo::Refusal> {
+    ) -> Result<Measured, super::MeasureError> {
         super::measure(
             crate::repo::collect_files(tree.root(), tree.root(), &["md", "nix", "png", "rs"]),
             anchors,
@@ -472,6 +522,21 @@ mod tests {
             "the refusal has to name the file it could not read: {}",
             why.describe()
         );
+    }
+
+    /// `github.com/telekom/sutura#689`'s law, held directly against the constructor rather than
+    /// through a walk: no real tree can disagree (`files.push` is the closure's first statement),
+    /// so this is the only way to exercise the refusal rather than trust it exists.
+    #[test]
+    fn the_tally_refuses_when_this_walk_recorded_fewer_files_than_the_census_judged() {
+        let refused = super::tally_agrees(552, 553).expect_err("a short tally must not mint a verdict");
+        let described = refused.describe();
+        assert!(described.contains("552") && described.contains("553"), "{described}");
+    }
+
+    #[test]
+    fn the_tally_agrees_when_this_walk_and_the_census_moved_together() {
+        super::tally_agrees(553, 553).expect("counts that moved together must not refuse");
     }
 
     /// #412's trap: a PNG is out of the LENGTH rule without being unreadable, and a remedy that
