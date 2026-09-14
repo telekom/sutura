@@ -3258,6 +3258,10 @@ who never sees one, because the line was emitted in a format nothing was collect
 process that went on to serve traffic. A process that does not start is noticed.</p>
 <p>Every variant names the key to change, because a refusal that does not say what to do is a
 support request.</p>
+<p><strong>No <code>Serialize</code>, and neither has <code>crate::settings::SettingsError</code> that carries it.</strong> Both
+reach a caller only through <code>#[error]</code>'s rendered text on stderr, never as a structured value -
+so typing a field here - <code>BindAddress</code>, <code>SourceName</code>, <code>TokenRequiredBy</code> - is a compiler
+check on this crate's own construction sites, and publishes nothing to anyone outside it.</p>
 <h2 id="use-settings"><code>use Settings</code><a class="headerlink" href="#use-settings" title="Permanent link">&para;</a></h2>
 <p>The whole resolved configuration.</p>
 <p><code>Clone</code> because it is held in the request state, and every field is either <code>Copy</code> or a small
@@ -3280,6 +3284,13 @@ that each file parsed or contributed a value. Variables and text overlays have n
 layer by setting variables could not be written under <code>unsafe_code = "forbid"</code>. Supplying the
 variables as a map makes that layer a pure function of its input, and
 <code>Sources::from_process_environment</code> is the one place that reads the real environment.</p>
+<h2 id="use-tokenrequiredby"><code>use TokenRequiredBy</code><a class="headerlink" href="#use-tokenrequiredby" title="Permanent link">&para;</a></h2>
+<p>Which of the two reasons a caller-facing credential, or the limiter, was required.</p>
+<p>Closed rather than a free string: every site below chooses between exactly these two reasons -
+production, or reachable off-host - never a third, so a match missing an arm is a compile error
+rather than a refusal nobody wrote. One type shared across <code>NotFitToServe::AccessTokenRequired</code>,
+<code>NotFitToServe::RateLimitingDisabled</code> and <code>NotFitToServe::MetricsTokenRequired</code>, because all
+three ask the identical question <code>settings.rs</code>'s <code>metrics_refusals</code> asks first.</p>
 <h2 id="use-variable_prefix"><code>use VARIABLE_PREFIX</code><a class="headerlink" href="#use-variable_prefix" title="Permanent link">&para;</a></h2>
 <p>The prefix every configuration variable carries, and the separator between key segments.</p>
 <p><code>SUTURA__SERVER__PORT</code> sets <code>server.port</code>. Two underscores for both, so a key segment that

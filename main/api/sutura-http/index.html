@@ -5078,7 +5078,18 @@ either runs.</p>
 - <code>TooLarge</code> - The file is larger than any certificate chain or private key is.</p>
 <p>See <code>MAX_MATERIAL_BYTES</code>. The refusal names the cap rather than the size found, because the
   size found is one byte past the cap and nothing else is known about the file.
-- <code>Malformed</code> - A PEM block was found and did not parse.
+- <code>Malformed</code> - A PEM block was found and did not parse.</p>
+<p><strong><code>cause</code>'s <code>Display</code> is safety this module does not hold, and cannot.</strong> <code>pem::Error</code> is
+  <code>rustls-pki-types</code>', not this crate's: <code>IllegalSectionStart { line }</code> and
+  <code>MissingSectionEnd { end_marker }</code> both print bytes out of the file - a source line, a
+  <code>-----BEGIN</code> label - and the reason that is safe here is the <em>upstream</em> choice to build
+  <code>line</code> only from a line starting <code>-----BEGIN</code> and <code>end_marker</code> only from that label, never
+  from key material between the markers. No type in this repository can hold another crate's
+  <code>Display</code> impl, so a version bump that changed what it prints would change silently, unlogged
+  by anything here. <code>crates/sutura-serve/src/main.rs</code>'s <code>flatten</code> walks <code>#[source]</code> to
+  exhaustion and prints every <code>cause.to_string()</code>, so this reaches an operator's terminal
+  through the same three <code>#[source]</code> hops the module's own safety argument above already
+  covers for the path - <code>cause</code> is the one field that argument does not reach.
 - <code>KeyDoesNotMatch</code> - The key does not belong to the certificate.</p>
 <p><strong>The variant this whole module is careful about.</strong> rustls will build a <code>ServerConfig</code> from a
   mismatched pair without complaint; what fails is every handshake, at the client, with a
