@@ -634,6 +634,13 @@ selects which file is layered, so a file that could change it would be self-refe
 A zero is refused wherever it would read as "no limit", and every bound has a ceiling, because a
 value nobody chose is worse than a value somebody has to argue with.
 
+**Not built: a gate cross-checking this table's `catalogs[]` rows against `RawCatalog`'s own
+fields.** Every `Raw*` shape already refuses an unknown key via `deny_unknown_fields`, which makes
+such a check mechanisable in principle - it is not built because the two sides are shaped
+differently (a markdown table cell, a Rust field name) and closing that gap needs a parser reading
+this file, not a lint reading the crate. Nothing here has justified writing one yet; a stale row
+still passes every other gate.
+
 ### Sources
 
 **The service reads its data systems from `sources:`, one entry per data system, keyed by the alias a

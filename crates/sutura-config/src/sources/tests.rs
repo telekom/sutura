@@ -97,7 +97,7 @@ fn an_alias_that_is_not_a_name_is_refused_and_names_what_was_written() {
 
 #[test]
 fn a_missing_file_location_is_refused_at_parse() {
-    // Refused rather than defaulted to `catalog.data_dir`: a source that inherited the catalog's data
+    // Refused rather than defaulted to `catalogs[].data_dir`: a source that inherited the catalog's data
     // directory would be a second source reading the first one's files, which is a configuration
     // nobody wrote and nothing would show.
     //
@@ -123,7 +123,7 @@ fn a_missing_file_location_is_refused_at_parse() {
 fn a_relative_path_is_refused_at_parse() {
     // A relative path resolves against the process working directory - a different directory on every
     // host, and never the one the operator meant. A service's working directory is whatever its
-    // supervisor chose, which is the difference from `catalog.data_dir` on a command line.
+    // supervisor chose, which is the difference from `catalogs[].data_dir` on a command line.
     for relative in ["data", "./data", "../elsewhere/data"] {
         let entries = [RawSourceEntry {
             data_dir: Some(relative),

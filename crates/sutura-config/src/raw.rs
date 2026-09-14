@@ -215,6 +215,9 @@ pub(crate) struct RawRuntime {
 /// Per-replica, in-process resource ceilings. `docs/adr/0030` decides the shape and names the
 /// limit: `Default` (an absent section) means none of them are configured, which is today's
 /// behaviour and not a bound of zero.
+///
+/// Derives `Debug` deliberately: neither field it holds, nor `RawSpendCeiling` inside it, is a
+/// secret.
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawGovernance {
@@ -233,6 +236,9 @@ pub(crate) struct RawGovernance {
     pub(crate) per_replica_spend_ceiling: Option<RawSpendCeiling>,
 }
 
+/// The pair of numbers `RawGovernance::per_replica_spend_ceiling` holds together.
+///
+/// Derives `Debug` deliberately: a byte count and a window are not secrets.
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawSpendCeiling {

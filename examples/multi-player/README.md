@@ -26,7 +26,7 @@ Two things make a deployment multi-player, and both are configuration rather tha
   by the trusted component). Either way the deployment knows the caller's subject, and the caller
   cannot state their own identity in a request body - `docs/adr/0014`.
 
-Only the second of these is a configuration mistake an operator can make.
+Only the first of these is a configuration mistake an operator can make.
 `RouterNotBuilt::InboundIdentityNotAttached` is the composition root's own wiring guard: `sutura
 serve` always builds and attaches the gate whenever `security.inbound` is declared
 (`crates/sutura-serve/src/main.rs`'s `inbound_gate`), so no settings file reaches this refusal - it

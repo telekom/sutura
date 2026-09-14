@@ -176,8 +176,7 @@ mod tests {
 
     /// Pins the documented shape: Google's STS discovery document types `expires_in`
     /// `integer`/`int32`, a bare JSON number - never quoted, unlike `BigQuery`'s `totalRows`
-    /// (`string`/`uint64`). If a future edit widened this field to accept text, to match the
-    /// claim this module's doc comment used to make, this is the cell that would catch it.
+    /// (`string`/`uint64`).
     ///
     /// **Not a regression test for this commit, stated plainly rather than left for `test-causality`
     /// to answer wrong.** `Response::expires_in`'s type did not change here - only the comment above
@@ -185,6 +184,14 @@ mod tests {
     /// the head of this diff by construction: there is no behaviour difference for it to detect yet.
     /// It is a CONTRACT pinning the field's real shape against a future edit, not a proof that this
     /// diff changed anything a reverted tree would lose.
+    ///
+    /// **What the compiler catches, and what only this pair of tests does.** Narrowing
+    /// `expires_in` to `String` fails to compile - it feeds `now.saturating_add(seconds)` in the
+    /// exchange itself, and that `E0308` predates this pair of tests; it is not evidence either
+    /// one adds. What the type system does *not* hold is a deserializer *widened* to accept both
+    /// a bare integer and a quoted one: that change type-checks clean and reddens only
+    /// `a_quoted_expires_in_does_not_deserialize` - a contract the compiler does not hold and the
+    /// gate cannot see, which is what this pair is for.
     #[test]
     fn a_bare_json_integer_is_what_deserializes() {
         let response: Response = serde_json::from_str(r#"{"access_token":"minted","expires_in":3599}"#)

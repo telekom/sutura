@@ -298,11 +298,9 @@ impl Pem {
 /// read on purpose - that is what distinguishes "too large" from "exactly the cap". The same shape
 /// `sutura_exec_bigquery::wire::credential::Credential::read` uses, for the same reason.
 ///
-/// **The path is a filesystem path, not a secret, and it is safe to print here because of where
-/// this error stops.** [`TlsNotUsable`] is returned by [`Termination::prepare`], called before the
-/// socket is bound, or caught inside [`Renewal::reread`] and only `tracing::warn!`ed - both
-/// root-only. It never crosses into a request or a response, because no connection exists yet when
-/// either runs.
+/// Why printing the path in [`TlsNotUsable`] is safe is stated on that type, not here - this
+/// helper only builds the variant, called from [`Termination::prepare`] (before the socket is
+/// bound) and from [`Renewal::reread`] (only `tracing::warn!`ed, never returned to a caller).
 fn read_file(what: &'static str, path: &Path) -> Result<Vec<u8>, TlsNotUsable> {
     let unreadable = |cause| TlsNotUsable::Unreadable {
         what,

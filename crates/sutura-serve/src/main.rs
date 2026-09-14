@@ -156,9 +156,9 @@ fn run() -> Result<(), String> {
     // 6. The adapters, then the service. Both ports are named exactly here.
     let catalogs = catalog::open_catalog(settings.catalogs())?;
     let pinned = catalog::load(&catalogs)?;
-    // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
+    // The `sources:` tree rather than `catalogs[].data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
-    // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
+    // `catalogs[].data_dir` stays what it always was - the catalog's own directory - and is no longer
     // where a source's files are found.
     let opened = open_engine(
         &pinned,

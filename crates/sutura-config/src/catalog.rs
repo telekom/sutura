@@ -118,11 +118,11 @@ impl CatalogSettings {
         version: DefinitionVersion,
     ) -> Result<Self, InvalidCatalogSettings> {
         if dir.as_os_str().is_empty() {
-            return Err(InvalidCatalogSettings::EmptyPath { name: "catalog.dir" });
+            return Err(InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
         }
         if data_dir.as_os_str().is_empty() {
             return Err(InvalidCatalogSettings::EmptyPath {
-                name: "catalog.data_dir",
+                name: "catalogs[].data_dir",
             });
         }
         Ok(Self {
@@ -264,14 +264,14 @@ mod tests {
         // binary. That is a different bundle with no diff anywhere.
         let error = CatalogSettings::parse(name("catalog"), kind(), PathBuf::new(), PathBuf::from("data"), version())
             .expect_err("an empty catalog directory is not a directory");
-        assert_eq!(error, InvalidCatalogSettings::EmptyPath { name: "catalog.dir" });
+        assert_eq!(error, InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
 
         let error = CatalogSettings::parse(name("catalog"), kind(), PathBuf::from("catalog"), PathBuf::new(), version())
             .expect_err("an empty data directory is not a directory");
         assert_eq!(
             error,
             InvalidCatalogSettings::EmptyPath {
-                name: "catalog.data_dir"
+                name: "catalogs[].data_dir"
             }
         );
     }
