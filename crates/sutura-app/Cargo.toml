@@ -52,7 +52,10 @@ sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
 # THE engine, and what the golden suite executes with. Also the far side of the differential test:
 # one plan computed locally here and pushed down as SQL to the data source above, rows compared. A
 # statement that is valid SQL with different semantics is the bug class that catches.
-sutura-exec-datafusion = { workspace = true }
+sutura-exec-datafusion = { workspace = true, features = ["measurement"] }
+# The bounded measurement is specifically of the configured default, not a duplicated literal.
+# Test-only keeps the settings adapter out of `sutura-app`'s inward production dependency graph.
+sutura-config = { workspace = true }
 # How a network adapter's tests reach the docker tier: the discovery file a harness reads, and the
 # skip-or-fail decision that keeps the corpus green in CI where there is no socket.
 sutura-dev = { workspace = true }

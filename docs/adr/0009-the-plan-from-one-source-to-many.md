@@ -299,6 +299,29 @@ forbids - so they are marked as a starting point to be replaced by a measurement
 presented as findings. Whoever implements `feat/query-bounds` measures them; the record's job is to stop
 the provisional numbers from hardening into decisions by being written in a record.
 
+## Amendment, 2026-09-14: the working-set harness establishes an envelope, not a new default
+
+The working-set half was measured on corpus revision `26c146ea`: 40 questions, each in one-source and
+two-source topology, in a fresh Linux process. The host was x86-64 Linux 6.12 with two 16-core AMD EPYC
+9174F sockets (64 hardware threads) and 1,056,435,840 KiB RAM; the pinned Rust toolchain was nightly
+1.100. The run produced 80 unique records: 56 answers, 20 refusals before execution and four expected,
+typed non-finite failures. All completed with zero operator reservation retained.
+
+The final pass's largest per-source operator-reservation peak was 14,704,640 bytes (1.37% of the 1 GiB
+configured default); its largest fresh-child process high-water mark was 110,972,928 bytes. Across two
+passes, records with a non-zero operator peak put the process high-water mark at no more than 452 times
+that peak; the harness holds an envelope of 1024 so ordinary venue variation does not turn it into a
+benchmark. The final pass's widest `LEFT JOIN` case measured 1,183,081 / 108,756,992 bytes in
+one-source topology and 1,917,248 / 105,537,536 bytes in two-source topology (operator peak / process
+HWM). The distinct-key case was refused before execution in the two-source topology and therefore
+recorded a zero operator peak.
+
+The limit is larger than the number: process HWM includes catalog, engine and corpus setup, while the
+pool observes only the largest one-source operator peak and cannot see driver buffering, collected
+batches or domain-row conversion. The corpus is too small to justify lowering the 1 GiB default. It
+does establish a reproducible fail-closed measurement and a regression envelope; the default remains
+provisional until a representative production-scale corpus exercises those unobserved paths.
+
 **One of the two is already contradicted by a route the surface has to survive**, and saying so here is
 cheaper than discovering it when the first gateway-fronted deployment times out. A route whose front
 door cuts a request at tens of seconds cannot carry a governed turn allowed 180 seconds, so on that

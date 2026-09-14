@@ -87,6 +87,8 @@ use sutura_semantic::{Compiled, compile};
 use crate::adapters::{a_caller, deadline, posture, shared_credential, source, version};
 // `#[path]` for the reason `tests/golden.rs` gives, one level down: a bare `mod corpus;` in a
 // submodule of a test target resolves beside the target root, not beside this file.
+#[path = "federated/bounds.rs"]
+mod bounds;
 #[path = "federated/corpus.rs"]
 mod corpus;
 

@@ -218,6 +218,18 @@ unavailable.
 else. Not what a driver buffers, not `collect()` materialising every batch, not the row set built in the
 conversion loop. **Pool-reserved is not process memory and must not be alerted on as if it were.**
 
+## Amendment, 2026-09-14: the production pool accessor is withdrawn
+
+The bounded environment remains mandatory, but the planned accessor did not ship. Every
+`SessionContext` is constructed from a private-field bounded environment minted around the configured
+greedy ceiling. A default-off measurement feature can wrap that same ceiling in a recorder for fresh
+test children; ordinary construction exposes no live pool reading.
+
+This does not make the three memory series ready. The measurement records an engine operator peak and
+a whole-process high-water mark for one fresh test child. It cannot attribute driver buffers,
+materialised batches or domain rows to that question, and no production gauge reads the pool. The
+series therefore remain absent rather than reporting a narrower value under a process-memory name.
+
 ## Availability: a scrape must not make the service work
 
 - Render is O(series) and constant: atomic loads, one semaphore read, two limiter reads. **Nothing
@@ -265,7 +277,7 @@ exist beforehand - so it uses `test-causality`'s stated-evidence path rather tha
   but the table's own rule is that a row arrives with its mechanism, and neither exists yet. It goes in
   with the code.
 
-## Amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above
+## Second amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above
 
 **Built.** `sutura-runtime::metrics` holds the registry behind a `RegistryBuilder` that is consumed,
 so the series set is frozen before it is shared and `Registry::render` takes no lock of any kind.

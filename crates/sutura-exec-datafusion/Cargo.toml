@@ -37,6 +37,9 @@ futures-util = { workspace = true }
 
 [features]
 fixtures = ["sutura-domain/fixtures"]
+# Test-harness construction that observes the engine's operator-reservation pool. It is default-off
+# because no shipped binary reads a live reservation; `sutura-app` enables it only as a dev-dependency.
+measurement = []
 
 [[test]]
 name = "conformance"

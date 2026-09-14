@@ -3789,6 +3789,7 @@ dependencies = [
  "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-catalog-rdbms",
+ "sutura-config",
  "sutura-dev",
  "sutura-domain",
  "sutura-exec-datafusion",

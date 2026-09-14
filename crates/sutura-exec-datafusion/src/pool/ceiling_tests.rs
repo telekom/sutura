@@ -116,7 +116,7 @@ fn the_same_question_under_a_roomy_ceiling_is_answered() {
     assert_eq!((rows.columns().len(), rows.rows().len()), (3, 1000));
     // Nothing is left reserved once the answer is collected, which is what makes the ceiling a bound
     // on concurrent work rather than a budget the process spends down over its lifetime.
-    assert_eq!(roomy.memory_pool().reserved(), 0);
+    assert_eq!(roomy.context.runtime_env().memory_pool.reserved(), 0);
 }
 
 #[test]

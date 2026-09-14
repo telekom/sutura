@@ -571,8 +571,9 @@ is written down.
 
 # A provisional number
 
-`Self::DEFAULT_BYTES` is a gibibyte and nobody has measured it. It is a starting point recorded
-as one, not a finding.
+`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+a small in-process workload and cannot see driver buffers, collected batches or domain-row
+conversion, so it did not justify changing the starting point. The default remains provisional.
 
 ## `use available_memory_bytes`
 
@@ -3025,8 +3026,9 @@ is written down.
 
 # A provisional number
 
-`Self::DEFAULT_BYTES` is a gibibyte and nobody has measured it. It is a starting point recorded
-as one, not a finding.
+`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+a small in-process workload and cannot see driver buffers, collected batches or domain-row
+conversion, so it did not justify changing the starting point. The default remains provisional.
 
 #### Methods
 

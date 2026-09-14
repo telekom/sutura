@@ -43,6 +43,10 @@ in the conversion loop below. See `pool`, which states the gap rather than imply
 
 `translate`, `collect`, `fixture` and `pool` own narrow seams; this owns session and execution.
 
+**No production gauge reads the `DataFusion` pool.** Measurement-only children can opt into a
+separate recorder; ordinary adapter construction exports no live reservation reading. The
+`check-guidance` absence rule rejects a production `.memory_pool()` call.
+
 ## `enum DataFusionError`
 
 ```rust
@@ -195,21 +199,6 @@ The CSV affordance's twin, and why the `parquet` feature is on. Neither `compres
 manifest's comment records which.
 
 ```rust
-pub fn memory_pool(&self) -> &Arc<dyn MemoryPool>
-```
-
-The pool every operator in this session reserves against.
-
-**An accessor because the fields are private and stay private**, and because
-`docs/adr/0015` needs `MemoryPool::reserved` for a gauge whose absence it currently specifies:
-a gauge reading zero while no pool exists is a lie an operator builds an alert on.
-
-**State the limit with the reading.** What comes back counts operator reservations - a
-hash-join build side, aggregate state, a sort - and nothing else. It is not this process's
-memory, and it must not be alerted on as though it were: `collect()` materialising every batch
-and the row set built during conversion are both outside it, on the same request path.
-
-```rust
 pub fn new(source: SourceName, posture: SourcePosture, working_set: WorkingSet) -> Result<Self, DataFusionError>
 ```
 
@@ -285,6 +274,62 @@ parsed once, in `sutura_config::WorkingSetCeiling`, against the memory the proce
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.
 
+## Module `measurement`
+
+Opt-in peak recording for measurement-only children, excluded from default builds.
+Opt-in measurement construction for bounded DataFusion execution.
+
+`MeasuredWarehouse` changes no ordinary construction
+path. It keeps a bounded recording pool beside a fresh adapter so a child can read only the engine
+operators' reservation peak. It does not measure driver buffering, collected batches, domain-row
+conversion, or the process resident set.
+
+### `struct MeasuredWarehouse`
+
+```rust
+pub struct MeasuredWarehouse
+```
+
+A measured warehouse and its persistent operator-reservation observer.
+
+It delegates the execution port unchanged. Ordinary `DataFusionWarehouse` construction retains
+its direct `GreedyMemoryPool`, so recording
+costs nothing outside an explicit measurement child.
+
+#### Methods
+
+```rust
+pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
+```
+
+Attaches one CSV table to the measured child.
+
+```rust
+pub fn new(source: SourceName, posture: SourcePosture, working_set: WorkingSet) -> Result<Self, DataFusionError>
+```
+
+```rust
+pub fn pool_peak(&self) -> usize
+```
+
+The persistent operator reservation peak in bytes.
+
+```rust
+pub fn pool_reserved(&self) -> usize
+```
+
+The reservation at the end of the observation window.
+
+```rust
+pub fn reset_peak(&self)
+```
+
+Starts a new pool observation window.
+
+#### Implements
+
+`Warehouse`
+
 ## Module `pool`
 
 The working-set ceiling.
@@ -335,6 +380,11 @@ disk state.
 Not wrapped in `TrackConsumersPool` either, though it would improve the engine's own message: what
 reaches a caller is `sutura_domain::query::RefusalReason::ResourcesExhausted`,
 which carries the configured ceiling and deliberately nothing about what the question demanded.
+
+**No production gauge reads the `DataFusion` pool.** ADR 0015 specifies that absence because an
+operator-reservation reading is narrower than process memory. The opt-in measurement feature is
+a gauge whose absence it currently specifies for production: it observes a separate recording
+pool in fresh test children and exposes no accessor on the ordinary adapter.
 
 ### `struct WorkingSet`
 

@@ -118,8 +118,9 @@ pub struct EngineWorkers {
 ///
 /// # A provisional number
 ///
-/// [`Self::DEFAULT_BYTES`] is a gibibyte and nobody has measured it. It is a starting point recorded
-/// as one, not a finding.
+/// [`Self::DEFAULT_BYTES`] is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+/// a small in-process workload and cannot see driver buffers, collected batches or domain-row
+/// conversion, so it did not justify changing the starting point. The default remains provisional.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkingSetCeiling {
     bytes: core::num::NonZeroUsize,
@@ -264,9 +265,9 @@ impl WorkingSetCeiling {
 
     /// The provisional default: one gibibyte.
     ///
-    /// **Provisional is the operative word.** Nobody has measured it against a corpus, so it is a
-    /// starting point rather than a finding, and `docs/adr/0009` records it as one on purpose - to
-    /// stop a number nobody measured from hardening into a decision by being written down.
+    /// **Provisional is the operative word.** ADR 0009 records a small-corpus measurement and its
+    /// limits; it does not exercise the allocation paths the operator pool cannot see, so this is
+    /// still a starting point rather than a production-scale finding.
     ///
     /// It is also what `defaults.yaml` writes, and a test asserts the two are the same number rather
     /// than trusting that nobody edited one of them.

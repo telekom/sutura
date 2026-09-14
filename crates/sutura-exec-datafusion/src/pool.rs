@@ -42,10 +42,17 @@
 //! Not wrapped in `TrackConsumersPool` either, though it would improve the engine's own message: what
 //! reaches a caller is [`sutura_domain::query::RefusalReason::ResourcesExhausted`],
 //! which carries the configured ceiling and deliberately nothing about what the question demanded.
+//!
+//! **No production gauge reads the `DataFusion` pool.** ADR 0015 specifies that absence because an
+//! operator-reservation reading is narrower than process memory. The opt-in measurement feature is
+//! a gauge whose absence it currently specifies for production: it observes a separate recording
+//! pool in fresh test children and exposes no accessor on the ordinary adapter.
 
 use std::sync::Arc;
 
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
+#[cfg(any(test, feature = "measurement"))]
+use datafusion::execution::memory_pool::PeakRecordingPool;
 use datafusion::execution::memory_pool::{GreedyMemoryPool, MemoryPool};
 use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
 
@@ -85,29 +92,54 @@ impl WorkingSet {
     }
 }
 
-/// What [`environment`] hands back: the environment a session is built with, and the pool inside it.
+/// A runtime environment that can only be minted around this module's bounded, never-spilling pool.
 ///
-/// Named rather than written out at the signature, which is the trade `clippy::type_complexity` asks
-/// for and the better half of it here: the tuple is two `Arc`s of unrelated things, and a reader
-/// needs the words more than the shapes.
-type Bounded = (Arc<RuntimeEnv>, Arc<dyn MemoryPool>);
+/// Its field is private so [`DataFusionWarehouse`](crate::DataFusionWarehouse) cannot accidentally
+/// construct a session around `DataFusion`'s unbounded default. The environment is consumed once by
+/// the session constructor; the runtime itself retains the pool.
+pub(crate) struct Bounded(Arc<RuntimeEnv>);
+
+impl Bounded {
+    pub(crate) fn into_runtime(self) -> Arc<RuntimeEnv> {
+        self.0
+    }
+
+    #[cfg(test)]
+    fn runtime(&self) -> &RuntimeEnv {
+        &self.0
+    }
+}
 
 /// The execution environment one session runs in: a bounded pool, and nowhere to spill.
 ///
-/// Returned as an `Arc` because that is what a `SessionContext` takes, and the pool inside it is
-/// handed back separately so the adapter can retain it - `RuntimeEnv::memory_pool` is a public field
-/// and reading it back would be a second path to the same value.
+/// Returned behind [`Bounded`] so no session constructor can substitute `DataFusion`'s unbounded
+/// default. `RuntimeEnv` retains the pool; the ordinary adapter deliberately retains no second live
+/// reading of it.
 pub(crate) fn environment(working_set: WorkingSet) -> Result<Bounded, DataFusionError> {
-    let pool: Arc<dyn MemoryPool> = Arc::new(GreedyMemoryPool::new(working_set.bytes()));
+    bounded_with_pool(Arc::new(GreedyMemoryPool::new(working_set.bytes())))
+}
+
+/// A bounded environment plus its recorder, available only to the measurement feature.
+#[cfg(feature = "measurement")]
+pub(crate) type RecordingEnvironment = (Bounded, Arc<PeakRecordingPool>);
+
+#[cfg(feature = "measurement")]
+pub(crate) fn recording_environment(working_set: WorkingSet) -> Result<RecordingEnvironment, DataFusionError> {
+    let recorder = Arc::new(PeakRecordingPool::new(Arc::new(GreedyMemoryPool::new(working_set.bytes()))));
+    let bounded = bounded_with_pool(Arc::clone(&recorder) as Arc<dyn MemoryPool>)?;
+    Ok((bounded, recorder))
+}
+
+fn bounded_with_pool(pool: Arc<dyn MemoryPool>) -> Result<Bounded, DataFusionError> {
     let environment = RuntimeEnvBuilder::new()
-        .with_memory_pool(Arc::clone(&pool))
-        // The other half of "never spill". Without it the engine keeps its default of an OS temporary
-        // directory, and a spilling operator answers a refused reservation by writing the asking
-        // subject's rows to the pod's local disk.
+        .with_memory_pool(pool)
+        // The other half of "never spill". Without this the engine keeps its default OS temporary
+        // directory, and an operator can answer a refused reservation by writing the asking
+        // subject's rows to an ungoverned data-at-rest surface.
         .with_disk_manager_builder(DiskManagerBuilder::default().with_mode(DiskManagerMode::Disabled))
         .build_arc()
         .map_err(|cause| DataFusionError::Environment { cause })?;
-    Ok((environment, pool))
+    Ok(Bounded(environment))
 }
 
 /// Was this the pool refusing a reservation?
@@ -177,11 +209,16 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
 #[cfg(test)]
 mod ceiling_tests;
 
+/// The pool boundary and error classifier, separate from the real-operator tests above.
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use datafusion::execution::memory_pool::MemoryConsumer;
+
     use super::{WorkingSet, environment, exhausted};
     use datafusion::error::DataFusionError as EngineError;
-    use datafusion::execution::memory_pool::{MemoryConsumer, MemoryLimit};
+    use datafusion::execution::memory_pool::{GreedyMemoryPool, MemoryLimit, MemoryPool, PeakRecordingPool};
 
     fn bytes(count: usize) -> WorkingSet {
         WorkingSet::of_bytes(core::num::NonZeroUsize::new(count).expect("a test ceiling is positive"))
@@ -189,48 +226,43 @@ mod tests {
 
     #[test]
     fn a_reservation_over_the_ceiling_is_refused_and_one_under_it_is_not() {
-        // The pool itself, at the boundary, without an engine in the way. What the adapter's own
-        // suite asserts is that a real operator reaches this; what this asserts is that the number
-        // configured is the number that bites, one byte either side of it.
-        let (runtime, pool) = environment(bytes(1024)).expect("a bounded environment builds");
-        // `MemoryLimit` implements neither `PartialEq` nor `Debug`, so this is a match rather than an
-        // equality - and it is asserted at all because the alternative pool answers `Unknown` here:
-        // a `Finite` reading is what says a bound was installed rather than defaulted away.
+        // The pool itself, at the boundary, without an engine in the way. The adapter's own suite
+        // asserts that a real operator reaches this; this asserts the exact configured boundary.
+        let bounded = environment(bytes(1024)).expect("a bounded environment builds");
+        let pool = &bounded.runtime().memory_pool;
+        // `MemoryLimit` implements neither `PartialEq` nor `Debug`. `Finite` says a bound was
+        // installed rather than defaulted away to a pool whose limit is unknown.
         assert!(
             matches!(pool.memory_limit(), MemoryLimit::Finite(1024)),
             "the pool reports no finite ceiling, so nothing was bounded"
         );
+        assert!(
+            PeakRecordingPool::from_pool(&**pool).is_none(),
+            "ordinary construction installs no recorder"
+        );
 
-        let held = MemoryConsumer::new("a test operator").register(&runtime.memory_pool);
+        let held = MemoryConsumer::new("a test operator").register(pool);
         held.try_grow(1024).expect("the ceiling itself is reservable");
         assert_eq!(pool.reserved(), 1024);
         let refused = held.try_grow(1).expect_err("one byte past the ceiling is not reservable");
         assert!(matches!(refused, EngineError::ResourcesExhausted(_)), "{refused:?}");
-        // And the refusal did not take the reservation with it: the pool still holds what was
-        // granted, so a caller whose question was refused has not disturbed one that was not.
+        // A refused growth does not disturb another operator's granted reservation.
         assert_eq!(pool.reserved(), 1024);
     }
 
     #[test]
     fn there_is_nowhere_to_spill() {
-        // The policy, asserted rather than described. `DiskManagerMode::Disabled` is what makes the
-        // never-spill decision a mechanism: with the engine's default an operator answers a refused
-        // reservation by writing the asking subject's rows to the pod's local disk, which is the
-        // ungoverned data-at-rest surface 0009 refuses.
-        let (runtime, _) = environment(bytes(1024)).expect("a bounded environment builds");
+        let bounded = environment(bytes(1024)).expect("a bounded environment builds");
         assert!(
-            !runtime.disk_manager.tmp_files_enabled(),
-            "a spill directory exists, so a refused reservation can write the caller's rows to disk"
+            !bounded.runtime().disk_manager.tmp_files_enabled(),
+            "a spill directory exists, so a refusal can write the caller's rows to disk"
         );
     }
 
     #[test]
     fn exhaustion_is_recognised_through_the_wrapping_the_engine_adds() {
-        // The classification, and the case that makes `find_root` necessary rather than tidy: a
-        // reservation is refused inside an operator and the error comes back wrapped. Matching the
-        // outermost variant would report a governance refusal as a transport failure, which is the
-        // defect this whole step exists to fix - so the wrapped forms are asserted, not just the
-        // bare one.
+        // `find_root` is necessary: a real operator's refusal arrives wrapped. Matching only the
+        // outer error would report a governance refusal as a retryable transport failure.
         let bare = EngineError::ResourcesExhausted(String::from("a pool refused"));
         assert!(exhausted(&bare));
         assert!(exhausted(
@@ -239,13 +271,36 @@ mod tests {
         assert!(exhausted(&EngineError::External(Box::new(EngineError::ResourcesExhausted(
             String::from("x")
         )))));
-
-        // And the other direction, which is what stops this from classifying everything: a plan the
-        // engine would not build is not the ceiling refusing anything, and a caller told not to
-        // retry it would be told the wrong thing.
         assert!(!exhausted(&EngineError::Execution(String::from("something else"))));
         assert!(!exhausted(&EngineError::Plan(String::from(
             "a message that mentions memory and is not an exhaustion"
         ))));
+    }
+
+    #[test]
+    fn recording_preserves_bounded_growth_and_isolates_windows() {
+        let pool = Arc::new(PeakRecordingPool::new(Arc::new(GreedyMemoryPool::new(1024))));
+        let pool: Arc<dyn MemoryPool> = pool;
+        let recording = PeakRecordingPool::from_pool(&*pool).expect("the recorder is installed");
+        let held = MemoryConsumer::new("a measured test operator").register(&pool);
+
+        held.try_grow(1024).expect("the recording pool grants its ceiling");
+        let refused = held
+            .try_grow(1)
+            .expect_err("the recording pool refuses one byte above its ceiling");
+        assert!(matches!(refused, EngineError::ResourcesExhausted(_)), "{refused:?}");
+        assert_eq!(recording.peak_reserved(), 1024, "a rejected growth must not alter the peak");
+
+        held.shrink(512);
+        assert_eq!(recording.peak_reserved(), 1024, "a peak persists after reservation release");
+        recording.reset_peak();
+        assert_eq!(recording.peak_reserved(), 512, "a new window starts at its live reservation");
+        held.try_grow(256).expect("a growth below the remaining ceiling is granted");
+        assert_eq!(
+            recording.peak_reserved(),
+            768,
+            "the new window records only post-reset growth"
+        );
+        assert_eq!(pool.reserved(), 768, "recording retains greedy pool reservation semantics");
     }
 }

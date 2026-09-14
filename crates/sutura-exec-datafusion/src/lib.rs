@@ -33,10 +33,12 @@
 //! in the conversion loop below. See [`pool`], which states the gap rather than implying it is closed.
 //!
 //! `translate`, `collect`, `fixture` and `pool` own narrow seams; this owns session and execution.
+//!
+//! **No production gauge reads the `DataFusion` pool.** Measurement-only children can opt into a
+//! separate recorder; ordinary adapter construction exports no live reservation reading. The
+//! `check-guidance` absence rule rejects a production `.memory_pool()` call.
 use std::path::Path;
-use std::sync::Arc;
 
-use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
@@ -246,6 +248,10 @@ mod fixture;
 /// differs from a whole plan is the SHAPE of the plan, not how a piece of one renders.
 mod leg;
 
+/// Opt-in peak recording for measurement-only children, excluded from default builds.
+#[cfg(feature = "measurement")]
+pub mod measurement;
+
 /// The working-set ceiling.
 ///
 /// The pool, the never-spill policy, and how a refused reservation is recognised. Its own file
@@ -292,21 +298,10 @@ pub struct DataFusionWarehouse {
     /// always sets it, and [`Self::runtime`] is the only reader - `None` is reachable only during
     /// `Drop`, which no caller reaches.
     runtime: Option<tokio::runtime::Runtime>,
-    /// The pool every operator in this session reserves against, kept rather than derived.
+    /// The configured pool ceiling.
     ///
-    /// Retained for two reasons. It is what an operator watching a deployment reads - reserved bytes
-    /// against the ceiling, which `docs/adr/0015` specifies and deliberately does not ship until this
-    /// field exists - and reaching it back out of the session context would be a second path to the
-    /// same value.
-    ///
-    /// See [`crate::pool`] for what it counts, which is narrower than "this process's memory".
-    pool: Arc<dyn MemoryPool>,
-    /// The ceiling the pool was built with.
-    ///
-    /// Kept alongside the pool rather than read off it, which is what `docs/adr/0015` decides and for
-    /// a stated reason: `MemoryPool::memory_limit` defaults to `Unknown`, so a pool implementation
-    /// that does not override it reports no ceiling and the ratio an operator wants is unavailable.
-    /// The configured number is always knowable.
+    /// Kept alongside the session because the configured number is always knowable and is what a
+    /// bounded-refusal carries.
     working_set: WorkingSet,
 }
 
@@ -363,19 +358,15 @@ impl DataFusionWarehouse {
             .enable_time()
             .build()
             .map_err(|cause| DataFusionError::Runtime { cause })?;
-        let (environment, pool) = pool::environment(working_set)?;
-        Ok(Self {
+        let environment = pool::environment(working_set)?;
+        Ok(Self::from_bounded(
             source,
             posture,
-            // `new_with_config_rt` rather than `new`, which is the whole of the bound: `new` installs
-            // an `UnboundedMemoryPool`. The config half is the engine's own default here, because a
-            // current-thread runtime has no width to pin - see `with_worker_threads` for the site
-            // where it does.
-            context: SessionContext::new_with_config_rt(SessionConfig::new(), environment),
-            runtime: Some(runtime),
-            pool,
             working_set,
-        })
+            SessionConfig::new(),
+            environment,
+            runtime,
+        ))
     }
 
     /// The same adapter, `workers` threads wide.
@@ -419,20 +410,38 @@ impl DataFusionWarehouse {
             .enable_time()
             .build()
             .map_err(|cause| DataFusionError::Runtime { cause })?;
-        let (environment, pool) = pool::environment(working_set)?;
-        Ok(Self {
+        let environment = pool::environment(working_set)?;
+        Ok(Self::from_bounded(
             source,
             posture,
-            // `new_with_config_rt` and NOT `new_with_config`: the second takes the default
-            // environment, which carries the engine's unbounded pool. **`with_target_partitions` is
-            // untouched** - `width_tests.rs` asserts both halves of this line, and a partition count
-            // that stops following the width silently builds sixteen-way plans on a two-worker
-            // runtime.
-            context: SessionContext::new_with_config_rt(SessionConfig::new().with_target_partitions(workers.get()), environment),
-            runtime: Some(runtime),
-            pool,
             working_set,
-        })
+            // The partition count follows the width. `width_tests.rs` asserts both halves.
+            SessionConfig::new().with_target_partitions(workers.get()),
+            environment,
+            runtime,
+        ))
+    }
+
+    /// Builds the session from a bounded environment minted by [`pool`].
+    ///
+    /// The environment's field is private to that module, so even this crate cannot hand an
+    /// arbitrary `RuntimeEnv` to `SessionContext`. The measurement feature supplies a recorder
+    /// wrapped around the same greedy ceiling; it does not introduce an unbounded construction path.
+    pub(crate) fn from_bounded(
+        source: SourceName,
+        posture: SourcePosture,
+        working_set: WorkingSet,
+        config: SessionConfig,
+        environment: pool::Bounded,
+        runtime: tokio::runtime::Runtime,
+    ) -> Self {
+        Self {
+            source,
+            posture,
+            context: SessionContext::new_with_config_rt(config, environment.into_runtime()),
+            runtime: Some(runtime),
+            working_set,
+        }
     }
 
     /// The tokio runtime this adapter executes on.
@@ -445,22 +454,6 @@ impl DataFusionWarehouse {
         self.runtime.as_ref().ok_or_else(|| DataFusionError::Runtime {
             cause: std::io::Error::other("the runtime was already taken out by the warehouse's drop"),
         })
-    }
-
-    /// The pool every operator in this session reserves against.
-    ///
-    /// **An accessor because the fields are private and stay private**, and because
-    /// `docs/adr/0015` needs `MemoryPool::reserved` for a gauge whose absence it currently specifies:
-    /// a gauge reading zero while no pool exists is a lie an operator builds an alert on.
-    ///
-    /// **State the limit with the reading.** What comes back counts operator reservations - a
-    /// hash-join build side, aggregate state, a sort - and nothing else. It is not this process's
-    /// memory, and it must not be alerted on as though it were: `collect()` materialising every batch
-    /// and the row set built during conversion are both outside it, on the same request path.
-    #[inline]
-    #[must_use]
-    pub fn memory_pool(&self) -> &Arc<dyn MemoryPool> {
-        &self.pool
     }
 
     /// The configured pool ceiling; `MemoryPool::memory_limit` can report `Unknown` instead.
