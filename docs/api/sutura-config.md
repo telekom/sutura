@@ -557,8 +557,10 @@ There is one combiner and one working set, so a per-source ceiling would be a nu
 to bound - and 0009 decides that a source declaration carrying one is **refused at parse rather
 than ignored**, because a setting that silently does nothing is worse than a missing one.
 `deny_unknown_fields` on every on-disk shape is the mechanism, and the test that provokes it is in
-`crate::settings`. **The deadline is the bound that takes a per-source override; this one does
-not**, and the two are decided separately on purpose.
+`crate::settings`. The deadline takes no per-source override either - 0029 declined what this
+record's plan predicted, so a per-source key does not exist for it either - but the two are
+arrived at on different grounds and decided separately on purpose: here one combiner leaves a
+per-source number nothing to bound, there overrides were dropped as a bound nobody measured.
 
 # Never spill
 
@@ -2863,7 +2865,10 @@ question shares. See `sutura_exec_datafusion::DataFusionWarehouse`.
 installed its unbounded memory pool - and under `panic = "abort"` a hash join wide enough to
 outgrow the machine is the process ending for every caller in flight rather than an error for the
 one who asked. It is a **query-wide** value with no per-source override, and the reason it is not
-symmetric with the deadline is on the type.
+symmetric with the deadline is on the type - one combiner leaves a per-source ceiling nothing to
+bound, so none could exist, whereas the deadline's no override is a later decision
+(`docs/adr/0029-where-a-deadline-lives.md` declined what this record's plan predicted for it):
+impossible here, decided there.
 
 `ShutdownGrace` is the budget for stopping, and it covers the whole of stopping rather than
 the connection drain alone.
@@ -3011,8 +3016,10 @@ There is one combiner and one working set, so a per-source ceiling would be a nu
 to bound - and 0009 decides that a source declaration carrying one is **refused at parse rather
 than ignored**, because a setting that silently does nothing is worse than a missing one.
 `deny_unknown_fields` on every on-disk shape is the mechanism, and the test that provokes it is in
-`crate::settings`. **The deadline is the bound that takes a per-source override; this one does
-not**, and the two are decided separately on purpose.
+`crate::settings`. The deadline takes no per-source override either - 0029 declined what this
+record's plan predicted, so a per-source key does not exist for it either - but the two are
+arrived at on different grounds and decided separately on purpose: here one combiner leaves a
+per-source number nothing to bound, there overrides were dropped as a bound nobody measured.
 
 # Never spill
 
