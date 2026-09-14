@@ -30,6 +30,7 @@ mod deadline;
 /// [`served`]/[`permitting`]/[`connected`], because those drive `AgentSurface` through a real client
 /// that has no way to vary `rmcp::service::RequestContext::extensions` per call - the module's own
 /// header says what it builds instead and why.
+#[cfg(test)]
 mod asking;
 
 /// A client and a server joined by an in-memory pipe, with the peer permitted everything.
