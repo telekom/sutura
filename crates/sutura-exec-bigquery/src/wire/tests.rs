@@ -34,12 +34,12 @@ use sutura_domain::warehouse::estimate::EstimatedBytes;
 
 use core::time::Duration;
 
-use crate::transport::{Cell, DatasetId, FieldType, JobRequest, JobTransport as _, ProjectId};
+use crate::transport::{Cell, DatasetId, FieldType, JobDeadline, JobRequest, JobTransport as _, ProjectId};
 use crate::wire::credential::{AccessTokens, Bearer, QuotaProject};
 use crate::wire::document::{body, cells, columns, complete, estimated_bytes, refusal, reported, url};
 use crate::wire::{
     BigQueryWire, BytesBilledCeiling, CallDeadline, DryRun, EndpointMessage, HOST, JobBounds, QueryDeadline, ReasonCode,
-    UnusableBound, WireAgent, WireError, bounded,
+    WireAgent, WireError, bounded,
 };
 
 // ------------------------------------------------------------------- the fixtures ----
@@ -234,6 +234,7 @@ fn the_request_carries_the_statement_and_its_values_in_separate_fields() {
         &project,
         &dataset,
         None,
+        JobDeadline::Boot,
     );
     let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
@@ -256,7 +257,14 @@ fn a_positional_parameter_carries_no_name_at_all() {
     let params = [ParamValue::Text(String::from("active"))];
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t` WHERE `s` = ?", &params, &project, &dataset, None);
+    let request = JobRequest::new(
+        "SELECT 1 FROM `t` WHERE `s` = ?",
+        &params,
+        &project,
+        &dataset,
+        None,
+        JobDeadline::Boot,
+    );
     let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     let entry = sent["queryParameters"][0].as_object().expect("a parameter is an object");
@@ -272,14 +280,28 @@ fn a_date_parameter_is_declared_as_a_date_and_travels_as_its_iso_text() {
     let params = [ParamValue::Date(Date::parse("2026-08-30").expect("an ISO date parses"))];
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t` WHERE `d` = ?", &params, &project, &dataset, None);
+    let request = JobRequest::new(
+        "SELECT 1 FROM `t` WHERE `d` = ?",
+        &params,
+        &project,
+        &dataset,
+        None,
+        JobDeadline::Boot,
+    );
     let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     assert_eq!(sent["queryParameters"][0]["parameterType"]["type"], "DATE");
     assert_eq!(sent["queryParameters"][0]["parameterValue"]["value"], "2026-08-30");
 
     let text = [ParamValue::Text(String::from("500"))];
-    let other = JobRequest::new("SELECT 1 FROM `t` WHERE `s` = ?", &text, &project, &dataset, None);
+    let other = JobRequest::new(
+        "SELECT 1 FROM `t` WHERE `s` = ?",
+        &text,
+        &project,
+        &dataset,
+        None,
+        JobDeadline::Boot,
+    );
     let sent = serde_json::to_value(body(&other, DryRun::No, bounds(), window())).expect("the body serializes");
     assert_eq!(sent["queryParameters"][0]["parameterType"]["type"], "STRING");
 }
@@ -292,7 +314,7 @@ fn the_request_writes_the_two_flags_whose_endpoint_defaults_are_the_wrong_ones()
     // number that reproduced the cache.
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None);
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None, JobDeadline::Boot);
     let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     assert_eq!(sent["useLegacySql"], false);
@@ -307,7 +329,14 @@ fn a_dry_run_and_a_real_run_differ_by_that_one_field() {
     let params = [ParamValue::Text(String::from("active"))];
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t` WHERE `s` = ?", &params, &project, &dataset, None);
+    let request = JobRequest::new(
+        "SELECT 1 FROM `t` WHERE `s` = ?",
+        &params,
+        &project,
+        &dataset,
+        None,
+        JobDeadline::Boot,
+    );
 
     let mut validated = serde_json::to_value(body(&request, DryRun::Yes, bounds(), window())).expect("the body serializes");
     let executed = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
@@ -359,7 +388,7 @@ fn a_dry_run_whose_estimate_is_not_a_number_is_a_typed_refusal_not_a_panic() {
 fn the_url_names_the_billing_project_against_a_host_no_deployment_chooses() {
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None);
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None, JobDeadline::Boot);
 
     assert_eq!(url(&request), format!("{HOST}/bigquery/v2/projects/a-payer/queries"));
     // The host is a constant, and this is the assertion that says so: a configurable one would be a
@@ -700,7 +729,7 @@ fn an_expired_credential_is_refused_before_anything_is_sent() {
     );
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None);
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None, JobDeadline::Boot);
 
     let refused = wire.run(&request);
     assert!(matches!(refused, Err(WireError::Expired { at: 1, .. })), "{refused:?}");
@@ -718,7 +747,7 @@ fn a_credential_source_that_cannot_answer_stops_before_anything_is_sent() {
     let wire = BigQueryWire::new(pinned(), Missing);
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None);
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None, JobDeadline::Boot);
 
     let refused = wire.run(&request);
     match refused {
@@ -740,7 +769,7 @@ fn a_job_carries_both_bounds_and_the_two_timeout_fields_agree() {
     // `jobTimeoutMs` is here and why the two are the same number.
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None);
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None, JobDeadline::Boot);
     let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     assert_eq!(sent["jobTimeoutMs"], 30_000);
@@ -822,7 +851,7 @@ fn one_call_has_one_deadline_and_the_credential_exchange_spends_part_of_it() {
     let wire = BigQueryWire::new(pinned(), source);
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None);
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None, JobDeadline::Boot);
 
     // It refuses on the expired token, which is fine: what matters is that the exchange was asked
     // first, and with a budget.
@@ -853,7 +882,7 @@ fn a_call_whose_budget_the_exchange_spent_refuses_rather_than_submitting_a_job()
     );
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None);
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None, JobDeadline::Boot);
 
     // No socket is opened, which is the point: `HOST` is unreachable from a test, so any other error
     // here would mean the request had been sent.
@@ -871,7 +900,7 @@ fn what_is_left_of_the_budget_is_what_the_request_asks_the_service_to_hold_the_j
     // tell "it reads the window" from "it reads the constant".
     let project = project();
     let dataset = dataset();
-    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None);
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset, None, JobDeadline::Boot);
 
     let whole = serde_json::to_value(body(&request, DryRun::No, bounds(), Duration::from_secs(30))).expect("the body serializes");
     assert_eq!(whole["timeoutMs"], 30_000);
@@ -911,34 +940,14 @@ fn a_budget_is_spent_by_elapsed_time_and_a_spent_one_is_no_timeout_rather_than_z
     assert_eq!(CallDeadline::socket(Duration::from_secs(10)), Duration::from_secs(15));
 }
 
-#[test]
-fn the_deadline_a_composition_root_gets_already_accounts_for_the_calls_one_answer_makes() {
-    // **The arithmetic that was left to whoever wired this, and would have been got wrong.** One
-    // answer calls the port `CALLS_PER_ANSWER` times and each call pays `CONNECT_MARGIN` on top of its
-    // own budget, so the number a root wants is not `server.request_timeout_seconds` - it is that
-    // number's share. Thirty seconds shipped, two calls, five seconds of setup each: ten.
-    let from_the_shipped_default = QueryDeadline::within_request_timeout(30).expect("30 seconds leaves a budget");
-    assert_eq!(
-        from_the_shipped_default,
-        QueryDeadline::parse(10).expect("ten seconds is a deadline")
-    );
-    // Which is the arithmetic holding: two calls of ten plus five is the thirty a caller was promised.
-    assert_eq!(
-        from_the_shipped_default.socket().as_secs() * QueryDeadline::CALLS_PER_ANSWER,
-        30
-    );
-
-    // A request timeout too short to leave anything is named rather than clamped, because a deployment
-    // whose timeout cannot fit a query wants to hear so at startup.
-    assert_eq!(
-        QueryDeadline::within_request_timeout(10),
-        Err(UnusableBound::NoBudget { given: 10, calls: 2 })
-    );
-    assert!(matches!(
-        QueryDeadline::within_request_timeout(0),
-        Err(UnusableBound::NoBudget { .. })
-    ));
-}
+// ---------------------------------------------------- the port's deadline, not this adapter's ----
+//
+// `docs/adr/0029`: a request-time call reads what the port's own `Deadline` says is left rather
+// than dividing this adapter's own configured job bounds by how many calls one answer makes -
+// `within_request_timeout` and `CALLS_PER_ANSWER` are gone. The tests that replace them are in
+// `deadline.rs`, split out when this section took this file past the 1000-line ceiling
+// `cargo xtask max-lines` enforces.
+mod deadline;
 
 #[test]
 fn the_cells_helper_names_the_row_as_well_as_the_column() {

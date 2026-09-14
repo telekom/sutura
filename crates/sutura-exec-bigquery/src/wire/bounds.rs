@@ -26,25 +26,30 @@ use core::time::Duration;
 ///   transport whose own default timeout is 30 seconds - which held a blocking-pool thread for up to
 ///   40 seconds after the request it served had gone;
 /// - and then it was charged once per HTTP OPERATION against a whole-budget timeout on the agent, so
-///   an answer's four operations could each spend it. [`CallDeadline`] and
-///   [`QueryDeadline::within_request_timeout`] are what make the arithmetic add up: a call is
-///   `budget + CONNECT_MARGIN`, an answer is [`QueryDeadline::CALLS_PER_ANSWER`] of those, and the
-///   deadline a composition root is handed already divides the transport's own timeout by both.
+///   an answer's four operations could each spend it. [`CallDeadline`] is what makes it one deadline
+///   per CALL, opened once and read down by whatever each operation spends. `docs/adr/0029` is what
+///   then made it one deadline per ANSWER: the port's own `Deadline` is shared by every call one
+///   answer makes, so a slow call shortens the next rather than being followed by one with a full
+///   budget of its own - see [`CallDeadline::opened_at_for`].
 const CONNECT_MARGIN: Duration = Duration::from_secs(5);
 
-/// How long a job may run, and how long the client waits for its answer.
+/// How long a job may run when there is no port `Deadline` to read one from, and the ceiling this
+/// adapter's socket is pinned to for every call.
 ///
-/// **A newtype rather than a constant, because the value belongs to the deployment.** The setting that
-/// decides it is the one the transport in front of this service already uses -
-/// `server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a second
-/// copy of it that drifts the day somebody changes the first.
+/// **A newtype rather than a constant, because the value belongs to the deployment.** The setting
+/// that decides it is the one the transport in front of this service already uses -
+/// `server.request_timeout_seconds`, which ships as 30.
 ///
-/// **It is a SHARE of that setting rather than the setting itself**, which review had to point out:
-/// one answer makes [`Self::CALLS_PER_ANSWER`] calls and each pays [`CONNECT_MARGIN`] on top of its
-/// own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
-/// running. [`Self::within_request_timeout`] is the constructor that does the division, and it is the
-/// one a composition root should reach for; [`Self::parse`] stays for a deployment stating a budget
-/// outright.
+/// **It used to be a SHARE of that setting rather than the setting itself, and `docs/adr/0029` is
+/// why it no longer is.** One answer made two calls through this transport - `Warehouse::dry_run`
+/// then `execute` - and neither took a deadline, so this type had to divide `30` by the two of them
+/// and their own connection overhead to keep an answer inside the caller's own wait -
+/// `within_request_timeout` was that arithmetic, checked by nothing outside this file. The port now
+/// carries ONE `Deadline` shared by every call one answer makes - [`CallDeadline`] opens FROM it at
+/// request time - so this type is left with a narrower job: the boot path, which has no `Deadline`
+/// to read (`verify_anchor`, a fixture load or drop, the identity read), and the socket ceiling every
+/// call is pinned to as a backstop regardless of what a request supplies. [`Self::parse`] is a
+/// composition root's one door in, and it takes the setting directly rather than a share of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QueryDeadline {
     seconds: u64,
@@ -71,13 +76,6 @@ pub enum UnusableBound {
     /// Above what the endpoint accepts, or above what a bound is for.
     #[error("a {what} of {given} is above the {cap} this adapter will send")]
     TooLarge { what: &'static str, given: u64, cap: u64 },
-    /// A transport's request timeout too short to leave a job any budget at all.
-    ///
-    /// See [`QueryDeadline::within_request_timeout`]: one answer spends the budget
-    /// [`QueryDeadline::CALLS_PER_ANSWER`] times and each spend costs connection setup on top, so a
-    /// request timeout below that leaves nothing to bound.
-    #[error("a request timeout of {given} seconds leaves no budget for the {calls} calls one answer makes")]
-    NoBudget { given: u64, calls: u64 },
 }
 
 /// The instant one call into this transport has to be finished by.
@@ -98,13 +96,17 @@ pub enum UnusableBound {
 /// **A monotonic [`std::time::Instant`] and not a wall clock**, because a wall clock can step and a
 /// stepped deadline is either a job abandoned early or one that outlives its caller.
 ///
-/// **The limit, and it is the half this type cannot reach:** one ANSWER calls the port twice -
-/// `Warehouse::dry_run` and then `Warehouse::execute` - and neither `Warehouse` nor [`crate::transport::JobTransport`]
-/// takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
-/// `CALLS_PER_ANSWER` budgets rather than one, which is exactly why
-/// [`QueryDeadline::within_request_timeout`] exists: it does that arithmetic once so a composition root
-/// cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
-/// signature tweak.
+/// **The limit this type used to carry is resolved by `docs/adr/0029`, and the record of it stays
+/// here rather than being deleted, because the fix is a fact about the type above it and not about
+/// this one.** One ANSWER calls the port twice - `Warehouse::dry_run` and then `Warehouse::execute` -
+/// and this type alone could never make the two share a budget: it is opened fresh by whoever calls
+/// [`Self::opened`]/[`Self::opened_at`], and nothing HERE remembers what an earlier call spent. The
+/// port now carries a `sutura_domain::warehouse::deadline::Deadline` - one absolute instant per
+/// answer - and `crate::wire::BigQueryWire::submit` opens a `CallDeadline` from what THAT says is
+/// left via [`Self::opened_at_for`], so the sharing lives one level up, where the two port calls
+/// actually are. The boot path (`verify_anchor`, a fixture load or drop) has no such `Deadline` to
+/// read and keeps opening fresh from this adapter's own configured [`QueryDeadline`], exactly as
+/// every call did before this record.
 #[derive(Debug, Clone, Copy)]
 pub struct CallDeadline {
     started: std::time::Instant,
@@ -129,6 +131,19 @@ impl CallDeadline {
             started,
             budget: Duration::from_secs(deadline.seconds),
         }
+    }
+
+    /// Opens a budget that started at a named instant, for an amount already known as a
+    /// [`Duration`] rather than a whole-second [`QueryDeadline`].
+    ///
+    /// **`pub(crate)` rather than a third public constructor**, because the one caller is
+    /// `super::submit`, deriving this from what a `sutura_domain::warehouse::deadline::Deadline`
+    /// says is left at the instant it asks - a value `Deadline` itself will not hand out as a raw
+    /// `Instant`, by design, so the amount arrives here as a duration rather than a second instant to
+    /// disagree with `started`.
+    #[must_use]
+    pub(crate) const fn opened_at_for(started: std::time::Instant, budget: Duration) -> Self {
+        Self { started, budget }
     }
 
     /// What is left of the budget, or `None` when it is spent.
@@ -156,51 +171,17 @@ impl QueryDeadline {
     /// a batch job, which is a different API and a different decision.
     const MAX_SECONDS: u64 = 6 * 60 * 60;
 
-    /// How many times one ANSWER spends this budget: `Warehouse::dry_run`, then `Warehouse::execute`.
-    ///
-    /// **A constant in this crate that describes `sutura_app::answer`'s call pattern, and nothing
-    /// mechanical keeps the two equal** - which is stated here rather than left for somebody to
-    /// discover, because it is the one number in [`Self::within_request_timeout`]'s arithmetic that a
-    /// change somewhere else could falsify. The alternative - a deadline carried across the
-    /// `Warehouse` port - is an architecture decision, and until it is taken this is the honest shape:
-    /// a number with its assumption written next to it.
-    pub const CALLS_PER_ANSWER: u64 = 2;
-
-    /// The largest deadline that keeps one ANSWER inside a transport's own request timeout.
-    ///
-    /// **The arithmetic a composition root would otherwise have to remember, and get wrong.** The
-    /// number to fill this from is `server.request_timeout_seconds`, which ships as thirty; what a
-    /// caller wants is not that number but the share of it one call may spend, because an answer makes
-    /// [`Self::CALLS_PER_ANSWER`] calls and each pays [`CONNECT_MARGIN`] on top of its own budget. So
-    /// `within_request_timeout(30)` is ten seconds, and two calls of ten plus five is the thirty a
-    /// caller was promised.
-    ///
-    /// A request timeout too short to leave anything is [`UnusableBound::NoBudget`] rather than a
-    /// silently clamped value, because a deployment whose timeout cannot fit a query wants to be told
-    /// so at startup.
-    pub const fn within_request_timeout(request_timeout_seconds: u64) -> Result<Self, UnusableBound> {
-        /// The refusal, written once because both arms below reach it.
-        const fn no_budget(given: u64) -> UnusableBound {
-            UnusableBound::NoBudget {
-                given,
-                calls: QueryDeadline::CALLS_PER_ANSWER,
-            }
-        }
-
-        // `checked_div` rather than `/`, because `clippy::integer_division` and
-        // `integer_division_remainder_used` are both denied in this workspace - and the named call is
-        // the better shape anyway: it makes the truncation deliberate, so a request timeout of 31
-        // seconds buys the same budget as 30 and a fraction of a second is never a budget.
-        match request_timeout_seconds.checked_div(Self::CALLS_PER_ANSWER) {
-            None => Err(no_budget(request_timeout_seconds)),
-            Some(share) => match share.checked_sub(CONNECT_MARGIN.as_secs()) {
-                None | Some(0) => Err(no_budget(request_timeout_seconds)),
-                Some(seconds) => Self::parse(seconds),
-            },
-        }
-    }
-
     /// Parses a deadline in whole seconds.
+    ///
+    /// **The one door in, since `docs/adr/0029` retired `within_request_timeout`'s arithmetic**
+    /// (deleted, along with the `CALLS_PER_ANSWER` constant it depended on and the `NoBudget`
+    /// refusal it alone produced): a composition root used to have to divide
+    /// `server.request_timeout_seconds` by how many calls one answer makes before filling this in,
+    /// because neither call carried a budget the other could see. The port now carries one
+    /// `sutura_domain::warehouse::deadline::Deadline` shared by every call one answer makes, so what
+    /// this type bounds is narrower and needs no division: the boot path, which has no such
+    /// `Deadline` to read, and the socket ceiling every call is pinned to regardless. A composition
+    /// root fills this from `server.request_timeout_seconds` directly.
     pub const fn parse(seconds: u64) -> Result<Self, UnusableBound> {
         if seconds == 0 {
             return Err(UnusableBound::Zero { what: "query deadline" });

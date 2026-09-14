@@ -994,4 +994,7 @@ mod tests {
         // required is that the two are comparable at all; `wire::tables`' own suite holds what each
         // verdict means, against documents rather than against a race.
     }
+
+    // The `docs/adr/0029` deadline cell is in `deadline.rs`, split out over `max-lines`.
+    mod deadline;
 }
