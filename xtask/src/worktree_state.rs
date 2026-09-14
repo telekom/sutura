@@ -181,8 +181,10 @@ impl Inspected {
         if read_files != census_judged {
             return Err(format!(
                 "this walk recorded {read_files} file(s) of its own and the census independently \
-                 judged {census_judged}. A closure that returns before recording a file is invisible \
-                 to every count derived from its own loop, and the census's count does not move with it"
+                 judged {census_judged}. One of the two counts moved without the other - a closure \
+                 that returns before recording a file drops it from this walk's own tally, or the \
+                 census's own count moved independently of the closure - and either way the two no \
+                 longer agree"
             ));
         }
         // THE LINE LAW, over how much of each file the lexer reached. `telekom/sutura#414`
