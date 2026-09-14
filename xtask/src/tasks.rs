@@ -31,6 +31,12 @@
 //!   no extension, and `.github/scripts/check-task-citations.sh` reads `*.md`. So a recipe could
 //!   point a reader at a task that was renamed away, which is exactly what would rot the pointer
 //!   the first rule requires.
+//! * **no unescaped backtick in a recipe body** - a recipe means to PRINT `` `just test` ``, but
+//!   an unescaped backtick in `echo`'s argument is command substitution: it RUNS `just test`,
+//!   discards the output into the banner, and `set -euo pipefail` never sees the failure because
+//!   it happened inside the substitution's own subshell - the outer `echo` still exits 0.
+//!   `github.com/telekom/sutura#683`. Escaped (`` \` ``) and single-quoted spans are exempt - both
+//!   are already how every one of the 14 backticks in this file today says so safely.
 //!
 //! FAIL CLOSED, in the three directions a text scan fails silently: no recipes parsed, no cargo
 //! verification line found at all, or no citation found at all - each means the SCAN broke rather
@@ -264,6 +270,53 @@ fn citations(text: &str) -> Vec<(usize, String)> {
     out
 }
 
+/// Does `text` carry a backtick that a shell would run rather than print?
+///
+/// A single-quoted span disables substitution entirely, so a backtick inside one is inert. A
+/// backslash escapes the character after it everywhere else - including a backtick inside double
+/// quotes - and consuming both characters in one step is what keeps a SECOND, unescaped backtick
+/// later on the same line from hiding behind the first one's escape.
+fn has_unescaped_backtick(text: &str) -> bool {
+    let mut chars = text.chars();
+    let mut in_single = false;
+    let mut in_double = false;
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if !in_single => {
+                chars.next();
+            }
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '`' if !in_single => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Every recipe-body line carrying an unescaped backtick, with its line number.
+///
+/// Scoped to INDENTED lines only - a header takes `just` template syntax, never shell, and a
+/// blank or unindented line is either nothing or a comment `recipes` already refuses to fold
+/// into a body. A trimmed line starting with `#` is a comment inside the body itself (shell never
+/// runs past it) and is skipped the same way `scope_of` skips one.
+fn unescaped_backticks(text: &str) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    for (index, raw) in text.lines().enumerate() {
+        if !raw.starts_with([' ', '\t']) {
+            continue;
+        }
+        let trimmed = raw.trim_start().trim_start_matches('@');
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if has_unescaped_backtick(trimmed) {
+            out.push((index.saturating_add(1), String::from(raw.trim())));
+        }
+    }
+    out
+}
+
 /// Did the SCAN break, rather than the file being clean?
 ///
 /// Separate from [`problems`] rather than folded into it, because these are properties of THIS
@@ -355,6 +408,14 @@ fn problems(text: &str) -> Vec<String> {
                 "justfile:{line}: `just {name}` names no recipe - it was renamed, deleted or never existed"
             ));
         }
+    }
+
+    for (line, raw) in unescaped_backticks(text) {
+        out.push(format!(
+            "justfile:{line}: an unescaped backtick runs as a command substitution rather than \
+             printing - `set -euo pipefail` cannot see it fail, so the recipe continues at exit 0\n      \
+             escape it (\\`) or move it inside single quotes: {raw}"
+        ));
     }
 
     out
@@ -544,7 +605,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{citations, cited_task, problems, recipes, scope_of};
+    use super::{citations, cited_task, has_unescaped_backtick, problems, recipes, scope_of};
 
     /// A justfile with the shape the rules are about: one narrowed recipe that states its scope
     /// and points at the wider one, and the wider one itself.
@@ -754,6 +815,45 @@ lint:
                 String::from_utf8_lossy(&output.stderr)
             );
         }
+    }
+
+    #[test]
+    fn has_unescaped_backtick_distinguishes_the_three_shapes() {
+        assert!(has_unescaped_backtick("echo `date`"), "a bare backtick runs the command");
+        assert!(!has_unescaped_backtick("echo \\`date\\`"), "an escaped pair only prints");
+        assert!(!has_unescaped_backtick("echo '`date`'"), "single quotes disable substitution");
+        // A second, unescaped backtick must not hide behind the first one's escape.
+        assert!(has_unescaped_backtick("echo \"a \\`cmd` b\""));
+    }
+
+    #[test]
+    fn an_unescaped_backtick_in_a_recipe_echo_fails() {
+        // `github.com/telekom/sutura#683`'s reproduction: this prints nothing about `exit 7`, it
+        // RUNS it, and the recipe still exits 0.
+        let bad = "banner:\n    echo \"banner: `exit 7`\"\n\nlint:\n    cargo clippy --workspace\n";
+        let found = problems(bad);
+        assert!(
+            found.iter().any(|p| p.contains("command substitution")),
+            "an unescaped backtick must fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn an_escaped_backtick_stays_legal() {
+        let ok = "banner:\n    echo \"run \\`the suite\\` by hand\"\n\nlint:\n    cargo clippy --workspace\n";
+        assert_eq!(problems(ok), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_single_quoted_backtick_stays_legal() {
+        let ok = "banner:\n    echo 'run `the suite` by hand'\n\nlint:\n    cargo clippy --workspace\n";
+        assert_eq!(problems(ok), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_comment_inside_a_recipe_body_is_not_scanned() {
+        let ok = "banner:\n    # `git log` shows history, never run here\n    echo hi\n\nlint:\n    cargo clippy --workspace\n";
+        assert_eq!(problems(ok), Vec::<String>::new());
     }
 
     #[test]

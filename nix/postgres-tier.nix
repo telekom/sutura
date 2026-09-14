@@ -814,6 +814,31 @@ rec {
       sutura-postgres-tier stop
       expect_entry absent "the retried teardown withdraws the claim the failed one kept"
 
+      # --- concurrent writers to the SHARED document do not race ---
+      # `github.com/telekom/sutura#528` item 3, and the shared writer's bug, not this tier's: two
+      # `sutura-tier-endpoint publish`es for DIFFERENT services used one hardcoded `$file.new`, so
+      # the second's `mv` found the first already gone. Backgrounded and waited on, genuinely
+      # concurrent rather than sequential - a serialised pair would never have reached the race.
+      sutura-tier-endpoint publish "$tree" c4-race-a 127.0.0.1 11111 &
+      race_a=$!
+      sutura-tier-endpoint publish "$tree" c4-race-b 127.0.0.1 22222 &
+      race_b=$!
+      race_failed=0
+      wait "$race_a" || race_failed=1
+      wait "$race_b" || race_failed=1
+      if [ "$race_failed" != 0 ]; then
+        echo "a concurrent publish exited non-zero: the shared writer is not serialised" >&2
+        exit 1
+      fi
+      if [ "$(jq -r '.services["c4-race-a"].port' "$endpoints")" != 11111 ] || \
+         [ "$(jq -r '.services["c4-race-b"].port' "$endpoints")" != 22222 ]; then
+        echo "a concurrent pair of publishes lost one entry to the other's read-modify-write" >&2
+        exit 1
+      fi
+      sutura-tier-endpoint withdraw "$tree" c4-race-a
+      sutura-tier-endpoint withdraw "$tree" c4-race-b
+      expect_entry absent "the race fixture withdraws cleanly behind it"
+
       touch $out
     '';
 }
