@@ -519,9 +519,10 @@ where
     // second copy of the first answer, which is a check that cannot fail.
     //
     // **The limit, and it is what an adapter would have to close:** this is the last point on this
-    // side. `Warehouse::execute` takes a `&Presented` and no deadline, so an adapter cannot make the
-    // before-leg check `docs/adr/0008` part 4 describes, and a credential that ages out during
-    // execution is refused by the data system rather than here.
+    // side. `Warehouse::execute` hands the adapter a `Deadline`, but never the credential's expiry:
+    // `Presented` is material, a principal name, or an acknowledgement witness, no validity at all.
+    // So an adapter cannot make the before-leg check `docs/adr/0008` part 4 describes, and a
+    // credential that ages out during execution is refused by the data system rather than here.
     credentials
         .still_usable_at(now_in_unix_seconds())
         .map_err(|cause| ServiceError::Credentials { cause })?;
