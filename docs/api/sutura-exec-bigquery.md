@@ -440,6 +440,29 @@ parameter, with nothing in the domain to invent it from.
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
+### `enum JobDeadline`
+
+```rust
+pub enum JobDeadline
+```
+
+Which clock one job answers to: the port's own `Deadline`, or the boot path's fresh window.
+
+**A two-variant type rather than `Option<Deadline>`, so the boot arm cannot be spelled by
+accident.** `None` reads the same whether it means *forgot to pass the deadline* or *this is
+deliberately the boot path* - indistinguishable at a call site and in review. `Boot` is a name a
+reader has to notice, and an `execute` or `dry_run` call site that wrote it instead of `Port(..)`
+reads as exactly the regression it would be.
+
+#### Variants
+
+- `Port` - A request-time call's own `Deadline`, opened by the transport at the answer's arrival. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc.
+- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm; `crate::wire::BigQueryWire::submit` opens a fresh window from this transport's own configured `crate::wire::JobBounds` instead.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `struct JobRequest`
 
 ```rust
@@ -460,11 +483,11 @@ pub const fn billing_project(&self) -> &ProjectId
 The project this job is billed to.
 
 ```rust
-pub const fn deadline(&self) -> Option<Deadline>
+pub const fn deadline(&self) -> JobDeadline
 ```
 
-The port's own `Deadline` for this call, or `None` at the boot path. See the constructor's
-own doc for what each means to `crate::wire::BigQueryWire::submit`.
+Which clock this call answers to. See `JobDeadline` and the constructor's own doc for what
+each arm means to `crate::wire::BigQueryWire::submit`.
 
 ```rust
 pub const fn default_dataset(&self) -> &DatasetId
@@ -1123,30 +1146,27 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
   a `WireAgent` - so there is no way to submit a job this deployment did not bound. `jobTimeoutMs`
   is what cancels a job at the service (`timeoutMs` alone does NOT: it bounds how long the client
   waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
-  stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds bytes
-  scanned.
+  stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds it.
 - **The time bound is ONE ABSOLUTE DEADLINE PER ANSWER, opened by the port and not by this
   adapter, and this bullet exists because the earlier two shapes were each the second thing while
   claiming the first.** `timeout_global` on the agent once gave every HTTP operation a full budget
-  of its own, so a review measured one ANSWER - `dry_run` then `execute`, two exchanges and two
-  jobs - at four independent budgets against a transport whose own request timeout is thirty
-  seconds. `CallDeadline`, opened once per CALL, fixed that leak - and then could not fix the
-  next one, because neither `Warehouse` nor `JobTransport` took a deadline, so the two calls one
-  answer makes still could not share one; a composition root's own configured job bounds
-  substituted an arithmetic that divided the request timeout by how many calls one answer makes,
-  checked by nothing outside this crate. **`docs/adr/0029` is what carries a
-  `sutura_domain::warehouse::deadline::Deadline` across the port itself** - one absolute instant,
-  opened by the transport at the answer's arrival and shared by every leg. `submit` reads
-  what it says is left via `crate::transport::JobRequest::deadline` and opens a `CallDeadline`
-  FROM that via `CallDeadline::opened_at_for`, so a slow token exchange shortens the job that
+  of its own, so a review measured one ANSWER at four independent budgets against a transport
+  whose own request timeout is thirty seconds. `CallDeadline`, opened once per CALL, fixed that
+  leak - and then could not fix the next one, because neither `Warehouse` nor `JobTransport`
+  took a deadline, so the two calls one answer makes still could not share one; a composition
+  root's own configured job bounds substituted an arithmetic that divided the request timeout by
+  how many calls one answer makes, checked by nothing outside this crate. **`docs/adr/0029` now
+  carries a `Deadline` across the port itself** - one absolute instant,
+  opened by the transport at the answer's arrival and shared by every leg. `submit` reads what it
+  says is left via `crate::transport::JobRequest::deadline` and opens a `CallDeadline` FROM
+  that via `CallDeadline::opened_at_for`, so a slow token exchange shortens the job that
   follows it rather than being followed by one with a full budget of its own, and `timeoutMs`/
   `jobTimeoutMs` are what is left of THAT rather than of this adapter's own configured job bounds.
   A budget spent before the job is `WireError::DeadlineSpent` rather than a send - checked
-  BEFORE the credential exchange too, since a caller that ran out of time before this adapter was
-  even reached should not spend it on an exchange nobody is still waiting for. **The boot path has
-  no port `Deadline` to read** (`verify_anchor`, a fixture load or drop, the identity read - no
-  caller, no request timeout) and keeps opening a fresh window from this adapter's own configured
-  `JobBounds`, exactly as every call did before this record.
+  BEFORE the credential exchange too, since a spent caller should not spend it on an exchange
+  nobody waits for. **The boot path has no port `Deadline` to read** (`verify_anchor`, a fixture
+  load or drop, the identity read) and opens a fresh window from this adapter's own configured
+  `JobBounds` instead, exactly as every call did before this record.
 - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
   `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
   (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
