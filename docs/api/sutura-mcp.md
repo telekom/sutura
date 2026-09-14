@@ -624,7 +624,7 @@ Why an arguments object is not a question.
   before `TryFrom<QuestionBody> for Query` is ever reached, so `sutura-http`'s own
   `MalformedQuestion` has no arm for this case and does not need one. MCP's own
   `serde_json::from_value` step, in `crate::server`, is what can still fail this way here.
-- `Question` - Every other way a question can be malformed: which field, and none of the caller's own value except where it already failed an identifier parse - see that type's own documentation. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
+- `Question` - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
 
 #### Implements
 

@@ -439,6 +439,12 @@ Each variant carries what was wrong as typed fields rather than a formatted sent
 numeric parse failure keeps its cause: a discarded cause is the difference between "the month is
 not a number" and knowing which character stopped it.
 
+**None of them carries the rejected text**, for the reason
+`crate::model::InvalidIdentifier`'s own note gives in full: a caller's date string reaches
+this parser through `crate::question::parse_query`, and both transports render that failure by
+walking its cause chain into a message the caller reads. A date is not an identifier and has no
+character set to be bounded by, so the layout it failed is the whole of what is worth saying.
+
 #### Variants
 
 - `Malformed` - Not `YYYY-MM-DD`. Exactly one layout is accepted, because a parser that guesses between `03-04-2026` and `2026-04-03` guesses wrong for half the world.
@@ -4078,8 +4084,24 @@ pub enum InvalidIdentifier
 
 Why a name was rejected.
 
-The variants carry the offending input as typed fields rather than a formatted sentence: the
-variant is the contract and the `#[error]` text is a convenience for a human.
+**No variant carries the rejected input, and that is a control rather than a style choice.**
+This is a leaf error raised by one parser that cannot know who reads it, and both transports
+render a malformed question by walking its whole cause chain into a message the caller gets
+back - an RFC 7807 `detail` on the HTTP surface, `invalid_params` in an agent's context on the
+agent one. An input echoed here is therefore an input reflected there, and the character set
+that rejected it is no bound on it: `parse_name` checks the character set BEFORE the length,
+so the two variants a non-name reaches admit any byte at any length, and `Self::TooLong` held
+the whole of an input it had measured only against the limit that input broke.
+
+What each variant carries is the diagnosis and not the evidence - which rule was broken, the one
+offending character, the measured length against the limit. A reader who needs the input names it
+themselves, and every wrapper of this error over text that did not ship inside this repository
+already does, because a wrapper knows whose text it holds and this parser does not:
+`RdbmsError::ColumnName` names the column it read from a dictionary, and
+`crate::question::MalformedQuestion` names the request field and deliberately not its value.
+Three wrappers over text that DID ship inside this repository carry neither, because whoever
+reads one already has the file: `PostgresError::InvalidColumnName`'s CSV fixture,
+`FixtureNotUsable::Header`'s `BigQuery` fixture, and `sutura-conformance`'s `FixtureError::Names`.
 
 #### Variants
 
@@ -8819,9 +8841,30 @@ pub enum MalformedQuestion
 
 Why a caller's raw fields did not become a `Query`.
 
-Every variant names the field, and none of them echoes the caller's value back except where the
-value is the thing that failed to parse as an identifier - which is a bounded character set, not
-free text.
+**Every variant names the field, and neither a variant's own sentence nor any link of its cause
+chain carries the caller's own text.** The chain is the half that has to be said out loud,
+because both transports render this failure by walking `source()` to the end and handing the
+result straight to whoever asked - the RFC 7807 `detail` on the HTTP surface, an
+`invalid_params` message in a model's context on the agent one. So
+`crate::model::InvalidIdentifier` and `crate::calendar::InvalidDate` report the rule that
+was broken, the one offending character, and the measured length against the limit, and echo
+nothing they rejected; `FilterValue` drops its cause outright, for the reason its own note
+gives.
+
+**The one value that does come back is one that already parsed.** `Range`'s cause is
+`crate::calendar::InvalidTimeRange::Empty`, which names both endpoints - and they are
+`crate::calendar::Date`s by then, so what renders is ten characters of digits and hyphens in
+the single layout that type accepts, not the text a caller sent. That is the distinction this
+whole note turns on, and the one an earlier version of it got backwards: a parse's OUTPUT is
+bounded by the type that produced it, and its INPUT is bounded by nothing whatever.
+
+**The limit.** This is a property of `Display` and `source()` across these enums, held by their
+carrying no field a renderer could reach for - not by a gate, and not by either transport, which
+walk whatever chain they are given. `crates/sutura-mcp/tests/shared_question_conversion.rs`
+asserts it over every caller-controlled field against a reproduction of both transports' chain
+walk, not by calling either transport's own renderer, so it reddens if one of these sentences is
+widened again but not if a transport's renderer alone started interpolating something this
+parser never carried.
 
 #### Variants
 
@@ -8834,13 +8877,14 @@ free text.
 - `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `crate::catalog::MAX_DIMENSION_VALUE_CHARS`.
 
   **The one variant with no `#[source]`, and the omission is the point.** Every other cause in
-  this enum either carries no caller text or carries text that already failed an identifier
-  parse, which is a few dozen ASCII bytes. `crate::catalog::DimensionValue`'s own parse error
-  carries the offending input, because it exists for the author of a catalog - and a transport
-  error reaches a log, a UI and an agent's context, which is the one place
+  this enum reports the rule it applied and not the input it rejected, so its chain is safe to
+  walk. `crate::catalog::DimensionValue`'s own parse error is the exception: it carries the
+  offending input, because it exists for the author of a catalog - and a transport error
+  reaches a log, a UI and an agent's context, which is the one place
   `crate::query::RefusalReason` is explicit that a caller's own text must not arrive. So the
-  field and the index are reported and the cause is dropped: the same answer
-  `DimensionValueNotAllowed` gives, at the boundary that now catches it earlier.
+  field and the index are reported and the cause is dropped rather than reported and trusted:
+  the same answer `DimensionValueNotAllowed` gives, at the boundary that now catches it
+  earlier.
 
 #### Implements
 
@@ -9705,17 +9749,16 @@ The posture labels this answer would have combined, in name order.
 The execution port: the plan that goes out, and the rows that come back.
 
 `Warehouse` names the port, not whether its implementation is a file or a cluster.
+
 **No statement appears in this module, and its absence is the decision rather than an omission.**
-A rendered statement used to live here, on the argument that the port had to hand one to
-something. The port takes a `crate::plan::QueryPlan` now - `Warehouse` below says why that is
-what makes a second kind of adapter possible - so nothing in the domain constructs or reads a
-statement, and the type that carries one moved out to `sutura-sql`, beside the code that renders
-it. A domain holding a rendered statement has acquired a concept no domain operation uses.
-What stays is `ParamValue`, and it stays because the type the port *does* take is built out of
-it: a `crate::plan::QueryPlan` carries a vector of them. It is also where the rule lives - a
-value is a closed set of typed variants an adapter binds, never text somebody concatenated.
-`crate::query` is the *tool* surface, where SQL must be unrepresentable because the text would
-come from a caller; here there is no text for a value to reach at all.
+The port takes a `crate::plan::QueryPlan` - `Warehouse` says why that is what makes a second
+kind of adapter possible - so nothing in the domain constructs or reads a statement, and the type
+carrying one lives in `sutura-sql` beside the code that renders it: a domain holding a rendered
+statement has acquired a concept no domain operation uses. What stays is `ParamValue`, because
+a `crate::plan::QueryPlan` carries a vector of them and because the rule lives there - a value
+is a closed set of typed variants an adapter binds, never text somebody concatenated.
+`crate::query` is the *tool* surface, where SQL must be unrepresentable because the text comes
+from a caller; here there is no text for a value to reach at all.
 
 ### `enum ParamValue`
 
@@ -9729,20 +9772,20 @@ A closed set rather than a string, because the whole point is that these never b
 our side. An adapter binds them with whatever its driver offers, and the driver is what decides
 how a date is written on the wire.
 
-**There is no `Integer`, and its absence is the decision rather than an omission.** The variant
-was here and nothing in the workspace constructed one: every caller value and every required
-filter binds as `Text`, because that is the type both of them are. Both
-adapters carried an arm for it and the goldens carried a rendering, so it read as covered while
-no question could reach it - and the dead arm was the lesser half of the cost. The real half is
-that a *numeric* definitional filter cannot be expressed safely here: `equals: { column:
-amount_cents, value: "500" }` compares an integer column against a text parameter, `DuckDB`
-casts it and answers, a driver that sends an explicitly-typed text parameter does not, and
-nothing refuses the definition because a `crate::catalog::Model` declares only column NAMES -
-there is no column type to check the value against. Adding the variant back without one would
-mean guessing the type from the value's own text, which makes a text column whose allowed value
-is `"500"` compare as a number: the same wrong comparison, arrived at from the other side.
+**There is no `Integer`, and its absence is the decision rather than an omission.** Nothing in
+the workspace constructed one - every caller value and every required filter binds as
+`Text`, because that is the type both of them are - while both adapters
+carried an arm and the goldens carried a rendering, so it read as covered while no question could
+reach it. The dead arm was the lesser half of the cost. The real half: a *numeric* definitional
+filter cannot be expressed safely here. `equals: { column: amount_cents, value: "500" }` compares
+an integer column against a text parameter, `DuckDB` casts it and answers, a driver sending an
+explicitly-typed text parameter does not, and nothing refuses the definition because a
+`crate::catalog::Model` declares only column NAMES - there is no column type to check against.
+Adding the variant back without one would mean guessing the type from the value's own text, which
+makes a text column whose allowed value is `"500"` compare as a number: the same wrong
+comparison from the other side.
 
-So it goes when a typed column model does, and not before. The reasoning is the one
+So it goes when a typed column model does, and not before - the reasoning
 `sutura_exec_datafusion`'s `cell` gives for leaving `Date64` unmapped: an unreachable arm holding
 a semantic choice nobody reviewed is worse than not having the arm.
 
@@ -9759,225 +9802,14 @@ pub fn render(&self) -> String
 
 A human-readable form, for showing a plan to a person.
 
-**Display only.** It is deliberately not the SQL literal for the value: a function that
-produced one would be the thing somebody reaches for the day they want to inline a parameter,
-and inlining a parameter is the one move this type exists to prevent. Text is quoted the way
-`Debug` quotes it, which makes an empty or space-padded value visible rather than SQL-shaped.
+**Display only, and deliberately not the SQL literal:** a function producing one is what
+somebody reaches for the day they want to inline a parameter, which is the one move this type
+exists to prevent. Text is quoted the way `Debug` quotes it, so an empty or space-padded value
+is visible rather than SQL-shaped.
 
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `enum NotFinite`
-
-```rust
-pub enum NotFinite
-```
-
-Why a floating-point cell was refused.
-
-Two variants rather than one, because the two faults have different causes and a reader chasing
-one is not chasing the other: an infinity is a non-zero quantity divided by zero, and a `NaN` is
-zero divided by zero. The variant carries the value rather than a formatted sentence, for the
-reason every error in this crate does.
-
-#### Variants
-
-- `Infinite` - Infinite, in either direction.
-- `NotANumber` - Not a number at all. Its own variant rather than a value on the one above, because `NaN` compares unequal to itself: an `Infinite` carrying one would make two of these errors unequal for a reason that has nothing to do with what happened.
-
-  `Infinite`: NotFinite::Infinite
-
-#### Implements
-
-`Debug`, `Display`, `Error`, `PartialEq`
-
-### `struct Real`
-
-```rust
-pub struct Real
-```
-
-A real number a result may carry: finite, and nothing else.
-
-**Parsed rather than validated, and the class it closes is larger than the bug that found it.**
-A cell used to be a raw `f64`, so `inf`, `-inf` and `NaN` were all representable, and
-`Value::render` turned the first of them into the string `"inf"` - an answer under a metric's
-own certified name that reads as data and is not a number. The route in was a ratio measure
-declaring `zero_denominator: fails`: both adapters cast the numerator to a floating type before
-dividing, so the division is IEEE float division, and IEEE float division by zero does not fail.
-It answers `inf`, or `NaN` when both halves are zero.
-
-Making the domain type refuse a non-finite value closes all three at once, at the one boundary
-every adapter has to cross, rather than guarding the one variant that exposed it. An adapter that
-gets one back has an error naming the column, which is what `fails` was always claiming to mean.
-
-Construct it with `parse`. The field is private, so a non-finite value is unrepresentable
-rather than merely rejected. There is deliberately no `Deref` and no arithmetic: two finite
-numbers divide to a non-finite one, so a type that let the result back in without passing
-`parse` again would be the hole this closes. `Value` is `Serialize` only today - if it ever
-gains `Deserialize`, this needs `#[serde(try_from = ..)]` routing through `parse`, because a
-derived one writes straight into the private field.
-
-`parse`: Real::parse
-
-#### Methods
-
-```rust
-pub const fn get(self) -> f64
-```
-
-The number, for a caller that has to do arithmetic on it.
-
-Named rather than reached through `Deref`, so the point at which the invariant stops applying
-is a call somebody wrote.
-
-```rust
-pub const fn parse(value: f64) -> Result<Self, NotFinite>
-```
-
-Parses a real number, rejecting a non-finite one.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `LowerExp`, `PartialEq`, `Serialize`
-
-### `enum Value`
-
-```rust
-pub enum Value
-```
-
-One cell of a result.
-
-`Real` is deliberately last on the list of things to reach for. A measure over integer minor
-units stays exact, and an anchor comparison over a float would depend on how two languages print
-the same bits. It exists because `avg` has to land somewhere - and it is a checked type rather
-than an `f64`, so the one thing a float can be that a number cannot does not fit in a cell.
-
-#### Variants
-
-- `Null`
-- `Integer`
-- `Real`
-- `Text`
-
-#### Methods
-
-```rust
-pub fn render(&self) -> String
-```
-
-The canonical text form, which is what an anchor is compared against.
-
-One function so there is one answer. An anchor comparison that formatted the value at the
-call site would compare differently in two places, and the failure would look like a data
-problem rather than a formatting one.
-
-```rust
-pub fn rendered_len(&self) -> usize
-```
-
-The byte length `Self::render` would produce, without the allocation when a cheaper
-answer exists - `Text` is measured rather than cloned, for `RowSet::rendered_byte_len`.
-`Integer`/`Real` still render: a few bytes, cheaper than duplicating `Display`'s counting.
-
-#### Implements
-
-`Clone`, `Debug`, `PartialEq`, `Serialize`
-
-### `struct RowSet`
-
-```rust
-pub struct RowSet
-```
-
-A result set: the column labels, and the rows.
-
-Labels are `String` rather than `crate::model::ColumnName` because a generated projection names
-things a model did not: the truncated time bucket, and the measure under the metric's own name.
-Constraining them to model column names would mean either lying about what they are or refusing
-to name them.
-
-#### Methods
-
-```rust
-pub fn cell(&self, row: usize, column: usize) -> Option<&Value>
-```
-
-One cell, by row and column position.
-
-`Option` rather than indexing, because `indexing_slicing` is denied for library crates here
-and because a caller that has a position from `column_index` still should not be able to
-panic on a result set that came back a different shape than expected.
-
-```rust
-pub fn column_index(&self, label: &str) -> Option<usize>
-```
-
-Where a column with this label sits, if there is exactly one.
-
-`None` for a label that appears twice, not the first match. Two columns with one label means
-the projection is not what we think it is, and returning either of them would answer with a
-number from a column nobody chose. `Definitions::assemble` refuses the catalog shapes that
-could cause it, so this is the second line rather than the first.
-
-```rust
-pub fn columns(&self) -> &[String]
-```
-
-```rust
-pub fn new(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Self, MalformedRowSet>
-```
-
-Builds a result set, rejecting a ragged one.
-
-```rust
-pub fn rendered_byte_len(&self) -> u64
-```
-
-The total bytes every cell would occupy once rendered (via `Value::rendered_len`, so a
-wide `Text` cell is counted rather than cloned) - a proxy for the encoded response size, not
-the wire size: the same canonical text an anchor compares against, not the JSON or
-tab-delimited bytes a transport wraps it in. Column labels are not counted.
-
-```rust
-pub fn rows(&self) -> &[Vec<Value>]
-```
-
-```rust
-pub const fn scalar(&self) -> Option<&Value>
-```
-
-The single cell of a single-row, single-column result, which is what an anchor check reads.
-
-`None` for any other shape rather than a panic or a silent first-cell: an anchor query that
-came back with three rows means the statement is not the one we thought, and reading its
-first cell would turn that into a wrong number.
-
-#### Implements
-
-`Clone`, `Debug`, `PartialEq`, `Serialize`
-
-### `enum MalformedRowSet`
-
-```rust
-pub enum MalformedRowSet
-```
-
-Why a result set could not be built.
-
-#### Variants
-
-- `RowWidth` - A row has a different number of cells than there are columns.
-
-  Checked once here rather than trusted, because every consumer downstream indexes by column
-  position, and the `indexing_slicing` ban means each of them would otherwise need its own
-  fallback for a case that must not exist.
-
-#### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `enum PreFlight`
 
@@ -9987,19 +9819,17 @@ pub enum PreFlight
 
 What a pre-flight established.
 
-**`Self::NotAsked` is not `Self::Accepted`, and no caller can read it as one.** Before `dry_run` took a credential, a
-default of `Ok(())` was defensible: with nothing to be wrong about, "nothing went wrong" is honest. With a subject in the
-signature it stops being honest, because `Ok(())` from an adapter that did not look is indistinguishable from `Ok(())`
-from an adapter that asked the data system as that subject and was told yes - so a defaulted pre-flight would read as
-"this subject may run this plan" for every adapter that declined to implement one.
-
-The shape is the one the row cap already uses, where `row_limit()` is `max_rows + 1` so a result
-*at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 is the decision.
+**`Self::NotAsked` is not `Self::Accepted`, and no caller can read it as one.** With a
+subject in `dry_run`'s signature, a default of `Ok(())` stops being honest: it is
+indistinguishable from an adapter that asked the data system as that subject and was told yes, so
+a defaulted pre-flight would read as *this subject may run this plan* for every adapter that
+declined to implement one. The shape is the row cap's, where `row_limit()` is `max_rows + 1` so a
+result *at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 decides.
 
 **The limit, stated with the claim:** `Self::Accepted` is the data system's opinion at
-pre-flight time and not a guarantee about `execute`, so it is worth a round trip and is not an
-authorization decision. Nothing in the plan path may treat it as one, and there is no mechanism
-that would stop it - skipping a check on the strength of `Accepted` is a review question.
+pre-flight time, not a guarantee about `execute` and not an authorization decision. Nothing in
+the plan path may treat it as one, and no mechanism would stop it - skipping a check on the
+strength of `Accepted` is a review question.
 
 #### Variants
 
@@ -10009,43 +9839,6 @@ that would stop it - skipping a check on the strength of `Accepted` is a review 
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### `struct AnchorRows`
-
-```rust
-pub struct AnchorRows
-```
-
-The rows one anchor's plan produced at boot.
-
-**A wrapper with a private field, so a boot result cannot be handed back to a caller as an
-answer without a named conversion somebody wrote.** The anchor path and the request path are two
-ways into a data system and they run as different identities: `execute` takes the asking
-subject's credential and cannot be called without one, and `Warehouse::verify_anchor` takes no
-credential at all - it runs as whatever identity the deployment configured that adapter with,
-which is what `docs/adr/0008` part 1 decides for a path that has no caller.
-
-Two types rather than one so the separation is visible at a call site rather than in a comment.
-`Self::verified_at_boot` is named to be conspicuous in review and in a grep, the way
-`crate::identity::Secret::expose_secret` is.
-
-#### Methods
-
-```rust
-pub const fn of(rows: RowSet) -> Self
-```
-
-What an adapter returns from a verification run.
-
-```rust
-pub const fn verified_at_boot(&self) -> &RowSet
-```
-
-The rows, for the boot path that compares them against what an author certified.
-
-#### Implements
-
-`Clone`, `Debug`, `PartialEq`
 
 ### `trait Warehouse`
 
@@ -10199,6 +9992,76 @@ assert_eq!(
     ImpersonationCapability::NoPlaceForASubject
 );
 ```
+
+### `use NotFinite`
+
+Why a floating-point cell was refused.
+
+Two variants rather than one, because the causes differ and a reader chasing one is not chasing
+the other: an infinity is a non-zero quantity divided by zero, a `NaN` is zero divided by zero.
+The variant carries the value rather than a formatted sentence, for the reason every error in
+this crate does.
+
+### `use Real`
+
+A real number a result may carry: finite, and nothing else.
+
+**Parsed rather than validated, and the class it closes is larger than the bug that found it.**
+A cell was a raw `f64`, so `inf`, `-inf` and `NaN` were representable and `Value::render`
+turned the first into the string `"inf"` - an answer under a metric's own certified name that
+reads as data and is not a number. The route in was a ratio measure declaring
+`zero_denominator: fails`: both adapters cast the numerator to a floating type before dividing,
+so the division is IEEE float division, which by zero does not fail - it answers `inf`, or `NaN`
+when both halves are zero.
+
+Refusing a non-finite value in the domain type closes all three at once, at the one boundary
+every adapter crosses, rather than guarding the variant that exposed it. An adapter that gets one
+back has an error naming the column, which is what `fails` always claimed to mean.
+
+Construct it with `parse`. The field is private, so a non-finite value is unrepresentable
+rather than merely rejected. No `Deref` and no arithmetic, deliberately: two finite numbers
+divide to a non-finite one, so a type letting the result back in without passing `parse` again
+would be the hole this closes. `Value` is `Serialize` only - if it gains `Deserialize`, this
+needs `#[serde(try_from = ..)]` routing through `parse`, because a derived one writes straight
+into the private field.
+
+`parse`: Real::parse
+
+### `use Value`
+
+One cell of a result.
+
+`Real` is deliberately last to reach for: a measure over integer minor units stays exact, and
+an anchor comparison over a float would depend on how two languages print the same bits. It
+exists because `avg` has to land somewhere, and it is a checked type rather than an `f64` so the
+one thing a float can be that a number cannot does not fit in a cell.
+
+### `use AnchorRows`
+
+The rows one anchor's plan produced at boot.
+
+**A wrapper with a private field, so a boot result cannot be handed back as an answer without a
+named conversion somebody wrote.** The anchor path and the request path are two ways into a data
+system running as different identities: `execute` takes the asking subject's credential and
+cannot be called without one, while
+`Warehouse::verify_anchor` takes none at all and
+runs as
+whatever identity the deployment configured - `docs/adr/0008` part 1 decides that for a path with
+no caller. Two types rather than one so the separation is visible at a call site rather than in a
+comment, and `Self::verified_at_boot` is named to be conspicuous in review and in a grep, the
+way `crate::identity::Secret::expose_secret` is.
+
+### `use MalformedRowSet`
+
+Why a result set could not be built.
+
+### `use RowSet`
+
+A result set: the column labels, and the rows.
+
+Labels are `String` rather than `crate::model::ColumnName` because a generated projection names
+things a model did not - the truncated time bucket, and the measure under the metric's own name -
+so constraining them would mean lying about what they are or refusing to name them.
 
 ### `use RawColumnsAndRows`
 
@@ -10409,10 +10272,10 @@ ambiguity this type exists to remove is one level up, in whether an estimate exi
 The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
 
 **`pub mod` with no re-export beside it, and that is a documentation decision rather than a
-style one.** The domain's usual shape is a private submodule plus a `pub use`, which rustdoc
-inlines into the parent - and it did NOT inline here: `just api` generated three
-`### use None` stubs and no content for these three types, so the published reference would have
-carried a port method returning a type it does not describe. A public module gets documented.
+style one.** The domain's usual shape - a private submodule plus a `pub use` - did NOT inline
+here: `just api` generated `### use None` stubs and no content, so the published reference would
+have carried a port method returning a type it does not describe. A public module gets
+documented.
 What a data system answered when it was asked whether the bundle's tables are there.
 
 **A module of its own rather than part of `warehouse.rs`**, and the seam is a real one:
@@ -10710,14 +10573,14 @@ What it takes for two answers to one plan to be the same answer, for the differe
 compare them.
 
 Behind a default-off feature, and `cfg(test)` so this crate's own suite reaches it either way -
-the shape `sutura_runtime::testing`'s `test-capture` established. It is here rather than in each
-test target because two copies of a comparison policy is how both of them came to erase the cell
-type; its own module header carries that story and the limits.
+the shape `sutura_runtime::testing`'s `test-capture` established. Here rather than in each test
+target because two copies of a comparison policy is how both of them came to erase the cell type;
+its own header carries that story and the limits.
 
 **That header links the module's OWN items by absolute `crate::` path, and that is not style.**
-rustc merges this `///` block with the module's `//!` one and resolves the merged block in THIS
-scope, where `agreement`'s items are not - so a bare-name link there resolves to nothing, and no
-gate in this repository reads a rustdoc warning (#321). Four of them were shipped that way.
+rustc merges this `///` block with the module's `//!` one and resolves it in THIS scope, where
+`agreement`'s items are not - so a bare-name link there resolves to nothing, and no gate here
+reads a rustdoc warning (#321). Four were shipped that way.
 What it takes for two answers to one plan to be the SAME answer.
 
 One policy, so the differential legs cannot each have their own. Two of them did, and both were
@@ -10873,8 +10736,8 @@ multiplicity check, because a positional comparison of equal-height results cann
 
 Whether a declared join key is really unique in the table it points at.
 
-A module of its own for `preflight`'s reason - nothing in it is about a plan, a credential or
-a row - and its header carries the measurement that made the check necessary: one violated
+A module of its own for `preflight`'s reason - nothing in it is about a plan, a credential or a
+row - and its header carries the measurement that made the check necessary: one violated
 `many_to_one`, two topologies, two numbers, and a refusal from neither.
 What a data system answered when it was asked whether a declared join key is really unique.
 
@@ -11308,6 +11171,139 @@ than by position, and a label that no column can shadow is what makes reading by
 
 The label the distinct count is projected under. See `ROWS_LABEL`.
 
+### Module `cell`
+
+One cell of a result, and the checked real a cell may carry.
+One cell of a result, and the checked real number a cell may carry.
+
+Its own module because these are the value vocabulary every adapter maps into, and none of them
+knows about a plan, a credential or a row. **What it does NOT hold:
+`ParamValue`, which travels the other way** - a value bound to a
+statement on the way OUT - and which the port module keeps beside the reason it exists.
+
+`pub mod` so rustdoc documents these types rather than emitting a re-export stub, which is what
+`crate::warehouse::preflight` records happening to a private module with only a `pub use`. The
+re-export beside the declaration keeps the `sutura_domain::warehouse::` path its importers already use.
+
+#### `enum NotFinite`
+
+```rust
+pub enum NotFinite
+```
+
+Why a floating-point cell was refused.
+
+Two variants rather than one, because the causes differ and a reader chasing one is not chasing
+the other: an infinity is a non-zero quantity divided by zero, a `NaN` is zero divided by zero.
+The variant carries the value rather than a formatted sentence, for the reason every error in
+this crate does.
+
+##### Variants
+
+- `Infinite` - Infinite, in either direction.
+- `NotANumber` - Not a number at all. Its own variant rather than a value on the one above, because `NaN` compares unequal to itself: an `Infinite` carrying one would make two of these errors unequal for a reason unrelated to what happened.
+
+  `Infinite`: NotFinite::Infinite
+
+##### Implements
+
+`Debug`, `Display`, `Error`, `PartialEq`
+
+#### `struct Real`
+
+```rust
+pub struct Real
+```
+
+A real number a result may carry: finite, and nothing else.
+
+**Parsed rather than validated, and the class it closes is larger than the bug that found it.**
+A cell was a raw `f64`, so `inf`, `-inf` and `NaN` were representable and `Value::render`
+turned the first into the string `"inf"` - an answer under a metric's own certified name that
+reads as data and is not a number. The route in was a ratio measure declaring
+`zero_denominator: fails`: both adapters cast the numerator to a floating type before dividing,
+so the division is IEEE float division, which by zero does not fail - it answers `inf`, or `NaN`
+when both halves are zero.
+
+Refusing a non-finite value in the domain type closes all three at once, at the one boundary
+every adapter crosses, rather than guarding the variant that exposed it. An adapter that gets one
+back has an error naming the column, which is what `fails` always claimed to mean.
+
+Construct it with `parse`. The field is private, so a non-finite value is unrepresentable
+rather than merely rejected. No `Deref` and no arithmetic, deliberately: two finite numbers
+divide to a non-finite one, so a type letting the result back in without passing `parse` again
+would be the hole this closes. `Value` is `Serialize` only - if it gains `Deserialize`, this
+needs `#[serde(try_from = ..)]` routing through `parse`, because a derived one writes straight
+into the private field.
+
+`parse`: Real::parse
+
+##### Methods
+
+```rust
+pub const fn get(self) -> f64
+```
+
+The number, for a caller that has to do arithmetic on it.
+
+Named rather than reached through `Deref`, so where the invariant stops applying is a call
+somebody wrote.
+
+```rust
+pub const fn parse(value: f64) -> Result<Self, NotFinite>
+```
+
+Parses a real number, rejecting a non-finite one.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `LowerExp`, `PartialEq`, `Serialize`
+
+#### `enum Value`
+
+```rust
+pub enum Value
+```
+
+One cell of a result.
+
+`Real` is deliberately last to reach for: a measure over integer minor units stays exact, and
+an anchor comparison over a float would depend on how two languages print the same bits. It
+exists because `avg` has to land somewhere, and it is a checked type rather than an `f64` so the
+one thing a float can be that a number cannot does not fit in a cell.
+
+##### Variants
+
+- `Null`
+- `Integer`
+- `Real`
+- `Text`
+
+##### Methods
+
+```rust
+pub fn render(&self) -> String
+```
+
+The canonical text form, which is what an anchor is compared against.
+
+One function so there is one answer: an anchor comparison formatting the value at the call
+site would compare differently in two places, and the failure would look like a data problem
+rather than a formatting one.
+
+```rust
+pub fn rendered_len(&self) -> usize
+```
+
+The byte length `Self::render` would produce, without the allocation when a cheaper
+answer exists - `Text` is measured rather than cloned, for
+`RowSet::rendered_byte_len`.
+`Integer`/`Real` still render: a few bytes, cheaper than duplicating `Display`'s counting.
+
+##### Implements
+
+`Clone`, `Debug`, `PartialEq`, `Serialize`
+
 ### Module `deadline`
 
 One absolute deadline per answer, and the budget it was opened from.
@@ -11322,7 +11318,8 @@ The domain reads no clock - `crate::identity::Expiry::passed_by` is the preceden
 shape applies here: `now` arrives as an argument to `Deadline::remaining_at` rather than being
 read, so the one comparison this module makes lives here and not at whichever call site happens
 to hold a clock. `docs/adr/0029` is the record; this module is its first slice, carried by the
-port and not yet enforced by any adapter this release links.
+port and enforced by Postgres (`SET LOCAL statement_timeout`) - the engine and BigQuery still
+accept the parameter and ignore it.
 
 #### `struct Deadline`
 
@@ -11433,6 +11430,148 @@ rather than worked around with more prose here.
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### Module `rows`
+
+A result set, and an anchor's rows.
+A result set, and the rows one anchor's plan produced at boot.
+
+Its own module because the shape of a result is a concept of its own: the ragged-row refusal,
+the one-cell read an anchor makes, and the wrapper that stops a boot result being handed back as
+an answer. **What it does NOT hold: any decision about who ran the query** - that belongs to the
+port in `crate::warehouse`.
+
+`pub mod` for `cell`'s reason, with the same re-export beside it.
+
+#### `struct RowSet`
+
+```rust
+pub struct RowSet
+```
+
+A result set: the column labels, and the rows.
+
+Labels are `String` rather than `crate::model::ColumnName` because a generated projection names
+things a model did not - the truncated time bucket, and the measure under the metric's own name -
+so constraining them would mean lying about what they are or refusing to name them.
+
+##### Methods
+
+```rust
+pub fn cell(&self, row: usize, column: usize) -> Option<&Value>
+```
+
+One cell, by row and column position.
+
+`Option` rather than indexing: `indexing_slicing` is denied for library crates here, and a
+caller holding a position from `column_index` still must not be able to panic on a result set
+that came back a different shape.
+
+```rust
+pub fn column_index(&self, label: &str) -> Option<usize>
+```
+
+Where a column with this label sits, if there is exactly one.
+
+`None` for a label that appears twice, not the first match: two columns under one label means
+the projection is not what we think, and returning either answers with a number from a column
+nobody chose. `Definitions::assemble` refuses the catalog shapes that cause it, so this is the
+second line rather than the first.
+
+```rust
+pub fn columns(&self) -> &[String]
+```
+
+```rust
+pub fn new(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Self, MalformedRowSet>
+```
+
+Builds a result set, rejecting a ragged one.
+
+```rust
+pub fn rendered_byte_len(&self) -> u64
+```
+
+The total bytes every cell would occupy once rendered (via
+`Value::rendered_len`, so a wide `Text` cell
+is counted rather than cloned) - a proxy for the encoded response size, not the wire size:
+the same canonical text an anchor compares against, not the JSON or tab-delimited bytes a
+transport wraps it in. Column labels are not counted.
+
+```rust
+pub fn rows(&self) -> &[Vec<Value>]
+```
+
+```rust
+pub const fn scalar(&self) -> Option<&Value>
+```
+
+The single cell of a single-row, single-column result, which is what an anchor check reads.
+
+`None` for any other shape rather than a panic or a silent first cell: an anchor query coming
+back with three rows means the statement is not the one we thought, and reading its first cell
+would turn that into a wrong number.
+
+##### Implements
+
+`Clone`, `Debug`, `PartialEq`, `Serialize`
+
+#### `enum MalformedRowSet`
+
+```rust
+pub enum MalformedRowSet
+```
+
+Why a result set could not be built.
+
+##### Variants
+
+- `RowWidth` - A row has a different number of cells than there are columns.
+
+  Checked once here rather than trusted: every consumer downstream indexes by column position,
+  and under the `indexing_slicing` ban each would otherwise need its own fallback for a case
+  that must not exist.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct AnchorRows`
+
+```rust
+pub struct AnchorRows
+```
+
+The rows one anchor's plan produced at boot.
+
+**A wrapper with a private field, so a boot result cannot be handed back as an answer without a
+named conversion somebody wrote.** The anchor path and the request path are two ways into a data
+system running as different identities: `execute` takes the asking subject's credential and
+cannot be called without one, while
+`Warehouse::verify_anchor` takes none at all and
+runs as
+whatever identity the deployment configured - `docs/adr/0008` part 1 decides that for a path with
+no caller. Two types rather than one so the separation is visible at a call site rather than in a
+comment, and `Self::verified_at_boot` is named to be conspicuous in review and in a grep, the
+way `crate::identity::Secret::expose_secret` is.
+
+##### Methods
+
+```rust
+pub const fn of(rows: RowSet) -> Self
+```
+
+What an adapter returns from a verification run.
+
+```rust
+pub const fn verified_at_boot(&self) -> &RowSet
+```
+
+The rows, for the boot path that compares them against what an author certified.
+
+##### Implements
+
+`Clone`, `Debug`, `PartialEq`
 
 ### Module `raw`
 

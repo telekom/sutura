@@ -4033,8 +4033,9 @@ convenience, and nothing needs to clone a startup refusal.
 - `Transport` - The declared transport of a source was not usable.
 
   The transport is the whole channel a source is reached over, so its refusals (an unknown
-  `transport_mode` word, TLS with no anchors, a partial client certificate, a relative path) surface
-  here as a single parse refusal naming the source. The `cause` names the key.
+  `transport_mode` word, TLS with no anchors, a key the declared mode would not read, a
+  partial client certificate, a relative path) surface here as a single parse refusal naming
+  the source. The `cause` names the key.
 - `RemoteWithoutTls` - A source a network can reach was declared with no transport security.
 
   Issue 124's fail-closed rule, and the reason `plaintext` is a written WORD rather than the
@@ -4552,6 +4553,13 @@ value that would be cloned is a path, which is fine to own here.
 
 - `UnknownTransport`
 - `KeyNotReadByMode` - A key was written that the declared mode does not read, so nothing would honour it.
+
+  **One refusal for both modes that discard something, and that is the point.** `plaintext`
+  reads no anchors and no client identity; `verified` verifies the source's chain and presents
+  nothing, so it reads no client identity either. The failure is identical in both: an
+  operator writes a control, the mode cannot carry it, and a deployment that reads past it
+  starts with that control silently absent. Naming the KEY rather than listing the candidates
+  is what a message reading *names `transport_anchors` or a client certificate* could not do.
 - `TlsWithoutAnchors` - A source declared TLS and named no trust anchors.
 
   Rule 2 of `docs/adr/0010`: the trust store is stated, not inherited, so there is no value to
