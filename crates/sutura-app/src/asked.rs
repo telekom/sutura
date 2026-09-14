@@ -43,10 +43,11 @@ use crate::capability::Permitted;
 /// Everything one call was established to be: who is asking, and what it may invoke.
 ///
 /// **One constructor, [`Asked::established`], and it takes the two halves already produced by a
-/// verification - it performs no verification of its own.** `sutura_http::inbound::gate` (a header
-/// becomes a `VerifiedCaller`) and `sutura_mcp` (the process boundary is the boundary) are the two
-/// places that call it, each handing over what its own transport already derived. This type adds no
-/// third way to decide either half.
+/// verification - it performs no verification of its own.** `sutura_http::capability::establish_asked`
+/// is the one place that calls it today, handing over what leg 1 already derived - a
+/// `VerifiedCaller`'s chain and scopes, or the deployment's own when there is none. The agent
+/// surface's own call arrives with PR2 of `telekom/sutura#378`; until then this type adds no third
+/// way to decide either half.
 ///
 /// `Clone` because a transport may need to hand the same value to a blocking-pool closure that
 /// outlives the request extension it was read from - `sutura_runtime::spawn_carrying_span` is the
@@ -83,17 +84,32 @@ impl Asked {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
+    use sutura_domain::identity::{PrincipalChain, RequestContext, Secret, Subject, SubjectId};
 
     use super::Asked;
     use crate::capability::{Capability, Permitted};
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading the assertion back is the point of the check: it is the other half `established` must not drop"
+    )]
     fn established_returns_exactly_the_two_halves_handed_to_it() {
-        let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
+        // `Subject::Verified`, not `Subject::TheDeploymentItself` - the value a mis-wired
+        // `establish_asked` would substitute (ADR 0023's own named trap) is a chain with no
+        // assertion for the deployment's own identity, which this fixture cannot be mistaken for.
+        let subject = Subject::Verified {
+            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+        };
+        let context =
+            RequestContext::with_assertion(PrincipalChain::of(subject), Secret::new("the-assertion-a-transport-verified"));
         let permitted = Permitted::granted_by([Capability::DescribeCatalog.scope()]);
         let asked = Asked::established(context.clone(), permitted.clone());
         assert_eq!(asked.context().chain(), context.chain());
+        assert_eq!(
+            asked.context().assertion().map(Secret::expose_secret),
+            Some("the-assertion-a-transport-verified")
+        );
         assert_eq!(asked.permitted(), &permitted);
     }
 }

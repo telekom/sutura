@@ -223,15 +223,16 @@ const TAG: &str = "query";
 )]
 pub(crate) async fn ask(
     State(state): State<ServiceState>,
-    // Leg 1's conclusion, when this deployment has leg 1. **An extractor and not a body field**, and
-    // the difference is the whole control: `crate::inbound::VerifiedCaller` has one `pub(crate)`
-    // constructor, called only after a signature check, implements no `Deserialize`, and is put into
-    // the extensions by exactly one middleware. So this parameter cannot be reached by anything a
-    // caller writes - see `crate::principal`, which explains why the check moved from the arity of a
-    // function to a type.
-    caller: Option<axum::Extension<crate::inbound::VerifiedCaller>>,
+    // Leg 1's conclusion, whichever case this deployment is in. **A REQUIRED extractor, not
+    // `Option`, and not a body field.** `crate::capability::establish_asked` is the one middleware
+    // that inserts `sutura_app::Asked` - after a signature check where this deployment has leg 1,
+    // and unconditionally otherwise - so a required `Extension<Asked>` cannot be reached by anything
+    // a caller writes, and it answers `500` on its own account if that layer were ever skipped,
+    // rather than reading an absent value as the deployment's own identity. See
+    // `crate::capability` for the whole mechanism.
+    axum::Extension(asked): axum::Extension<sutura_app::Asked>,
     // Opened by `middleware::enforce_timeout`, before admission - the same extension mechanism
-    // `caller` above uses, and for the analogous reason: a handler has no state of its own to carry
+    // `asked` above uses, and for the analogous reason: a handler has no state of its own to carry
     // a per-request value through, and this one cannot be reached by anything a caller writes
     // because nothing a caller sends can insert a request extension.
     Extension(deadline): Extension<Deadline>,
@@ -281,15 +282,9 @@ pub(crate) async fn ask(
     let slot_guard = state.metrics().slot_started();
 
     let surface = state.surface();
-    // Derived from what this transport established, and from nothing the caller *sent*. Two answers:
-    // a verified caller where leg 1 established one, and the deployment itself where it did not.
-    // `established` takes no argument at all, and the other arm takes a value only a signature check
-    // can produce - see `crate::principal`.
-    let context = caller
-        .as_ref()
-        .map_or_else(crate::principal::established, |axum::Extension(verified)| {
-            crate::principal::of_verified(verified)
-        });
+    // What `establish_asked` already derived, and nothing the caller *sent*. Cloned rather than
+    // borrowed: the closure below moves onto the blocking pool and outlives this extractor's value.
+    let context = asked.context().clone();
     // WHO asked, onto the span, so every line of this request is attributable. The label and not the
     // identifier: `established()` is a fixed word - `verified` or `deployment` - so it cannot raise
     // the log's cardinality or carry a subject into a field a caller chose. The audit record is where

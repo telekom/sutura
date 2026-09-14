@@ -280,10 +280,11 @@ reason `PinnedDefinitions::pin` computes its digest from the definitions it stor
 Everything one call was established to be: who is asking, and what it may invoke.
 
 **One constructor, `Asked::established`, and it takes the two halves already produced by a
-verification - it performs no verification of its own.** `sutura_http::inbound::gate` (a header
-becomes a `VerifiedCaller`) and `sutura_mcp` (the process boundary is the boundary) are the two
-places that call it, each handing over what its own transport already derived. This type adds no
-third way to decide either half.
+verification - it performs no verification of its own.** `sutura_http::capability::establish_asked`
+is the one place that calls it today, handing over what leg 1 already derived - a
+`VerifiedCaller`'s chain and scopes, or the deployment's own when there is none. The agent
+surface's own call arrives with PR2 of `telekom/sutura#378`; until then this type adds no third
+way to decide either half.
 
 `Clone` because a transport may need to hand the same value to a blocking-pool closure that
 outlives the request extension it was read from - `sutura_runtime::spawn_carrying_span` is the
@@ -1700,10 +1701,11 @@ pub struct Asked
 Everything one call was established to be: who is asking, and what it may invoke.
 
 **One constructor, `Asked::established`, and it takes the two halves already produced by a
-verification - it performs no verification of its own.** `sutura_http::inbound::gate` (a header
-becomes a `VerifiedCaller`) and `sutura_mcp` (the process boundary is the boundary) are the two
-places that call it, each handing over what its own transport already derived. This type adds no
-third way to decide either half.
+verification - it performs no verification of its own.** `sutura_http::capability::establish_asked`
+is the one place that calls it today, handing over what leg 1 already derived - a
+`VerifiedCaller`'s chain and scopes, or the deployment's own when there is none. The agent
+surface's own call arrives with PR2 of `telekom/sutura#378`; until then this type adds no third
+way to decide either half.
 
 `Clone` because a transport may need to hand the same value to a blocking-pool closure that
 outlives the request extension it was read from - `sutura_runtime::spawn_carrying_span` is the

@@ -80,7 +80,9 @@ const TAG: &str = "run_sql";
 )]
 pub(crate) async fn run_sql(
     State(state): State<ServiceState>,
-    caller: Option<axum::Extension<crate::inbound::VerifiedCaller>>,
+    // See `super::query::ask`'s own parameter for the whole mechanism: a REQUIRED extractor, so an
+    // absent `sutura_app::Asked` answers `500` rather than reading as the deployment's own identity.
+    axum::Extension(asked): axum::Extension<sutura_app::Asked>,
     body: Result<Json<RunSqlBody>, JsonRejection>,
 ) -> Result<RunSqlOutcome, Failure> {
     let Json(body) = body.map_err(|rejection| super::query::rejected(&rejection))?;
@@ -97,11 +99,9 @@ pub(crate) async fn run_sql(
     let slot_guard = state.metrics().slot_started();
 
     let surface = state.surface();
-    let context = caller
-        .as_ref()
-        .map_or_else(crate::principal::established, |axum::Extension(verified)| {
-            crate::principal::of_verified(verified)
-        });
+    // What `establish_asked` already derived. Cloned rather than borrowed: the closure below moves
+    // onto the blocking pool and outlives this extractor's value.
+    let context = asked.context().clone();
     tracing::Span::current().record("asker", context.chain().subject().established());
     let joined = sutura_runtime::spawn_carrying_span(move || {
         let answered = surface.run_sql(&context, &statement);
