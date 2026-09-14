@@ -612,6 +612,44 @@ call site adds it. The comparison lives here instead, once, as
 
 ## `use DeploymentIdentity`
 
+Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
+from.
+
+**Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
+
+*Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
+There is no per-request identity to establish, so a shared source is correct for **everything** -
+the one user reads all, by design, and the configured credential is that user's own.
+`examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
+
+*Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
+and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
+
+# It is declared and never derived, and the derivation that was on offer is unsound
+
+The tempting derivation is "every source shared means single-user, any source impersonating means
+multi-user". It fails in exactly the configuration that most needs the check: a genuinely
+multi-tenant deployment whose sources are *all* shared derives to single-user, and the
+acknowledgement is required in multi-user mode only - so the derivation would exempt from the
+acknowledgement the one deployment where every caller reads every source as somebody else's
+identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
+a field out.
+
+So there is **no `Default`**, no derivation, and a deployment that configures a source without
+declaring the mode does not boot -
+`NotFitToServe::DeploymentIdentityUndeclared`.
+The refusal is keyed on a source being configured rather than raised unconditionally, and that is
+not a softening: a deployment with no source configured cannot answer anything, and the composition
+root refuses it on the catalog naming a source with no declaration - so every deployment that can
+serve a question has to declare the mode.
+
+# What flipping the mode does
+
+It re-evaluates every source. A single-user deployment legitimately holds every source under one
+static credential; the same file in multi-user mode serves every one of those sources to every
+caller as one identity. The mode is an input to the whole check rather than to an incremental view
+of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
+
 # The variant names are not the configured words, and that is deliberate
 
 A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
@@ -3545,6 +3583,44 @@ somebody changing the field type later.
 
 ### `use DeploymentIdentity`
 
+Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
+from.
+
+**Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
+
+*Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
+There is no per-request identity to establish, so a shared source is correct for **everything** -
+the one user reads all, by design, and the configured credential is that user's own.
+`examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
+
+*Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
+and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
+
+# It is declared and never derived, and the derivation that was on offer is unsound
+
+The tempting derivation is "every source shared means single-user, any source impersonating means
+multi-user". It fails in exactly the configuration that most needs the check: a genuinely
+multi-tenant deployment whose sources are *all* shared derives to single-user, and the
+acknowledgement is required in multi-user mode only - so the derivation would exempt from the
+acknowledgement the one deployment where every caller reads every source as somebody else's
+identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
+a field out.
+
+So there is **no `Default`**, no derivation, and a deployment that configures a source without
+declaring the mode does not boot -
+`NotFitToServe::DeploymentIdentityUndeclared`.
+The refusal is keyed on a source being configured rather than raised unconditionally, and that is
+not a softening: a deployment with no source configured cannot answer anything, and the composition
+root refuses it on the catalog naming a source with no declaration - so every deployment that can
+serve a question has to declare the mode.
+
+# What flipping the mode does
+
+It re-evaluates every source. A single-user deployment legitimately holds every source under one
+static credential; the same file in multi-user mode serves every one of those sources to every
+caller as one identity. The mode is an input to the whole check rather than to an incremental view
+of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
+
 # The variant names are not the configured words, and that is deliberate
 
 A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
@@ -3592,6 +3668,18 @@ argument `security.inbound` with no `mode` already makes.
 
 ### Module `deployment`
 
+The deployment identity declaration - who a query runs as when one is declared.
+
+A file of its own for the same mechanical reason its neighbours are: `security.rs` is at
+the 1000-line cap `cargo xtask max-lines` enforces, and the deployment-identity group is a
+self-contained declaration re-exported from `crate::security`.
+
+#### `enum DeploymentIdentity`
+
+```rust
+pub enum DeploymentIdentity
+```
+
 Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
 from.
 
@@ -3629,18 +3717,6 @@ It re-evaluates every source. A single-user deployment legitimately holds every 
 static credential; the same file in multi-user mode serves every one of those sources to every
 caller as one identity. The mode is an input to the whole check rather than to an incremental view
 of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
-
-The deployment identity declaration - who a query runs as when one is declared.
-
-A file of its own for the same mechanical reason its neighbours are: `security.rs` is at
-the 1000-line cap `cargo xtask max-lines` enforces, and the deployment-identity group is a
-self-contained declaration re-exported from `crate::security`.
-
-#### `enum DeploymentIdentity`
-
-```rust
-pub enum DeploymentIdentity
-```
 
 # The variant names are not the configured words, and that is deliberate
 
