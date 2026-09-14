@@ -2806,6 +2806,7 @@ a corpus of many says which one.</p>
 <li><code>PreFlightRefused</code> - The pre-flight refused a plan the adapter is expected to be able to execute.</li>
 <li><code>AcceptedThenDidNotAnswer</code> - The pre-flight accepted the plan and the execution then failed.</li>
 <li><code>ALegWasAnswered</code> - An adapter that declares it does not execute a leg executed one.</li>
+<li><code>EstimateDisagreesWithCapability</code> - The pre-flight's estimate disagreed with what <code>Warehouse::PRICES_DRY_RUN</code> declares.</li>
 <li><code>EmptyCorpus</code> - The corpus has no cases, so nothing could be asked.</li>
 </ul>
 <p>Reachable only from a pack that needs a case to establish the adapter is live. <code>census</code>
@@ -3253,6 +3254,11 @@ per adapter; nothing here panics, so a pack can also be called directly.</p>
 <li><strong>Which error an adapter refused with.</strong> <code>Self::Error</code> is the adapter's own type, so a pack
   sees only that a call failed. <code>a_leg_is_refused</code> is written around that limit rather than
   through it - see its own doc.</li>
+<li><strong>That <code>BigQueryWarehouse</code>'s real endpoint prices a dry run correctly.</strong> It is the only
+  adapter declaring <code>Warehouse::PRICES_DRY_RUN</code> true, and it has no <code>crate::execute_packs</code>
+  binding (<code>telekom/sutura#618</code>), so <code>a_preflight_that_accepts_is_followed_by_an_answer</code>'s new
+  estimate check never runs against it - only against the three adapters that always declare
+  <code>false</code> and always answer <code>None</code>.</li>
 </ul>
 <h3 id="fn-labels_are_the_plans_own"><code>fn labels_are_the_plans_own</code><a class="headerlink" href="#fn-labels_are_the_plans_own" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">labels_are_the_plans_own</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
@@ -3296,9 +3302,15 @@ can execute, and one that accepts a plan the adapter then cannot answer.</p>
 <p><strong>An adapter that answers <code>PreFlight::NotAsked</code> DECLINES this behaviour</strong>, and the declination
 is the honest reading rather than a pass: nothing was checked, so nothing about the check has
 been established. The limit worth stating next to it - the declination is observed at run time
-rather than read off a typed declaration, because the port has no capability constant for a
-pre-flight the way it has one for a leg. Where that constant exists the pack would select on it
-and a mismatched declaration would not build.</p>
+rather than read off a typed declaration, because the port has no capability constant for
+WHETHER a pre-flight happens the way it has one for a leg. Where that constant exists the pack
+would select on it and a mismatched declaration would not build.</p>
+<p><strong>What an accepted pre-flight's estimate carries IS read off a typed declaration</strong>:
+<code>Warehouse::PRICES_DRY_RUN</code>. An adapter that declares <code>false</code> and answers <code>Some(_)</code>, or
+declares <code>true</code> and answers <code>None</code>, is <code>Fault::EstimateDisagreesWithCapability</code> rather than a
+silent pass - closing the gap <code>Warehouse::PRICES_DRY_RUN</code>'s own doc names, that nothing used to
+require this port's <code>None</code>-vs-<code>Some(0)</code> distinction to mean what it says for any adapter this
+pack binds.</p>
 <h3 id="fn-a_leg_is_executed"><code>fn a_leg_is_executed</code><a class="headerlink" href="#fn-a_leg_is_executed" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_leg_is_executed</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Conformed</span><span class="o">&lt;&lt;</span><span class="n">W</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
@@ -3332,7 +3344,7 @@ refused a leg for the wrong reason passes.</p>
 <code>crate::Fault::EmptyCorpus</code> is what stops this behaviour being green over nothing - the guard
 <code>crate::census</code> provides for every other behaviour and the one place it is a <code>Fault</code> instead -
 and with the corpus reached through <code>corpus::cases</code> alone no fake could empty it, so the
-variant was unprovokable and the claim <em>every fault is provoked</em> was seven of eight.</p>
+variant was unprovokable and the claim <em>every fault is provoked</em> was eight of nine.</p>
 <p>It is the beginning of what a file-backed corpus needs anyway: a corpus the pack is handed
 rather than one it calls. Every other behaviour still reads <code>corpus::cases</code> directly, so this
 is one seam and not a parameter threaded through the pack.</p>
