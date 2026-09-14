@@ -4139,6 +4139,11 @@ convenience, and nothing needs to clone a startup refusal.
   from another machine may not - so a deployment cannot send a password and a whole result set
   in clear text by leaving a key out. The key named is `transport_mode`, because declaring a TLS
   mode and its anchors is the remedy.
+- `TlsOverUnixSocket` - A `verified` or `mutual` transport declared on a `unix_socket` dial.
+
+  A parse-time refusal rather than the connect-time one the driver would otherwise give: the
+  driver has no TLS handshake to perform over a local socket, so the failure it produces there
+  is a confusing one that names neither key. Refusing here says which two keys disagree.
 
 #### Implements
 

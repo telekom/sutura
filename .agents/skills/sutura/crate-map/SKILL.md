@@ -9,6 +9,18 @@ description: The rules a crate is subject to by its prefix, why a data-system dr
 convention is the contract rather than the count** - crates may be merged later, and a rule written
 against the prefix survives that where a table of names would not.
 
+**`sutura-tls` carries no `-domain`/`-exec-`/`-catalog-`/`-http`/`-config`/`-runtime`/`-cli`/`-serve`
+prefix, and that is the point rather than an omission.** It holds exactly the bundle-or-system-store
+read and the client-identity read a TLS source channel needs (`load_anchors`, `load_identity`), with
+no dependency on a crypto provider, a network client, or `sutura-config` - not an adapter (it opens no
+data system and speaks no wire protocol), not a transport, not settings. It exists so two adapters in
+the SAME forbidden-edge class (`sutura-exec-postgres`, and a `ureq`-based outbound adapter under
+`github.com/telekom/sutura#125`) can share one read without one becoming the other's library, which
+`xtask/src/boundaries.rs`'s "data systems" class already forbids directly. A crate in this shape - a
+small, dependency-free read or computation two same-class adapters both need - joins no existing
+prefix's rules and starts in no forbidden class by construction; `sutura-sql` is the precedent for a
+shared, adapter-facing library with its own prefix, and this is the same shape one size smaller.
+
 Rules that are not visible from a manifest:
 
 - **`sutura-domain`'s dependency list is an allowlist walked over the whole resolve graph**, so a

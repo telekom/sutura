@@ -396,6 +396,17 @@ pub enum InvalidSourceRegistry {
          `transport_mode: mutual` with a `client_certificate`/`client_key` pair"
     )]
     RemoteWithoutTls { alias: SourceName, host: String },
+    /// A `verified` or `mutual` transport declared on a `unix_socket` dial.
+    ///
+    /// A parse-time refusal rather than the connect-time one the driver would otherwise give: the
+    /// driver has no TLS handshake to perform over a local socket, so the failure it produces there
+    /// is a confusing one that names neither key. Refusing here says which two keys disagree.
+    #[error(
+        "`sources.{alias}.unix_socket` is set and `sources.{alias}.transport_mode` is `{mode}` - \
+         there is no TLS handshake over a local socket to perform. Write `transport_mode: plaintext`, \
+         or dial over `host` instead of `unix_socket`"
+    )]
+    TlsOverUnixSocket { alias: SourceName, mode: &'static str },
 }
 
 /// Every source this deployment declares, keyed by the alias a model's `source:` names.
@@ -771,6 +782,18 @@ fn parse_placement(
                 return Err(InvalidSourceRegistry::RemoteWithoutTls {
                     alias: alias.clone(),
                     host: host.as_str().to_owned(),
+                });
+            }
+            // The other direction issue 125 asks for: TLS over a unix socket has no handshake to
+            // perform, so a `verified`/`mutual` declaration on that dial is refused HERE, naming both
+            // keys, rather than reaching `PostgresWarehouse::connect_secured` and failing at connect
+            // time with an error that names neither.
+            if transport.anchors().is_some()
+                && let crate::sources::placement::PostgresDial::UnixSocket { .. } = dial
+            {
+                return Err(InvalidSourceRegistry::TlsOverUnixSocket {
+                    alias: alias.clone(),
+                    mode: transport.describe(),
                 });
             }
             Ok(SourcePlacement::Postgres {

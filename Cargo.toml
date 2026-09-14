@@ -50,6 +50,12 @@ members = [
   # engine, and (like `sutura-exec-duckdb`) not shipped: it proves the Postgres statement we render
   # is accepted by a real Postgres, reached through the compose tier.
   "crates/sutura-exec-postgres",
+  # The one place either outbound TLS adapter reads a declared bundle or the host store: no
+  # `RootCertStore`, no crypto provider, no network client - just the bytes a caller's own verifier
+  # folds in. `sutura-exec-postgres` and `sutura-exec-bigquery` both depend on it; neither may depend
+  # on the other (`xtask/src/boundaries/adapters.rs`'s "data systems" class), so the read that both
+  # need moved here rather than into either.
+  "crates/sutura-tls",
   "crates/sutura-cli",
   # The service runtime. Four crates rather than one, and the split is the dependency direction:
   # `sutura-config` holds no framework at all, `sutura-runtime` owns the process-global concerns
@@ -104,6 +110,7 @@ sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
+sutura-tls = { path = "crates/sutura-tls" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }
 sutura-http = { path = "crates/sutura-http" }

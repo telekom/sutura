@@ -241,6 +241,43 @@ fn a_remote_host_without_tls_is_a_startup_refusal_naming_the_key() {
 }
 
 #[test]
+fn a_tls_transport_over_a_unix_socket_is_refused_naming_both_keys() {
+    // The other direction issue 124/125 hold: TLS over a unix socket has no handshake to perform, so
+    // a `verified`/`mutual` declaration on that dial is refused at PARSE, before it can reach
+    // `PostgresWarehouse::connect_secured` and fail at connect time with an error naming neither key.
+    let verified_socket = RawSourceEntry {
+        transport_mode: Some("verified"),
+        transport_anchors: Some("system"),
+        ..postgres("warehouse")
+    };
+    let error =
+        SourceRegistry::parse(&[verified_socket], Some(&single_user())).expect_err("verified TLS over a socket is refused");
+    assert!(
+        matches!(error, InvalidSourceRegistry::TlsOverUnixSocket { mode: "verified", .. }),
+        "{error}"
+    );
+    assert!(error.to_string().contains("unix_socket"), "{error}");
+    assert!(error.to_string().contains("transport_mode"), "{error}");
+
+    let mutual_socket = RawSourceEntry {
+        transport_mode: Some("mutual"),
+        transport_anchors: Some("system"),
+        client_certificate: Some("/tls/c.pem"),
+        client_key: Some("/tls/k.pem"),
+        ..postgres("warehouse")
+    };
+    let error = SourceRegistry::parse(&[mutual_socket], Some(&single_user())).expect_err("mutual TLS over a socket is refused");
+    assert!(
+        matches!(error, InvalidSourceRegistry::TlsOverUnixSocket { mode: "mutual", .. }),
+        "{error}"
+    );
+
+    // And the unchanged case this must not touch: `plaintext` over a unix socket is the declared,
+    // fixture-tier shape and still parses.
+    SourceRegistry::parse(&[postgres("warehouse")], Some(&single_user())).expect("plaintext over a socket still parses");
+}
+
+#[test]
 fn a_partial_client_certificate_is_refused_at_load() {
     // A certificate with no key, or a key with no certificate, is the same class as
     // `server.tls_certificate` without `server.tls_key`. Silent refusal would start mTLS disabled.
@@ -267,7 +304,12 @@ fn a_partial_client_certificate_is_refused_at_load() {
 
 #[test]
 fn a_mutual_transport_declares_its_anchors_and_identity() {
+    // A TCP host, not the fixture default's unix socket: `TlsOverUnixSocket` now refuses a
+    // `verified`/`mutual` transport declared over a socket dial, so this cell's own claim - that a
+    // COMPLETE mutual declaration parses - needs a dial TLS can actually run over.
     let entry = RawSourceEntry {
+        host: Some("db.example.com"),
+        unix_socket: None,
         transport_mode: Some("mutual"),
         transport_anchors: Some("system"),
         client_certificate: Some("/tls/c.pem"),
