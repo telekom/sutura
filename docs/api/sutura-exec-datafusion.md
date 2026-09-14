@@ -154,6 +154,7 @@ map" send a reader to three different places.
   tree and this adapter holds what the root handed it. An `Err` for the reason the variant above
   is one - a wiring defect between the broker and the source declaration, which no caller may
   retry into an answer. The typed cause carries which disagreement it was.
+- `DeadlineExceeded` - The deadline ran out before a call or around the whole `rows` future. Dropping that future requests abort of spawned asynchronous tasks; `DataFusion` wraps non-cooperative plan leaves so they yield. Already-running blocking work cannot be aborted and may outlive this error.
 
 ### Implements
 

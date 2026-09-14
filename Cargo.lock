@@ -3925,6 +3925,7 @@ name = "sutura-exec-datafusion"
 version = "0.5.1"
 dependencies = [
  "datafusion",
+ "futures-util",
  "sutura-conformance",
  "sutura-domain",
  "thiserror 2.0.20",

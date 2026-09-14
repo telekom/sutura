@@ -419,10 +419,13 @@ fn declared_ports() -> Verdict {
 /// this half needs workspace members and their DECLARED dependencies, because a crate that reaches
 /// the application transitively is a caller of a transport rather than of its port.
 ///
-/// Written as early returns rather than as its siblings' one `match`, because it has FOUR ways to
-/// fail and two of them are the rule reading nothing: the door it forbids no longer being defined,
-/// and no caller naming the application at all. The green line names both of the things those two
-/// check, so a reader can tell a pass from a vacuous one without running anything.
+/// Written as early returns rather than as its siblings' one `match`, because it has SIX ways to
+/// fail and three of them are the rule reading nothing: either door it forbids no longer being
+/// defined (`answer`'s and, since `#129` step 5, `run_sql`'s own), and no caller naming the
+/// application at all. A fourth - `run_sql`'s module declared `pub` (`#703` finding 1) - is not the
+/// rule reading nothing, it is the rule finding the exact hole it exists to close. The green line
+/// names the three liveness checks, so a reader can tell a pass from a vacuous one without running
+/// anything.
 fn answer_through_the_port() -> Verdict {
     let meta = match crate::cargo_metadata(&["--no-deps", "--all-features"]) {
         Ok(value) => value,
@@ -451,6 +454,37 @@ fn answer_through_the_port() -> Verdict {
         );
         return Verdict::Fail;
     };
+    // The raw tool's own door, checked the same way and for the same reason: `run_sql` writes an
+    // audit record exactly like `answer` does, and a liveness check that only ever looked at
+    // `answer` would print `ok` forever once `run_sql` moved or was renamed.
+    let Some(raw_door) = report.raw_door else {
+        eprintln!(
+            "xtask check-boundaries: FAILED - `{}` is not defined in {}, so the path this rule forbids \
+             names nothing. A caller could run_sql without recording and this half would still print \
+             `ok`. Move the needle with the door, or delete this half if the door is gone.",
+            answer_path::raw_door(),
+            answer_path::RAW_LIB
+        );
+        return Verdict::Fail;
+    };
+    // `#703` finding 1: `run_sql`'s module declared `pub` is a SECOND, ungated spelling of the
+    // door (`sutura_app::raw::run_sql`), invisible to `names_the_door` by the same design that
+    // spares `Surface::run_sql` - proven by a bypass at that spelling compiling clean and this gate
+    // printing `ok` before this check existed. `Some` here is the failure, not `None`.
+    if let Some(line) = report.raw_module_pub {
+        eprintln!(
+            "xtask check-boundaries: FAILED - {}:{line} declares `{}`. That module is `pub`, so \
+             `sutura_app::raw::run_sql` is a second, legal spelling of the door this rule guards - \
+             one this rule's classifier cannot see, because it matches a door only at the crate root \
+             or inside a brace group (by design, so a call THROUGH the port is not flagged). Make the \
+             module private (`mod raw;`) and re-export what callers need from it (`pub use raw::{{..., \
+             run_sql}};`) - a door is guarded at the crate root only, so the module it lives in may \
+             never be `pub`.",
+            answer_path::APPLICATION_LIB,
+            answer_path::RAW_MODULE
+        );
+        return Verdict::Fail;
+    }
     // Zero paths read is a FAILURE and not a pass: a rule that no longer finds the application
     // in any caller is reading nothing while printing `ok`.
     if report.paths == 0 {
@@ -473,11 +507,13 @@ fn answer_through_the_port() -> Verdict {
         return Verdict::Fail;
     }
     println!(
-        "xtask check-boundaries: ok - the answer path is reached through the port ({} path(s) in {} file(s) in {}, door at {}:{door})",
+        "xtask check-boundaries: ok - the answer path is reached through the port ({} path(s) in {} file(s) in {}, \
+         door at {}:{door}, raw door at {}:{raw_door})",
         report.paths,
         report.files,
         report.callers.join(", "),
-        answer_path::APPLICATION_LIB
+        answer_path::APPLICATION_LIB,
+        answer_path::RAW_LIB
     );
     Verdict::Pass
 }
