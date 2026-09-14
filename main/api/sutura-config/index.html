@@ -3041,8 +3041,9 @@ query runs as the person who asked. So no spill directory and no disk sizing - t
 its runtime with temporary files disabled, and <code>sutura_exec_datafusion::WorkingSet</code> is where that
 is written down.</p>
 <h1 id="a-provisional-number">A provisional number<a class="headerlink" href="#a-provisional-number" title="Permanent link">&para;</a></h1>
-<p><code>Self::DEFAULT_BYTES</code> is a gibibyte and nobody has measured it. It is a starting point recorded
-as one, not a finding.</p>
+<p><code>Self::DEFAULT_BYTES</code> is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+a small in-process workload and cannot see driver buffers, collected batches or domain-row
+conversion, so it did not justify changing the starting point. The default remains provisional.</p>
 <h2 id="use-available_memory_bytes"><code>use available_memory_bytes</code><a class="headerlink" href="#use-available_memory_bytes" title="Permanent link">&para;</a></h2>
 <p>How many bytes this process can actually reach, when the platform will say.</p>
 <p><strong>Three sources, smallest wins</strong>, because they answer three different questions and the binding
@@ -4673,8 +4674,9 @@ query runs as the person who asked. So no spill directory and no disk sizing - t
 its runtime with temporary files disabled, and <code>sutura_exec_datafusion::WorkingSet</code> is where that
 is written down.</p>
 <h1 id="a-provisional-number_1">A provisional number<a class="headerlink" href="#a-provisional-number_1" title="Permanent link">&para;</a></h1>
-<p><code>Self::DEFAULT_BYTES</code> is a gibibyte and nobody has measured it. It is a starting point recorded
-as one, not a finding.</p>
+<p><code>Self::DEFAULT_BYTES</code> is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+a small in-process workload and cannot see driver buffers, collected batches or domain-row
+conversion, so it did not justify changing the starting point. The default remains provisional.</p>
 <h4 id="methods_25">Methods<a class="headerlink" href="#methods_25" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-127-1"><a id="__codelineno-127-1" name="__codelineno-127-1" href="#__codelineno-127-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span>
 </span></code></pre></div>

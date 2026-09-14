@@ -2187,6 +2187,62 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#module-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module measurement
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Module measurement">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#struct-measuredwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct MeasuredWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct MeasuredWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#module-pool" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2853,6 +2909,62 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#module-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module measurement
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Module measurement">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#struct-measuredwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct MeasuredWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct MeasuredWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#module-pool" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2917,6 +3029,9 @@ every concurrent caller rather than an error for the one who asked. A refused re
 else</strong>: not what a driver buffers, not <code>collect()</code> materialising every batch, not the row set built
 in the conversion loop below. See <code>pool</code>, which states the gap rather than implying it is closed.</p>
 <p><code>translate</code>, <code>collect</code>, <code>fixture</code> and <code>pool</code> own narrow seams; this owns session and execution.</p>
+<p><strong>No production gauge reads the <code>DataFusion</code> pool.</strong> Measurement-only children can opt into a
+separate recorder; ordinary adapter construction exports no live reservation reading. The
+<code>check-guidance</code> absence rule rejects a production <code>.memory_pool()</code> call.</p>
 <h2 id="enum-datafusionerror"><code>enum DataFusionError</code><a class="headerlink" href="#enum-datafusionerror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DataFusionError</span>
 </span></code></pre></div>
@@ -3027,17 +3142,7 @@ map" send a reader to three different places.</p>
 <p>The CSV affordance's twin, and why the <code>parquet</code> feature is on. Neither <code>compression</code> nor
 <code>avro</code> is: each reintroduces a licence the supply-chain gate does not allow, and the
 manifest's comment records which.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">memory_pool</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">MemoryPool</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>The pool every operator in this session reserves against.</p>
-<p><strong>An accessor because the fields are private and stay private</strong>, and because
-<code>docs/adr/0015</code> needs <code>MemoryPool::reserved</code> for a gauge whose absence it currently specifies:
-a gauge reading zero while no pool exists is a lie an operator builds an alert on.</p>
-<p><strong>State the limit with the reading.</strong> What comes back counts operator reservations - a
-hash-join build side, aggregate state, a sort - and nothing else. It is not this process's
-memory, and it must not be alerted on as though it were: <code>collect()</code> materialising every batch
-and the row set built during conversion are both outside it, on the same request path.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds an adapter with nothing registered.</p>
 <p>There is no file to open, which is the difference from the <code>DuckDB</code> adapter: the engine is
@@ -3049,7 +3154,7 @@ place the whole control could be forgotten. <code>sutura_config::WorkingSetCeili
 is what a caller with no settings to read uses.
 <strong>It also takes the posture, and that is not optional either</strong>, for the reason the ceiling is
 not: a defaulted posture would be a claim about who a query runs as that nobody made.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The same adapter, <code>workers</code> threads wide.</p>
 <p><strong>What <code>Self::new</code> costs when several threads call it at once, measured rather than
@@ -3105,7 +3210,7 @@ otherwise build sixteen-way plans and execute them two at a time. Pinning it is 
 widths above are <em>ahead</em> of the baseline rather than level with it.</p>
 <p><code>Self::new</code> is deliberately left alone: the command-line tool answers one question and
 exits, and it is also the caller with no settings to read a width from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">working_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">WorkingSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">working_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">WorkingSet</span>
 </span></code></pre></div>
 <p>The configured pool ceiling; <code>MemoryPool::memory_limit</code> can report <code>Unknown</code> instead.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
@@ -3121,6 +3226,37 @@ compiles and installs a three-byte pool. Wrapped, the swap does not build.</p>
 parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memory the process can actually
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.</p>
+<h2 id="module-measurement">Module <code>measurement</code><a class="headerlink" href="#module-measurement" title="Permanent link">&para;</a></h2>
+<p>Opt-in peak recording for measurement-only children, excluded from default builds.
+Opt-in measurement construction for bounded DataFusion execution.</p>
+<p><code>MeasuredWarehouse</code> changes no ordinary construction
+path. It keeps a bounded recording pool beside a fresh adapter so a child can read only the engine
+operators' reservation peak. It does not measure driver buffering, collected batches, domain-row
+conversion, or the process resident set.</p>
+<h3 id="struct-measuredwarehouse"><code>struct MeasuredWarehouse</code><a class="headerlink" href="#struct-measuredwarehouse" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MeasuredWarehouse</span>
+</span></code></pre></div>
+<p>A measured warehouse and its persistent operator-reservation observer.</p>
+<p>It delegates the execution port unchanged. Ordinary <code>DataFusionWarehouse</code> construction retains
+its direct <code>GreedyMemoryPool</code>, so recording
+costs nothing outside an explicit measurement child.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Attaches one CSV table to the measured child.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pool_peak</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>The persistent operator reservation peak in bytes.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pool_reserved</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>The reservation at the end of the observation window.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reset_peak</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Starts a new pool observation window.</p>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Warehouse</code></p>
 <h2 id="module-pool">Module <code>pool</code><a class="headerlink" href="#module-pool" title="Permanent link">&para;</a></h2>
 <p>The working-set ceiling.</p>
 <p>The pool, the never-spill policy, and how a refused reservation is recognised. Its own file
@@ -3160,8 +3296,12 @@ disk state.</p>
 <p>Not wrapped in <code>TrackConsumersPool</code> either, though it would improve the engine's own message: what
 reaches a caller is <code>sutura_domain::query::RefusalReason::ResourcesExhausted</code>,
 which carries the configured ceiling and deliberately nothing about what the question demanded.</p>
+<p><strong>No production gauge reads the <code>DataFusion</code> pool.</strong> ADR 0015 specifies that absence because an
+operator-reservation reading is narrower than process memory. The opt-in measurement feature is
+a gauge whose absence it currently specifies for production: it observes a separate recording
+pool in fresh test children and exposes no accessor on the ordinary adapter.</p>
 <h3 id="struct-workingset"><code>struct WorkingSet</code><a class="headerlink" href="#struct-workingset" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkingSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkingSet</span>
 </span></code></pre></div>
 <p>How many bytes the engine's operators may reserve at once.</p>
 <p><strong>A newtype for the unit rather than for a range</strong>, and that is the whole of its job:
@@ -3173,16 +3313,16 @@ compiles and installs a three-byte pool. Wrapped, the swap does not build.</p>
 parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memory the process can actually
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.</p>
-<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>The ceiling, for whatever sizes the pool.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The ceiling, in bytes.</p>
 <p>The one constructor, named for the unit so a call site reads as bytes at the point of the call
 rather than at the declaration it came from.</p>
-<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 
 
