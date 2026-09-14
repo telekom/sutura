@@ -2640,8 +2640,9 @@ carried as a <code>Presented::SubjectToken</code> and sent as this job's bearer,
 the statement under whoever that token is. The <code>wire</code>'s own credential source stays for the
 shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
 a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
-the composition root that links this adapter, which is the half <code>docs/implementation-plan-bigquery.md</code>
-describes as not wired.</p>
+the composition root that links this adapter: <code>crates/sutura-serve/src/broker.rs</code> composes
+<code>sts::WorkloadIdentityBroker</code> today - wired in serve, not proven live, the same limit
+<code>docs/adr/0018</code> states for it.</p>
 <p><strong>ONE of the two subject shapes, and the other is refused rather than degraded.</strong> A
 <code>Presented::SubjectPrincipal</code> is a principal the data system switches to on a connection the
 DEPLOYMENT authenticated, and <code>BigQuery</code> has no such mechanism; it is the same POSTURE as a

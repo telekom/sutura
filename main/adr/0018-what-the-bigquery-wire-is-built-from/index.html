@@ -3256,6 +3256,13 @@ second narrow port for the credential.</strong></p>
 <h3 id="which-shipped-artifact-links-what-per-target">Which shipped artifact links what, per target<a class="headerlink" href="#which-shipped-artifact-links-what-per-target" title="Permanent link">&para;</a></h3>
 <p><strong>The answer today is: none of them link either half of this crate</strong>, and that is checkable rather
 than asserted.</p>
+<p><strong>Corrected: that overstates the manifest side.</strong> <code>sutura-cli</code>'s own manifest declares the edge -
+<code>Cargo.toml:55</code>'s <code>bigquery</code> feature and <code>:87</code>'s <code>sutura-exec-bigquery = { workspace = true, optional
+= true }</code> - and <code>nix/shipped.nix:161-164</code> packages <code>sutura-serve</code> as a release artifact, published as
+the tarball <code>.github/workflows/release.yml:435</code> uploads. What holds is narrower than "none of them
+link either half":
+no artifact in the table below LINKS <code>sutura-exec-bigquery</code> or <code>ureq</code> in its DEFAULT build, because
+every one of them builds with the <code>bigquery</code> feature off.</p>
 <table>
 <thead>
 <tr>
@@ -3304,11 +3311,23 @@ than asserted.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Corrected: <code>sutura-serve</code> IS built by a release package.</strong> <code>nix/shipped.nix:161-164</code> names it as a
+shipped binary (<code>bin = "sutura-serve"</code>, <code>package = "sutura-serve"</code>), and
+<code>.github/workflows/release.yml:435</code> uploads the published <code>sutura-serve-&lt;target&gt;.tar.gz</code>. The flake's
+release derivations are not <code>sutura-cli</code>-only; the table's own "no" columns for this row still hold,
+because that package builds with the <code>bigquery</code> feature off.</p>
 <p><code>crates/sutura-cli/Cargo.toml</code> declares no edge to <code>sutura-exec-bigquery</code>, and the root manifest
 keeps the crate out of <code>[workspace.dependencies]</code> on purpose - <code>cargo xtask unused-deps</code> is what
 keeps it out, because no member inherits it. So the four cross builds are byte-identical in their
 dependency requirements before and after this change, and the <code>wire</code> feature is off in every
 resolution any of them performs.</p>
+<p><strong>Corrected: the edge exists, feature-gated.</strong> <code>Cargo.toml:55</code> is <code>bigquery =
+["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]</code> and <code>:87</code> is <code>sutura-exec-bigquery =
+{ workspace = true, optional = true }</code> - an edge, inherited from the workspace and off unless a build
+asks for the <code>bigquery</code> feature. The root manifest's own <code>[workspace.dependencies]</code> (<code>Cargo.toml:105</code>)
+carries the crate too, with its own comment saying why: the entry left when nothing linked the crate
+and is back because something does. <code>cargo xtask unused-deps</code> is what keeps that entry honest in
+either direction, not what keeps it out.</p>
 <p><strong>What it would cost when a composition root does link it</strong>, stated now so the diff that does is not
 the one working it out: <code>ureq</code> plus the eighteen crates above, compiled for that target. The musl
 question is <code>ring</code>, which is the only one with a native component - and <code>ring</code> ships <strong>pregenerated
