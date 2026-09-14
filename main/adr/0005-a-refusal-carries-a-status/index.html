@@ -2823,13 +2823,16 @@ sentence below - <em>"the <code>403</code>s are not a statement about a credenti
 <code>RefusalReason::CredentialUnavailable</code> arrived with a <code>403</code> of its own. The amendment is written where
 that sentence is, and the status table below carries the new row. A review is what found this record
 unamended while the code that amended it had already merged.</p>
-<p><strong>Prospectively amended by <a href="../0030-where-a-budget-lives/">Where a budget lives</a>, ahead of the code
-that will land it.</strong> The Context sentence below - <em>"the two [statuses retried by convention, <code>429</code>
-and <code>408</code>] and no refusal maps to either"</em> - and <code>crates/sutura-http/src/wire/refusal.rs</code>'s own
-header comment, which repeats it, both stop being true the day <code>feat/budget-refusal</code> lands a spent
-budget as a <code>RefusalReason</code> at <code>429</code>. 0030 decides the status now; this record and <code>refusal.rs</code>'s
-header get their own edit - a status-table row and a rewritten sentence, not this note - in the
-commit that lands the variant.</p>
+<p><strong>Amended by <a href="../0030-where-a-budget-lives/">Where a budget lives</a>.</strong> The Context sentence below used
+to say <em>"the two [statuses retried by convention, <code>429</code> and <code>408</code>] and no refusal maps to either"</em> -
+false as of <code>RefusalReason::BudgetExhausted</code>, the first refusal in this enum that maps to <code>429</code>
+because it is the first one that USUALLY self-heals: the same question asked again after the window
+this counter tracks rolls over is usually a different answer, which is exactly what <code>429</code>'s retry
+convention states and what every other row in the table below does not have. The exception is a
+question whose own estimate is over the ceiling by itself - that one is refused every window,
+forever, and only narrowing it helps; <code>crates/sutura-http/src/wire/refusal.rs</code>'s own header comment,
+which used to repeat the unqualified sentence, is amended in the same commit. The status table below
+carries the new row.</p>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
 <p><code>POST /v1/query</code> answered <code>200</code> for both outcomes. An answer and a refusal arrived with the same
 status, and the <code>outcome</code> field was what a caller branched on:</p>
@@ -2868,12 +2871,16 @@ checked against the current documentation of four:</p>
 </tbody>
 </table>
 <p>Nothing mainstream retries a <code>4xx</code> by default. The two statuses retried by convention are <code>429</code> and
-<code>408</code>, and no refusal maps to either. <code>422</code>, where the refusals that ask a caller to narrow the
-question land - <code>grain_not_supported</code>, <code>time_range_too_long</code>, <code>too_many_dimensions</code>,
+<code>408</code>, and at the time this record was written no refusal mapped to either. <strong>Amended by
+<a href="../0030-where-a-budget-lives/">0030</a>: one now does.</strong> <code>budget_exhausted</code> is <code>429</code> precisely because it
+is USUALLY the one refusal here that self-heals - the same question asked again after its window
+resets is usually a different answer, which is what a <code>429</code>'s retry convention states and no other
+row in this enum's table can say. The exception is stated where the row itself is: a question priced
+over the ceiling by itself never self-heals by waiting. <code>422</code>, where the refusals that ask a caller
+to narrow the question land - <code>grain_not_supported</code>, <code>time_range_too_long</code>, <code>too_many_dimensions</code>,
 <code>duplicate_dimension</code>, <code>resources_exhausted</code> and <code>deadline_exceeded</code> - is documented the other way
-round from the premise:
-clients receiving a <code>422</code> "should expect that repeating the request without modification will fail
-with the same error".</p>
+round from the premise: clients receiving a <code>422</code> "should expect that repeating the request without
+modification will fail with the same error".</p>
 <p><strong>Corrected:</strong> this said <em>"four of the eleven refusal codes"</em>. Both numbers had gone stale - the
 codes are named rather than counted here, because nothing in this repository derives either number
 and a count nobody derives is a count that goes stale again. Where the count is still written it is
@@ -2995,7 +3002,7 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <tr>
 <td><code>ResultTooLarge</code></td>
 <td><code>413</code></td>
-<td>The answer did not fit the certifiable cap. Narrowing helps and repeating does not. <strong>Amended after this record was accepted:</strong> the variant now carries a <code>ResultBound</code> and covers a second bound - a data system that will not hand the result back in one piece - at the same status and the same code, because <em>too much data</em> is one answer and one remedy to a caller. Only the sentence differs, from a nested exhaustive match, and the second bound's carries no number: the bound belongs to the data system and is not reported to us. The widening exists because that case used to arrive as <code>503</code>, which this record calls <em>the one refusal where retrying is reasonable</em> - and a retry returned the same reply. <strong>Amended again, <code>telekom/sutura#639</code>:</strong> a third arm, <code>Encoded</code>, covers a result inside every other bound that is still wider than this deployment will spend encoding into a response - a caller's own grouped column can be arbitrary text a data system returns, which no type here bounds the length of. Unlike the volume arm this one carries a number, because it is this build's own ceiling and not one it was never told - a constant, deliberately not described as configured: nothing reads it from a settings file yet</td>
+<td>The answer did not fit the certifiable cap. Narrowing helps and repeating does not. <strong>Amended after this record was accepted:</strong> the variant now carries a <code>ResultBound</code> and covers a second bound - a data system that will not hand the result back in one piece - at the same status and the same code, because <em>too much data</em> is one answer and one remedy to a caller. Only the sentence differs, from a nested exhaustive match, and the second bound's carries no number: the bound belongs to the data system and is not reported to us. The widening exists because that case used to arrive as <code>503</code>, which this record calls <em>the one refusal where retrying is reasonable</em> - and a retry returned the same reply. <strong>Amended again, <code>telekom/sutura#639</code>:</strong> a third arm, <code>Encoded</code>, covers a result inside every other bound that is still wider than this deployment will spend encoding into a response - a caller's own grouped column can be arbitrary text a data system returns, which no type here bounds the length of. Unlike the volume arm this one carries a number, because it is this deployment's own configured ceiling and not one it was never told</td>
 </tr>
 <tr>
 <td><code>SourceUnavailable</code></td>
@@ -3026,6 +3033,11 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <td><code>DeadlineExceeded</code></td>
 <td><code>422</code></td>
 <td><strong>Added by <a href="../0029-where-a-deadline-lives/">0029</a>.</strong> This answer ran out of the time it was given - at the data system, or found already spent before it was ever asked. <code>422</code> under this record's own rule: the deployment decided the bound and the data system enforced it, so something WAS judged, and repeating the request unchanged spends the whole budget again. Not <code>503</code> or <code>408</code>, for the reasons <code>ResourcesExhausted</code> already established for a configured bound. The sentence names the configured budget in seconds</td>
+</tr>
+<tr>
+<td><code>BudgetExhausted</code></td>
+<td><code>429</code></td>
+<td><strong>Added by <a href="../0030-where-a-budget-lives/">0030</a>, and the first row in this table that is not permanent.</strong> The asking subject has spent more than this replica's per-window byte ceiling. Not <code>422</code>: that status's own rule is <em>narrowing helps and repeating does not</em>, and here narrowing USUALLY does not help and repeating usually <strong>does</strong>, once the window this replica tracks resets - which is what <code>429</code>'s retry convention states and no other row here can. The one exception: a question whose OWN estimate exceeds the ceiling by itself is refused every window, forever, and there <code>422</code>'s rule is the true one - narrowing is the only remedy and repeating never is. Not <code>403</code>: <code>CredentialUnavailable</code> and <code>SourceRefused</code> are permanent grants, and reusing their status would teach a caller that this deployment's <code>403</code> sometimes means "come back later". Carries the seconds until the window resets, which is also what <code>Retry-After</code> reports</td>
 </tr>
 </tbody>
 </table>

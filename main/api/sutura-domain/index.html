@@ -8406,6 +8406,7 @@ somebody else's input.</p>
 <li><code>SourceRefused</code> - The data system refused the executed statement because the identity it ran it as may not ask it.</li>
 <li><code>LegsDecideIdentityDifferently</code> - The legs of one answer would not all decide identity the same way.</li>
 <li><code>DeadlineExceeded</code> - This answer ran out of the time it was given, at the data system or before it was ever asked.</li>
+<li><code>BudgetExhausted</code> - The asking subject has spent more than this replica's configured byte ceiling inside the current window.</li>
 </ul>
 <h4 id="methods_70">Methods<a class="headerlink" href="#methods_70" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-447-1"><a id="__codelineno-447-1" name="__codelineno-447-1" href="#__codelineno-447-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>

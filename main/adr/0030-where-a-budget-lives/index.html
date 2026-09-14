@@ -2674,6 +2674,13 @@ an agent or a deployment across many jobs, and #139 is the report that measured 
 <code>main</code>: <code>PreFlight</code> carries <code>NotAsked</code> and <code>Accepted</code> and no number, <code>RefusalReason</code>'s variants
 include none for spend, and every <code>Budget</code>-named value in the tree (<code>FEDERATED_BUDGET</code>, the MCP test
 durations) bounds bytes or time already answered, not money not yet spent.</p>
+<p><strong>Amended: the counter and the refusal this record decided are now built.</strong> <code>sutura_app::spend::SpendLedger</code>
+is the mechanism <em>Where the counter lives</em> decides, keyed and windowed exactly as stated there, and
+<code>RefusalReason::BudgetExhausted</code> at <code>429</code> is the refusal <em>What a spent budget produces</em> decides. Every
+limit this record states - per-replica rather than deployment-wide, the collapsed key with no
+<code>security.inbound</code>, the agent-spends-the-subject's-own-budget cost, the federated under-count - is
+unchanged by the build and still holds. The <em>"Nothing here enforces anything"</em> bullet below is what
+this amendment closes.</p>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
 <p>The pieces this decision assembles already exist and none of them talk to each other, stated here at
 the time of this record (<code>main</code> before #662 - <code>PreFlight</code> gains the field this section says it lacks
@@ -2888,9 +2895,10 @@ except the one call site with a real number to put there
   This under-counts whenever a <code>None</code> leg would have scanned real bytes, which today is every leg
   that is not BigQuery. Stated here so the follow-on branch cannot silently treat a partial sum as a
   complete one.</li>
-<li><strong>Nothing here enforces anything.</strong> A number that nothing refuses against is a metric, not a
-  budget. <code>feat/preflight-estimate-carries-a-number</code> ships the number; <code>feat/budget-refusal</code> ships
-  the refusal this record already named the shape of.</li>
+<li><strong>Nothing here enforces anything.</strong> <em>(Amended - see the top of this record: the counter and the
+  refusal are built.)</em> A number that nothing refuses against is a metric, not a budget.
+  <code>feat/preflight-estimate-carries-a-number</code> shipped the number; the counter and the refusal shipped
+  the shape this bullet named.</li>
 </ul>
 
 
