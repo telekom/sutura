@@ -11,9 +11,10 @@ are escaped in `OutcomeContent::as_text`, catalog prose is quoted per line in
 in each render. The shared injection corpus both transports walk lives in `sutura_app::untrusted`.
 The amendment at the foot of this record extends `catalog_prose: omitted` to the HTTP catalog body,
 which this record's first version reasoned its way out of needing - see *Decision 1* and the
-amendment for why the encoder argument does not reach that question. What is decided here and NOT yet
-built is one half of Decision 3 - the raw SQL tool's failure text - because the raw tool itself
-(`#129`) does not exist yet.
+amendment for why the encoder argument does not reach that question. What is decided here is now built, and the raw
+SQL tool (`#129`) honours it by a stronger mechanism than this record predicted: its refusal
+vocabulary carries no data-system text at all, so the failure-text quoting this decision asked for
+has nothing left to quote - the boundary is named instead.
 
 This record exists because `docs/adr/0009` asked for it to be **decided before an envelope exists**:
 retrofitting a field boundary afterwards is the expensive half, and the question "what marks a value
@@ -93,8 +94,12 @@ cell silently shortened to fit.
 
 ## Decision 3: the raw tool's failure text is untrusted output from the moment it exists
 
-`#129`'s raw SQL tool is not built. Its one boundary that needs deciding in advance is what its
-failure text may carry, because **whoever controls a statement controls part of the message a
+`#129`'s raw SQL tool is built, and it honours this decision by a stronger mechanism than this record
+predicted: its refusal vocabulary, `sutura_domain::raw::RawRefusalReason`, is a closed enum that
+carries no data-system text at all - a driver's `Display` has no field to reach - so a caller is told
+the shape of the failure (`refused ({code})`) and the boundary (`UNTRUSTED_RAW_NOTICE`), never the
+data system's own words. Its one boundary that needed deciding in advance was what its failure text
+may carry, because **whoever controls a statement controls part of the message a
 database returns about it.** The error channel on the certified path is closed - `sutura-http`
 logs the driver's complaint and returns a status with no message, because a driver's complaint names
 a table, a column or a file. The raw tool cannot hold that line: its entire reason to exist is that
