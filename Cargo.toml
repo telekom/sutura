@@ -97,7 +97,8 @@ sutura-app = { path = "crates/sutura-app" }
 sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 # It came back with the code that needs it, which is exactly what its absence predicted: `sutura-serve`
 # links it behind that crate's own default-off `wire` feature, through a default-off `bigquery` feature
-# of its own. So the entry is inherited by ONE member and only when asked for, and the four cross builds
+# of its own. So the entry is inherited where a member wants the edge - behind a feature for a shipped
+# build, unconditionally where the edge is dev-only and does not propagate - and the four cross builds
 # - which pass `--package sutura-cli` and share an unscoped dependency derivation with the checks - are
 # unchanged. `cargo xtask unused-deps` is what keeps a line here honest in either direction: the entry
 # left this table when nothing linked the crate, and it is back because something does.

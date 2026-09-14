@@ -99,6 +99,7 @@ rec {
       pkgs.curl
       pkgs.coreutils
       pkgs.jq
+      pkgs.flock
       endpoints.script
     ];
     text = ''
@@ -132,6 +133,11 @@ rec {
       log="$home/server.log"
       admincfg="$home/kcadm.json"
       realmfile="$state/keycloak-realm.json"
+      # SIBLING of `home`, not inside it - `start`'s cold path `rm -rf`s `home`, and a lock path
+      # that died with it would let a live holder's lock survive on a now-UNLINKED inode while a
+      # fresh `running` check opens a brand-new one at the same path and finds it uncontested. One
+      # stable path for this worktree's whole lifetime is what makes the lock mean anything.
+      lockfile="$state/keycloak.lock"
 
       # Keycloak reads both from the environment - `nixpkgs` patches its launcher for exactly this,
       # which is what lets the store package stay read-only while the state does not.
@@ -151,9 +157,34 @@ rec {
       # something dropped, the home would be deleted under it, and the outcome is two JVMs on two
       # OS-chosen ports sharing one realm file. `nix/postgres-tier.nix` keeps `pg_ctl` for the same
       # reason and says so at its own `status`.
+      #
+      # **THE PIDFILE ALONE IS NOT THE PROCESS** - `github.com/telekom/sutura#528` item 1a,
+      # measured: the pidfile lost, the JVM still alive, and this function used to answer false
+      # over a server that is up, so `start` took the cold path and produced the exact two-JVM
+      # outcome the paragraph above says a guard exists to prevent. The pidfile is unrelated
+      # state - a file `stop` reads to know WHAT to kill - and losing it says nothing about
+      # whether the process is still there. `start`'s launch below now holds `flock` on
+      # `$lockfile` for as long as it (or whatever it `exec`s into) lives - a KERNEL-HELD lock,
+      # released the instant that process ends for any reason - so this asks the kernel whether
+      # anyone holds it rather than trusting a file that can go missing out from under a live
+      # server. A SHARED probe (`-s`) is what keeps this a question rather than a second
+      # claimant: an exclusive probe would itself contend for the slot the real holder has, so two
+      # concurrent probes racing each other - never mind the holder - would answer RUNNING off
+      # each other's transient hold rather than off the server. `github.com/telekom/sutura#528`
+      # item 1, measured: 40 concurrent probe pairs under `-x` all answered RUNNING; `-s` gives 0.
       running() {
-        [ -f "$pidfile" ] || return 1
-        kill -0 -- "-$(cat "$pidfile")" 2>/dev/null
+        # The group redirect is load-bearing, not style: `2>/dev/null` after a bare `exec` only
+        # attaches once the FIRST redirect (opening `$lockfile`) has already succeeded, so on a
+        # fresh worktree - `$state` not created yet, `running` legitimately answering "no" - the
+        # open's own failure message reached the log unsuppressed until this was a group.
+        { exec {running_fd}>"$lockfile"; } 2>/dev/null || return 1
+        if flock -n -s "$running_fd" 2>/dev/null; then
+          flock -u "$running_fd"
+          exec {running_fd}>&-
+          return 1
+        fi
+        exec {running_fd}>&-
+        return 0
       }
 
       # Is the tier up, and up in the way A READER will see it? Nothing is changed and the answer
@@ -370,10 +401,18 @@ rec {
 
         # `set -m` puts the launch in its own process group; `stop` kills the group, because
         # `kc.sh` spawns the JVM rather than replacing itself with it.
+        #
+        # The subshell takes `$lockfile` FIRST and only then `exec`s into `kc.sh` - replacing the
+        # subshell's own process image, which is why `$!` below still names the right pid, but
+        # KEEPING the open, locked file descriptor: `exec` does not close a descriptor that was
+        # not marked close-on-exec. So the process `running` above checks against is holding the
+        # lock for as long as it lives, pidfile or no pidfile.
         set -m
-        kc.sh start --optimized --cache=local --http-enabled=true --hostname-strict=false \
-          --http-host=127.0.0.1 --http-port=0 --http-management-port=0 \
-          >"$log" 2>&1 &
+        ( exec {start_fd}>"$lockfile"
+          flock -x "$start_fd"
+          exec kc.sh start --optimized --cache=local --http-enabled=true --hostname-strict=false \
+            --http-host=127.0.0.1 --http-port=0 --http-management-port=0
+        ) >"$log" 2>&1 &
         echo "$!" > "$pidfile"
         set +m
 
@@ -550,6 +589,34 @@ rec {
       realm=.sutura-dev/keycloak-realm.json
       test "$(jq -r '.subjects | length' "$realm")" = 2
       test "$(jq -r '.issuer' "$realm")" = "http://127.0.0.1:$port/realms/${realm}"
+
+      # --- A LOST PIDFILE ALONE DOES NOT PRODUCE A SECOND JVM ---
+      # `github.com/telekom/sutura#528` item 1a: the old guard was `[ -f "$pidfile" ]` first, so
+      # losing JUST the pidfile - independent of `TMPDIR`, independent of `endpoints.json` -
+      # answered false over a live JVM, and `start` took its cold path: `rm -rf`s the home a live
+      # server is using and launches a second one on a second OS-chosen port, sharing one realm
+      # file. Reproduced directly: the pidfile is the ONLY thing removed here.
+      lost_pid="$(cat "$kc_home/tier.pid")"
+      rm -f "$kc_home/tier.pid"
+      expect_state 0 "a live tier is found by status even with its pidfile gone"
+      sutura-keycloak-tier start
+      if [ -f "$kc_home/tier.pid" ] && [ "$(cat "$kc_home/tier.pid")" != "$lost_pid" ]; then
+        echo "start launched a SECOND JVM: the pid changed after losing only the pidfile" >&2
+        exit 1
+      fi
+      expect_state 0 "still one server, one claim, after the lost pidfile is healed"
+      # NEITHER of `start`'s healthy-path branches rewrites the pidfile - it is `stop`'s
+      # bookkeeping, not `running`'s any more - so it stays gone after a heal like this one.
+      # Restored here for the assertions below, which read it directly; that gap is real and
+      # stated rather than fixed, and it is WORSE than "cannot signal the JVM": `stop`'s kill is
+      # guarded by `[ -f "$pidfile" ]`, but its withdraw / `rm "$realmfile"` / `rm -rf "$home"`
+      # below are NOT - so a `stop` reaching this worktree after such a heal exits 0 having
+      # withdrawn the claim and deleted the realm file and home out from under a JVM it never
+      # touched, and every later `start` that then fails names this same `stop` as its remedy,
+      # which cannot perform it.
+      if [ ! -f "$kc_home/tier.pid" ]; then
+        echo "$lost_pid" > "$kc_home/tier.pid"
+      fi
 
       # --- a live server whose entry was dropped HEALS IN PLACE ---
       # `github.com/telekom/sutura#324`. The state is any publish this tier's entry did not

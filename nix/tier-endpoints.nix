@@ -33,7 +33,11 @@
 {
   script = pkgs.writeShellApplication {
     name = "sutura-tier-endpoint";
-    runtimeInputs = [ pkgs.jq ];
+    # `flock` (the cross-platform standalone binary, not the Linux-only `util-linux` one) locks a
+    # FILE DESCRIPTOR THE KERNEL OWNS - released the moment this process ends for any reason,
+    # including a kill, with nothing here having to clean it up by hand. `publish`/`withdraw` take
+    # it around their read-modify-write; see there for what it replaces.
+    runtimeInputs = [ pkgs.jq pkgs.flock ];
     text = ''
       set -o errexit -o nounset
 
@@ -50,11 +54,20 @@
       # these, one field had to answer for both and answered wrong for one of them. So each entry
       # carries what provisioned it, `dev/src/discovery.rs` reads it per service, and neither
       # writer touches a key belonging to the other.
+      # Two `publish`es for DIFFERENT services used to race this document, both through one
+      # hardcoded `$file.new`: whichever finished second found the first had already renamed it
+      # away - `mv: cannot stat '.../endpoints.json.new'` - and a fix that only gave each a unique
+      # temp name would still lose one entry to the other's read-modify-write, silently rather
+      # than with a crash. `github.com/telekom/sutura#528` item 3. `flock` serialises the whole
+      # cycle below instead - see the `runtimeInputs` comment for why a kernel lock over an
+      # mkdir-based one.
       publish() {
         root="$1"; service="$2"; host="$3"; port="$4"
         state="$root/.sutura-dev"
         file="$state/endpoints.json"
         mkdir -p "$state"
+        exec {lockfd}>"$state/endpoints.lock"
+        flock -x "$lockfd"
         if [ ! -f "$file" ]; then
           printf '{"project":"sutura","services":{}}\n' > "$file"
         fi
@@ -62,6 +75,7 @@
           '.services[$service] = { host: $host, port: $port, provisioner: "nix" }' \
           "$file" > "$file.new"
         mv "$file.new" "$file"
+        exec {lockfd}>&-
       }
 
       # Does the document still carry exactly what `publish` was last given for this service? The
@@ -81,9 +95,13 @@
 
       withdraw() {
         root="$1"; service="$2"
-        file="$root/.sutura-dev/endpoints.json"
+        state="$root/.sutura-dev"
+        file="$state/endpoints.json"
         # A tier that was never started has no file to withdraw from, and that is not a failure.
         [ -f "$file" ] || return 0
+        # The same mutex `publish` takes, over the same document - see its comment.
+        exec {lockfd}>"$state/endpoints.lock"
+        flock -x "$lockfd"
         jq --arg service "$service" 'del(.services[$service])' "$file" > "$file.new"
         mv "$file.new" "$file"
         # The last service out takes the file with it: its existence is what discovery reads as
@@ -91,6 +109,7 @@
         if [ "$(jq -r '.services | length' "$file")" = "0" ]; then
           rm -f "$file"
         fi
+        exec {lockfd}>&-
       }
 
       case "''${1:-}" in
