@@ -2673,14 +2673,16 @@ property this adapter does not recognise rather than guessing.</p>
 <h1 id="what-is-built-here-and-what-is-not">What is built here, and what is NOT<a class="headerlink" href="#what-is-built-here-and-what-is-not" title="Permanent link">&para;</a></h1>
 <p>This crate contains everything <code>DataHubCatalog</code> DECIDES about the aspects it reads, and it is
 tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
-HTTP. What it does not contain is an HTTP client: <code>AspectReader</code> is the seam a real reader over
-<code>DataHub</code>'s versioned <code>OpenAPI</code> v3 entity surface will implement (with a personal access token as a
-bearer). Until that lands, the only implementor of the port outside a test is the recorded
-fixture source in <code>fixture</code> - the other two are doubles, <code>tests::Stub</code> and the acceptance
-suite's <code>Composed</code> - so no code here shapes a request or maps a response. <strong>And nothing serves it:</strong> no
-composition root links this crate (its only dependant is <code>sutura-app</code>, as a dev-dependency), and
-<code>sutura-serve</code> refuses <code>catalog.kind: datahub</code> by name. Everything here is decided and tested;
-what is not is the reader itself and a served composition - the <em>Built and not wired</em> register in
+HTTP. <code>AspectReader</code> is the seam a real reader over <code>DataHub</code>'s versioned <code>OpenAPI</code> v3 entity
+surface implements, and since issue #202's HTTP reader, one now does: <code>http::HttpAspectReader</code>,
+behind this crate's default-off <code>http</code> feature, with a personal access token as a bearer. Its own
+module header states what is measured against a live <code>DataHub</code> and what is not - only the
+<code>metric</code> entity's wire shape is, today. The recorded fixture source in <code>fixture</code> and the two
+test doubles (<code>tests::Stub</code>, the acceptance suite's <code>Composed</code>) remain what every other test in
+this crate reads against. <strong>And nothing serves the new reader yet:</strong> no composition root links
+this crate (its only dependant is <code>sutura-app</code>, as a dev-dependency), and <code>sutura-serve</code> refuses
+<code>catalog.kind: datahub</code> by name - that half is a separate, stacked change. Everything here is
+decided and tested; what is not is a served composition - the <em>Built and not wired</em> register in
 <code>.agents/skills/sutura/query-surface/SKILL.md</code> records it, and that register is the one place it
 may be read from - it is not an invariant.</p>
 <p><strong>What that register no longer says is that the cost is unmeasured.</strong> <code>docs/adr/0016</code>'s
@@ -2723,9 +2725,12 @@ because that is the promotion-candidate half; only a metric carrying the deploym
 <p>Where a snapshot's aspects come from.</p>
 <p><strong>The fake seam.</strong> Everything above this trait is decided and tested against recorded documents;
 a real implementor speaks to <code>DataHub</code>'s versioned <code>OpenAPI</code> v3 entity surface, decodes into
-<code>document::Snapshot</code>, and maps its own failures into <code>DataHubError::Read</code>. The only
-implementor today is the recorded source in <code>fixture</code>. The RESPONSE SHAPE that implementor has
-to map, and the surface's consistency, are measured rather than guessed - see the crate header.</p>
+<code>document::Snapshot</code>, and maps its own failures into <code>DataHubError::Read</code>. Since issue #202
+one does: <code>http::HttpAspectReader</code>, behind the <code>http</code> feature. Every other test in this crate
+still reads against the recorded source in <code>fixture</code> - the RESPONSE SHAPE a real implementor has
+to map, and the surface's consistency, were measured rather than guessed before it was written -
+see the crate header, and <code>http</code>'s own module header for which of the three entity shapes that
+measurement actually covers.</p>
 <p>A port rather than a method on <code>DataHubCatalog</code> for the same reason the warehouse port exists:
 a catalog that could be swapped for a live source without the conversion changing is the point.</p>
 <h2 id="enum-datahuberror"><code>enum DataHubError</code><a class="headerlink" href="#enum-datahuberror" title="Permanent link">&para;</a></h2>
@@ -3091,6 +3096,211 @@ shapes holds over these recorded documents.</p>
 declared source, which is what lets a model on that platform be opened. This is the constructor
 the conformance registry uses to register the adapter; it is <code>pub</code> because an integration suite is
 a separate crate and cannot reach a <code>#[cfg(test)]</code> item.</p>
+<h2 id="module-http">Module <code>http</code><a class="headerlink" href="#module-http" title="Permanent link">&para;</a></h2>
+<p>The real <code>crate::AspectReader</code>: three paged reads over <code>DataHub</code>'s versioned <code>OpenAPI</code> v3
+entity surface, assembled into one <code>Snapshot</code>.</p>
+<p>Behind the crate's default-off <code>http</code> feature - see <code>Cargo.toml</code>'s own comment on why - so a
+build that does not ask for this reader links no outbound TLS stack.</p>
+<h1 id="what-is-measured-and-what-is-not-stated-here-because-it-decides-how-this-module-is-written">What is measured, and what is not - stated here because it decides how this module is written<a class="headerlink" href="#what-is-measured-and-what-is-not-stated-here-because-it-decides-how-this-module-is-written" title="Permanent link">&para;</a></h1>
+<p><strong>The <code>metric</code> entity's wire shape is confirmed against a live instance.</strong>
+<code>tests/provisioned.rs</code>'s <em>Revision, 2026-09-04</em> round-tripped the recorded fixture's own document
+through a real <code>DataHub</code> 1.7.0 and compared what came back against the fixture byte-for-byte, so
+<code>harvest_metric</code> maps exactly the envelope that suite measured: <code>entities[]</code>, each carrying
+<code>metricInfo.value</code> and <code>structuredProperties.value.properties[]</code>.</p>
+<p><strong>The <code>dataset</code> and <code>semanticModel</code> entities are NOT measured against a live instance.</strong> Their
+field lists come from <code>docs/adr/0016</code>'s "Field by field" table, which was read from the platform's
+own <code>.pdl</code> schema sources rather than from a served response. This is stated once here and
+repeated at each mapping function, because the two facts have different consequences: a wrong
+guess about <code>metric</code>'s envelope would be a regression against a proven round trip, and a wrong
+guess about the other two would be the FIRST claim this crate has made about them. So both
+mapping functions refuse an unexpected shape as a typed <code>HttpReaderError::UnexpectedShape</code>
+naming the entity and the field, rather than reading past a missing or mistyped key with a
+default - a guess that happened to be wrong would otherwise certify a bundle silently missing a
+model or a relationship. <strong>Do not cite this reader as proof the structural half works against a
+real <code>DataHub</code> until an acceptance leg like <code>tests/provisioned.rs</code>'s measures it.</strong></p>
+<h1 id="what-every-read-is-bounded-by">What every read is bounded by<a class="headerlink" href="#what-every-read-is-bounded-by" title="Permanent link">&para;</a></h1>
+<p><code>ReadBounds</code> carries a request timeout and a response-size cap, both <strong>settings with defaults,
+not constants</strong> - <code>DEFAULT_TIMEOUT_SECONDS</code> and <code>DEFAULT_MAX_RESPONSE_BYTES</code> are the values a
+composition root's settings default to, following <code>sutura-config</code>'s own convention of a default
+function per optional key, not a value baked into this type. <code>read</code> makes
+up to three requests and shares ONE deadline across them - opened once, and what is left after
+the first two requests is what the third gets - the same shape <code>sutura-exec-bigquery</code>'s
+<code>CallDeadline</code> holds for a job's token exchange and its query, and for the same reason: a budget
+opened per request lets three independent timeouts sum to three times what a deployment declared.</p>
+<h1 id="auth">Auth<a class="headerlink" href="#auth" title="Permanent link">&para;</a></h1>
+<p>A personal access token as a <code>Secret</code>, sent as <code>Authorization: Bearer &lt;token&gt;</code> on every
+request. The token is a constructor argument here; a composition root reads it from a settings-
+declared file at boot (<code>token_file</code>, the naming convention <code>credential_file</code>/<code>password_file</code>
+already hold), never inline in a settings document.</p>
+<h1 id="paging">Paging<a class="headerlink" href="#paging" title="Permanent link">&para;</a></h1>
+<p>One page per entity type, at a generous count. A page that SIGNALS more results exist - a
+<code>scrollId</code>, or a returned count below a reported <code>total</code> - is refused
+(<code>HttpReaderError::MorePages</code>) rather than silently read as complete: the same "one page or a
+refusal" shape <code>sutura-exec-bigquery</code>'s wire holds for <code>jobs.query</code>, because a caller must not
+certify a bundle built from a <code>Snapshot</code> that silently dropped a model, a relationship or a
+metric. <strong>Unmeasured: whether a real v3 last page ever carries a <code>scrollId</code> of its own.</strong> If it
+does, every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
+<code>tests/provisioned.rs</code>) has to measure this before PR2 wires the composition - the <code>scrollId</code> arm
+is a defensible guess against the platform's own "there is more" convention, not something this
+crate has watched a real GMS answer.</p>
+<h1 id="tls-and-the-endpoint">TLS and the endpoint<a class="headerlink" href="#tls-and-the-endpoint" title="Permanent link">&para;</a></h1>
+<p><code>Endpoint::parse</code> is the ONLY way to obtain an <code>Endpoint</code>, and <code>HttpAspectReader::new</code> takes one rather than a
+<code>String</code> - a caller cannot dial an endpoint this module has not validated. What <code>Endpoint::parse</code> accepts, exactly:
+<code>scheme://host[:port]</code>, scheme <code>http</code> or <code>https</code> (case-folded), on a <code>Uri</code> (<code>ureq</code>'s own re-export of the <code>http</code> crate's
+parser, the SAME type <code>ureq</code> itself parses a request URL into before dialling), an OPTIONAL nonzero valid <code>:port</code>, an
+OPTIONAL trailing <code>/</code>, and NOTHING else: a path, query or fragment is <code>InvalidEndpoint::PathBeyondRoot</code> (fragment
+checked on the RAW text, because <code>http::Uri</code> silently discards a <code>#</code>), a bad port is <code>InvalidEndpoint::NotAnHttpUrl</code>,
+and a <code>user[:pass]@</code> prefix is <code>InvalidEndpoint::CredentialsInUrl</code>. <code>https://</code> is accepted for any host; <code>http://</code> only
+for an IP loopback LITERAL - <code>sutura_domain::source::host_is_loopback</code>, the ONE predicate
+<code>sutura_config::sources::transport</code> also calls for Postgres's <code>transport_mode: plaintext</code> (issue 124's fail-closed rule,
+<code>github.com/telekom/sutura#653</code>): a hostname is not an address, so <code>localhost</code> does not count either, and only something
+that parses as <code>IpAddr</code> and answers <code>is_loopback()</code> does - the same function both crates call, so a divergence between
+them is a compile error, not a review's job to notice.</p>
+<p><strong>This section has been wrong twice, and both corrections are worth keeping visible rather than
+silently fixed - the second because the first one's OWN reasoning had a gap in it.</strong></p>
+<p>The first draft removed <code>https_only(true)</code> (<code>BigQuery</code>'s own pin) entirely, arguing from this
+record's own measurement tier reaching its <code>DataHub</code> over loopback plaintext "by construction" -
+true, but an argument for LOOPBACK plaintext, not for plaintext to any host a deployment might
+type. With no parse at all, a bearer was dialled in clear text to
+<code>http://datahub.example.internal</code> exactly as readily as to <code>http://127.0.0.1</code>, refused only by a
+connection timeout. The first fix was <code>Endpoint</code>, parsed by splitting the string by hand.</p>
+<p><strong>The hand-split parse was itself the second gap, and a second review measured it.</strong> For
+<code>http://[::1]:1@localhost:&lt;port&gt;</code>, the hand-rolled host extraction took the text before the
+LAST <code>:</code> in the authority - <code>::1</code> for the bracketed case - so the endpoint parsed as loopback
+while the REAL host, <code>localhost</code> (everything after the userinfo's <code>@</code>), is exactly the name
+<code>Endpoint::parse</code> is supposed to refuse in plaintext. A reader built from that string dialled
+<code>localhost</code> with the bearer prepared. Parsing with <code>Uri</code> - the SAME parser <code>ureq</code> itself uses -
+closes this the way it should have been closed the first time: <code>Authority::host</code> already
+resolves past userinfo correctly, and <code>Endpoint::parse</code> additionally refuses any <code>user[:pass]@</code>
+prefix outright rather than trusting that resolution to stay correct.</p>
+<p><code>ureq</code>'s compiled-in default root set (for an <code>https://</code> endpoint), <code>max_redirects(0)</code> and the
+proxy left on (<code>Proxy::try_from_env()</code>) are the other three pins
+<code>sutura_exec_bigquery::wire::WireAgent::pinned</code> states for <code>BigQuery</code>. <strong>Follow-up, not built
+here:</strong> issue #125 PR2's <code>security.outbound.transport_anchors</code> is the future seam for a
+deployment's own CA, for the endpoints that do use TLS.</p>
+<h3 id="enum-invalidreadbounds"><code>enum InvalidReadBounds</code><a class="headerlink" href="#enum-invalidreadbounds" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidReadBounds</span>
+</span></code></pre></div>
+<p>Why a declared bound is not usable.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Zero</code> - Zero would refuse every read rather than bounding one.</li>
+</ul>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-readbounds"><code>struct ReadBounds</code><a class="headerlink" href="#struct-readbounds" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ReadBounds</span>
+</span></code></pre></div>
+<p>What one <code>HttpAspectReader::read</code> call may spend: a request timeout and a response-size cap.</p>
+<p>A newtype rather than two loose arguments, so a reader cannot be built with an unchecked pair -
+<code>sutura_exec_bigquery::wire::JobBounds</code>'s own shape, minus the money bound this read has no use
+for (a metadata read is not billed).</p>
+<h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_response_bytes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">,</span><span class="w"> </span><span class="n">max_response_bytes</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidReadBounds</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a declared timeout and cap, refusing either at zero.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">timeout</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code></p>
+<h3 id="struct-endpointmessage"><code>struct EndpointMessage</code><a class="headerlink" href="#struct-endpointmessage" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">EndpointMessage</span>
+</span></code></pre></div>
+<p><code>DataHub</code>'s own message on a refusal.</p>
+<p>Redacted the way <code>sutura_exec_bigquery::wire::EndpointMessage</code> is: bounded, filtered, and
+reachable only through <code>Self::as_str</code> - never through <code>Debug</code>, which is the rendering a
+cause-chain walk uses.</p>
+<h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The message itself, for a caller that has decided it may render it.</p>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-httpreadererror"><code>enum HttpReaderError</code><a class="headerlink" href="#enum-httpreadererror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">HttpReaderError</span>
+</span></code></pre></div>
+<p>Why one of the three entity reads did not produce the aspects it names.</p>
+<p>Reaches <code>crate::DataHubCatalog</code> boxed inside <code>DataHubError::Read</code> - the port's own coarse
+variant - so this stays inspectable by a caller that knows to downcast, the <code>ErasedCause</code> shape
+<code>.agents/skills/sutura/secure-by-design/SKILL.md</code> argues for at a boundary.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>DeadlineSpent</code> - The shared budget was gone before this entity's page could be requested.</li>
+<li><code>Unreachable</code> - The entity's page was not reached.</li>
+<li><code>Unreadable</code> - The entity's page was reached and its answer could not be read.</li>
+<li><code>Refused</code> - <code>DataHub</code> refused the request. <code>Display</code> renders the status and never <code>detail</code> - the same rule <code>sutura_exec_bigquery::wire::WireError::Refused</code> holds, and for the same reason: a cause-chain walk that flattens every link with <code>Display</code> must not carry endpoint-owned text.</li>
+<li><code>TooLarge</code> - The page was larger than the cap this reader will read.</li>
+<li><code>NotADocument</code> - The page was not a JSON document.</li>
+<li><code>UnexpectedShape</code> - One entity's aspect did not carry a field this reader expects, or carried it in a shape it does not recognise.</li>
+</ul>
+<p><strong>Refused rather than guessed</strong> - see the module header on which of the three entity shapes
+  this applies to. <code>field</code> is a dotted path (<code>"schemaMetadata.value.fields[].fieldPath"</code>) so a
+  refusal names exactly where the document stopped matching this reader's expectation.
+- <code>NotTheCanonicalShape</code> - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching <code>serde_json::from_value</code> here was already read out of the page by name above.
+- <code>MorePages</code> - The page stated or implied more results exist than the one page this reader will read.</p>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-invalidendpoint"><code>enum InvalidEndpoint</code><a class="headerlink" href="#enum-invalidendpoint" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidEndpoint</span>
+</span></code></pre></div>
+<p>Why a declared endpoint is not usable.</p>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NotAnHttpUrl</code> - Not a parseable URL, or a parseable URL naming neither <code>http</code> nor <code>https</code>, or one naming no authority at all.</li>
+<li><code>CredentialsInUrl</code> - The authority carries <code>user[:pass]@</code> - refused outright. <strong>This is not merely defence in depth against a spoofed host</strong>: the round-2 review measured a reader built from <code>http://[::1]:1@localhost:&lt;port&gt;</code> dialling <code>localhost</code> in clear text with the bearer prepared, because a hand-rolled host extraction split on the wrong delimiter. Parsing with <code>Uri</code> closes that specific bypass on its own - <code>Authority::host</code> resolves to the text AFTER the last <code>@</code>, which is <code>localhost</code> here, so the loopback check below already sees the real target - but a declared endpoint has no legitimate use for embedded credentials, so this refuses the shape by name rather than relying on that resolution being correct forever.</li>
+<li><code>PathBeyondRoot</code> - A path, a query or a fragment beyond the bare root - a reverse-proxy path prefix is a real shape, not yet supported, a stated limit. The fragment is checked on RAW text in <code>Endpoint::parse</code>: <code>http::Uri</code> silently discards a <code>#</code>.</li>
+<li><code>PlaintextBeyondLoopback</code> - <code>http://</code> to a host that is not an IP loopback literal - see <code>sutura_domain::source::host_is_loopback</code>.</li>
+</ul>
+<h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-endpoint"><code>struct Endpoint</code><a class="headerlink" href="#struct-endpoint" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Endpoint</span>
+</span></code></pre></div>
+<p>A validated <code>DataHub</code> endpoint, obtainable only through <code>Self::parse</code> - see the module
+header's "TLS and the endpoint" section for the accepted grammar and each refusal.</p>
+<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidEndpoint</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses and validates against <code>Uri</code> - the SAME parser <code>ureq</code> itself dials with, rather
+than a hand-rolled split, which is what let the round-2 review's userinfo form
+(<code>http://[::1]:1@localhost</code>) reach <code>host_is_loopback</code> with the wrong string. The stored
+form is rebuilt from the parsed <code>scheme</code>/<code>authority</code>, so any root spelling normalises alike.</p>
+<h4 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-httpaspectreader"><code>struct HttpAspectReader</code><a class="headerlink" href="#struct-httpaspectreader" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-69-1"><a id="__codelineno-69-1" name="__codelineno-69-1" href="#__codelineno-69-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">HttpAspectReader</span>
+</span></code></pre></div>
+<p>A <code>DataHub</code> GMS, reached over HTTP.</p>
+<p>Not generic over its credential the way <code>sutura-exec-bigquery</code>'s transport is: there is exactly
+one credential shape here, a personal access token, so a type parameter would buy nothing a
+second constructor would not.</p>
+<h4 id="methods_12">Methods<a class="headerlink" href="#methods_12" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">property</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a reader. <code>endpoint</code> is already validated - a caller reaches one only through
+<code>Endpoint::parse</code>, so a reader cannot be built pointed at a plaintext non-loopback host.
+<code>property</code> is the deployment's; <code>token</code> is read from a settings-declared file at boot by the
+composition root, never inline; <code>bounds</code> is <code>ReadBounds::parse</code>'s output, so a reader
+cannot be built with an unchecked pair either.</p>
+<h4 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h4>
+<p><code>AspectReader</code>, <code>Clone</code>, <code>Debug</code></p>
+<h3 id="constant-default_timeout_seconds"><code>constant DEFAULT_TIMEOUT_SECONDS</code><a class="headerlink" href="#constant-default_timeout_seconds" title="Permanent link">&para;</a></h3>
+<p>The recommended default request timeout, in seconds, for a composition root's settings default.</p>
+<p>Matches <code>server.request_timeout_seconds</code>'s own shipped default: a metadata read that outlives the
+request timeout in front of it cannot answer inside the budget the caller was promised anyway.
+<strong>Not read by anything in this module</strong> - a caller passes the number it resolved, through
+<code>ReadBounds::parse</code>, the same single-owner shape <code>BytesBilledCeiling::parse</code> holds for
+<code>BigQuery</code>'s ceiling: this crate owns the range, a settings tree owns that the key was written.</p>
+<h3 id="constant-default_max_response_bytes"><code>constant DEFAULT_MAX_RESPONSE_BYTES</code><a class="headerlink" href="#constant-default_max_response_bytes" title="Permanent link">&para;</a></h3>
+<p>The recommended default response-size cap, in bytes, for a composition root's settings default.</p>
+<p>One quarter of <code>sutura_exec_bigquery::wire::MAX_ANSWER_BYTES</code>: a metadata page is descriptions,
+column names and one metric document, not query rows, and what this defends against is the same
+case that constant does - something that is not the endpoint answering - rather than a
+realistic upper bound on a legitimate page.</p>
 
 
 
