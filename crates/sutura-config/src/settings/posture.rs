@@ -9,7 +9,34 @@
 //! `Settings::refusals` is the only producer, and it stays beside `Settings` because it reads that
 //! struct's private fields.
 
+use sutura_domain::model::SourceName;
+
 use crate::security::DeploymentIdentity;
+use crate::server::BindAddress;
+
+/// Which of the two reasons a caller-facing credential, or the limiter, was required.
+///
+/// Closed rather than a free string: every site below chooses between exactly these two reasons -
+/// production, or reachable off-host - never a third, so a match missing an arm is a compile error
+/// rather than a refusal nobody wrote. One type shared across [`NotFitToServe::AccessTokenRequired`],
+/// [`NotFitToServe::RateLimitingDisabled`] and [`NotFitToServe::MetricsTokenRequired`], because all
+/// three ask the identical question `settings.rs`'s `metrics_refusals` asks first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenRequiredBy {
+    /// The environment is production, regardless of the bind.
+    Production,
+    /// The bind is reachable from other hosts, regardless of environment.
+    OffHost,
+}
+
+impl core::fmt::Display for TokenRequiredBy {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Production => "this is a production deployment",
+            Self::OffHost => "this service is bound where other hosts can reach it",
+        })
+    }
+}
 
 /// A deployment this service refuses to start as.
 ///
@@ -20,6 +47,11 @@ use crate::security::DeploymentIdentity;
 ///
 /// Every variant names the key to change, because a refusal that does not say what to do is a
 /// support request.
+///
+/// **No `Serialize`, and neither has [`crate::settings::SettingsError`] that carries it.** Both
+/// reach a caller only through `#[error]`'s rendered text on stderr, never as a structured value -
+/// so typing a field here - [`BindAddress`], [`SourceName`], [`TokenRequiredBy`] - is a compiler
+/// check on this crate's own construction sites, and publishes nothing to anyone outside it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NotFitToServe {
     /// The bind address is reachable from other hosts and nobody said what protects the path to
@@ -40,24 +72,35 @@ pub enum NotFitToServe {
          records which cleartext hop this bearer token crosses, which is a fact only this \
          deployment knows"
     )]
-    TlsTerminationUndeclared { bind: String, origin: String },
+    TlsTerminationUndeclared {
+        bind: BindAddress,
+        /// A provenance SENTENCE, not a value - `self.layers.origin_of("server.host")` at
+        /// `settings.rs:459-463` already renders it (a file path, a variable name, or "embedded
+        /// defaults"). Typing it further would mean this crate re-parsing its own message.
+        origin: String,
+    },
     /// Something is reachable off-host, or this is production, and there is no token.
     ///
     /// Not authentication - see [`crate::security`] - but the difference between a bearer secret
     /// and nothing at all is the difference between a configured reader and anyone who can route
     /// a packet.
     #[error(
-        "{because}, so security.access_token must be set. It authenticates the DEPLOYMENT and not \
-         the caller: sutura has no per-caller identity, so every query still runs with whatever \
-         access this process already had"
+        "{because}, and no inbound identity is configured, so security.access_token must be set. \
+         It authenticates the DEPLOYMENT and not the caller: sutura has no per-caller identity, so \
+         every query still runs with whatever access this process already had"
     )]
-    AccessTokenRequired { because: &'static str },
-    /// Production with the limiter switched off.
+    AccessTokenRequired { because: TokenRequiredBy },
+    /// Reachable off-host, or production, with the limiter switched off.
+    ///
+    /// **Keyed exactly like [`Self::MetricsTokenRequired`], and that is the fix over the previous
+    /// shape.** The old refusal fired only in production, but an unbounded caller is an unbounded
+    /// aggregate over the same up-to-ten-years history whether or not the deployment happens to be
+    /// labelled `production` - reachability off-host is what makes the load somebody else's to send.
     #[error(
-        "rate_limit.enabled is false in production. A question here is an aggregate over up to ten \
+        "{because}, and rate_limit.enabled is false. A question here is an aggregate over up to ten \
          years of history, so an unbounded caller is an unbounded load on the data system"
     )]
-    RateLimitingDisabledInProduction,
+    RateLimitingDisabled { because: TokenRequiredBy },
     /// Production asking the kernel to choose the port.
     #[error(
         "server.port is 0 in production, which asks the kernel for an ephemeral port. Nothing can \
@@ -148,7 +191,7 @@ pub enum NotFitToServe {
          acknowledgement, and no acknowledgement is inherited from another source",
         DeploymentIdentity::KEY
     )]
-    SharedSourceNotAcknowledged { alias: String },
+    SharedSourceNotAcknowledged { alias: SourceName },
     /// The raw SQL tool is enabled in a deployment that declared it serves more than one subject.
     ///
     /// **The same "same reason, same mechanism" the shared-source check already uses, over a
@@ -203,12 +246,12 @@ pub enum NotFitToServe {
     /// unauthenticated way to read the process's counters - the same argument
     /// [`Self::AccessTokenRequired`] makes for the API surface, applied to what a scrape can see.
     #[error(
-        "{because}, but security.metrics_token is not set. The metrics endpoint is gated by its \
-         own credential, never the deployment token - a scrape needs to read counters, and giving \
-         it the API token would hand the monitoring system the ability to interrogate the business. \
-         Set security.metrics_token"
+        "the metrics endpoint is mounted and {because}, but security.metrics_token is not set. The \
+         metrics endpoint is gated by its own credential, never the deployment token - a scrape \
+         needs to read counters, and giving it the API token would hand the monitoring system the \
+         ability to interrogate the business. Set security.metrics_token"
     )]
-    MetricsTokenRequired { because: &'static str },
+    MetricsTokenRequired { because: TokenRequiredBy },
     /// The two credentials are the same value, which collapses the separation `docs/adr/0015`
     /// exists for.
     ///

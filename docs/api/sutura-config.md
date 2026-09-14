@@ -839,6 +839,11 @@ process that went on to serve traffic. A process that does not start is noticed.
 Every variant names the key to change, because a refusal that does not say what to do is a
 support request.
 
+**No `Serialize`, and neither has `crate::settings::SettingsError` that carries it.** Both
+reach a caller only through `#[error]`'s rendered text on stderr, never as a structured value -
+so typing a field here - `BindAddress`, `SourceName`, `TokenRequiredBy` - is a compiler
+check on this crate's own construction sites, and publishes nothing to anyone outside it.
+
 ## `use Settings`
 
 The whole resolved configuration.
@@ -872,6 +877,16 @@ A value rather than a set of arguments, for one reason: the process environment 
 layer by setting variables could not be written under `unsafe_code = "forbid"`. Supplying the
 variables as a map makes that layer a pure function of its input, and
 `Sources::from_process_environment` is the one place that reads the real environment.
+
+## `use TokenRequiredBy`
+
+Which of the two reasons a caller-facing credential, or the limiter, was required.
+
+Closed rather than a free string: every site below chooses between exactly these two reasons -
+production, or reachable off-host - never a third, so a match missing an arm is a compile error
+rather than a refusal nobody wrote. One type shared across `NotFitToServe::AccessTokenRequired`,
+`NotFitToServe::RateLimitingDisabled` and `NotFitToServe::MetricsTokenRequired`, because all
+three ask the identical question `settings.rs`'s `metrics_refusals` asks first.
 
 ## `use VARIABLE_PREFIX`
 

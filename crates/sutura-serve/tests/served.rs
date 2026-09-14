@@ -69,7 +69,7 @@ mod tests {
 
     // The settings TYPE, in the process running the test, and it is here for one job: to render the
     // sentence a refusing deployment must print. See `stopped_before_binding`.
-    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, SettingsLoadError, Sources};
+    use sutura_config::{Environment, NotFitToServe, Settings, SettingsError, SettingsLoadError, Sources, TokenRequiredBy};
     use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
 
     // The harness, next door. It holds no assertion - see its own module documentation for why the
@@ -847,16 +847,24 @@ mod tests {
         // The WHOLE set, not a `contains`: every refusal in it is pinned by value, so the case cannot
         // be green because the process stopped for a reason nobody named. The second is the metrics
         // credential - this deployment is reachable off-host and gates `/metrics` with nothing of its
-        // own, which `docs/adr/0015` Decision 1 makes a refusal at this bind.
-        assert_eq!(refusals.len(), 2, "{refusals:?}");
+        // own, which `docs/adr/0015` Decision 1 makes a refusal at this bind. The third is the
+        // limiter, keyed on `off_host` the same way: this fixture sets no `rate_limit.enabled` and
+        // development defaults it off.
+        assert_eq!(refusals.len(), 3, "{refusals:?}");
         let NotFitToServe::TlsTerminationUndeclared { bind, origin } = &refusals[0] else {
             panic!("expected the undeclared-bind refusal, got {refusals:?}");
         };
-        assert_eq!(bind, "0.0.0.0:0");
+        assert_eq!(bind.to_string(), "0.0.0.0:0");
         assert_eq!(
             refusals[1],
             NotFitToServe::MetricsTokenRequired {
-                because: "the metrics endpoint is mounted where other hosts can reach it"
+                because: TokenRequiredBy::OffHost
+            }
+        );
+        assert_eq!(
+            refusals[2],
+            NotFitToServe::RateLimitingDisabled {
+                because: TokenRequiredBy::OffHost
             }
         );
         // The bind came from the fixture's own `base.yaml`, so the refusal must name that file -
@@ -890,10 +898,10 @@ mod tests {
             *refusals,
             vec![
                 NotFitToServe::AccessTokenRequired {
-                    because: "this is a production deployment with no inbound identity configured"
+                    because: TokenRequiredBy::Production
                 },
                 NotFitToServe::MetricsTokenRequired {
-                    because: "the metrics endpoint is mounted and this is a production deployment"
+                    because: TokenRequiredBy::Production
                 },
             ]
         );

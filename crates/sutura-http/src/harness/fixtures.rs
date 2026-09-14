@@ -93,7 +93,7 @@ pub(super) fn metrics_settings(environment: Environment) -> Settings {
         environment,
         &format!(
             "security:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"sidecar\"\n  \
-             metrics_token: \"{METRICS_TOKEN}\"\nserver:\n  host: \"0.0.0.0\"\nruntime:\n  \
+             metrics_token: \"{METRICS_TOKEN}\"\nserver:\n  host: \"0.0.0.0\"\nrate_limit:\n  enabled: true\nruntime:\n  \
              engine_worker_threads: 3\n  max_concurrent_queries: 4\n"
         ),
     )

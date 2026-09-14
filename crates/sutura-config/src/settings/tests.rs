@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use super::{Environment, NotFitToServe, Settings, SettingsError, Sources};
+use super::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 use crate::proxy::ClientAddressSource;
 use crate::runtime::WorkingSetCeiling;
 use crate::security::TlsTermination;
@@ -372,10 +372,10 @@ fn a_declared_non_loopback_bind_still_needs_a_token() {
     // Both the API token and the metrics token are required for an off-host surface now, so the
     // two controls are two refusals.
     assert!(refusals.contains(&NotFitToServe::AccessTokenRequired {
-        because: "this service is bound where other hosts can reach it and no inbound identity is configured"
+        because: TokenRequiredBy::OffHost
     }));
     assert!(refusals.contains(&NotFitToServe::MetricsTokenRequired {
-        because: "the metrics endpoint is mounted where other hosts can reach it"
+        because: TokenRequiredBy::OffHost
     }));
 }
 
@@ -384,12 +384,15 @@ fn both_controls_together_start_an_off_host_development_service() {
     // The other side of the two refusals above, so they cannot be satisfied by a rule that
     // refuses everything. This is also the SHAPE OF THE NORMAL DEPLOYMENT: a plaintext listener on
     // every interface, with something in front of it that terminates TLS.
+    //
+    // A third control now joins the two the name still counts: `rate_limit.enabled` is keyed on
+    // `off_host` exactly like these two, so a wildcard bind needs it written down as well.
     for declared in ["sidecar", "ingress"] {
         let sources = Sources::defaults(Environment::Development).with_overlay(format!(
             "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"{declared}\"\n  \
-             metrics_token: \"{METRICS_TOKEN}\"\n"
+             metrics_token: \"{METRICS_TOKEN}\"\nrate_limit:\n  enabled: true\n"
         ));
-        let settings = Settings::load(&sources).expect("a declared and tokenised off-host bind is servable");
+        let settings = Settings::load(&sources).expect("a declared, tokenised and rate-limited off-host bind is servable");
         assert!(!settings.server().bind().is_loopback());
         assert!(settings.security().access_token().is_some());
         assert!(settings.security().tls_termination().is_declared());
@@ -499,7 +502,42 @@ fn production_refuses_to_start_with_rate_limiting_switched_off() {
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
-    assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::RateLimitingDisabled {
+            because: TokenRequiredBy::Production
+        }]
+    );
+}
+
+#[test]
+fn an_off_host_development_deployment_refuses_a_disabled_limiter() {
+    // The bug this fix closes: the limiter used to be keyed on `is_production()` alone, so the
+    // same wildcard bind that `TlsTerminationUndeclared` and `MetricsTokenRequired` already refuse
+    // off-host in EVERY environment left an unbounded caller unbounded in development. `off_host`
+    // is production_overlay()'s own host - see its doc - and development defaults the limiter off,
+    // so this deployment loaded before this change and must refuse after it.
+    let sources = Sources::defaults(Environment::Development).with_overlay(production_overlay());
+    let error = Settings::load(&sources).expect_err("an off-host limiter-off development deployment is refused");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert!(
+        refusals.iter().any(|r| matches!(
+            *r,
+            NotFitToServe::RateLimitingDisabled {
+                because: TokenRequiredBy::OffHost
+            }
+        )),
+        "{refusals:?}"
+    );
+
+    // Negative control: the same off-host development deployment with the limiter explicitly on
+    // starts - `Settings::load` errors on ANY non-empty refusal list, so this is about the
+    // limiter and not about the bind or the environment.
+    let on = Sources::defaults(Environment::Development)
+        .with_overlay(format!("{}rate_limit:\n  enabled: true\n", production_overlay()));
+    Settings::load(&on).expect("the same deployment with the limiter on starts");
 }
 
 #[test]
@@ -643,7 +681,12 @@ fn production_still_refuses_an_explicitly_disabled_limiter() {
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
-    assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::RateLimitingDisabled {
+            because: TokenRequiredBy::Production
+        }]
+    );
 }
 
 #[test]
@@ -672,7 +715,12 @@ fn a_variable_overrides_the_environment_default_in_both_directions() {
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
     };
-    assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::RateLimitingDisabled {
+            because: TokenRequiredBy::Production
+        }]
+    );
 }
 
 // ------------------------------------------------------ configuration layers ----
