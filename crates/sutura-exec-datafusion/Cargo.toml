@@ -18,16 +18,22 @@ datafusion = { workspace = true }
 # One runtime, built once and kept beside the session context. See the struct.
 #
 # `rt-multi-thread` ADDS to the base `rt` the workspace entry asks for, and it is the whole of what
-# lets `with_worker_threads` exist: `Builder::new_multi_thread` is not in the build without it. The
-# narrowing the workspace comment describes is otherwise intact - no `enable_all`, so still no timer
-# and no I/O driver, neither of which a plan over a local file needs.
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+# lets `with_worker_threads` exist: `Builder::new_multi_thread` is not in the build without it.
+# `time` is the other addition: `tokio::time::timeout` around `execute`'s `rows` future needs the
+# feature compiled in as well as `enable_time()` on the runtime at construction, which is what
+# stops a question at its deadline (`telekom/sutura#160`, `docs/adr/0029`). Still no `enable_all`,
+# so still no I/O driver, which a plan over a local file does not need.
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
 thiserror = { workspace = true }
 
 # The conformance packs, which `tests/conformance.rs` binds this engine to. A DEV-dependency, for
 # the reason the sibling adapter's manifest gives.
 [dev-dependencies]
 sutura-conformance = { workspace = true }
+# Only for the `Stream` trait, to hand-roll a synthetic `PartitionStream` the deadline test never
+# finishes on its own. Already in the graph via `sutura-exec-postgres`, so this is a new edge, not
+# a new crate.
+futures-util = { workspace = true }
 
 [features]
 fixtures = ["sutura-domain/fixtures"]
