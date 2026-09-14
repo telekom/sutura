@@ -13,12 +13,16 @@
 //! `CompiledExpression` is then serialized to JSON, which is the shape the definition digest is
 //! taken over; a panic in that `Serialize` would move a digest, so the harness trips it too.
 //!
-//! **The limit.** The authored-SQL hatch (`docs/adr/0004`) has no production caller yet: no shipped
-//! binary compiles a fragment a caller supplied, because the load path is not wired and the FTYPES[]
-//! document shape has no key for it (see `query-surface`'s built-and-not-wired inventory). So the
-//! input here is authored content, one hop further from a caller than the token, and the boundary
-//! only becomes live when the hatch is wired - at which point this target is already built and
-//! running. It is the SQL-project parser this repository has, and the one the design scoped to.
+//! **The limit.** The authored-SQL hatch (`docs/adr/0004`) has the load wired and the compile not.
+//! A metric document writes `authored_sql:`, the fragment is admitted as text and pinned under the
+//! digest, and a loaded authored-SQL metric is then refused at validation with
+//! `NotValidated::AuthoredSqlNotExecutable` - `Warehouse::EXECUTES_AUTHORED_SQL` defaults to
+//! `false` and only a test fake declares otherwise, so that refusal is every shipped build's
+//! answer. See `query-surface`'s built-and-not-wired inventory, which this paragraph contradicted
+//! until it was corrected. So the input here is authored content, one hop further from a caller
+//! than the token, and the boundary only becomes live when a shipped binary compiles a fragment a
+//! caller supplied - at which point this target is already built and running. It is the
+//! SQL-project parser this repository has, and the one the design scoped to.
 
 #![no_main]
 
