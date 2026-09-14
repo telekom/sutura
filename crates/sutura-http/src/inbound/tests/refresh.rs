@@ -262,13 +262,17 @@ async fn a_caller_that_gives_up_mid_look_does_not_stop_refresh() {
     );
 
     let abandoned = tokio::time::timeout(Duration::from_millis(10), cache.poll_once(now + Duration::from_secs(1))).await;
-    assert!(abandoned.is_err(), "the held look was still inside the source: {abandoned:?}");
-    assert_eq!(source.calls.load(Ordering::SeqCst), 2, "the abandoned look had started");
-    // Let the abandoned read finish on its pool thread. Nothing installs what it returns: the one
-    // path that installs is the awaiter's, and the awaiter is gone.
+    // Released and joined BEFORE either assertion below - not after, which is `#692`'s hang.
+    // `StubSource::read` only reaches the barrier AFTER its `fetch_add`, so a join here cannot
+    // return before the read has genuinely started; that is what makes the count below true by
+    // construction instead of a race against how fast the blocking pool got scheduled. Ordered the
+    // other way, an assertion failing between the timeout and this release would unwind past it and
+    // leave the pool thread waiting at the barrier for a partner that never arrives.
     releases_after_the_grace(&source)
         .join()
         .expect("the releasing thread does not panic");
+    assert!(abandoned.is_err(), "the held look was still inside the source: {abandoned:?}");
+    assert_eq!(source.calls.load(Ordering::SeqCst), 2, "the abandoned look had started");
 
     let outcome = cache.poll_once(now + Duration::from_secs(2)).await;
     assert_eq!(
