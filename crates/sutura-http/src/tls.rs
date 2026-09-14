@@ -159,6 +159,18 @@ pub enum TlsNotUsable {
     #[error("{what} at {path} is larger than the {cap} byte cap")]
     TooLarge { what: &'static str, path: PathBuf, cap: usize },
     /// A PEM block was found and did not parse.
+    ///
+    /// **`cause`'s `Display` is safety this module does not hold, and cannot.** `pem::Error` is
+    /// `rustls-pki-types`', not this crate's: `IllegalSectionStart { line }` and
+    /// `MissingSectionEnd { end_marker }` both print bytes out of the file - a source line, a
+    /// `-----BEGIN ` label - and the reason that is safe here is the *upstream* choice to build
+    /// `line` only from a line starting `-----BEGIN ` and `end_marker` only from that label, never
+    /// from key material between the markers. No type in this repository can hold another crate's
+    /// `Display` impl, so a version bump that changed what it prints would change silently, unlogged
+    /// by anything here. `crates/sutura-serve/src/main.rs`'s `flatten` walks `#[source]` to
+    /// exhaustion and prints every `cause.to_string()`, so this reaches an operator's terminal
+    /// through the same three `#[source]` hops the module's own safety argument above already
+    /// covers for the path - `cause` is the one field that argument does not reach.
     #[error("{what} at {path} is not valid PEM")]
     Malformed {
         what: &'static str,

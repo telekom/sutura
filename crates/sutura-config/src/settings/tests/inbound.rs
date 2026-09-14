@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use super::{TOKEN, production_overlay, variables};
 use crate::inbound::{InvalidInboundValue, ResourceIdentifier};
-use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
+use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 /// A complete `direct` declaration, indented to sit under a `security:` key.
 ///
@@ -220,7 +220,9 @@ fn a_production_deployment_that_verifies_its_callers_needs_no_deployment_token()
     assert!(
         refusals.iter().any(|refusal| matches!(
             *refusal,
-            NotFitToServe::AccessTokenRequired { because } if because.contains("no inbound identity")
+            NotFitToServe::AccessTokenRequired {
+                because: TokenRequiredBy::Production
+            }
         )),
         "{refusals:?}"
     );

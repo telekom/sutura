@@ -285,7 +285,10 @@ async fn every_terminal_question_moves_one_code_and_one_duration() {
 
 #[tokio::test]
 async fn a_query_rejected_by_the_body_bound_is_counted_once() {
-    let app = app(metrics_settings_with("  max_body_bytes: 8\n", ""));
+    let app = app(metrics_settings_with(
+        "  max_body_bytes: 8\n",
+        "rate_limit:\n  enabled: true\n",
+    ));
     assert_eq!(
         call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION)))
             .await
@@ -350,7 +353,11 @@ async fn a_timed_out_query_is_counted_once() {
     let (engine, held) = warehouse_that_can_be_held();
     // Two seconds is the smallest bound `RequestTimeout::parse` accepts - one second cannot afford
     // `docs/adr/0029`'s reply margin.
-    let app = over(bundle(), engine, metrics_settings_with("  request_timeout_seconds: 2\n", ""));
+    let app = over(
+        bundle(),
+        engine,
+        metrics_settings_with("  request_timeout_seconds: 2\n", "rate_limit:\n  enabled: true\n"),
+    );
     held.arm();
     let (status, _) = call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION))).await;
     held.release();

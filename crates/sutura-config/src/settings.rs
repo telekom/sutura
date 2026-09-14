@@ -67,7 +67,7 @@ pub const VARIABLE_SEPARATOR: &str = "__";
 
 use layers::read;
 pub use layers::{ConfigLayers, SettingsLoadError};
-pub use posture::NotFitToServe;
+pub use posture::{NotFitToServe, TokenRequiredBy};
 
 /// The built-in defaults, embedded so a missing file cannot become a posture nobody chose.
 const DEFAULTS: &str = include_str!("defaults.yaml");
@@ -463,23 +463,28 @@ impl Settings {
                 .layers
                 .origin_of("server.host")
                 .map_or_else(|| String::from("embedded defaults"), |o| o.describe("server.host"));
-            refusals.push(NotFitToServe::TlsTerminationUndeclared {
-                bind: bind.to_string(),
-                origin,
-            });
+            refusals.push(NotFitToServe::TlsTerminationUndeclared { bind, origin });
         }
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.credential_refusals(off_host));
-        if self.environment.is_production() {
-            if !self.rate_limit.enabled() {
-                refusals.push(NotFitToServe::RateLimitingDisabledInProduction);
-            }
-            if bind.port() == 0 {
-                refusals.push(NotFitToServe::EphemeralPortInProduction);
-            }
+        // Keyed exactly like `metrics_refusals` below it: an unbounded caller is an unbounded
+        // aggregate over the same history whether the deployment is labelled `production` or is
+        // simply reachable from other hosts. `EphemeralPortInProduction` stays production-only -
+        // port 0 off-host is the normal read-the-port-back shape a test uses.
+        if (off_host || self.environment.is_production()) && !self.rate_limit.enabled() {
+            refusals.push(NotFitToServe::RateLimitingDisabled {
+                because: if self.environment.is_production() {
+                    TokenRequiredBy::Production
+                } else {
+                    TokenRequiredBy::OffHost
+                },
+            });
+        }
+        if self.environment.is_production() && bind.port() == 0 {
+            refusals.push(NotFitToServe::EphemeralPortInProduction);
         }
         refusals
     }
@@ -541,9 +546,7 @@ impl Settings {
         // had no other witness to reach for.
         for (alias, source) in self.sources.each() {
             if source.identity().is_none() {
-                refusals.push(NotFitToServe::SharedSourceNotAcknowledged {
-                    alias: String::from(alias.as_str()),
-                });
+                refusals.push(NotFitToServe::SharedSourceNotAcknowledged { alias: alias.clone() });
             }
         }
         refusals
@@ -584,11 +587,11 @@ impl Settings {
             // environment that asked for the token.
             if self.environment.is_production() {
                 refusals.push(NotFitToServe::AccessTokenRequired {
-                    because: "this is a production deployment with no inbound identity configured",
+                    because: TokenRequiredBy::Production,
                 });
             } else if off_host {
                 refusals.push(NotFitToServe::AccessTokenRequired {
-                    because: "this service is bound where other hosts can reach it and no inbound identity is configured",
+                    because: TokenRequiredBy::OffHost,
                 });
             }
         }
@@ -618,9 +621,9 @@ impl Settings {
             if off_host || self.environment.is_production() {
                 refusals.push(NotFitToServe::MetricsTokenRequired {
                     because: if self.environment.is_production() {
-                        "the metrics endpoint is mounted and this is a production deployment"
+                        TokenRequiredBy::Production
                     } else {
-                        "the metrics endpoint is mounted where other hosts can reach it"
+                        TokenRequiredBy::OffHost
                     },
                 });
             }

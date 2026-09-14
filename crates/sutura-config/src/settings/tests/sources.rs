@@ -6,6 +6,8 @@
 //! refusals for one entry live in `crate::sources::tests`, and these are the refusals that depend on
 //! the tree AS A WHOLE - the declared mode, and more than one source at once.
 
+use sutura_domain::model::SourceName;
+
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
 /// One source entry, so a test changes exactly one thing about it.
@@ -44,7 +46,7 @@ fn a_shared_source_in_a_multi_user_deployment_without_an_acknowledgement_is_not_
     assert_eq!(
         *refusals,
         vec![NotFitToServe::SharedSourceNotAcknowledged {
-            alias: String::from("local")
+            alias: SourceName::parse("local").expect("a legal identifier")
         }]
     );
     // The message names the entry to change and says there is no global acknowledgement, because an
