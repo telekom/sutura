@@ -25,10 +25,11 @@
 //!   That byte-compare is a mechanism `AGENTS.md` describes as owed rather than standing; this crate
 //!   is what owes it.
 //! * **A tool a caller may not invoke is neither advertised nor answered.**
-//!   [`AgentSurface::new`] requires a `sutura_app::Permitted`, `tools/list` filters on it and
-//!   `tools/call` refuses on it. The filtering is presentation and the refusal is the control - see
-//!   [`server`], which says so in a table, and says plainly that nothing over standard input and
-//!   output narrows the set today.
+//!   [`AgentSurface::new`] requires an [`Asking`], which resolves to a `sutura_app::Permitted` either
+//!   once at construction (`TheProcessOwner`) or fresh per call (`PerRequest`); `tools/list` filters
+//!   on it and `tools/call` refuses on it. The filtering is presentation and the refusal is the
+//!   control - see [`server`], which says so in a table, and says plainly that nothing over standard
+//!   input and output narrows the set today.
 //! * **A refusal is a RESULT.** It comes back inside a tool result with the error flag unset, not as
 //!   a JSON-RPC error and not as `isError`. See [`server`] for the three channels and why they are
 //!   three.
@@ -80,16 +81,20 @@
 //!   it. Nothing here can bound it: the reader is the SDK's, and the boundary is the process - a
 //!   peer that can write to this pipe can already launch the process. It stays named rather than
 //!   claimed as covered.
-//! * **Any notion of who is asking.** `crate::principal` still answers
-//!   `sutura_domain::identity::Subject::TheDeploymentItself`, truthfully: this transport speaks over a
-//!   pipe, where there is no header a token could arrive in. `sutura_http::inbound` is where leg 1
-//!   lives and it is unreachable from here - an adapter never calls another adapter - so a caller
-//!   identity on this surface needs the two decisions `docs/adr/0014`'s closing section names: how it
-//!   is reached at all, and which crate the validator moves to.
+//! * **A caller identity reaching this surface over the pipe.** [`Asking`] has a `PerRequest` arm -
+//!   `telekom/sutura#378` PR2 - but [`serve_stdio`] still only ever builds `Asking::TheProcessOwner`,
+//!   and that is not a placeholder: over standard input and output there is no header a token could
+//!   arrive in, so `crate::principal::established()` (still
+//!   `sutura_domain::identity::Subject::TheDeploymentItself`) is the honest chain for this transport
+//!   regardless of what the type can now express. `sutura_http::inbound` is where leg 1 lives and it
+//!   is unreachable from here - an adapter never calls another adapter - so `Asking::PerRequest` is
+//!   read but never produced by anything in this crate; PR3 adds the feature that mounts an HTTP
+//!   transport capable of carrying one, and PR4 is the composition root that chooses to.
 //!
 //!   **The consequence for what a scope gates here is stated rather than left implicit:** the
 //!   capability set this surface offers is narrowable, and over standard input and output nothing
-//!   narrows it. [`server`] carries that limit beside the mechanism.
+//!   narrows it - `serve_stdio` always builds `Asking::TheProcessOwner` from one `Permitted` fixed at
+//!   startup. [`server`] carries that limit beside the mechanism.
 //! * **Resources and prompts.** A gateway of the shape this product runs behind surfaces tools and
 //!   ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
 //!   where they are - in `sutura_app::prompt`, advisory, for a cooperative client.
@@ -110,6 +115,43 @@ pub use server::AgentSurface;
 
 use sutura_app::surface::Surface;
 
+/// How [`AgentSurface`] learns who is asking, for one call.
+///
+/// **Not an `Option<Permitted>`, and that is the whole point of the type.** An absent value inside
+/// `PerRequest` is a REFUSAL - see [`server`] - and folding "no identity" and "the deployment's own
+/// identity" into the two sides of one `Option` would make the compiler unable to tell them apart at
+/// the one call site that matters: an exhaustive match over this enum with no wildcard arm is what
+/// stops a later edit from quietly substituting one for the other, the way `serve_stdio`'s own
+/// unconditional `principal::established()` call used to before this type existed.
+///
+/// # Why the identity is not a field on [`AgentSurface`] itself
+///
+/// A field would be set once, when the surface is constructed, and read on every call after - which
+/// is exactly right for `TheProcessOwner` and exactly wrong the moment a caller identity can vary
+/// per request. `docs/adr/0023` names this trap by its mechanism: the pinned MCP SDK builds a
+/// session's handler ONCE (`service_factory`), so an identity cached anywhere on `self` is
+/// per-session by construction and looks correct in every single-caller test. `PerRequest` instead
+/// names a MODE, and the value itself is read fresh out of the request's own
+/// `rmcp::service::RequestContext::extensions` on every call - see [`server`] for where.
+#[derive(Debug, Clone)]
+pub enum Asking {
+    /// The launching identity is the subject, for the whole life of this surface. The pipe's own
+    /// shape and a decision rather than a gap - see [`serve_stdio`] and the module documentation's
+    /// *what is deliberately absent* section.
+    TheProcessOwner {
+        /// What the process owner may invoke, fixed at construction.
+        permitted: sutura_app::Permitted,
+    },
+    /// Established fresh from each request's own carried [`sutura_app::Asked`]. An absent value is a
+    /// refusal, never `TheProcessOwner`'s fallback - see [`rmcp::ServerHandler::call_tool`].
+    ///
+    /// Nothing in this crate produces an `Asked` today: over standard input and output there is no
+    /// request to read one from. The arm exists so the exhaustive match in [`server`] is already
+    /// total the day an HTTP transport starts producing one, rather than growing a second match
+    /// somebody has to remember to make exhaustive under `-D warnings` later.
+    PerRequest,
+}
+
 /// Serves the agent surface over standard input and output, until the client disconnects.
 ///
 /// The transport an agent client launches a server over: it spawns the process and speaks the
@@ -125,11 +167,12 @@ use sutura_app::surface::Surface;
 /// composition root's outer handle defers that release until its own `shutdown_timeout` has let the
 /// in-flight answer finish.
 ///
-/// **`permitted` is required for the same reason it is on [`AgentSurface::new`]: a pipe has no
-/// header a token could arrive in, so this transport alone cannot choose who the peer is. The
-/// composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::every_capability`
-/// and prints that at startup - so the value lives next to the notice that states it rather than
-/// hidden in this function.
+/// **`permitted` is required for the same reason [`AgentSurface::new`] requires an [`Asking`]: a pipe
+/// has no header a token could arrive in, so this transport alone cannot choose who the peer is. The
+/// composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::every_capability` and
+/// prints that at startup - so the value lives next to the notice that states it rather than hidden
+/// in this function. This function wraps it as `Asking::TheProcessOwner` before handing it to the
+/// surface; there is no path through `serve_stdio` to `Asking::PerRequest` at all.
 ///
 /// **`admission` is required for the same reason and answers a different question.** rmcp serves
 /// requests concurrently - one task per request, and the SDK caps nothing - so without a bound every
@@ -170,7 +213,7 @@ where
     S: Surface,
 {
     let running = rmcp::serve_server(
-        AgentSurface::new(service, permitted, prose, admission, reply),
+        AgentSurface::new(service, Asking::TheProcessOwner { permitted }, prose, admission, reply),
         rmcp::transport::stdio(),
     )
     .await

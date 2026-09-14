@@ -247,7 +247,15 @@ mod tests {
     {
         let (client_side, server_side) = tokio::io::duplex(64 * 1024);
         let server = rmcp::serve_server(
-            sutura_mcp::AgentSurface::new(service, sutura_app::Permitted::every_capability(), prose, admission, reply),
+            sutura_mcp::AgentSurface::new(
+                service,
+                sutura_mcp::Asking::TheProcessOwner {
+                    permitted: sutura_app::Permitted::every_capability(),
+                },
+                prose,
+                admission,
+                reply,
+            ),
             server_side,
         );
         let client = rmcp::serve_client((), client_side);

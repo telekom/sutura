@@ -339,6 +339,12 @@ config = { version = "0.15", default-features = false, features = ["yaml"] }
 # rate-limit bucket can be keyed by the route a request matched rather than by its raw path. No
 # multipart, no websockets, no forms - this surface accepts one JSON document and returns another.
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "matched-path", "original-uri"] }
+# `axum`'s own request/response types, named here rather than left transitive: `sutura-mcp` reads
+# `http::request::Parts` directly - not through `axum` - because that is the type the pinned `rmcp`
+# HTTP server transport injects into a tool call's `rmcp::service::RequestContext::extensions`
+# (`docs/adr/0023`). No new package: 1.5.0 already resolves through `axum` and `tower-http` in
+# `sutura-http`/`sutura-serve`, and `Cargo.lock` holds exactly one version of it.
+http = "1.5"
 # The middleware abstraction every layer below is written against.
 tower = "0.5"
 # `trace` for the per-request span, `timeout` for the request bound, `limit` for the body bound.

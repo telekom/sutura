@@ -338,6 +338,75 @@ impl Surface for FailingSurface {
     }
 }
 
+/// A surface that records the SUBJECT each call was handed, and answers nothing else.
+///
+/// The fixture for the attribution claim, mirroring [`FailingSurface`]'s shape with one addition:
+/// the identity the transport resolved is what this crate asserts REACHES the port, so the fake
+/// keeps the subject of every [`Surface::answer`] and [`Surface::run_sql`] context in one shared
+/// cell. It still answers nothing - a subject is recorded before the failure is returned, and the
+/// assertion is about who ARRIVED, not about what they were answered.
+#[expect(
+    clippy::disallowed_types,
+    reason = "a test collector over an Arc: one Mutex holding the subjects a caller-test reads back, the same instrument sutura-http's RecordingSink licenses"
+)]
+pub(crate) struct RecordingSurface {
+    definitions: PinnedDefinitions,
+    subjects: std::sync::Mutex<Vec<sutura_domain::identity::Subject>>,
+}
+
+impl RecordingSurface {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the same test collector license as the struct's field declaration"
+    )]
+    pub(crate) fn new() -> Self {
+        Self {
+            definitions: bundle(),
+            subjects: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Every subject the port was handed, in the order the calls arrived.
+    pub(crate) fn subjects(&self) -> Vec<sutura_domain::identity::Subject> {
+        self.subjects
+            .lock()
+            .map_or_else(|_poisoned| Vec::new(), |subjects| subjects.clone())
+    }
+}
+
+impl Surface for RecordingSurface {
+    fn definitions(&self) -> &PinnedDefinitions {
+        &self.definitions
+    }
+
+    fn answer(
+        &self,
+        context: &sutura_domain::identity::RequestContext,
+        _query: &Query,
+        _deadline: Deadline,
+    ) -> Result<ToolOutcome, SurfaceFailure> {
+        if let Ok(mut subjects) = self.subjects.lock() {
+            subjects.push(context.chain().subject().clone());
+        }
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
+
+    fn run_sql(
+        &self,
+        context: &sutura_domain::identity::RequestContext,
+        _statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        if let Ok(mut subjects) = self.subjects.lock() {
+            subjects.push(context.chain().subject().clone());
+        }
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
+}
+
 /// A sink that counts, because what this crate's tests need from the audit port is that a call
 /// produced a record - not what the record said. `sutura-http` has a `RecordingSink` that renders
 /// its content; duplicating that here would be a second renderer to keep in step with no test

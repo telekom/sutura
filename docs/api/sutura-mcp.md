@@ -34,10 +34,11 @@ Five properties are load-bearing and each has a test rather than a paragraph:
   That byte-compare is a mechanism `AGENTS.md` describes as owed rather than standing; this crate
   is what owes it.
 * **A tool a caller may not invoke is neither advertised nor answered.**
-  `AgentSurface::new` requires a `sutura_app::Permitted`, `tools/list` filters on it and
-  `tools/call` refuses on it. The filtering is presentation and the refusal is the control - see
-  `server`, which says so in a table, and says plainly that nothing over standard input and
-  output narrows the set today.
+  `AgentSurface::new` requires an `Asking`, which resolves to a `sutura_app::Permitted` either
+  once at construction (`TheProcessOwner`) or fresh per call (`PerRequest`); `tools/list` filters
+  on it and `tools/call` refuses on it. The filtering is presentation and the refusal is the
+  control - see `server`, which says so in a table, and says plainly that nothing over standard
+  input and output narrows the set today.
 * **A refusal is a RESULT.** It comes back inside a tool result with the error flag unset, not as
   a JSON-RPC error and not as `isError`. See `server` for the three channels and why they are
   three.
@@ -89,16 +90,20 @@ this crate, and the handler is three methods written by hand.
   it. Nothing here can bound it: the reader is the SDK's, and the boundary is the process - a
   peer that can write to this pipe can already launch the process. It stays named rather than
   claimed as covered.
-* **Any notion of who is asking.** `crate::principal` still answers
-  `sutura_domain::identity::Subject::TheDeploymentItself`, truthfully: this transport speaks over a
-  pipe, where there is no header a token could arrive in. `sutura_http::inbound` is where leg 1
-  lives and it is unreachable from here - an adapter never calls another adapter - so a caller
-  identity on this surface needs the two decisions `docs/adr/0014`'s closing section names: how it
-  is reached at all, and which crate the validator moves to.
+* **A caller identity reaching this surface over the pipe.** `Asking` has a `PerRequest` arm -
+  `telekom/sutura#378` PR2 - but `serve_stdio` still only ever builds `Asking::TheProcessOwner`,
+  and that is not a placeholder: over standard input and output there is no header a token could
+  arrive in, so `crate::principal::established()` (still
+  `sutura_domain::identity::Subject::TheDeploymentItself`) is the honest chain for this transport
+  regardless of what the type can now express. `sutura_http::inbound` is where leg 1 lives and it
+  is unreachable from here - an adapter never calls another adapter - so `Asking::PerRequest` is
+  read but never produced by anything in this crate; PR3 adds the feature that mounts an HTTP
+  transport capable of carrying one, and PR4 is the composition root that chooses to.
 
   **The consequence for what a scope gates here is stated rather than left implicit:** the
   capability set this surface offers is narrowable, and over standard input and output nothing
-  narrows it. `server` carries that limit beside the mechanism.
+  narrows it - `serve_stdio` always builds `Asking::TheProcessOwner` from one `Permitted` fixed at
+  startup. `server` carries that limit beside the mechanism.
 * **Resources and prompts.** A gateway of the shape this product runs behind surfaces tools and
   ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
   where they are - in `sutura_app::prompt`, advisory, for a cooperative client.
@@ -106,6 +111,45 @@ this crate, and the handler is three methods written by hand.
   calls it is `sutura`'s `mcp` subcommand - the single-player answer to *which binary gets it*,
   composed in `sutura-cli` the way `query` is. This crate deliberately does not decide that; it
   is the transport a composition root calls.
+
+## `enum Asking`
+
+```rust
+pub enum Asking
+```
+
+How `AgentSurface` learns who is asking, for one call.
+
+**Not an `Option<Permitted>`, and that is the whole point of the type.** An absent value inside
+`PerRequest` is a REFUSAL - see `server` - and folding "no identity" and "the deployment's own
+identity" into the two sides of one `Option` would make the compiler unable to tell them apart at
+the one call site that matters: an exhaustive match over this enum with no wildcard arm is what
+stops a later edit from quietly substituting one for the other, the way `serve_stdio`'s own
+unconditional `principal::established()` call used to before this type existed.
+
+# Why the identity is not a field on `AgentSurface` itself
+
+A field would be set once, when the surface is constructed, and read on every call after - which
+is exactly right for `TheProcessOwner` and exactly wrong the moment a caller identity can vary
+per request. `docs/adr/0023` names this trap by its mechanism: the pinned MCP SDK builds a
+session's handler ONCE (`service_factory`), so an identity cached anywhere on `self` is
+per-session by construction and looks correct in every single-caller test. `PerRequest` instead
+names a MODE, and the value itself is read fresh out of the request's own
+`rmcp::service::RequestContext::extensions` on every call - see `server` for where.
+
+### Variants
+
+- `TheProcessOwner` - The launching identity is the subject, for the whole life of this surface. The pipe's own shape and a decision rather than a gap - see `serve_stdio` and the module documentation's *what is deliberately absent* section.
+- `PerRequest` - Established fresh from each request's own carried `sutura_app::Asked`. An absent value is a refusal, never `TheProcessOwner`'s fallback - see `rmcp::ServerHandler::call_tool`.
+
+  Nothing in this crate produces an `Asked` today: over standard input and output there is no
+  request to read one from. The arm exists so the exhaustive match in `server` is already
+  total the day an HTTP transport starts producing one, rather than growing a second match
+  somebody has to remember to make exhaustive under `-D warnings` later.
+
+### Implements
+
+`Clone`, `Debug`
 
 ## `enum NotServed`
 
@@ -158,11 +202,12 @@ while its runtime is inside a `block_on` on a pool thread and this process abort
 composition root's outer handle defers that release until its own `shutdown_timeout` has let the
 in-flight answer finish.
 
-**`permitted` is required for the same reason it is on `AgentSurface::new`: a pipe has no
-header a token could arrive in, so this transport alone cannot choose who the peer is. The
-composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::every_capability`
-and prints that at startup - so the value lives next to the notice that states it rather than
-hidden in this function.
+**`permitted` is required for the same reason `AgentSurface::new` requires an `Asking`: a pipe
+has no header a token could arrive in, so this transport alone cannot choose who the peer is. The
+composition root decides** - `sutura`'s `mcp` subcommand passes `Permitted::every_capability` and
+prints that at startup - so the value lives next to the notice that states it rather than hidden
+in this function. This function wraps it as `Asking::TheProcessOwner` before handing it to the
+surface; there is no path through `serve_stdio` to `Asking::PerRequest` at all.
 
 **`admission` is required for the same reason and answers a different question.** rmcp serves
 requests concurrently - one task per request, and the SDK caps nothing - so without a bound every
@@ -339,26 +384,39 @@ cancellation drops the future waiting on the blocking task, never the task or th
 
 # What a scope gates here, and where the control actually is
 
-`AgentSurface::new` **requires** a `Permitted`, so a composition root cannot forget to say what
-the peer may do - the same reason `sutura_app::surface::LocalService::start` requires an audit
-sink. Given one, this handler does two things with it and only the second is a control:
+`AgentSurface::new` **requires** an `Asking`, so a composition root cannot forget to say who
+may ask and what they may do - the same reason `sutura_app::surface::LocalService::start` requires
+an audit sink. Given one, `AgentSurface::asked` resolves it to a
+`sutura_app::Asked` for THIS call - once per `TheProcessOwner` construction, fresh per request
+under `PerRequest` - and this handler does two things with the result, only the second a control:
 
 | Where | What it does | What it is |
 | --- | --- | --- |
 | `tools/list` | drops a tool the peer may not invoke | **presentation** |
 | `tools/call` | refuses a capability the peer was not granted, advertised or not | **the control** |
 
-Both read the same set, so they cannot disagree - `sutura_app::capability` holds that argument and
-the test for it. A caller that guessed `ask_metric` without ever being shown it is refused by the
-second row, which is why the first is described as presentation rather than as security.
+Both read the same `sutura_app::Asked` for the call, so they cannot disagree -
+`sutura_app::capability` holds that argument and the test for it. A caller that guessed
+`ask_metric` without ever being shown it is refused by the second row, which is why the first is
+described as presentation rather than as security.
+
+**A third case exists only under `Asking::PerRequest`, and it is neither row above: no
+established caller at all.** That is refused before either row is reached -
+`AgentSurface::asked` returns the error and neither `tools/list` nor `tools/call` gets as far as
+asking `Permitted::includes` anything. See `crate::Asking` for why this is an enum with no
+`Option` anywhere in it: the alternative reading of "nothing established" is "the deployment's own
+identity," and that reading is exactly what this shape exists to make unrepresentable.
 
 **And the honest limit, which is not small:** nothing that ships narrows the set here.
-`crate::serve_stdio` passes `Permitted::every_capability`, because this transport speaks over
-standard input and output and there is no header a token could arrive in - `docs/adr/0014`'s
-closing section says as much, and says that deciding how this surface is reached at all is an
-architecture decision rather than a refactor. So the narrowing here is exercised by this module's
-own tests and by no request path, and the parameter is in place so that the decision arrives as a
-composition change rather than as a redesign of this handler.
+`crate::serve_stdio` always builds `Asking::TheProcessOwner { permitted: Permitted::every_capability() }`,
+because this transport speaks over standard input and output and there is no header a token could
+arrive in - `docs/adr/0014`'s closing section says as much, and says that deciding how this
+surface is reached at all is an architecture decision rather than a refactor.
+`Asking::PerRequest` exists on the type and is exercised by this module's own tests, with hand-
+built `RequestContext` values reusing a `Peer` a real handshake produced - `rmcp::service::Peer::new`
+is `pub(crate)` in the pinned SDK, so nothing outside `rmcp` can mint one from nothing. Nothing in
+this crate produces the value over any real request path yet: `telekom/sutura#378`'s PR3 is the
+HTTP transport feature that would, and PR4 is the composition root that chooses to mount it.
 
 ### `struct AgentSurface`
 
@@ -374,7 +432,7 @@ port has to outlive the future that started the call.
 #### Methods
 
 ```rust
-pub const fn new(service: Arc<S>, permitted: Permitted, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout) -> Self
+pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout) -> Self
 ```
 
 Wraps a service, and states what the peer may do and how catalog prose is treated.
@@ -382,11 +440,13 @@ Wraps a service, and states what the peer may do and how catalog prose is treate
 Takes the `Arc` rather than making one, so a composition root serving two transports shares
 one bundle and one data system rather than opening a second of each.
 
-**`permitted` is required rather than defaulted, and that is the point of the signature.** A
+**`asking` is required rather than defaulted, and that is the point of the signature.** A
 default here would be a posture chosen by this file for every deployment that ever links it;
-`Permitted::every_capability` is the right answer over standard input and output and would be
-the wrong answer the moment this surface is reachable over a network, and only a composition
-root knows which it is building. See the module documentation for what the value then gates.
+`Asking::TheProcessOwner { permitted: Permitted::every_capability() }` is the right answer
+over standard input and output and would be the wrong answer the moment this surface is
+reachable over a network, and only a composition root knows which it is building. See the
+module documentation and `crate::Asking` for what the value then gates and why it is a mode
+rather than a bare grant.
 
 **`prose` is required for the same reason, and it is a composition-root value.** `sutura`'s
 `mcp` subcommand passes what this deployment renders; a `CatalogProse` with no default keeps
