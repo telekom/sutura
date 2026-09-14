@@ -6138,8 +6138,9 @@ reached a transport: an HTTP `503`, the status a data system that might come bac
 runs.
 
 **Carries no cell.** `AmbiguousLink`'s join key and `FloatLinkKey`'s value are exactly the
-caller data this workspace never puts in a message a caller or an agent reads - see D6's note on
-`FederatedFailure::AmbiguousLink`. Every arm here is a bare discriminant.
+caller data this workspace never puts in a message a caller or an agent reads - see
+`FederatedFailure`'s own header for D6, the case that named it. Every arm here is a bare
+discriminant.
 
 ### `use FederatedFailure`
 
@@ -6149,6 +6150,13 @@ The shape failures are defects in this workspace's own wiring - a leg result mis
 `super::labels` named, or a row narrower than its result's own columns. The `NonFinite`
 variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
 value for.
+
+**D6: `AmbiguousLink`'s `Display` does not interpolate `key`.** A join
+key is exactly the kind of cell this workspace treats as caller data - the finding named a case
+where it could be a customer identifier - and `Display` is what every logger and every future
+refusal surface reads. The field stays for equality in tests; nothing here stops a future arm
+from interpolating it instead, which is why this is held by review at any new call site rather
+than by the compiler.
 
 ### `use FederatedPlan`
 
@@ -7108,8 +7116,9 @@ reached a transport: an HTTP `503`, the status a data system that might come bac
 runs.
 
 **Carries no cell.** `AmbiguousLink`'s join key and `FloatLinkKey`'s value are exactly the
-caller data this workspace never puts in a message a caller or an agent reads - see D6's note on
-`FederatedFailure::AmbiguousLink`. Every arm here is a bare discriminant.
+caller data this workspace never puts in a message a caller or an agent reads - see
+`FederatedFailure`'s own header for D6, the case that named it. Every arm here is a bare
+discriminant.
 
 #### `use FederatedFailure`
 
@@ -7119,6 +7128,13 @@ The shape failures are defects in this workspace's own wiring - a leg result mis
 `super::labels` named, or a row narrower than its result's own columns. The `NonFinite`
 variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
 value for.
+
+**D6: `AmbiguousLink`'s `Display` does not interpolate `key`.** A join
+key is exactly the kind of cell this workspace treats as caller data - the finding named a case
+where it could be a customer identifier - and `Display` is what every logger and every future
+refusal surface reads. The field stays for equality in tests; nothing here stops a future arm
+from interpolating it instead, which is why this is held by review at any new call site rather
+than by the compiler.
 
 #### `use InternalLabel`
 
