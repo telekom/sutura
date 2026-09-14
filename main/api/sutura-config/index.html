@@ -5176,14 +5176,14 @@ that pair a bind address with an environment, a token and a TLS declaration - li
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="module-sources">Module <code>sources</code><a class="headerlink" href="#module-sources" title="Permanent link">&para;</a></h2>
 <p>The sources this deployment declares: one entry per data system, keyed by the alias a model names.</p>
-<p><strong>Beside <code>catalog.data_dir</code> rather than instead of it, and the two answer different questions.</strong>
-<code>catalog.dir</code> and <code>catalog.data_dir</code> are the <em>catalog</em>: authored definitions, and the directory the
+<p><strong>Beside <code>catalogs[].data_dir</code> rather than instead of it, and the two answer different questions.</strong>
+<code>catalogs[].dir</code> and <code>catalogs[].data_dir</code> are the <em>catalog</em>: authored definitions, and the directory the
 <code>sutura</code> command reads. A <code>sources:</code> entry is a <em>data system</em>: what kind it is, where it is, which
 identity a query reaches it as, and which identity re-ran its anchors at boot. A model's <code>source:</code>
 is the key that selects one.</p>
-<p><strong>The service reads this tree and not <code>catalog.data_dir</code></strong>, which is the one operator-facing break
+<p><strong>The service reads this tree and not <code>catalogs[].data_dir</code></strong>, which is the one operator-facing break
 worth stating at the top: a deployment that pointed the service at its files with
-<code>catalog.data_dir</code> has to declare a source instead, and one that declares none does not serve -
+<code>catalogs[].data_dir</code> has to declare a source instead, and one that declares none does not serve -
 the catalog names a source with no entry, and the composition root refuses before a listener is
 bound.</p>
 <h1 id="what-is-refused-here-and-what-is-refused-later">What is refused here, and what is refused later<a class="headerlink" href="#what-is-refused-here-and-what-is-refused-later" title="Permanent link">&para;</a></h1>
@@ -5327,11 +5327,11 @@ convenience, and nothing needs to clone a startup refusal.</p>
   mapping and one <code>SourceName</code>. Whichever entry lost would be the one nobody opened, with the
   deployment configured as though it had been, and nothing anywhere would say so.
 - <code>NoDataDirectory</code> - The entry names no file location.</p>
-<p>Refused rather than defaulted to <code>catalog.data_dir</code>: a source that inherited the catalog's
+<p>Refused rather than defaulted to <code>catalogs[].data_dir</code>: a source that inherited the catalog's
   data directory would be a second source reading the first one's files, which is a
   configuration nobody wrote and cannot see.
 - <code>RelativeDataDirectory</code> - The path is relative, so it resolves against the process working directory.</p>
-<p>A different directory on every host and never the one the operator meant. <code>catalog.data_dir</code>
+<p>A different directory on every host and never the one the operator meant. <code>catalogs[].data_dir</code>
   tolerates a relative path because it is resolved beside a command somebody typed; a source in a
   registry is read by a service whose working directory is whatever its supervisor chose.
 - <code>RelativePath</code> - A path a kind requires is relative, so it resolves against the process working directory.</p>

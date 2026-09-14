@@ -3256,7 +3256,7 @@ per adapter; nothing here panics, so a pack can also be called directly.</p>
   through it - see its own doc.</li>
 <li><strong>That <code>BigQueryWarehouse</code>'s real endpoint prices a dry run correctly.</strong> It is the only
   adapter declaring <code>Warehouse::PRICES_DRY_RUN</code> true, and it has no <code>crate::execute_packs</code>
-  binding (<code>telekom/sutura#618</code>), so <code>a_preflight_that_accepts_is_followed_by_an_answer</code>'s new
+  binding (<code>telekom/sutura#710</code>), so <code>a_preflight_that_accepts_is_followed_by_an_answer</code>'s new
   estimate check never runs against it - only against the three adapters that always declare
   <code>false</code> and always answer <code>None</code>.</li>
 </ul>

@@ -4205,17 +4205,32 @@ selects which file is layered, so a file that could change it would be self-refe
 <td>Off in production, on elsewhere</td>
 </tr>
 <tr>
-<td><code>catalog.dir</code></td>
+<td><code>catalogs</code></td>
+<td>one entry, named <code>model</code></td>
+<td><strong>A LIST, not a group of top-level keys.</strong> Each entry declares its own <code>name</code>, <code>kind</code>, <code>dir</code>, <code>data_dir</code> and <code>version</code> - see the rows below - and <strong>the list is file-only</strong>: <code>SUTURA__CATALOGS__0__DIR</code> does not index into it, because the environment layer builds a map and refuses a sequence it was asked to build instead</td>
+</tr>
+<tr>
+<td><code>catalogs[].name</code></td>
+<td><code>model</code></td>
+<td>What the contribution manifest keys this catalog on. Two entries with the same name are a refusal</td>
+</tr>
+<tr>
+<td><code>catalogs[].kind</code></td>
+<td><code>markdown</code></td>
+<td>Which adapter opens this catalog. <code>datahub</code> parses; no shipped binary links the adapter, so it is refused by the composition root instead</td>
+</tr>
+<tr>
+<td><code>catalogs[].dir</code></td>
 <td><code>catalog</code></td>
 <td>at most 1,000 documents / 16 MiB of documents in total; more is a startup refusal naming the bound; raising it is a source change, not a setting</td>
 </tr>
 <tr>
-<td><code>catalog.data_dir</code></td>
+<td><code>catalogs[].data_dir</code></td>
 <td><code>data</code></td>
 <td><strong>Printed by the startup banner and read by nothing that opens a data system.</strong> A served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code>, and the <code>sutura</code> command reads that same entry or else the directory on its command line</td>
 </tr>
 <tr>
-<td><code>catalog.version</code></td>
+<td><code>catalogs[].version</code></td>
 <td><code>unversioned</code></td>
 <td>A commit id or a build number. What identifies the snapshot</td>
 </tr>
@@ -4323,12 +4338,18 @@ selects which file is layered, so a file that could change it would be self-refe
 </table>
 <p>A zero is refused wherever it would read as "no limit", and every bound has a ceiling, because a
 value nobody chose is worse than a value somebody has to argue with.</p>
+<p><strong>Not built: a gate cross-checking this table's <code>catalogs[]</code> rows against <code>RawCatalog</code>'s own
+fields.</strong> Every <code>Raw*</code> shape already refuses an unknown key via <code>deny_unknown_fields</code>, which makes
+such a check mechanisable in principle - it is not built because the two sides are shaped
+differently (a markdown table cell, a Rust field name) and closing that gap needs a parser reading
+this file, not a lint reading the crate. Nothing here has justified writing one yet; a stale row
+still passes every other gate.</p>
 <h3 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h3>
 <p><strong>The service reads its data systems from <code>sources:</code>, one entry per data system, keyed by the alias a
-model's <code>source:</code> names.</strong> <code>catalog.data_dir</code> is no longer where a served source's files are found: it
-is the <code>sutura</code> command's data directory and stays that. A deployment that declares no source does not
-serve, because the catalog names a source with no entry and the process refuses before a listener is
-bound.</p>
+model's <code>source:</code> names.</strong> <code>catalogs[].data_dir</code> is no longer where a served source's files are found:
+it is the <code>sutura</code> command's own data directory and stays that. A deployment that declares no source
+does not serve, because the catalog names a source with no entry and the process refuses before a
+listener is bound.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">security</span><span class="p">:</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="c1"># single-user or multi-user. No default: see the refusal table above.</span>
 </span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="s">"single-user"</span>

@@ -2811,6 +2811,11 @@ documentation for why the handshake is not done here.</p>
 neither - and stops there, because that crate reads no files; everything below is a question only
 a TLS implementation can answer, and this is where they are all answered. Once, before the socket
 is bound.</p>
+<p><strong>A path is a filesystem path, not a secret, and naming one here is safe because of where this
+error stops rather than because of what it names.</strong> Every value this type is constructed from is
+returned before a socket is bound, or caught inside the rotation loop and only logged - both
+root-only. It never crosses into a request or a response, because no connection exists yet when
+either runs.</p>
 <h2 id="module-capability">Module <code>capability</code><a class="headerlink" href="#module-capability" title="Permanent link">&para;</a></h2>
 <p>Which capability each route is, and the layer that refuses one this caller was not granted.</p>
 <h1 id="the-mapping-is-a-table-and-it-is-checked-at-assembly-rather-than-per-request">The mapping is a table, and it is checked at ASSEMBLY rather than per request<a class="headerlink" href="#the-mapping-is-a-table-and-it-is-checked-at-assembly-rather-than-per-request" title="Permanent link">&para;</a></h1>
@@ -4961,6 +4966,11 @@ certificate rotation, which is planned days ahead by whatever issues them, that 
 neither - and stops there, because that crate reads no files; everything below is a question only
 a TLS implementation can answer, and this is where they are all answered. Once, before the socket
 is bound.</p>
+<p><strong>A path is a filesystem path, not a secret, and naming one here is safe because of where this
+error stops rather than because of what it names.</strong> Every value this type is constructed from is
+returned before a socket is bound, or caught inside the rotation loop and only logged - both
+root-only. It never crosses into a request or a response, because no connection exists yet when
+either runs.</p>
 <h4 id="variants_12">Variants<a class="headerlink" href="#variants_12" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Unreadable</code> - The file could not be read at all: absent, or not readable by this process.</li>
