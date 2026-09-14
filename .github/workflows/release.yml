@@ -166,7 +166,7 @@ jobs:
       # visible in every run rather than silent. Note the `# v14` pin has to share this one
       # comment with the directive: zizmor only honours an ignore comment that begins with
       # `zizmor:` and sits on the flagged line itself.
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # zizmor: ignore[cache-poisoning] v14 - not reachable, see above
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # zizmor: ignore[cache-poisoning] v14 - not reachable, see above
 
       - name: Gates
         run: |
@@ -297,7 +297,7 @@ jobs:
       # The same cache as `gates`, for the reason spelled out there. Within one run this also
       # picks up what `gates` just built, since both jobs read and write the same ref's scope.
       # Same inline suppression as there, for the same reason.
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # zizmor: ignore[cache-poisoning] v14 - not reachable, see above
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # zizmor: ignore[cache-poisoning] v14 - not reachable, see above
 
       # The three build steps are a LOCAL COMPOSITE ACTION: for one triple, every shipped binary
       # as a tarball, every shipped binary as an image with a smoke test, and an SBOM per image.
