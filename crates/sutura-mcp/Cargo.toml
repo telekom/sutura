@@ -25,6 +25,15 @@ sutura-app = { workspace = true }
 # new one.
 sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
+# For ONE type - `http::request::Parts` - and nothing this crate accepts connections over. This is
+# what `Asking::PerRequest` reads a `sutura_app::Asked` out of: the pinned `rmcp` HTTP server
+# transport injects the request's own `Parts` into `rmcp::service::RequestContext::extensions`
+# (`docs/adr/0023`), and `sutura-http`'s `establish_asked` inserts `Asked` into that same `Parts`
+# value's OWN extensions before this crate ever sees it - the two transports never call each other,
+# they agree on one wire type. Not the whole `http` crate's request/response machinery, and not a
+# step toward this crate opening a socket: `telekom/sutura#378`'s PR3 is where the transport feature
+# that actually produces one of these arrives, behind `sutura-mcp`'s own default-off `http` feature.
+http = { workspace = true }
 # For ONE function - `spawn_carrying_span` - and not for anything this crate installs. The `Surface`
 # port is synchronous and the engine behind it drives its own runtime, so a port call has to leave
 # the async worker; `clippy.toml` bans `tokio::task::spawn_blocking` because a pool thread has no

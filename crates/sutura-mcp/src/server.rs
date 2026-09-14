@@ -135,27 +135,41 @@
 //!
 //! # What a scope gates here, and where the control actually is
 //!
-//! [`AgentSurface::new`] **requires** a [`Permitted`], so a composition root cannot forget to say what
-//! the peer may do - the same reason `sutura_app::surface::LocalService::start` requires an audit
-//! sink. Given one, this handler does two things with it and only the second is a control:
+//! [`AgentSurface::new`] **requires** an [`Asking`], so a composition root cannot forget to say who
+//! may ask and what they may do - the same reason `sutura_app::surface::LocalService::start` requires
+//! an audit sink. Given one, [`AgentSurface::asked`] resolves it to a
+//! [`sutura_app::Asked`] for THIS call - once per `TheProcessOwner` construction, fresh per request
+//! under `PerRequest` - and this handler does two things with the result, only the second a control:
 //!
 //! | Where | What it does | What it is |
 //! | --- | --- | --- |
 //! | `tools/list` | drops a tool the peer may not invoke | **presentation** |
 //! | `tools/call` | refuses a capability the peer was not granted, advertised or not | **the control** |
 //!
-//! Both read the same set, so they cannot disagree - `sutura_app::capability` holds that argument and
-//! the test for it. A caller that guessed `ask_metric` without ever being shown it is refused by the
-//! second row, which is why the first is described as presentation rather than as security.
+//! Both read the same [`sutura_app::Asked`] for the call, so they cannot disagree -
+//! `sutura_app::capability` holds that argument and the test for it. A caller that guessed
+//! `ask_metric` without ever being shown it is refused by the second row, which is why the first is
+//! described as presentation rather than as security.
+//!
+//! **A third case exists only under `Asking::PerRequest`, and it is neither row above: no
+//! established caller at all.** That is refused before either row is reached -
+//! [`AgentSurface::asked`] returns the error and neither `tools/list` nor `tools/call` gets as far as
+//! asking `Permitted::includes` anything. See [`crate::Asking`] for why this is an enum with no
+//! `Option` anywhere in it: the alternative reading of "nothing established" is "the deployment's own
+//! identity," and that reading is exactly what this shape exists to make unrepresentable.
 //!
 //! **And the honest limit, which is not small:** nothing that ships narrows the set here.
-//! [`crate::serve_stdio`] passes `Permitted::every_capability`, because this transport speaks over
-//! standard input and output and there is no header a token could arrive in - `docs/adr/0014`'s
-//! closing section says as much, and says that deciding how this surface is reached at all is an
-//! architecture decision rather than a refactor. So the narrowing here is exercised by this module's
-//! own tests and by no request path, and the parameter is in place so that the decision arrives as a
-//! composition change rather than as a redesign of this handler.
+//! [`crate::serve_stdio`] always builds `Asking::TheProcessOwner { permitted: Permitted::every_capability() }`,
+//! because this transport speaks over standard input and output and there is no header a token could
+//! arrive in - `docs/adr/0014`'s closing section says as much, and says that deciding how this
+//! surface is reached at all is an architecture decision rather than a refactor.
+//! `Asking::PerRequest` exists on the type and is exercised by this module's own tests, with hand-
+//! built `RequestContext` values reusing a `Peer` a real handshake produced - `rmcp::service::Peer::new`
+//! is `pub(crate)` in the pinned SDK, so nothing outside `rmcp` can mint one from nothing. Nothing in
+//! this crate produces the value over any real request path yet: `telekom/sutura#378`'s PR3 is the
+//! HTTP transport feature that would, and PR4 is the composition root that chooses to mount it.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use std::time::Instant;
@@ -167,13 +181,14 @@ use rmcp::model::{
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler};
 use sutura_app::surface::{Surface, SurfaceFailure, cause_chain};
-use sutura_app::{Capability, Permitted};
+use sutura_app::{Asked, Capability};
 use sutura_config::RequestTimeout;
 use sutura_domain::query::Query;
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::{Admission, AtCapacity};
 
+use crate::Asking;
 use crate::tool;
 use crate::wire::{
     AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, MalformedStatement, OutcomeContent, RawContent, RunSqlArgs,
@@ -199,18 +214,20 @@ const INSTRUCTIONS: &str = "Ask this server for numbers rather than for data. \
 /// port has to outlive the future that started the call.
 pub struct AgentSurface<S> {
     service: Arc<S>,
-    /// What the peer on the other end of this transport may do.
+    /// How this surface learns who is asking and what they may invoke, for each call.
     ///
-    /// A field and not an `Option`, so "this deployment forgot to say" is not a state that exists -
-    /// the same reason `sutura_app::surface::LocalService` takes its audit sink as an argument.
-    permitted: Permitted,
+    /// A field and not an `Option<Permitted>`, so "this deployment forgot to say" is not a state
+    /// that exists - the same reason `sutura_app::surface::LocalService` takes its audit sink as an
+    /// argument. See [`crate::Asking`] for why it is also not a bare `Permitted`: the value a
+    /// `PerRequest` surface acts on is read fresh from each call, never cached on `self`.
+    asking: Asking,
     /// How catalog descriptions are treated, so the tool honours `prompt.catalog_prose` the same
     /// way the prompt does - an operator who omits the prose there must not ship it through here.
     prose: sutura_app::prompt::CatalogProse,
     /// How many questions may be executing at once, and how long a call waits for a turn.
     ///
     /// Held by value and not behind an `Option`: a deployment that forgot to bound its execution is
-    /// not a state that exists here, for the same reason `permitted` is not optional. The value is
+    /// not a state that exists here, for the same reason `asking` is not optional. The value is
     /// cheap to hold and every clone shares one permit set - see the module documentation for why
     /// that matters more than where the semaphore was built.
     admission: Admission,
@@ -228,11 +245,13 @@ impl<S> AgentSurface<S> {
     /// Takes the `Arc` rather than making one, so a composition root serving two transports shares
     /// one bundle and one data system rather than opening a second of each.
     ///
-    /// **`permitted` is required rather than defaulted, and that is the point of the signature.** A
+    /// **`asking` is required rather than defaulted, and that is the point of the signature.** A
     /// default here would be a posture chosen by this file for every deployment that ever links it;
-    /// `Permitted::every_capability` is the right answer over standard input and output and would be
-    /// the wrong answer the moment this surface is reachable over a network, and only a composition
-    /// root knows which it is building. See the module documentation for what the value then gates.
+    /// `Asking::TheProcessOwner { permitted: Permitted::every_capability() }` is the right answer
+    /// over standard input and output and would be the wrong answer the moment this surface is
+    /// reachable over a network, and only a composition root knows which it is building. See the
+    /// module documentation and [`crate::Asking`] for what the value then gates and why it is a mode
+    /// rather than a bare grant.
     ///
     /// **`prose` is required for the same reason, and it is a composition-root value.** `sutura`'s
     /// `mcp` subcommand passes what this deployment renders; a `CatalogProse` with no default keeps
@@ -255,17 +274,51 @@ impl<S> AgentSurface<S> {
     #[must_use]
     pub const fn new(
         service: Arc<S>,
-        permitted: Permitted,
+        asking: Asking,
         prose: sutura_app::prompt::CatalogProse,
         admission: Admission,
         reply: RequestTimeout,
     ) -> Self {
         Self {
             service,
-            permitted,
+            asking,
             prose,
             admission,
             reply,
+        }
+    }
+
+    /// Who this call is attributed to and what it may invoke, resolved from `self.asking` and - under
+    /// `Asking::PerRequest` only - this call's own `context`.
+    ///
+    /// **The one place either arm of [`Asking`] is read**, so `list_tools` and `call_tool` cannot
+    /// disagree about which caller a request belongs to - the same reason
+    /// `sutura_http::capability::establish_asked` is the one place its own `Asked` is derived on the
+    /// other transport.
+    ///
+    /// `PerRequest` reads an `http::request::Parts`' OWN extensions, not `context.extensions`
+    /// directly: that is the shape the pinned `rmcp` HTTP server transport actually produces
+    /// (`docs/adr/0023`, quoting `streamable_http_server/tower.rs`) and the shape
+    /// `sutura_http::capability::establish_asked` inserts a `sutura_app::Asked` into today - one wire
+    /// type, read by both transports, neither depending on the other. Nothing in this crate builds
+    /// one of those `Parts` over a real request yet; the tests that exercise this arm build one by
+    /// hand, the same shape a served HTTP transport will hand over.
+    ///
+    /// Returns the refusal rather than a fallback when `PerRequest` finds nothing: an absent
+    /// `sutura_app::Asked` must never read as `Asking::TheProcessOwner` would, which is why `Asking`
+    /// is an enum with no `Option` anywhere in it rather than one with a convenient default.
+    fn asked<'a>(&self, context: &'a RequestContext<RoleServer>) -> Result<Cow<'a, Asked>, ErrorData> {
+        match &self.asking {
+            Asking::TheProcessOwner { permitted } => Ok(Cow::Owned(Asked::established(
+                crate::principal::established(),
+                permitted.clone(),
+            ))),
+            Asking::PerRequest => context
+                .extensions
+                .get::<http::request::Parts>()
+                .and_then(|parts| parts.extensions.get::<Asked>())
+                .map(Cow::Borrowed)
+                .ok_or_else(no_established_caller),
         }
     }
 }
@@ -295,17 +348,23 @@ where
     /// `sutura_app::Capability` and fits one page by construction. `with_all_items` is what says
     /// that, rather than an empty `next_cursor` a reader has to interpret.
     ///
-    /// **Filtered by [`Permitted`], which is presentation** - see the module documentation for which
-    /// half of this is the control.
+    /// **Filtered by `sutura_app::Permitted`, which is presentation** - see the module documentation for which
+    /// half of this is the control. Reads the same [`sutura_app::Asked`] `call_tool` reads, through
+    /// [`AgentSurface::asked`] - `context` is no longer discarded, because `Asking::PerRequest` reads
+    /// it. A caller with no established identity at all is refused here exactly as it is refused a
+    /// call: the presentation half must not show a tool set an absent identity was never granted.
     ///
     /// Not an `async fn`, because there is nothing to await: building the tools is a schema
     /// derivation. The trait declares a future, so this returns a ready one.
     fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult::with_all_items(tool::every(&self.permitted))))
+        std::future::ready(
+            self.asked(&context)
+                .map(|asked| ListToolsResult::with_all_items(tool::every(asked.permitted()))),
+        )
     }
 
     #[expect(
@@ -323,7 +382,12 @@ where
         let Some(capability) = tool::named(&request.name) else {
             return Err(ErrorData::method_not_found::<CallToolRequestMethod>());
         };
-        if !self.permitted.includes(capability) {
+        // Resolved once, from `self.asking` and (under `PerRequest`) this call's own `context` - see
+        // `AgentSurface::asked`. `Asking` has no arm that falls back to the deployment's own identity
+        // when none was established, so this is the refusal that makes an absent caller unrepresentable
+        // as `Subject::TheDeploymentItself` rather than a courtesy this handler happens to extend.
+        let asked = self.asked(&context)?;
+        if !asked.permitted().includes(capability) {
             return Err(not_granted(capability));
         }
         // The exhaustive match is what makes a capability added to `sutura_app::Capability` a compile
@@ -338,8 +402,14 @@ where
             }
             Capability::AskMetric => {
                 let query = question(request)?;
+                // Cloned here and not read through `asked` inside the closure below: the port call
+                // moves to the blocking pool through `spawn_carrying_span`, whose closure has to be
+                // `'static`, while `asked` may borrow this call's own `context` under `PerRequest` -
+                // `sutura_app::Asked`'s own module documentation gives the same reason for why it is
+                // `Clone` at all.
+                let asked_as = asked.context().clone();
                 tokio::select! {
-                    result = answer(&self.service, &self.admission, self.reply, query) => result,
+                    result = answer(&self.service, &self.admission, self.reply, asked_as, query) => result,
                     () = context.ct.cancelled() => {
                         tracing::warn!("stopped waiting for a tool call because its peer cancelled");
                         return Err(ErrorData::internal_error("the peer cancelled this tool call", None));
@@ -348,8 +418,14 @@ where
             }
             Capability::RunSql => {
                 let statement = run_sql_statement(request)?;
+                // The same door `AskMetric` goes through, and deliberately so - `telekom/sutura#703`
+                // gates both `Surface::answer` and `Surface::run_sql` as the driving port's two doors,
+                // and a raw statement that reached its blocking task under a different identity than
+                // an `ask_metric` call on the same connection would be the one place this transport
+                // disagreed with itself about who is asking.
+                let asked_as = asked.context().clone();
                 tokio::select! {
-                    result = run_sql(&self.service, &self.admission, self.reply, statement) => result,
+                    result = run_sql(&self.service, &self.admission, self.reply, asked_as, statement) => result,
                     () = context.ct.cancelled() => {
                         tracing::warn!("stopped waiting for a tool call because its peer cancelled");
                         return Err(ErrorData::internal_error("the peer cancelled this tool call", None));
@@ -359,6 +435,25 @@ where
         };
         Ok(CallToolResponse::Complete(result))
     }
+}
+
+/// This transport established no caller for this request, under `Asking::PerRequest`.
+///
+/// **Refused, never `crate::principal::established()`.** That substitution is the one
+/// [`AgentSurface::asked`] exists to make unrepresentable - see the module documentation and
+/// [`crate::Asking`]. Nothing in this crate produces the value this reads today:
+/// the HTTP transport that would (`telekom/sutura#378` PR3) is not wired here, so on this tree the
+/// arm always refuses. A different code from [`not_granted`]'s, and deliberately: this is not a
+/// statement about which tool exists or which scope it needs - there is no caller yet to grant or
+/// refuse one to.
+fn no_established_caller() -> ErrorData {
+    tracing::warn!("a tool call was refused: this transport established no caller for it");
+    ErrorData::new(
+        ErrorCode::INVALID_REQUEST,
+        "this deployment could not establish who is asking, so the call is refused rather than \
+         answered as the deployment itself",
+        None,
+    )
 }
 
 /// A capability this peer was not granted, as a JSON-RPC error naming the scope that would grant it.
@@ -493,7 +588,13 @@ where
 /// are a 5-second window inside a 30-second deadline, the window expires first, and a shed question
 /// still comes back as at-capacity. A deployment whose window is at or above its reply deadline gets
 /// the deadline first - exactly what `docs/serving.md` already says of the HTTP layer.
-async fn answer<S>(service: &Arc<S>, admission: &Admission, reply: RequestTimeout, query: Query) -> CallToolResult
+async fn answer<S>(
+    service: &Arc<S>,
+    admission: &Admission,
+    reply: RequestTimeout,
+    asked_as: sutura_domain::identity::RequestContext,
+    query: Query,
+) -> CallToolResult
 where
     S: Surface,
 {
@@ -501,7 +602,7 @@ where
     // counting from, so the port's budget is inside the caller's whole wait for the same reason
     // `reply` itself wraps the admission window: `docs/adr/0029`.
     let deadline = Deadline::opened_at(Instant::now(), reply.budget());
-    match tokio::time::timeout(reply.duration(), admitted(service, admission, query, deadline)).await {
+    match tokio::time::timeout(reply.duration(), admitted(service, admission, asked_as, query, deadline)).await {
         Ok(result) => result,
         Err(_elapsed) => outran_its_deadline(reply),
     }
@@ -519,7 +620,13 @@ where
 /// a handle detaches the task rather than ending it - so the question runs on holding the slot the
 /// closure owns. Dropped while still WAITING for a slot, it takes none, which is the same cost a
 /// shed waiter has: a dropped future rather than a thread.
-async fn admitted<S>(service: &Arc<S>, admission: &Admission, query: Query, deadline: Deadline) -> CallToolResult
+async fn admitted<S>(
+    service: &Arc<S>,
+    admission: &Admission,
+    asked_as: sutura_domain::identity::RequestContext,
+    query: Query,
+    deadline: Deadline,
+) -> CallToolResult
 where
     S: Surface,
 {
@@ -531,7 +638,10 @@ where
     };
     let service = Arc::clone(service);
     let working = sutura_runtime::spawn_carrying_span(move || {
-        let answered = service.answer(&crate::principal::established(), &query, deadline);
+        // `asked_as` and not `crate::principal::established()`: the caller `AgentSurface::asked`
+        // resolved for THIS call, moved into the closure because the closure has to outlive the
+        // request's own borrowed extensions - see `sutura_app::Asked`'s own reason for being `Clone`.
+        let answered = service.answer(&asked_as, &query, deadline);
         // Explicitly, and here rather than at the top of the closure: the slot is released when the
         // WORK finishes, so it is not handed back by a peer that stopped waiting - and the closure
         // owning it is what makes that structural rather than an ordering somebody maintains.
@@ -557,19 +667,32 @@ where
 
 /// One raw statement, under both bounds, as a tool result - [`answer`]'s shape, over
 /// [`Surface::run_sql`] instead of [`Surface::answer`].
-async fn run_sql<S>(service: &Arc<S>, admission: &Admission, reply: RequestTimeout, statement: RawStatement) -> CallToolResult
+async fn run_sql<S>(
+    service: &Arc<S>,
+    admission: &Admission,
+    reply: RequestTimeout,
+    asked_as: sutura_domain::identity::RequestContext,
+    statement: RawStatement,
+) -> CallToolResult
 where
     S: Surface,
 {
-    match tokio::time::timeout(reply.duration(), admitted_raw(service, admission, statement)).await {
+    match tokio::time::timeout(reply.duration(), admitted_raw(service, admission, asked_as, statement)).await {
         Ok(result) => result,
         Err(_elapsed) => outran_its_deadline(reply),
     }
 }
 
 /// A slot, then the port on the blocking pool, then the outcome - [`admitted`]'s shape for the raw
-/// path.
-async fn admitted_raw<S>(service: &Arc<S>, admission: &Admission, statement: RawStatement) -> CallToolResult
+/// path. Reads `asked_as` for the same reason `admitted` does: `telekom/sutura#703` gates this as
+/// the driving port's second door, and it must not disagree with `AskMetric` about who is asking on
+/// the same connection.
+async fn admitted_raw<S>(
+    service: &Arc<S>,
+    admission: &Admission,
+    asked_as: sutura_domain::identity::RequestContext,
+    statement: RawStatement,
+) -> CallToolResult
 where
     S: Surface,
 {
@@ -579,7 +702,7 @@ where
     };
     let service = Arc::clone(service);
     let working = sutura_runtime::spawn_carrying_span(move || {
-        let answered = service.run_sql(&crate::principal::established(), &statement);
+        let answered = service.run_sql(&asked_as, &statement);
         drop(slot);
         answered
     });

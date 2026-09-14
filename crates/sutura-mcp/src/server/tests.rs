@@ -24,6 +24,14 @@ use crate::testing;
 /// says which group moved and why the admission pair did not.
 mod deadline;
 
+/// `Asking::PerRequest`: the refusal, and that two calls on one connection are two different askers.
+///
+/// A file of its own for the same 1000-line reason [`deadline`] is: these cells cannot reuse
+/// [`served`]/[`permitting`]/[`connected`], because those drive `AgentSurface` through a real client
+/// that has no way to vary `rmcp::service::RequestContext::extensions` per call - the module's own
+/// header says what it builds instead and why.
+mod asking;
+
 /// A client and a server joined by an in-memory pipe, with the peer permitted everything.
 ///
 /// **The client is `rmcp`'s own**, which is what "with no client of ours in the loop" means: the
@@ -67,7 +75,13 @@ where
 {
     let (client_side, server_side) = tokio::io::duplex(64 * 1024);
     let server = serve_server(
-        AgentSurface::new(Arc::new(surface), permitted, prose, admission, reply),
+        AgentSurface::new(
+            Arc::new(surface),
+            crate::Asking::TheProcessOwner { permitted },
+            prose,
+            admission,
+            reply,
+        ),
         server_side,
     );
     let client = serve_client((), client_side);
@@ -765,7 +779,7 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     let call = tokio::spawn({
         let service = Arc::clone(&service);
         let admission = admission.clone();
-        async move { super::answer(&service, &admission, reply(""), a_query()).await }
+        async move { super::answer(&service, &admission, reply(""), crate::principal::established(), a_query()).await }
     });
     assert!(
         eventually(|| holding.inside() == 1).await,
@@ -788,7 +802,7 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     );
     // And the consequence, which is the whole point of holding it: nothing else may start on top of
     // work that is still running.
-    let shed = super::answer(&service, &admission, reply(""), a_query()).await;
+    let shed = super::answer(&service, &admission, reply(""), crate::principal::established(), a_query()).await;
     assert_eq!(shed.is_error, Some(true), "a second question ran on top of the first");
 
     // Handed back when the WORK finishes, and not before.
