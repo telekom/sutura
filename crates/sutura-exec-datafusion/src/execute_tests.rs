@@ -8,10 +8,16 @@ use super::collect::cell;
 use super::translate::{aggregate_expr, literal, measure_expression, unit};
 use super::{DataFusionError, DataFusionWarehouse, column};
 use datafusion::arrow::array::{ArrayRef, BooleanArray, Date32Array, Float32Array, Int64Array, StringArray};
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::catalog::streaming::StreamingTable;
+use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::prelude::col;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
@@ -19,6 +25,7 @@ use sutura_domain::plan::{
     Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
     QueryPlan, ResultLabel, StatementTables,
 };
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 // `Warehouse as _`: the trait is imported for `dry_run` and `execute`, and never named.
 use sutura_domain::warehouse::{ParamValue, Real, Value, Warehouse as _};
 
@@ -591,4 +598,318 @@ fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_executed
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
         .expect_err("the table is not attached");
     assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
+}
+
+/// `telekom/sutura#160` PR2: the engine stops a question at its deadline rather than answering it.
+///
+/// A `StreamingTable` never runs out on its own, which is the source this suite needs: it keeps
+/// producing rows past any budget this test opens, so the ONLY way `execute` can return before
+/// `stop_by` is that the deadline stopped it. Each batch is gated behind a real
+/// `tokio::time::sleep`, which is what gives the runtime's own timer a genuine turn between
+/// batches - the same reason the source cannot simply spin: a future that never returns `Pending`
+/// gives the executor no point at which to notice the deadline passed either.
+mod deadline_tests {
+    use super::{
+        Aggregate, AtomicBool, Budget, Context, DataFusionWarehouse, DataType, Date32Array, Deadline, Duration, Executable,
+        Field, Instant, Int64Array, Ordering, Pin, Poll, RecordBatch, RecordBatchStream, Schema, SchemaRef,
+        SendableRecordBatchStream, StreamingTable, StringArray, TaskContext, plan, region_key, roomy, simple,
+    };
+    use datafusion::physical_plan::streaming::PartitionStream;
+    use futures_util::stream::Stream;
+    use std::future::Future as _;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    // `super::source` does not exist: `source()` lives at the crate root (`lib.rs`), not in
+    // `execute_tests` - `crate::source()` is the same route `crate::test_posture()` already takes.
+    // `Warehouse as _`: the outer module's own import is not inherited by this one either.
+    use sutura_domain::warehouse::Warehouse as _;
+
+    fn schema() -> SchemaRef {
+        Arc::new(Schema::new(vec![
+            Field::new("region", DataType::Utf8, false),
+            Field::new("order_date", DataType::Date32, false),
+            Field::new("amount", DataType::Int64, false),
+        ]))
+    }
+
+    fn one_row(schema: &SchemaRef) -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::clone(schema),
+            vec![
+                Arc::new(StringArray::from(vec!["north"])),
+                Arc::new(Date32Array::from(vec![super::day("2026-06-05").days_since_epoch()])),
+                Arc::new(Int64Array::from(vec![1_i64])),
+            ],
+        )
+        .expect("a one-row batch is rectangular")
+    }
+
+    /// A row every 5ms, forever - the test's own 200ms budget is always spent first.
+    ///
+    /// `Pin<Box<Sleep>>` keeps this type `Unpin` regardless of `Sleep`'s own pinning (`Box<T>` is
+    /// `Unpin` for every `T`), so `poll_next` needs no unsafe projection. `Drop` is the proof the
+    /// test reads: this source never yields `None` inside any budget the tests below open, so the
+    /// only way it stops is by being dropped.
+    struct ForeverRows {
+        schema: SchemaRef,
+        stop_by: Instant,
+        sleep: Pin<Box<tokio::time::Sleep>>,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl ForeverRows {
+        fn new(schema: SchemaRef, stop_by: Instant, dropped: Arc<AtomicBool>) -> Self {
+            Self {
+                schema,
+                stop_by,
+                sleep: Box::pin(tokio::time::sleep(Duration::from_millis(5))),
+                dropped,
+            }
+        }
+    }
+
+    impl Stream for ForeverRows {
+        type Item = datafusion::error::Result<RecordBatch>;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let this = self.get_mut();
+            if this.sleep.as_mut().poll(cx).is_pending() {
+                return Poll::Pending;
+            }
+            if Instant::now() >= this.stop_by {
+                return Poll::Ready(None);
+            }
+            let batch = one_row(&this.schema);
+            this.sleep = Box::pin(tokio::time::sleep(Duration::from_millis(5)));
+            Poll::Ready(Some(Ok(batch)))
+        }
+    }
+
+    impl RecordBatchStream for ForeverRows {
+        fn schema(&self) -> SchemaRef {
+            Arc::clone(&self.schema)
+        }
+    }
+
+    impl Drop for ForeverRows {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[derive(Debug)]
+    struct ForeverPartition {
+        schema: SchemaRef,
+        stop_by: Instant,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl PartitionStream for ForeverPartition {
+        fn schema(&self) -> &SchemaRef {
+            &self.schema
+        }
+
+        fn execute(&self, _ctx: Arc<TaskContext>) -> SendableRecordBatchStream {
+            Box::pin(ForeverRows::new(
+                Arc::clone(&self.schema),
+                self.stop_by,
+                Arc::clone(&self.dropped),
+            ))
+        }
+    }
+
+    /// A table over [`ForeverPartition`], registered as `orders` - the plan below never sees an end
+    /// of input on its own.
+    fn register_never_ending_orders(adapter: &DataFusionWarehouse, stop_by: Instant) -> Arc<AtomicBool> {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let table = StreamingTable::try_new(
+            schema(),
+            vec![Arc::new(ForeverPartition {
+                schema: schema(),
+                stop_by,
+                dropped: Arc::clone(&dropped),
+            })],
+        )
+        .expect("a streaming table with matching schema builds");
+        adapter
+            .context
+            .register_table("orders", Arc::new(table))
+            .expect("a streaming table registers");
+        dropped
+    }
+
+    fn revenue_by_region() -> super::QueryPlan {
+        plan(simple(Aggregate::Sum, "amount"), "revenue", region_key())
+    }
+
+    /// `abort()` on the spawned partition task `SpawnedTask::drop` calls is a REQUEST, not a
+    /// synchronous fact - the task's own `Drop` runs at its next poll, which needs another turn on
+    /// the runtime `execute` already returned from. This re-enters that same runtime and gives it
+    /// up to 500ms of scheduling to reap the abort, rather than reading the flag the instant
+    /// `execute` returns and calling a race the mechanism's own limit.
+    fn wait_for_drop(adapter: &DataFusionWarehouse, dropped: &AtomicBool) {
+        adapter.runtime().expect("a test runtime is present").block_on(async {
+            for _ in 0..100 {
+                if dropped.load(Ordering::SeqCst) {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        });
+    }
+
+    /// The RED test: on the head before this slice, `execute` ignores the deadline and this
+    /// adapter answers after `stop_by` (two seconds), failing `elapsed < tolerance` and
+    /// `expect_err`. With the timeout wrapping `rows`, the call returns inside the 200ms budget
+    /// plus a tolerance, names [`DataFusionError::DeadlineExceeded`], and the source was DROPPED -
+    /// not merely outlived.
+    #[test]
+    fn a_question_that_exceeds_its_budget_is_stopped_at_the_data_system() {
+        let stop_by = Instant::now() + Duration::from_secs(2);
+        let adapter =
+            DataFusionWarehouse::new(crate::source(), crate::test_posture(), roomy()).expect("a current-thread runtime builds");
+        let dropped = register_never_ending_orders(&adapter, stop_by);
+
+        let query = revenue_by_region();
+        let deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(200)).expect("200ms is a budget"),
+        );
+
+        let started = Instant::now();
+        let error = adapter
+            .execute(Executable::Query(&query), &crate::test_leg(), deadline)
+            .expect_err("the engine must stop at its deadline rather than answer");
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "the call took {elapsed:?} against a 200ms budget"
+        );
+        assert!(adapter.deadline_exceeded(&error), "{error:?}");
+        wait_for_drop(&adapter, &dropped);
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "dropping the future must cancel the source, not merely stop waiting on it"
+        );
+        assert!(
+            Instant::now() < stop_by,
+            "the source would still have rows left when the call returned, so it was cancelled and not outlived"
+        );
+    }
+
+    /// The same proof on the wide runtime: `enable_time()` is on BOTH constructors, and this is the
+    /// cell that would miss a fix applied only to [`DataFusionWarehouse::new`].
+    #[test]
+    fn a_question_that_exceeds_its_budget_is_stopped_on_the_wide_runtime_too() {
+        let stop_by = Instant::now() + Duration::from_secs(2);
+        let adapter = DataFusionWarehouse::with_worker_threads(
+            crate::source(),
+            crate::test_posture(),
+            core::num::NonZeroUsize::new(2).expect("two is nonzero"),
+            roomy(),
+        )
+        .expect("a multi-thread runtime builds");
+        let dropped = register_never_ending_orders(&adapter, stop_by);
+
+        let query = revenue_by_region();
+        let deadline = Deadline::opened_at(
+            Instant::now(),
+            Budget::parse(Duration::from_millis(200)).expect("200ms is a budget"),
+        );
+
+        let started = Instant::now();
+        let error = adapter
+            .execute(Executable::Query(&query), &crate::test_leg(), deadline)
+            .expect_err("the wide runtime must stop at its deadline too");
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "the call took {elapsed:?} against a 200ms budget"
+        );
+        assert!(adapter.deadline_exceeded(&error), "{error:?}");
+        wait_for_drop(&adapter, &dropped);
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "dropping must cancel the source on this runtime too"
+        );
+    }
+
+    // No `dry_run` variant: this adapter takes the port's default (`lib.rs`'s comment on the
+    // omission), which never calls `rows` and is unchanged by this slice - a test pinning it would
+    // pass identically before and after, which `just causality` would rightly read as no coverage.
+
+    /// A partition whose `execute` counts how many times `DataFusion` actually started pulling from
+    /// it - the proof the review of #680 (finding 2) asked for: a budget already spent must refuse
+    /// before the physical plan ever reaches the source, not merely produce the right error by some
+    /// other route. The stream it returns is never meant to run, so it borrows [`ForeverRows`]
+    /// rather than defining a third one.
+    #[derive(Debug)]
+    struct CountingPartition {
+        schema: SchemaRef,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl PartitionStream for CountingPartition {
+        fn schema(&self) -> &SchemaRef {
+            &self.schema
+        }
+
+        fn execute(&self, _ctx: Arc<TaskContext>) -> SendableRecordBatchStream {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(ForeverRows::new(
+                Arc::clone(&self.schema),
+                Instant::now(),
+                Arc::new(AtomicBool::new(false)),
+            ))
+        }
+    }
+
+    /// The variant doc says a spent budget is "found before a call" - this is what proves it rather
+    /// than asserting it: `Deadline::opened_at(now - 1s, 200ms)` is already spent the instant
+    /// `execute` reads it, so [`CountingPartition::execute`] must never run at all. Removing the
+    /// pre-check (`review of #680`'s M4: `remaining_at(..).unwrap_or(Duration::ZERO)` in place of the
+    /// early `return`) does not change the ERROR this test sees - `tokio::time::timeout(Duration::ZERO, rows)`
+    /// still answers `DeadlineExceeded` on its first poll - so `deadline_exceeded` alone cannot tell
+    /// the two shapes apart; only the call count can, and only this cell asks it.
+    #[test]
+    fn a_spent_deadline_never_lets_the_plan_touch_the_source() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let table_schema = schema();
+        let table = StreamingTable::try_new(
+            Arc::clone(&table_schema),
+            vec![Arc::new(CountingPartition {
+                schema: Arc::clone(&table_schema),
+                calls: Arc::clone(&calls),
+            })],
+        )
+        .expect("a streaming table with matching schema builds");
+
+        let adapter =
+            DataFusionWarehouse::new(crate::source(), crate::test_posture(), roomy()).expect("a current-thread runtime builds");
+        adapter
+            .context
+            .register_table("orders", Arc::new(table))
+            .expect("a streaming table registers");
+
+        let query = revenue_by_region();
+        let spent = Deadline::opened_at(
+            Instant::now()
+                .checked_sub(Duration::from_secs(1))
+                .expect("a test instant is not near the process start"),
+            Budget::parse(Duration::from_millis(200)).expect("200ms is a budget"),
+        );
+
+        let error = adapter
+            .execute(Executable::Query(&query), &crate::test_leg(), spent)
+            .expect_err("a deadline already spent must be refused before the plan runs");
+
+        assert!(adapter.deadline_exceeded(&error), "{error:?}");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "the source's own execute must never run once the deadline is already spent"
+        );
+    }
 }

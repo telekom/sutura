@@ -558,37 +558,14 @@ fn a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_
     );
 }
 
-#[test]
-#[cfg(feature = "bigquery")]
-fn a_request_timeout_that_leaves_no_job_budget_does_not_start() {
-    // **The subtle one, and it is a bug this test exists to have caught rather than a range check.**
-    // A job's deadline is not `server.request_timeout_seconds`: an answer makes
-    // `QueryDeadline::CALLS_PER_ANSWER` calls and each pays a connect margin, so filling the deadline
-    // with the whole timeout would produce a job allowed to outlive the request that promised it -
-    // green in every test here and an overrun under load. `within_request_timeout` owns that
-    // arithmetic, next to the constant it depends on.
-    //
-    // Ten seconds is the smallest number that makes the point: half of it is five, the connect margin
-    // is five, and what is left is nothing - so a deployment whose timeout cannot fit a query is told
-    // so at startup rather than being handed a clamped value nobody chose.
-    let error = refusal(
-        open_engine(
-            &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-            &registry(&bigquery_entry("warehouse", "shared-service-user", "")),
-            one_worker(),
-            sutura_config::RequestTimeout::parse(10).expect("ten seconds is a request timeout"),
-        ),
-        "a request timeout with no room for a job is not a servable deployment",
-    );
-    assert!(
-        error.contains("server.request_timeout_seconds"),
-        "the refusal must name the key an operator has to change: {error}"
-    );
-    assert!(
-        !error.contains("credential_file"),
-        "the budget is worked out before the credential file is read: {error}"
-    );
-}
+// `a_request_timeout_that_leaves_no_job_budget_does_not_start` lived here: a ten-second
+// `server.request_timeout_seconds` used to refuse a `bigquery` deployment at boot, because
+// `QueryDeadline::within_request_timeout` divided that number by the two calls one answer makes and
+// found nothing left. `docs/adr/0029` retired that arithmetic - a request-time job now derives
+// `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`, which the transport opens from the SAME
+// key without dividing it, so a ten-second `server.request_timeout_seconds` is a usable (if narrow)
+// budget rather than an unservable one. The refusal this test held is gone with the arithmetic that
+// produced it; deleted rather than adapted, because there is no boot-time number left to test.
 
 #[test]
 fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
