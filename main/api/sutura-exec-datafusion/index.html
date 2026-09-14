@@ -2945,7 +2945,8 @@ map" send a reader to three different places.</p>
 <p>The comparison is a real one rather than a value against itself: the broker reads the settings
   tree and this adapter holds what the root handed it. An <code>Err</code> for the reason the variant above
   is one - a wiring defect between the broker and the source declaration, which no caller may
-  retry into an answer. The typed cause carries which disagreement it was.</p>
+  retry into an answer. The typed cause carries which disagreement it was.
+- <code>DeadlineExceeded</code> - The deadline ran out before a call or around the whole <code>rows</code> future. Dropping that future requests abort of spawned asynchronous tasks; <code>DataFusion</code> wraps non-cooperative plan leaves so they yield. Already-running blocking work cannot be aborted and may outlive this error.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-datafusionwarehouse"><code>struct DataFusionWarehouse</code><a class="headerlink" href="#struct-datafusionwarehouse" title="Permanent link">&para;</a></h2>

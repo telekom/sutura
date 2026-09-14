@@ -2756,17 +2756,11 @@
 
 
 <h1 id="where-a-deadline-lives">Where a deadline lives<a class="headerlink" href="#where-a-deadline-lives" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted; the first slice landed the record, the port signature and the refusal. Two
-adapters now stop on it.</strong> Postgres stops the certified path with <code>SET LOCAL statement_timeout</code> (PR4
-of <code>telekom/sutura#160</code>); its own raw SQL tool path is stopped by the connect-time ceiling instead,
-since <code>Warehouse::execute_raw</code> carries no per-request deadline. <code>sutura-exec-bigquery</code> derives
-<code>timeoutMs</code>/<code>jobTimeoutMs</code> from the port's own <code>Deadline</code> (PR3) rather than from its own configured
-job bounds, retiring the arithmetic (<code>QueryDeadline::within_request_timeout</code>, <code>CALLS_PER_ANSWER</code>)
-that used to divide one instead - <strong>with two limits stated where the row is: the live reply shape for
-a job the service stops at <code>jobTimeoutMs</code> is documented rather than measured, and the credential
-broker's own per-subject token exchange still opens its bound from this transport's configured job
-bounds, not from the port's <code>Deadline</code>.</strong> The engine slice that makes it honour the deadline is still
-to follow. Four accepted
+<p>Status: <strong>accepted; the record, port signature and refusal have landed. The engine returns at a
+cooperative yield after its deadline and drops the rows future; Postgres stops its certified path
+with <code>statement_timeout</code>; BigQuery derives <code>timeoutMs</code>/<code>jobTimeoutMs</code> from the port deadline. The
+table states each mechanism and its limits. Postgres's raw SQL path has no per-request deadline and
+remains bounded by its connect-time ceiling.</strong> Four accepted
 records lean on this being decided - <a href="../0007-federating-across-different-data-systems/">0007</a>,
 <a href="../0008-a-credential-per-leg-for-the-calling-subject/">0008</a> part 4,
 <a href="../0009-the-plan-from-one-source-to-many/">0009</a>'s third decision and
@@ -2877,7 +2871,7 @@ and does not make the stop uniform, because it cannot: the interrupts are the da
 <tbody>
 <tr>
 <td><code>sutura-exec-datafusion</code> (shipped)</td>
-<td><code>tokio::time::timeout(remaining, rows)</code> inside <code>block_on</code>, on a runtime that now enables its timer; dropping the future drops the stream, and the engine's own spawned partition tasks abort on drop (<code>datafusion-common-runtime</code>'s <code>SpawnedTask</code>). The physical optimizer's default <code>EnsureCooperative</code> rule wraps every non-cooperative leaf so a stream yields per batch, and a yield is where a dropped future lands</td>
+<td><code>tokio::time::timeout(remaining, rows)</code> inside <code>block_on</code>, on a runtime that now enables its timer; dropping the future drops the stream, and the engine's own spawned partition tasks request abort on drop (<code>datafusion-common-runtime</code>'s <code>SpawnedTask</code>). The physical optimizer's default <code>EnsureCooperative</code> rule wraps a non-cooperative leaf or eager boundary that has no cooperative ancestor, so the plan has yield points where a dropped future can land</td>
 <td>The engine is this process, so <em>the data system</em> is the engine's operators: work stops at the next yield point, memory reservations are released with the operators</td>
 <td>Planning (analyzer, optimizer) is synchronous inside the future and is not interrupted; one started blocking file read (one range of one file, <code>object_store</code>'s <code>maybe_spawn_blocking</code>) runs to its end; nothing after it is polled</td>
 </tr>
@@ -2995,9 +2989,9 @@ arrives it shortens the budget the transport opens and changes nothing on the po
 <td><code>Budget::parse</code> is <code>pub</code>, so a test or a third transport can open a larger one; what holds production is that one constructor and review</td>
 </tr>
 <tr>
-<td>The engine stops at the deadline</td>
-<td>Not yet - it accepts the parameter and ignores it. The engine's own slice adds a test over a streaming source that yields until a stop instant well past the budget: the call returns inside the budget plus a tolerance, the predicate answers <code>true</code>, the source's drop flag is set</td>
-<td>Everything, until that slice lands: a non-yielding operator, planning, and one started blocking read stay unreached even after it does</td>
+<td>The engine returns after the deadline at a cooperative yield</td>
+<td><code>sutura-exec-datafusion</code> wraps <code>rows</code> in <code>tokio::time::timeout</code> on a runtime built with <code>enable_time()</code>. Two runtime tests register a <code>StreamingTable</code> that does not finish on its own, open a 200ms budget, and assert the call returns inside the budget plus a 300ms tolerance and before the source's own 2s end; the predicate answers <code>true</code> and the source's <code>Drop</code> fires. A third test proves a spent deadline never lets the plan touch the source by counting executions</td>
+<td>A non-yielding operator, planning (the analyzer and optimizer), and one started blocking file read stay unreached. <strong>The stop is at the next cooperative yield, not at the instant</strong>: each runnable partition task spends a 128-batch budget before the timer is heard, so overrun scales with <code>target_partitions</code> and batch cost; measured 825ms against a 200ms budget with 12 partitions on the current-thread runtime and 290ms with 2 workers. Dropping the rows future requests cancellation of spawned asynchronous tasks; already-running blocking work is not synchronously killed and may outlive the refusal</td>
 </tr>
 <tr>
 <td>Postgres stops the certified path at the deadline</td>
@@ -3031,6 +3025,14 @@ arrives it shortens the budget the transport opens and changes nothing on the po
 <li><strong>The reply margin is a fixed second.</strong> It is measured against the engine and not against a
   network. On BigQuery the reply of a cancelled job may take longer, and the caller then sees <code>408</code>
   while the audit record says the job was stopped.</li>
+<li><strong>On the engine's current-thread runtime, a stopped question's task tree is reaped on the NEXT
+  <code>block_on</code>, not when <code>execute</code> returns.</strong> Aborting a partition task is a request the runtime
+  services at that task's own next poll (see the port's own limit above), and a current-thread
+  runtime has no turn to give it without a caller entering <code>block_on</code> again - measured with a
+  spinning source: 312 batches produced by the time <code>execute</code> returned, 325 after one further
+  <code>block_on</code> on the same adapter, then flat. Until that next call, the stopped question's memory
+  reservations and any not-yet-aborted leaf survive. The multi-thread runtime has no such gap - its
+  workers keep running independently and reap on their own.</li>
 <li><strong>The DuckDB adapter observes nothing.</strong> Its row is empty on purpose.</li>
 <li><strong>The raw SQL tool is stopped by a ceiling, not a request's own budget.</strong> <code>Warehouse::execute_raw</code>
   carries no <code>Deadline</code> - a signature change the raw tool's own callers do not have yet - so a caller
