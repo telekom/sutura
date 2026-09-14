@@ -132,13 +132,15 @@ fn build_bigquery(
     // somebody later forgets to attach a broker is not a refusal here - it is the port.** `build_broker`
     // refuses to mint for a source it holds no exchanging half for (`Minted::Refused`), so a question
     // against one is refused as `credential_unavailable` rather than answered as this process.
-    // **`within_request_timeout` and NOT `parse`, and the difference is a bug that would only show up
-    // under load.** What a job may spend is not the request timeout: an answer makes
-    // `QueryDeadline::CALLS_PER_ANSWER` calls and each pays a connect margin on top of its own budget,
-    // so a 30-second deadline inside a 30-second request timeout overruns the transport that promised
-    // it. That arithmetic lives in the adapter, next to the constant it depends on, which is why a
-    // composition root asks for the SHARE rather than computing one.
-    let deadline = QueryDeadline::within_request_timeout(request_timeout.seconds())
+    // **`parse` and NOT `within_request_timeout` - which `docs/adr/0029` retired.** A question this
+    // deployment serves now carries the port's own `Deadline` all the way to `BigQueryWire::submit`,
+    // which derives `timeoutMs`/`jobTimeoutMs` from what THAT says is left - so this `JobBounds` no
+    // longer has to already fit inside the request timeout on its own. What it still bounds: the
+    // socket ceiling every call is pinned to as a backstop, and the boot path (`verify_anchor`),
+    // which has no `Deadline` to read and opens fresh from this value instead. Filled from the same
+    // key directly, because splitting one call's share off it is no longer this root's arithmetic to
+    // get right.
+    let deadline = QueryDeadline::parse(request_timeout.seconds())
         .map_err(|cause| format!("`server.request_timeout_seconds` leaves no BigQuery job deadline: {cause}"))?;
     let ceiling = BytesBilledCeiling::parse(max_bytes_billed)
         .map_err(|cause| format!("`sources.{source}.max_bytes_billed` is not a usable ceiling: {cause}"))?;

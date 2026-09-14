@@ -440,6 +440,29 @@ parameter, with nothing in the domain to invent it from.
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
+### `enum JobDeadline`
+
+```rust
+pub enum JobDeadline
+```
+
+Which clock one job answers to: the port's own `Deadline`, or the boot path's fresh window.
+
+**A two-variant type rather than `Option<Deadline>`, so the boot arm cannot be spelled by
+accident.** `None` reads the same whether it means *forgot to pass the deadline* or *this is
+deliberately the boot path* - indistinguishable at a call site and in review. `Boot` is a name a
+reader has to notice, and an `execute` or `dry_run` call site that wrote it instead of `Port(..)`
+reads as exactly the regression it would be.
+
+#### Variants
+
+- `Port` - A request-time call's own `Deadline`, opened by the transport at the answer's arrival. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc.
+- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm; `crate::wire::BigQueryWire::submit` opens a fresh window from this transport's own configured `crate::wire::JobBounds` instead.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `struct JobRequest`
 
 ```rust
@@ -458,6 +481,13 @@ pub const fn billing_project(&self) -> &ProjectId
 ```
 
 The project this job is billed to.
+
+```rust
+pub const fn deadline(&self) -> JobDeadline
+```
+
+Which clock this call answers to. See `JobDeadline` and the constructor's own doc for what
+each arm means to `crate::wire::BigQueryWire::submit`.
 
 ```rust
 pub const fn default_dataset(&self) -> &DatasetId
@@ -1113,24 +1143,30 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
 
 - **A job is bounded in TIME and in MONEY, and neither bound is a constant here.** `JobBounds`
   carries both, `WireAgent` carries the `JobBounds`, and `BigQueryWire` can only be built from
-  a `WireAgent` - so there is no way to submit a job this deployment did not bound. `jobTimeoutMs`
-  is what cancels a job at the service (`timeoutMs` alone does NOT: it bounds how long the client
-  waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
-  stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds bytes
-  scanned.
-- **The time bound is ONE ABSOLUTE DEADLINE PER CALL, not a timeout per HTTP operation, and this
-  bullet exists because the earlier shape was the second thing while claiming the first.** A single
-  call does a token exchange and then a job; `timeout_global` on the agent gave each of them a full
-  budget of its own, so a review measured one ANSWER - `dry_run` then `execute`, two exchanges and
-  two jobs - at four independent budgets against a transport whose own request timeout is thirty
-  seconds. `CallDeadline` is opened once in `submit` and every operation below it gets only what
-  is LEFT: the exchange's socket, the job's socket, and the `timeoutMs`/`jobTimeoutMs` the request
-  carries. A budget spent before the job is `WireError::DeadlineSpent` rather than a send.
-  **The limit, because it is the half a type here cannot reach:** neither `Warehouse` nor
-  `JobTransport` takes a deadline, so the two calls one answer makes cannot share one - an
-  answer's worst case is `QueryDeadline::CALLS_PER_ANSWER` budgets. That arithmetic is done once,
-  in `QueryDeadline::within_request_timeout`, so a composition root gets a deadline that already
-  fits inside the request timeout instead of a number it has to divide correctly.
+  a `WireAgent`. `jobTimeoutMs` is what cancels a job (`timeoutMs` alone does NOT: it bounds the
+  client's own wait, and an expired one leaves the job running and billing); `maximumBytesBilled`
+  stops a question scanning a petabyte, which neither the row cap nor the one-page refusal does.
+- **The time bound is ONE ABSOLUTE DEADLINE PER ANSWER, opened by the port and not by this
+  adapter, and this bullet exists because the earlier two shapes were each the second thing while
+  claiming the first.** `timeout_global` on the agent once gave every HTTP operation a full budget
+  of its own, so a review measured one ANSWER at four independent budgets against a transport
+  whose own request timeout is thirty seconds. `CallDeadline`, opened once per CALL, fixed that
+  leak - and then could not fix the next one, because neither `Warehouse` nor `JobTransport`
+  took a deadline, so the two calls one answer makes still could not share one; a composition
+  root's own configured job bounds substituted an arithmetic that divided the request timeout by
+  how many calls one answer makes, checked by nothing outside this crate. **`docs/adr/0029` now
+  carries a `Deadline` across the port itself** - one absolute instant,
+  opened by the transport at the answer's arrival and shared by every leg. `submit` reads what it
+  says is left via `crate::transport::JobRequest::deadline` and opens a `CallDeadline` FROM
+  that via `CallDeadline::opened_at_for`, so a slow token exchange shortens the job that
+  follows it rather than being followed by one with a full budget of its own, and `timeoutMs`/
+  `jobTimeoutMs` are what is left of THAT rather than of this adapter's own configured job bounds.
+  A budget spent before the job is `WireError::DeadlineSpent` rather than a send - checked
+  BEFORE the credential exchange too, since a spent caller should not spend it on an exchange
+  nobody waits for. **The boot path has no port `Deadline` to read** (`verify_anchor`, a fixture
+  load or drop, the identity read) and opens a fresh window from this adapter's own configured
+  `JobBounds` instead, exactly as every call did before this record. Pinned at `call_body`;
+  that `submit` hands it the exchange's own `call` is READ, not measured (`HOST` is unreachable).
 - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
   `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
   (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
@@ -1379,11 +1415,16 @@ every other variant and `clippy::result_large_err` is on.
   fallback because the alternative is presenting a token whose deadline nothing compared.
 - `DeadlineSpent` - This call's budget was gone before the job could be submitted.
 
-  **Refused rather than sent with whatever budget was left, because there was none.** One call
-  does a token exchange and then a job against one absolute deadline - see `CallDeadline` - so an
-  exchange slow enough to spend the whole of it leaves nothing to bound the job with. Submitting
-  anyway would either mean an unbounded wait or a job the service keeps running after the client
-  has stopped waiting, which is the pair of failures this whole shape exists to rule out.
+  **Refused rather than sent with whatever budget was left, because there was none. Reachable
+  two ways, and the first is new with `docs/adr/0029`:** the port's own `Deadline` was already
+  spent when `submit` was asked to do anything at all - the exchange included, so a
+  caller that ran out of time before this adapter was even reached does not spend it on an
+  exchange nobody is still waiting for - and the older way, a token exchange slow enough to spend
+  what was left of it before the job could be built. Submitting anyway would either mean an
+  unbounded wait or a job the service keeps running after the client has stopped waiting, which
+  is the pair of failures this whole shape exists to rule out. `budget_seconds` is the port's own
+  configured budget where a request carried a `Deadline`, and this adapter's own configured
+  `JobBounds` at the boot path, where there is no caller's budget to name.
 - `RequestNotSerializable` - The request could not be serialized.
 
   **A defect-only path, and it is named rather than unwrapped.** Everything in the body is a
@@ -1423,6 +1464,23 @@ every other variant and `clippy::result_large_err` is on.
   instant the client stops waiting for it, so an incomplete answer is no longer a live job this
   adapter walked away from. `named` carries the endpoint's reason as a closed `ReasonCode`,
   which for a cancelled job is the useful half.
+
+  **This is the DOCUMENTED shape `crate::transport::JobTransport::deadline_exceeded` answers
+  `true` for, and it is stated as documented rather than measured because that is exactly what
+  it is.** `timeoutMs` and `jobTimeoutMs` travel as the same number by construction - see
+  `crate::wire::document::body` - so a synchronous `jobs.query` reply cannot say *the wait
+  expired* without also saying *the service was asked to cancel at the same instant*: the
+  endpoint's own documentation of `timeoutMs` is that an expired one answers `jobComplete:
+  false`, which is this variant.
+
+  **Not yet measured against a real endpoint, and that is stated here rather than implied.** An
+  acceptance cell that raced a statement against a real deadline to reach exactly this reply was
+  tried and reverted - the corpus fixture is a handful of rows, so the round trip reliably
+  finishes before any budget short enough to matter, and a budget picked to "usually" lose that
+  race flakes against a project that bills for it. `tests/tests/deadline.rs`'s cell proves the
+  narrower claim instead - a spent port deadline refuses through the REAL wire and credential
+  before a request is sent - and leaves this variant's own shape open, closed only by a
+  statement that reliably outruns a real budget without depending on fixture size or jitter.
 - `MoreThanOnePage` - The answer is one page of more than one.
 - `NoTotal` - A complete job that stated no total.
 
@@ -1517,13 +1575,17 @@ exchange spent half the budget first. When nothing is left, the refusal comes be
 **A monotonic `std::time::Instant` and not a wall clock**, because a wall clock can step and a
 stepped deadline is either a job abandoned early or one that outlives its caller.
 
-**The limit, and it is the half this type cannot reach:** one ANSWER calls the port twice -
-`Warehouse::dry_run` and then `Warehouse::execute` - and neither `Warehouse` nor `crate::transport::JobTransport`
-takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
-`CALLS_PER_ANSWER` budgets rather than one, which is exactly why
-`QueryDeadline::within_request_timeout` exists: it does that arithmetic once so a composition root
-cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
-signature tweak.
+**The limit this type used to carry is resolved by `docs/adr/0029`, and the record of it stays
+here rather than being deleted, because the fix is a fact about the type above it and not about
+this one.** One ANSWER calls the port twice - `Warehouse::dry_run` and then `Warehouse::execute` -
+and this type alone could never make the two share a budget: it is opened fresh by whoever calls
+`Self::opened`/`Self::opened_at`, and nothing HERE remembers what an earlier call spent. The
+port now carries a `sutura_domain::warehouse::deadline::Deadline` - one absolute instant per
+answer - and `crate::wire::BigQueryWire::submit` opens a `CallDeadline` from what THAT says is
+left via `Self::opened_at_for`, so the sharing lives one level up, where the two port calls
+actually are. The boot path (`verify_anchor`, a fixture load or drop) has no such `Deadline` to
+read and keeps opening fresh from this adapter's own configured `QueryDeadline`, exactly as
+every call did before this record.
 
 ### `use JobBounds`
 
@@ -1535,19 +1597,23 @@ forget the other, and so `super::WireAgent` can carry them both.
 
 ### `use QueryDeadline`
 
-How long a job may run, and how long the client waits for its answer.
+How long a job may run when there is no port `Deadline` to read one from, and the ceiling this
+adapter's socket is pinned to for every call.
 
-**A newtype rather than a constant, because the value belongs to the deployment.** The setting that
-decides it is the one the transport in front of this service already uses -
-`server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a second
-copy of it that drifts the day somebody changes the first.
+**A newtype rather than a constant, because the value belongs to the deployment.** The setting
+that decides it is the one the transport in front of this service already uses -
+`server.request_timeout_seconds`, which ships as 30.
 
-**It is a SHARE of that setting rather than the setting itself**, which review had to point out:
-one answer makes `Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its
-own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
-running. `Self::within_request_timeout` is the constructor that does the division, and it is the
-one a composition root should reach for; `Self::parse` stays for a deployment stating a budget
-outright.
+**It used to be a SHARE of that setting rather than the setting itself, and `docs/adr/0029` is
+why it no longer is.** One answer made two calls through this transport - `Warehouse::dry_run`
+then `execute` - and neither took a deadline, so this type had to divide `30` by the two of them
+and their own connection overhead to keep an answer inside the caller's own wait -
+`within_request_timeout` was that arithmetic, checked by nothing outside this file. The port now
+carries ONE `Deadline` shared by every call one answer makes - `CallDeadline` opens FROM it at
+request time - so this type is left with a narrower job: the boot path, which has no `Deadline`
+to read (`verify_anchor`, a fixture load or drop, the identity read), and the socket ceiling every
+call is pinned to as a backstop regardless of what a request supplies. `Self::parse` is a
+composition root's one door in, and it takes the setting directly rather than a share of it.
 
 ### `use UnusableBound`
 
@@ -1579,19 +1645,23 @@ they are argued together.
 pub struct QueryDeadline
 ```
 
-How long a job may run, and how long the client waits for its answer.
+How long a job may run when there is no port `Deadline` to read one from, and the ceiling this
+adapter's socket is pinned to for every call.
 
-**A newtype rather than a constant, because the value belongs to the deployment.** The setting that
-decides it is the one the transport in front of this service already uses -
-`server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a second
-copy of it that drifts the day somebody changes the first.
+**A newtype rather than a constant, because the value belongs to the deployment.** The setting
+that decides it is the one the transport in front of this service already uses -
+`server.request_timeout_seconds`, which ships as 30.
 
-**It is a SHARE of that setting rather than the setting itself**, which review had to point out:
-one answer makes `Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its
-own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
-running. `Self::within_request_timeout` is the constructor that does the division, and it is the
-one a composition root should reach for; `Self::parse` stays for a deployment stating a budget
-outright.
+**It used to be a SHARE of that setting rather than the setting itself, and `docs/adr/0029` is
+why it no longer is.** One answer made two calls through this transport - `Warehouse::dry_run`
+then `execute` - and neither took a deadline, so this type had to divide `30` by the two of them
+and their own connection overhead to keep an answer inside the caller's own wait -
+`within_request_timeout` was that arithmetic, checked by nothing outside this file. The port now
+carries ONE `Deadline` shared by every call one answer makes - `CallDeadline` opens FROM it at
+request time - so this type is left with a narrower job: the boot path, which has no `Deadline`
+to read (`verify_anchor`, a fixture load or drop, the identity read), and the socket ceiling every
+call is pinned to as a backstop regardless of what a request supplies. `Self::parse` is a
+composition root's one door in, and it takes the setting directly rather than a share of it.
 
 ##### Methods
 
@@ -1617,6 +1687,16 @@ pub const fn parse(seconds: u64) -> Result<Self, UnusableBound>
 
 Parses a deadline in whole seconds.
 
+**The one door in, since `docs/adr/0029` retired `within_request_timeout`'s arithmetic**
+(deleted, along with the `CALLS_PER_ANSWER` constant it depended on and the `NoBudget`
+refusal it alone produced): a composition root used to have to divide
+`server.request_timeout_seconds` by how many calls one answer makes before filling this in,
+because neither call carried a budget the other could see. The port now carries one
+`sutura_domain::warehouse::deadline::Deadline` shared by every call one answer makes, so what
+this type bounds is narrower and needs no division: the boot path, which has no such
+`Deadline` to read, and the socket ceiling every call is pinned to regardless. A composition
+root fills this from `server.request_timeout_seconds` directly.
+
 ```rust
 pub const fn socket(self) -> Duration
 ```
@@ -1628,23 +1708,6 @@ really allowed is `CallDeadline::socket(left)` over what is LEFT of the call's b
 `CallDeadline`, and see the module header for why a per-operation timeout was not enough. This
 value is what the agent is configured with, so an operation that somehow reached the client
 without an override is still bounded.
-
-```rust
-pub const fn within_request_timeout(request_timeout_seconds: u64) -> Result<Self, UnusableBound>
-```
-
-The largest deadline that keeps one ANSWER inside a transport's own request timeout.
-
-**The arithmetic a composition root would otherwise have to remember, and get wrong.** The
-number to fill this from is `server.request_timeout_seconds`, which ships as thirty; what a
-caller wants is not that number but the share of it one call may spend, because an answer makes
-`Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its own budget. So
-`within_request_timeout(30)` is ten seconds, and two calls of ten plus five is the thirty a
-caller was promised.
-
-A request timeout too short to leave anything is `UnusableBound::NoBudget` rather than a
-silently clamped value, because a deployment whose timeout cannot fit a query wants to be told
-so at startup.
 
 ##### Implements
 
@@ -1697,11 +1760,6 @@ Why a bound this adapter was handed is not usable.
 
 - `Zero` - Zero, which would refuse every question rather than bounding one.
 - `TooLarge` - Above what the endpoint accepts, or above what a bound is for.
-- `NoBudget` - A transport's request timeout too short to leave a job any budget at all.
-
-  See `QueryDeadline::within_request_timeout`: one answer spends the budget
-  `QueryDeadline::CALLS_PER_ANSWER` times and each spend costs connection setup on top, so a
-  request timeout below that leaves nothing to bound.
 
 ##### Implements
 
@@ -1731,13 +1789,17 @@ exchange spent half the budget first. When nothing is left, the refusal comes be
 **A monotonic `std::time::Instant` and not a wall clock**, because a wall clock can step and a
 stepped deadline is either a job abandoned early or one that outlives its caller.
 
-**The limit, and it is the half this type cannot reach:** one ANSWER calls the port twice -
-`Warehouse::dry_run` and then `Warehouse::execute` - and neither `Warehouse` nor `crate::transport::JobTransport`
-takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
-`CALLS_PER_ANSWER` budgets rather than one, which is exactly why
-`QueryDeadline::within_request_timeout` exists: it does that arithmetic once so a composition root
-cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
-signature tweak.
+**The limit this type used to carry is resolved by `docs/adr/0029`, and the record of it stays
+here rather than being deleted, because the fix is a fact about the type above it and not about
+this one.** One ANSWER calls the port twice - `Warehouse::dry_run` and then `Warehouse::execute` -
+and this type alone could never make the two share a budget: it is opened fresh by whoever calls
+`Self::opened`/`Self::opened_at`, and nothing HERE remembers what an earlier call spent. The
+port now carries a `sutura_domain::warehouse::deadline::Deadline` - one absolute instant per
+answer - and `crate::wire::BigQueryWire::submit` opens a `CallDeadline` from what THAT says is
+left via `Self::opened_at_for`, so the sharing lives one level up, where the two port calls
+actually are. The boot path (`verify_anchor`, a fixture load or drop) has no such `Deadline` to
+read and keeps opening fresh from this adapter's own configured `QueryDeadline`, exactly as
+every call did before this record.
 
 ##### Methods
 

@@ -130,25 +130,17 @@ pub(super) fn open(
             ));
         }
     }
-    // `within_request_timeout` and NOT `parse`: an answer makes `QueryDeadline::CALLS_PER_ANSWER`
-    // calls and each pays a connect margin, so the arithmetic lives in the adapter next to the
-    // constant it depends on and a composition root asks for the SHARE. This command has no listener
-    // whose timeout a job could outlive, and it reads `server.request_timeout_seconds` anyway: that
-    // key is the one place a deployment says how long a question may take, and a second number
-    // invented here would be the duplicate that drifts.
-    //
-    // **THE LIMIT, and it is a number rather than a caveat.** `CALLS_PER_ANSWER` is 2 and the connect
-    // margin is 5s, so the shipped default of 30 gives a job **10 seconds**, and
-    // `RequestTimeout::MAX_SECONDS` (300) caps it at **145** - against a `QueryDeadline::MAX_SECONDS`
-    // of six hours. So on THIS binary that key bounds nothing that exists and imposes a ceiling
-    // designed to protect an HTTP connection the command does not have: a twelve-second question is
-    // cancelled by `jobTimeoutMs` with nobody waiting on any request, and no value of the key buys
-    // more than 145 seconds. `QueryDeadline::parse` is the adapter's own door for "a deployment
-    // stating a budget outright" and is deliberately NOT used here, because a second key on this
-    // binary alone is the duplicate this comment's first half refuses. What would change it is a
-    // settings key that means *how long a QUESTION may take* rather than how long a REQUEST may -
-    // one number both roots could read - and that is a settings decision rather than this file's.
-    let deadline = QueryDeadline::within_request_timeout(request_timeout.seconds())
+    // **`parse` and NOT `within_request_timeout` - `docs/adr/0029` retired that arithmetic.** This
+    // command opens the port's own `Deadline` from `settings.server().request_timeout()` at the
+    // instant a question arrives (`commands.rs`), and `BigQueryWire::submit` derives `timeoutMs`/
+    // `jobTimeoutMs` from what THAT says is left - so this `JobBounds` no longer has to already fit
+    // inside the request timeout on its own; it is filled from the key directly. What it still
+    // bounds: the socket ceiling every call is pinned to as a backstop, and the boot path
+    // (`verify_anchor`), which has no `Deadline` to read. This command has no listener whose timeout
+    // a job could outlive, and it reads `server.request_timeout_seconds` anyway because that key is
+    // the one place a deployment says how long a question may take, and a second number invented
+    // here would be the duplicate a prior version of this comment refused for a different reason.
+    let deadline = QueryDeadline::parse(request_timeout.seconds())
         .map_err(|cause| format!("`server.request_timeout_seconds` leaves no BigQuery job deadline: {cause}"))?;
     let ceiling = BytesBilledCeiling::parse(max_bytes_billed)
         .map_err(|cause| format!("`sources.{source}.max_bytes_billed` is not a usable ceiling: {cause}"))?;
