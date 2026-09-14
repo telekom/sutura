@@ -4551,8 +4551,8 @@ itself". This is that cell - issue #123 - and this amendment records three decis
 writing it, one measurement that closed a question the wrong way, and the two things a human still
 has to do.</p>
 <h3 id="what-the-cell-is-and-the-one-sentence-that-keeps-it-honest">What the cell is, and the one sentence that keeps it honest<a class="headerlink" href="#what-the-cell-is-and-the-one-sentence-that-keeps-it-honest" title="Permanent link">&para;</a></h3>
-<p><code>crates/sutura-exec-bigquery/tests/two_principals.rs</code>, reached by <code>just bigquery-two-principals</code> and
-by <code>nix run .#bigquery-two-principals</code>. One <code>QueryPlan</code> value, borrowed twice, so <strong>the statement is
+<p><code>two_principals.rs</code> (withdrawn, fourteenth amendment below - named without its path or its task
+citations here, because none of the three exists any more). One <code>QueryPlan</code> value, borrowed twice, so <strong>the statement is
 the same statement and not two that resemble each other</strong> - and each leg presents a bearer minted
 from that principal's own service-account key through this crate's own <code>Credential</code>, which is issue</p>
 <h1 id="123s-second-bullet-answered-by-reusing-the-credential-path-a-deployment-runs-rather-than-by">123's second bullet answered by reusing the credential path a deployment runs rather than by<a class="headerlink" href="#123s-second-bullet-answered-by-reusing-the-credential-path-a-deployment-runs-rather-than-by" title="Permanent link">&para;</a></h1>
@@ -4779,6 +4779,17 @@ became the aarch64 pair - so the musl-link sentence above is true again for the 
 every pull request, and false for <code>aarch64-unknown-linux-musl</code> in ordinary CI. Priced against what
 it replaces: the reduction runs two cells on a pull request where four ran before this record's
 period and two ran after it, and two on <code>main</code> where four ran.</p>
+<h2 id="fourteenth-amendment-2026-09-14-the-two-principal-cell-is-withdrawn">Fourteenth amendment, 2026-09-14: the two-principal cell is withdrawn<a class="headerlink" href="#fourteenth-amendment-2026-09-14-the-two-principal-cell-is-withdrawn" title="Permanent link">&para;</a></h2>
+<p>The maintainer's decision on telekom/sutura#123: sutura does not re-verify a source's row-level
+security. A data system that enforces row-level security is trusted to implement it; sutura's
+narrower and provable claim - that the job ran as the asking subject - is leg 2's exchange, not this
+cell's row comparison.</p>
+<p><code>two_principals.rs</code>, the <code>bigquery-two-principals</code> just task and nix app, and the "A real dataset
+under two keys" venue and claims-matrix column on <code>docs/where-identity-is-proven.md</code> are removed in
+the same change that records this. <code>test-infra/pulumi/google/__main__.py</code>'s <code>sa_a</code>/<code>sa_b</code> service
+accounts, their keys and their row access policies are left provisioned: deleting cloud state is a
+separate decision, and both accounts are candidates for the <code>iamcredentials</code> impersonation hop
+telekom/sutura#376's exchanged-identity cell still needs.</p>
 
 
 
