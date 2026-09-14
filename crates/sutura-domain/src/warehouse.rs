@@ -339,6 +339,25 @@ pub trait Warehouse {
     /// and executes it; the first adapter to make that claim brings the test that holds it.
     const EXECUTES_AUTHORED_SQL: bool = false;
 
+    /// Whether an accepted [`PreFlight`] can carry a real [`estimate::EstimatedBytes`], rather than
+    /// [`PreFlight::Accepted`]'s `estimated_bytes` always answering `None`.
+    ///
+    /// **Defaulted to `false`, the safe direction for the reason [`Self::EXECUTES_LEGS`]'s is**: an
+    /// adapter that says nothing is held to answer `None` on every accepted pre-flight, so nothing
+    /// downstream can read an adapter that never priced anything as though `Some(0)` meant "this
+    /// will cost nothing" rather than "nobody asked". Only an adapter whose `dry_run` reads a real
+    /// byte count off its data system - `BigQueryWarehouse` decodes `totalBytesProcessed` from the
+    /// wire - declares `true`.
+    ///
+    /// This is the capability constant `crate::warehouse::PreFlight`'s own doc and
+    /// `sutura_conformance::execute::a_preflight_that_accepts_is_followed_by_an_answer`'s once
+    /// named as missing: without it, an adapter that returned `Some(0)` where it never priced
+    /// anything, or `None` where it could, would be indistinguishable from one that got the
+    /// distinction right. **The pack checks this constant against what `dry_run` actually returns,
+    /// for every adapter it binds** - it is not itself a proof that `BigQuery`'s real endpoint
+    /// prices correctly, since `BigQuery` has no `execute_packs!` binding to run the check against.
+    const PRICES_DRY_RUN: bool = false;
+
     /// The name a plan uses to select this adapter.
     fn source(&self) -> &SourceName;
 

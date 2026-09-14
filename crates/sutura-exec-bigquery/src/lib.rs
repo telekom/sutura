@@ -540,6 +540,11 @@ where
     /// accepts the two subject shapes instead of refusing them.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
 
+    /// **This is the one adapter that prices a dry run.** [`Self::dry_run`] decodes
+    /// `totalBytesProcessed` off the wire rather than defaulting the field, so `Some` on an
+    /// accepted pre-flight is a real answer here rather than a value nothing computed.
+    const PRICES_DRY_RUN: bool = true;
+
     fn source(&self) -> &SourceName {
         &self.source
     }
