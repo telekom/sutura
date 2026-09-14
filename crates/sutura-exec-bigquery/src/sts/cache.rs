@@ -487,6 +487,39 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_for_a_missing_assertion_is_never_cached() {
+        // The source IS declared impersonating - the refusal here is the OTHER arm, for a caller
+        // with no assertion to exchange. A cache entry inserted on that refusal would make the
+        // NEXT caller for the same subject and source - one who DOES present an assertion - get
+        // served from a cache that was never populated by a real exchange.
+        let (exchange, calls) = CountingExchange::lasting(600);
+        let broker = broker_with_cache(exchange, 8, 300);
+        let who = subject("alice");
+
+        let refused = broker
+            .mint(&RequestContext::of(PrincipalChain::of(who.clone())), &one_source())
+            .expect("a fixture mint does not error");
+        assert!(
+            matches!(refused, Minted::Refused { .. }),
+            "no assertion to exchange is a refusal"
+        );
+        assert_eq!(calls.get(), 0, "a refusal must never reach the exchange");
+
+        let granted = broker
+            .mint(&context_for(who), &one_source())
+            .expect("a fixture mint does not error");
+        assert!(
+            matches!(granted, Minted::Granted { .. }),
+            "a caller with an assertion is granted"
+        );
+        assert_eq!(
+            calls.get(),
+            1,
+            "the refusal above must not have cached anything - this call must still pay for its own exchange"
+        );
+    }
+
+    #[test]
     fn an_error_from_the_exchange_is_never_cached() {
         let (exchange, calls) = FailingExchange::new();
         let broker = WorkloadIdentityBroker::empty(exchange)
