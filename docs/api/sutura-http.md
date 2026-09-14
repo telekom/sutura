@@ -332,6 +332,12 @@ neither - and stops there, because that crate reads no files; everything below i
 a TLS implementation can answer, and this is where they are all answered. Once, before the socket
 is bound.
 
+**A path is a filesystem path, not a secret, and naming one here is safe because of where this
+error stops rather than because of what it names.** Every value this type is constructed from is
+returned before a socket is bound, or caught inside the rotation loop and only logged - both
+root-only. It never crosses into a request or a response, because no connection exists yet when
+either runs.
+
 ## Module `capability`
 
 Which capability each route is, and the layer that refuses one this caller was not granted.
@@ -3344,6 +3350,12 @@ Every variant names the path. `sutura_config::TlsMaterial` parses the *pair* - b
 neither - and stops there, because that crate reads no files; everything below is a question only
 a TLS implementation can answer, and this is where they are all answered. Once, before the socket
 is bound.
+
+**A path is a filesystem path, not a secret, and naming one here is safe because of where this
+error stops rather than because of what it names.** Every value this type is constructed from is
+returned before a socket is bound, or caught inside the rotation loop and only logged - both
+root-only. It never crosses into a request or a response, because no connection exists yet when
+either runs.
 
 #### Variants
 

@@ -161,6 +161,14 @@ Four parts, each with its own reason:
 **The answer today is: none of them link either half of this crate**, and that is checkable rather
 than asserted.
 
+**Corrected: that overstates the manifest side.** `sutura-cli`'s own manifest declares the edge -
+`Cargo.toml:55`'s `bigquery` feature and `:87`'s `sutura-exec-bigquery = { workspace = true, optional
+= true }` - and `nix/shipped.nix:161-164` packages `sutura-serve` as a release artifact, published as
+the tarball `.github/workflows/release.yml:435` uploads. What holds is narrower than "none of them
+link either half":
+no artifact in the table below LINKS `sutura-exec-bigquery` or `ureq` in its DEFAULT build, because
+every one of them builds with the `bigquery` feature off.
+
 | Artifact                                       | Built from                                                                                                             | Links `sutura-exec-bigquery`? | Links `ureq`? |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------- |
 | `sutura` (`x86_64-unknown-linux-gnu`, native)  | `--package sutura-cli`                                                                                                 | no                            | no            |
@@ -170,11 +178,25 @@ than asserted.
 | `oci-<triple>` for each of those four          | the unsuffixed cross package                                                                                           | no                            | no            |
 | `sutura-serve`                                 | nothing - **it is built by no release package at all**, because the flake's release derivations name `sutura-cli` only | no                            | no            |
 
+**Corrected: `sutura-serve` IS built by a release package.** `nix/shipped.nix:161-164` names it as a
+shipped binary (`bin = "sutura-serve"`, `package = "sutura-serve"`), and
+`.github/workflows/release.yml:435` uploads the published `sutura-serve-<target>.tar.gz`. The flake's
+release derivations are not `sutura-cli`-only; the table's own "no" columns for this row still hold,
+because that package builds with the `bigquery` feature off.
+
 `crates/sutura-cli/Cargo.toml` declares no edge to `sutura-exec-bigquery`, and the root manifest
 keeps the crate out of `[workspace.dependencies]` on purpose - `cargo xtask unused-deps` is what
 keeps it out, because no member inherits it. So the four cross builds are byte-identical in their
 dependency requirements before and after this change, and the `wire` feature is off in every
 resolution any of them performs.
+
+**Corrected: the edge exists, feature-gated.** `Cargo.toml:55` is `bigquery =
+["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]` and `:87` is `sutura-exec-bigquery =
+{ workspace = true, optional = true }` - an edge, inherited from the workspace and off unless a build
+asks for the `bigquery` feature. The root manifest's own `[workspace.dependencies]` (`Cargo.toml:105`)
+carries the crate too, with its own comment saying why: the entry left when nothing linked the crate
+and is back because something does. `cargo xtask unused-deps` is what keeps that entry honest in
+either direction, not what keeps it out.
 
 **What it would cost when a composition root does link it**, stated now so the diff that does is not
 the one working it out: `ureq` plus the eighteen crates above, compiled for that target. The musl

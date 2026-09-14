@@ -1,14 +1,14 @@
 //! The sources this deployment declares: one entry per data system, keyed by the alias a model names.
 //!
-//! **Beside `catalog.data_dir` rather than instead of it, and the two answer different questions.**
-//! `catalog.dir` and `catalog.data_dir` are the *catalog*: authored definitions, and the directory the
+//! **Beside `catalogs[].data_dir` rather than instead of it, and the two answer different questions.**
+//! `catalogs[].dir` and `catalogs[].data_dir` are the *catalog*: authored definitions, and the directory the
 //! `sutura` command reads. A `sources:` entry is a *data system*: what kind it is, where it is, which
 //! identity a query reaches it as, and which identity re-ran its anchors at boot. A model's `source:`
 //! is the key that selects one.
 //!
-//! **The service reads this tree and not `catalog.data_dir`**, which is the one operator-facing break
+//! **The service reads this tree and not `catalogs[].data_dir`**, which is the one operator-facing break
 //! worth stating at the top: a deployment that pointed the service at its files with
-//! `catalog.data_dir` has to declare a source instead, and one that declares none does not serve -
+//! `catalogs[].data_dir` has to declare a source instead, and one that declares none does not serve -
 //! the catalog names a source with no entry, and the composition root refuses before a listener is
 //! bound.
 //!
@@ -244,14 +244,14 @@ pub enum InvalidSourceRegistry {
     DuplicateAlias { alias: SourceName, written: String },
     /// The entry names no file location.
     ///
-    /// Refused rather than defaulted to `catalog.data_dir`: a source that inherited the catalog's
+    /// Refused rather than defaulted to `catalogs[].data_dir`: a source that inherited the catalog's
     /// data directory would be a second source reading the first one's files, which is a
     /// configuration nobody wrote and cannot see.
     #[error("`sources.{alias}.data_dir` is missing or empty - write the directory the files behind this source live in")]
     NoDataDirectory { alias: SourceName },
     /// The path is relative, so it resolves against the process working directory.
     ///
-    /// A different directory on every host and never the one the operator meant. `catalog.data_dir`
+    /// A different directory on every host and never the one the operator meant. `catalogs[].data_dir`
     /// tolerates a relative path because it is resolved beside a command somebody typed; a source in a
     /// registry is read by a service whose working directory is whatever its supervisor chose.
     #[error(

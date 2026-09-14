@@ -40,8 +40,9 @@ struct Request<'a> {
 
 /// The answer, with the two fields this adapter reads.
 ///
-/// **`expires_in` arrives as text**, because the endpoint writes 64-bit integers as JSON strings -
-/// the same shape `BigQuery`'s `totalRows` arrives in.
+/// **`expires_in` arrives as a JSON number, not text.** Google's STS discovery document types it
+/// `integer`/`int32`; that is unlike `BigQuery`'s `totalRows`, which is `string`/`uint64` and is why
+/// that field genuinely needs the text-shaped type this crate uses for it.
 #[derive(serde::Deserialize)]
 struct Response {
     access_token: String,

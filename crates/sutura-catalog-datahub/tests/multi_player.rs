@@ -44,8 +44,7 @@ mod tests {
     use std::path::Path;
 
     use sutura_catalog_datahub::fixture::over_fixture_source;
-    use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::model::{Grain, SourceName};
+    use sutura_domain::model::SourceName;
     use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog as _};
     use sutura_domain::query::Query;
     use sutura_semantic::{Compiled, compile};
@@ -62,27 +61,17 @@ mod tests {
 
     /// The example question as a real documented input: `examples/multi-player/question.json`.
     ///
-    /// Read off disk so the file is the single source of the question, and the README's *revenue in
-    /// June 2026* is prose pointing at it. If the file stops being the documented question, this
-    /// test stops compiling or reading the question the example actually documents.
+    /// Read off disk and parsed as `Query`'s own wire shape - the same `from_str::<Query>` a real
+    /// caller's document would go through - so the file, the README and this test cannot hold three
+    /// opinions about what the example question is. It used to be hand-assembled from
+    /// `serde_json::Value` indexing under keys `Query` does not have (`from`/`to` rather than a
+    /// `range` object), which is why `sutura compile` refused this same file naming the unknown
+    /// field: the fixture that "cannot drift" from the file was reading past the file's actual
+    /// shape rather than through it.
     fn june_revenue() -> Query {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/multi-player/question.json");
-        let document: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).expect("the example question file exists"))
-                .expect("the example question file is json");
-        let metric = document["metric"].as_str().expect("the question names a metric");
-        let grain: Grain =
-            serde_json::from_value(document["grain"].clone()).expect("the question's grain is a grain of the closed set");
-        let start = Date::parse(document["from"].as_str().expect("the question has a start")).expect("the start is a date");
-        let end = Date::parse(document["to"].as_str().expect("the question has an end")).expect("the end is a date");
-        let range = TimeRange::new(start, end).expect("the question's range is a range");
-        Query::new(
-            sutura_domain::model::MetricName::parse(metric).expect("the question's metric is a name"),
-            grain,
-            range,
-            Vec::new(),
-            Vec::new(),
-        )
+        let text = std::fs::read_to_string(&path).expect("the example question file exists");
+        serde_json::from_str(&text).expect("the example question file is Query's own wire shape")
     }
 
     /// The shape's first claim: the metric the deployment's property defines is in the bundle.

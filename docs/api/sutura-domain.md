@@ -9970,6 +9970,14 @@ mistake and it gives the mode two owners: an adapter cannot declare a mode it do
 because the same adapter is correct in either posture and only the deployment knows which one it
 is being asked for.
 
+**`Self::posture`'s limit, stated where it publishes rather than on the method alone:** it
+answers the value the root handed over at construction. Every adapter this workspace ships now
+checks a leg's `Presented` credential against it before running - `Presented::agrees_with`,
+called once per leg inside all four adapters' own `execute` - so the comparison is per LEG, not
+only at boot. What that proves is that the credential offered for this leg matches how the
+source was declared, not that the data system itself evaluated anybody's authorization: there is
+no round trip back from the data system confirming which identity it actually ran as.
+
 **An adapter that declares no impersonation capability does not compile:**
 
 ```compile_fail

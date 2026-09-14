@@ -59,8 +59,9 @@
 //! the statement under whoever that token is. The [`wire`]'s own credential source stays for the
 //! shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
 //! a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
-//! the composition root that links this adapter, which is the half `docs/implementation-plan-bigquery.md`
-//! describes as not wired.
+//! the composition root that links this adapter: `crates/sutura-serve/src/broker.rs` composes
+//! `sts::WorkloadIdentityBroker` today - wired in serve, not proven live, the same limit
+//! `docs/adr/0018` states for it.
 //!
 //! **ONE of the two subject shapes, and the other is refused rather than degraded.** A
 //! [`Presented::SubjectPrincipal`] is a principal the data system switches to on a connection the
