@@ -105,6 +105,10 @@ test:
     # `SUTURA_DEV_REQUIRE_TIER` is exported by `sutura_tier_up` when a tier is up, rather than
     # asserted on this line - see that file: two statements about one fact can disagree.
     sutura_tier_up
+    # This shell is the crowded venue `sutura_dev::tolerance` widens a deadline cell's ceiling for -
+    # other lanes' own `just test`/`just validate` share these cores, and `checks.nextest`'s nix
+    # sandbox (what CI runs) declares no such thing, so it stays on the strict number by default.
+    export SUTURA_DEV_RELAXED_TOLERANCE=1
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
@@ -296,6 +300,8 @@ causality base="origin/main":
     # on HEAD*, and the postgres cells are fail-closed, so it failed its own precondition.
     source nix/with-tier.sh
     sutura_tier_up
+    # Same shell, same shared cores - see `test`'s own comment above `sutura_dev::tolerance` reads.
+    export SUTURA_DEV_RELAXED_TOLERANCE=1
     cargo run -q -p xtask -- test-causality --since {{ base }}
 
 # ---------------------------------------------------------------- artifacts ---

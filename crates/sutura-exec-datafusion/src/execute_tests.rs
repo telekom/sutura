@@ -759,10 +759,19 @@ mod deadline_tests {
     }
 
     /// The RED test: on the head before this slice, `execute` ignores the deadline and this
-    /// adapter answers after `stop_by` (two seconds), failing `elapsed < tolerance` and
+    /// adapter answers after `stop_by` (two seconds) with rows, failing `elapsed < ceiling` and
     /// `expect_err`. With the timeout wrapping `rows`, the call returns inside the 200ms budget
-    /// plus a tolerance, names [`DataFusionError::DeadlineExceeded`], and the source was DROPPED -
+    /// plus a ceiling, names [`DataFusionError::DeadlineExceeded`], and the source was DROPPED -
     /// not merely outlived.
+    ///
+    /// **The ceiling is CI's tight one, or a wider one on a shared machine - never a fixed guess.**
+    /// A single `elapsed < 500ms` reddened three times in one evening on branches that could not
+    /// touch this code (`telekom/sutura#140`'s comment thread: load 22-34 on 15 cores, three other
+    /// lanes compiling). `sutura_dev::tolerance` decides which number applies and CI keeps the
+    /// original 500ms; see that module for why the nix sandbox this repo's own CI runs through
+    /// lands on the strict number by construction. `Instant::now() < stop_by` stays unconditional
+    /// underneath it: the source still had rows left, so the call was cancelled and not outlived,
+    /// which is exact rather than a margin and needs no venue to pick a number for it.
     #[test]
     fn a_question_that_exceeds_its_budget_is_stopped_at_the_data_system() {
         let stop_by = Instant::now() + Duration::from_secs(2);
@@ -782,10 +791,12 @@ mod deadline_tests {
             .expect_err("the engine must stop at its deadline rather than answer");
         let elapsed = started.elapsed();
 
-        assert!(
-            elapsed < Duration::from_millis(500),
-            "the call took {elapsed:?} against a 200ms budget"
-        );
+        // 1.5s stays well under `stop_by`'s 2s floor - a deadline enforced so slowly it would miss
+        // this ceiling is already outlived rather than cancelled, which the assertion below catches
+        // on its own.
+        let ceiling =
+            sutura_dev::tolerance::Tolerance::from_env().ceiling(Duration::from_millis(500), Duration::from_millis(1500));
+        assert!(elapsed < ceiling, "the call took {elapsed:?} against a 200ms budget");
         assert!(adapter.deadline_exceeded(&error), "{error:?}");
         wait_for_drop(&adapter, &dropped);
         assert!(
@@ -824,15 +835,18 @@ mod deadline_tests {
             .expect_err("the wide runtime must stop at its deadline too");
         let elapsed = started.elapsed();
 
-        assert!(
-            elapsed < Duration::from_millis(500),
-            "the call took {elapsed:?} against a 200ms budget"
-        );
+        let ceiling =
+            sutura_dev::tolerance::Tolerance::from_env().ceiling(Duration::from_millis(500), Duration::from_millis(1500));
+        assert!(elapsed < ceiling, "the call took {elapsed:?} against a 200ms budget");
         assert!(adapter.deadline_exceeded(&error), "{error:?}");
         wait_for_drop(&adapter, &dropped);
         assert!(
             dropped.load(Ordering::SeqCst),
             "dropping must cancel the source on this runtime too"
+        );
+        assert!(
+            Instant::now() < stop_by,
+            "the source would still have rows left when the call returned, so it was cancelled and not outlived"
         );
     }
 

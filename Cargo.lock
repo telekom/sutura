@@ -3929,6 +3929,7 @@ dependencies = [
  "datafusion",
  "futures-util",
  "sutura-conformance",
+ "sutura-dev",
  "sutura-domain",
  "thiserror 2.0.20",
  "tokio",

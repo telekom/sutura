@@ -50,3 +50,4 @@ pub mod issuer;
 pub mod provisioned;
 pub mod requirement;
 pub mod scope;
+pub mod tolerance;
