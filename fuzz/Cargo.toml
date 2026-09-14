@@ -10,33 +10,41 @@
 #     harness measures under is the one declared below rather than one inherited by accident.
 #   * a second `Cargo.lock`. `cargo xtask check-fuzz` fails if it is missing, because a fuzz run
 #     against an unlocked graph is not reproducible - but `cargo deny` reads the ROOT lock only, so
-#     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the six direct dependencies
-#     below, four are first-party path dependencies and the two third-party ones are
+#     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the seven direct dependencies
+#     below, five are first-party path dependencies and the two third-party ones are
 #     `libfuzzer-sys` and `serde_json`.
 #
-# WHY THREE TARGETS, AND WHY THESE THREE. The issue #146 sweep measured that nothing generates input
-# against the parsers a caller or a catalog author reaches. `panic = "abort"` is on every shipped
-# profile, so a panic inside a third-party parser is the process dying rather than an error a caller
-# sees - and clippy at `-D warnings` (which denies `unwrap_used`, `expect_used`, `panic`,
-# `indexing_slicing`) does not reach inside those third-party parsers. These three targets close
-# caller-facing gaps - the first two are what that sweep scoped to, and `token` was added after it:
+# WHY FIVE TARGETS, AND WHY THESE FIVE. The issue #146 sweep measured that nothing generates input
+# against the parsers a caller, a catalog author or an operator's key-set file reaches. `panic =
+# "abort"` is on every shipped profile, so a panic inside a third-party parser is the process dying
+# rather than an error a caller sees - and clippy at `-D warnings` (which denies `unwrap_used`,
+# `expect_used`, `panic`, `indexing_slicing`) does not reach inside those third-party parsers.
 #
-#   * `sql_expression`  - `sutura_sql::expression::compile`, the boundary that turns an authored
+#   * `sql_expression`     - `sutura_sql::expression::compile`, the boundary that turns an authored
 #     SQL fragment into a checked AST. It runs `polyglot-sql`'s parser over the fragment text - a
 #     third-party recursive-descent parser whose own fragment API has a known empty-token-list
 #     abort that is lint-held rather than input-held - plus this crate's refusal guards and a
 #     render-and-reparse per dialect.
-#   * `question_body`   - the caller JSON both transports accept, through
+#   * `question_body`      - the caller JSON both transports accept, through
 #     `sutura_http::wire::QuestionBody` then `sutura_domain::query::Query::try_from`, which runs
 #     `serde_json` over the input with `deny_unknown_fields` and then the domain newtype parsers.
-#   * `token`            - the unauthenticated bearer-token header path through
+#   * `token`               - the unauthenticated bearer-token header path through
 #     `sutura_http::inbound::token::TokenValidator`, with a fixed public-only key set. The target
 #     covers header parsing and failed verification; it does not claim coverage of signed claims
 #     or the HTTP layer's non-UTF-8 rejection.
+#   * `catalog_document`   - `sutura_catalog_local::LocalCatalog::load`, the untrusted-author
+#     boundary: a catalog can be authored in a third-party system, so the operator serving it did
+#     not necessarily write it. Runs the frontmatter split, `serde_norway` and the domain newtypes
+#     behind a catalog document; asserts load determinism (same bytes, same digest) rather than
+#     only "did not abort".
+#   * `key_set_document`   - `sutura_http::inbound::keys::KeySet::parse`, the JWK-set document an
+#     operator's key-set file or authorization server supplies. Runs `serde_json`, then
+#     `jsonwebtoken`'s JWK decode, base64 and `KeyId::parse`; asserts a parsed set is never empty.
 #
-# What is deliberately NOT here, and why: the key-set path, the catalog YAML document path and the
-# bigquery wire documents are real untrusted boundaries but a different creature - they remain
-# outside this target set. Each target header states its own limit.
+# What is deliberately NOT here, and why: the BigQuery wire-reply documents are a real untrusted
+# boundary but a different creature (foreign-service response bytes, not a file or a caller
+# payload, and a `pub(super)` visibility question is unresolved) - it remains outside this target
+# set; see issue #146 for the open scoping question. Each target header states its own limit.
 
 # An empty table, which is what makes this directory a workspace root of its own. Without it cargo
 # refuses outright: "current package believes it's in a workspace when it's not".
@@ -78,6 +86,7 @@ sutura-domain = { path = "../crates/sutura-domain" }
 sutura-http = { path = "../crates/sutura-http" }
 sutura-sql = { path = "../crates/sutura-sql" }
 sutura-config = { path = "../crates/sutura-config" }
+sutura-catalog-local = { path = "../crates/sutura-catalog-local" }
 serde_json = "1"
 
 # `panic = "abort"`, matching every shipped profile in the root manifest - which is the whole
@@ -112,6 +121,20 @@ bench = false
 [[bin]]
 name = "token"
 path = "fuzz_targets/token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "catalog_document"
+path = "fuzz_targets/catalog_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "key_set_document"
+path = "fuzz_targets/key_set_document.rs"
 test = false
 doc = false
 bench = false
