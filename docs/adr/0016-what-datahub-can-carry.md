@@ -929,11 +929,15 @@ crate's default-off `http` feature. What it does and does not change:
 - **Three paged `GET /openapi/v3/entity/{entityName}` calls become one `Snapshot`** - `dataset`
   (`schemaMetadata`, `datasetProperties`), `semanticModel` (`semanticModelRelationship`) and `metric`
   (`metricInfo`, `structuredProperties`), one page each, at a fixed generous count. A page that
-  signals more results than the one page this reader reads (a `scrollId`, or a returned count equal
-  to a reported `total`) is a typed refusal (`HttpReaderError::MorePages`) rather than a silent
+  signals more results than the one page this reader reads (a `scrollId` alone, or a returned count
+  below a reported `total`) is a typed refusal (`HttpReaderError::MorePages`) rather than a silent
   truncation - the "one page or a refusal" shape `sutura-exec-bigquery`'s wire already holds for
   `jobs.query`, for the same reason: a caller must not certify a bundle built from a `Snapshot` that
-  silently dropped a model, a relationship or a metric.
+  silently dropped a model, a relationship or a metric. Each of the two tells is held by its own
+  cell now, after a review found the `scrollId` arm unheld by any of the original suite's cells.
+  **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own** - if it does,
+  every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
+  `tests/provisioned.rs`) has to measure this before PR2 wires the composition.
 - **Only the `metric` mapping is measured against a live instance, and this is the same limit the
   previous revision already stated, now attached to running code instead of to a test file.**
   `HttpAspectReader`'s metric mapping is the one `tests/provisioned.rs`'s `harvest` wrote out first
@@ -962,16 +966,23 @@ crate's default-off `http` feature. What it does and does not change:
   ceiling. A budget opened once and shared, rather than reopened per request, so a slow first page
   cannot leave the second and third each a fresh full timeout of their own -
   `sutura_exec_bigquery::wire::bounds::CallDeadline`'s own argument, applied here.
-- **TLS is `ureq`'s compiled-in default root set when the endpoint IS `https`, and `https_only` is
-  deliberately NOT pinned, unlike BigQuery's wire.** `BigQuery`'s `HOST` is a compile-time `https://`
-  constant, so refusing plaintext is a second lock on an already-fixed destination; this reader's
-  endpoint is the DEPLOYMENT's own declared URL, and this record's own measurement tier reaches its
-  `DataHub` over loopback plaintext "by construction" - an internal metadata platform on plain HTTP
-  inside a private network is a real shape, not a mistake. A deployment that writes `https://` gets
-  the root set below; one that writes `http://` gets what it asked for. `max_redirects(0)` and the
-  proxy left on are held, matching BigQuery. Issue #125 PR2's `security.outbound.transport_anchors` is
-  named as the follow-up for a deployment's own CA, for the endpoints that do use TLS; it is not built
-  here.
+- **The endpoint is a validated newtype, `http::Endpoint`, and the rule it holds is loopback-plaintext-
+  only, not absence of a rule.** `Endpoint::parse` is the only way to obtain one, and
+  `HttpAspectReader::new` takes an `Endpoint` rather than a `String` - a caller cannot dial an
+  endpoint this crate has not validated. `https://` is accepted for any host; `http://` is accepted
+  ONLY when the host is an IP loopback literal, the exact rule
+  `sutura_config::sources::transport::host_is_loopback` holds for Postgres's `transport_mode:
+  plaintext` (issue 124's fail-closed rule, `github.com/telekom/sutura#653`) - a hostname is not an
+  address, so `localhost` does not count either. **This corrects a defect a review found in this
+  same PR, worth recording rather than silently fixing:** the first draft removed BigQuery's
+  `https_only(true)` pin entirely, arguing from this repository's own loopback-plaintext measurement
+  tier - true, but an argument for LOOPBACK plaintext, not for plaintext to any host a deployment
+  might type. With no parse at all, a bearer was dialled in clear text to
+  `http://datahub.example.internal` exactly as readily as to `http://127.0.0.1`, refused only by a
+  connection timeout - no control at all. `ureq`'s compiled-in default root set still applies for an
+  `https://` endpoint; `max_redirects(0)` and the proxy left on are held, matching BigQuery. Issue
+  #125 PR2's `security.outbound.transport_anchors` is named as the follow-up for a deployment's own
+  CA, for the endpoints that do use TLS; it is not built here.
 - **Tested against a real local HTTP server, not mocked HTTP** - `tests/http_reader.rs`, over the
   recorded fixture's own corpus so the fake and the fixture cannot drift.
 - **Still not served.** No composition root links this crate, and `sutura-serve` refuses

@@ -747,26 +747,47 @@ already hold), never inline in a settings document.
 # Paging
 
 One page per entity type, at a generous count. A page that SIGNALS more results exist - a
-`scrollId`, or a returned count equal to a reported `total` - is refused
+`scrollId`, or a returned count below a reported `total` - is refused
 (`HttpReaderError::MorePages`) rather than silently read as complete: the same "one page or a
 refusal" shape `sutura-exec-bigquery`'s wire holds for `jobs.query`, because a caller must not
 certify a bundle built from a `Snapshot` that silently dropped a model, a relationship or a
-metric.
+metric. **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own.** If it
+does, every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
+`tests/provisioned.rs`) has to measure this before PR2 wires the composition - the `scrollId` arm
+is a defensible guess against the platform's own "there is more" convention, not something this
+crate has watched a real GMS answer.
 
-# TLS
+# TLS and the endpoint
 
-`ureq`'s compiled-in default root set when the deployment's endpoint IS `https`, `max_redirects(0)`
-and the proxy left on (`Proxy::try_from_env()`) - three of the four pins
-`sutura_exec_bigquery::wire::WireAgent::pinned` states for `BigQuery`. **The fourth,
-`https_only(true)`, is deliberately NOT one of them, and the reason is the difference between the
-two adapters' `HOST`.** `BigQuery`'s is a compile-time `https://` constant no deployment can
-change, so refusing a plaintext scheme is a second lock on a destination that was already fixed.
-This reader's endpoint is the DEPLOYMENT's own declared URL - `docs/adr/0016`'s own measurement
-tier reaches its `DataHub` over loopback plaintext "by construction", and an internal metadata
-platform reached over plain HTTP inside a private network is a real deployment shape, not a
-mistake to refuse. So the scheme is the endpoint's own: a deployment that writes `https://` gets
-TLS to the root set below; one that writes `http://` gets what it asked for. **Follow-up, not
-built here:** issue #125 PR2's `security.outbound.transport_anchors` is the future seam for a
+`Endpoint::parse` is the ONLY way to obtain an `Endpoint`, and `HttpAspectReader::new` takes
+one rather than a `String` - a caller cannot dial an endpoint this module has not validated, which
+is what makes the rule below a type rather than a sentence a reviewer has to trust.
+
+**`https://` is accepted for any host. `http://` is accepted ONLY when the host is an IP loopback
+LITERAL** - the exact rule `sutura_config::sources::transport::host_is_loopback` holds for
+Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule, `github.com/telekom/sutura#653`):
+a hostname is not an address, so `localhost` does not count either, and only something that parses
+as `IpAddr` and answers `is_loopback()` does. **This reader does not depend on `sutura-config` to
+get that rule** - crate-map's dependency direction runs the other way, so `host_is_loopback` is a
+mechanical copy of the same one-line check, not a shared function; the doc-tested source of truth
+for the RULE is the settings crate's, and this crate's own cells hold that the copy still agrees
+with it.
+
+**The earlier shape of this section was wrong, and the correction is worth keeping visible rather
+than silently fixed.** A first draft removed `https_only(true)` (`BigQuery`'s own pin) entirely,
+arguing that this reader's endpoint is the deployment's own declared URL and this record's own
+measurement tier reaches its `DataHub` over loopback plaintext "by construction" - both true, and
+both an argument for LOOPBACK plaintext, not for plaintext to any host a deployment might type.
+With no parse at all, `endpoint` was a raw `String` interpolated into a URL, and a bearer would
+have been dialled in clear text to `http://datahub.example.internal` exactly as readily as to
+`http://127.0.0.1`. A review reproduced it: a non-loopback `http://` endpoint was dialled, the
+bearer prepared, and the only refusal was a connection timeout - no control at all. `Endpoint`
+is the fix: the loopback argument now bounds exactly the case it was made for.
+
+`ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
+proxy left on (`Proxy::try_from_env()`) are the other three pins
+`sutura_exec_bigquery::wire::WireAgent::pinned` states for `BigQuery`. **Follow-up, not built
+here:** issue #125 PR2's `security.outbound.transport_anchors` is the future seam for a
 deployment's own CA, for the endpoints that do use TLS.
 
 ### `enum InvalidReadBounds`
@@ -873,6 +894,53 @@ variant - so this stays inspectable by a caller that knows to downcast, the `Era
 
 `Debug`, `Display`, `Error`
 
+### `enum InvalidEndpoint`
+
+```rust
+pub enum InvalidEndpoint
+```
+
+Why a declared endpoint is not usable.
+
+#### Variants
+
+- `NotAnHttpUrl` - Not an `http://` or `https://` URL.
+- `PlaintextBeyondLoopback` - `http://` to a host that is not an IP loopback literal - see `host_is_loopback`.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct Endpoint`
+
+```rust
+pub struct Endpoint
+```
+
+A validated `DataHub` endpoint.
+
+`https://<host>[:port]` for any host, or `http://` only for an IP loopback literal.
+`Self::parse` is the only constructor - see the module header's "TLS and the endpoint" section
+for the rule and why an earlier draft did not hold it.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint>
+```
+
+Parses and validates a declared endpoint, refusing a plaintext scheme to anything but a
+loopback literal. A trailing slash is normalised away, so `https://datahub.example/` and
+`https://datahub.example` produce the same request paths.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
 ### `struct HttpAspectReader`
 
 ```rust
@@ -888,12 +956,14 @@ second constructor would not.
 #### Methods
 
 ```rust
-pub fn new(endpoint: String, property: String, token: Secret, bounds: ReadBounds) -> Self
+pub fn new(endpoint: Endpoint, property: String, token: Secret, bounds: ReadBounds) -> Self
 ```
 
-Opens a reader. `endpoint` and `property` are the deployment's; `token` is read from a
-settings-declared file at boot by the composition root, never inline; `bounds` is
-`ReadBounds::parse`'s output, so a reader cannot be built with an unchecked pair.
+Opens a reader. `endpoint` is already validated - a caller reaches one only through
+`Endpoint::parse`, so a reader cannot be built pointed at a plaintext non-loopback host.
+`property` is the deployment's; `token` is read from a settings-declared file at boot by the
+composition root, never inline; `bounds` is `ReadBounds::parse`'s output, so a reader
+cannot be built with an unchecked pair either.
 
 #### Implements
 

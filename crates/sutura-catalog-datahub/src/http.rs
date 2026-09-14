@@ -45,28 +45,50 @@
 //! # Paging
 //!
 //! One page per entity type, at a generous count. A page that SIGNALS more results exist - a
-//! `scrollId`, or a returned count equal to a reported `total` - is refused
+//! `scrollId`, or a returned count below a reported `total` - is refused
 //! ([`HttpReaderError::MorePages`]) rather than silently read as complete: the same "one page or a
 //! refusal" shape `sutura-exec-bigquery`'s wire holds for `jobs.query`, because a caller must not
 //! certify a bundle built from a `Snapshot` that silently dropped a model, a relationship or a
-//! metric.
+//! metric. **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own.** If it
+//! does, every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
+//! `tests/provisioned.rs`) has to measure this before PR2 wires the composition - the `scrollId` arm
+//! is a defensible guess against the platform's own "there is more" convention, not something this
+//! crate has watched a real GMS answer.
 //!
-//! # TLS
+//! # TLS and the endpoint
 //!
-//! `ureq`'s compiled-in default root set when the deployment's endpoint IS `https`, `max_redirects(0)`
-//! and the proxy left on (`Proxy::try_from_env()`) - three of the four pins
-//! `sutura_exec_bigquery::wire::WireAgent::pinned` states for `BigQuery`. **The fourth,
-//! `https_only(true)`, is deliberately NOT one of them, and the reason is the difference between the
-//! two adapters' `HOST`.** `BigQuery`'s is a compile-time `https://` constant no deployment can
-//! change, so refusing a plaintext scheme is a second lock on a destination that was already fixed.
-//! This reader's endpoint is the DEPLOYMENT's own declared URL - `docs/adr/0016`'s own measurement
-//! tier reaches its `DataHub` over loopback plaintext "by construction", and an internal metadata
-//! platform reached over plain HTTP inside a private network is a real deployment shape, not a
-//! mistake to refuse. So the scheme is the endpoint's own: a deployment that writes `https://` gets
-//! TLS to the root set below; one that writes `http://` gets what it asked for. **Follow-up, not
-//! built here:** issue #125 PR2's `security.outbound.transport_anchors` is the future seam for a
+//! [`Endpoint::parse`] is the ONLY way to obtain an [`Endpoint`], and [`HttpAspectReader::new`] takes
+//! one rather than a `String` - a caller cannot dial an endpoint this module has not validated, which
+//! is what makes the rule below a type rather than a sentence a reviewer has to trust.
+//!
+//! **`https://` is accepted for any host. `http://` is accepted ONLY when the host is an IP loopback
+//! LITERAL** - the exact rule `sutura_config::sources::transport::host_is_loopback` holds for
+//! Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule, `github.com/telekom/sutura#653`):
+//! a hostname is not an address, so `localhost` does not count either, and only something that parses
+//! as `IpAddr` and answers `is_loopback()` does. **This reader does not depend on `sutura-config` to
+//! get that rule** - crate-map's dependency direction runs the other way, so [`host_is_loopback`] is a
+//! mechanical copy of the same one-line check, not a shared function; the doc-tested source of truth
+//! for the RULE is the settings crate's, and this crate's own cells hold that the copy still agrees
+//! with it.
+//!
+//! **The earlier shape of this section was wrong, and the correction is worth keeping visible rather
+//! than silently fixed.** A first draft removed `https_only(true)` (`BigQuery`'s own pin) entirely,
+//! arguing that this reader's endpoint is the deployment's own declared URL and this record's own
+//! measurement tier reaches its `DataHub` over loopback plaintext "by construction" - both true, and
+//! both an argument for LOOPBACK plaintext, not for plaintext to any host a deployment might type.
+//! With no parse at all, `endpoint` was a raw `String` interpolated into a URL, and a bearer would
+//! have been dialled in clear text to `http://datahub.example.internal` exactly as readily as to
+//! `http://127.0.0.1`. A review reproduced it: a non-loopback `http://` endpoint was dialled, the
+//! bearer prepared, and the only refusal was a connection timeout - no control at all. [`Endpoint`]
+//! is the fix: the loopback argument now bounds exactly the case it was made for.
+//!
+//! `ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
+//! proxy left on (`Proxy::try_from_env()`) are the other three pins
+//! `sutura_exec_bigquery::wire::WireAgent::pinned` states for `BigQuery`. **Follow-up, not built
+//! here:** issue #125 PR2's `security.outbound.transport_anchors` is the future seam for a
 //! deployment's own CA, for the endpoints that do use TLS.
 
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -279,6 +301,72 @@ pub enum HttpReaderError {
     MorePages { entity: &'static str },
 }
 
+/// Whether a URL's host is an IP loopback LITERAL - the same rule
+/// `sutura_config::sources::transport::host_is_loopback` holds for Postgres, copied rather than
+/// depended on (see the module header's "TLS and the endpoint" section for why). A hostname does
+/// not answer `true` however it resolves; only something that parses as [`IpAddr`] and is loopback
+/// does, which is what keeps `localhost` out of the plaintext-allowed set the same way it is kept
+/// out there.
+fn host_is_loopback(host: &str) -> bool {
+    host.trim().parse::<IpAddr>().is_ok_and(|address| address.is_loopback())
+}
+
+/// The host portion of a URL's authority (after the scheme, before the path), with any `:port`
+/// and IPv6 brackets stripped.
+fn host_part(authority_and_path: &str) -> &str {
+    let before_path = authority_and_path.split('/').next().unwrap_or(authority_and_path);
+    if let Some(bracketed) = before_path.strip_prefix('[') {
+        return bracketed.split(']').next().unwrap_or(bracketed);
+    }
+    before_path.rsplit_once(':').map_or(before_path, |(host, _port)| host)
+}
+
+/// Why a declared endpoint is not usable.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidEndpoint {
+    /// Not an `http://` or `https://` URL.
+    #[error("{given} is not an http:// or https:// URL")]
+    NotAnHttpUrl { given: String },
+    /// `http://` to a host that is not an IP loopback literal - see [`host_is_loopback`].
+    #[error(
+        "http:// is refused for {host} - only an IP loopback literal (127.0.0.1, ::1) may carry a \
+         bearer in clear text; write https:// or a loopback address"
+    )]
+    PlaintextBeyondLoopback { host: String },
+}
+
+/// A validated `DataHub` endpoint.
+///
+/// `https://<host>[:port]` for any host, or `http://` only for an IP loopback literal.
+/// [`Self::parse`] is the only constructor - see the module header's "TLS and the endpoint" section
+/// for the rule and why an earlier draft did not hold it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Endpoint(String);
+
+impl Endpoint {
+    /// Parses and validates a declared endpoint, refusing a plaintext scheme to anything but a
+    /// loopback literal. A trailing slash is normalised away, so `https://datahub.example/` and
+    /// `https://datahub.example` produce the same request paths.
+    pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint> {
+        let trimmed = raw.trim().trim_end_matches('/');
+        if let Some(rest) = trimmed.strip_prefix("http://") {
+            let host = host_part(rest);
+            if !host_is_loopback(host) {
+                return Err(InvalidEndpoint::PlaintextBeyondLoopback { host: host.to_owned() });
+            }
+        } else if trimmed.strip_prefix("https://").is_none() {
+            return Err(InvalidEndpoint::NotAnHttpUrl { given: raw.to_owned() });
+        }
+        Ok(Self(trimmed.to_owned()))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A `DataHub` GMS, reached over HTTP.
 ///
 /// Not generic over its credential the way `sutura-exec-bigquery`'s transport is: there is exactly
@@ -286,8 +374,9 @@ pub enum HttpReaderError {
 /// second constructor would not.
 #[derive(Debug, Clone)]
 pub struct HttpAspectReader {
-    /// `scheme://host[:port]`, no trailing slash.
-    endpoint: String,
+    /// Validated by [`Endpoint::parse`] - `https://` to any host, `http://` only to an IP loopback
+    /// literal. No trailing slash.
+    endpoint: Endpoint,
     /// The qualified name of the structured property THIS DEPLOYMENT registered for the certified
     /// metric document - `docs/adr/0016` decision 7's *not ours to say*, so there is no default.
     property: String,
@@ -297,11 +386,13 @@ pub struct HttpAspectReader {
 }
 
 impl HttpAspectReader {
-    /// Opens a reader. `endpoint` and `property` are the deployment's; `token` is read from a
-    /// settings-declared file at boot by the composition root, never inline; `bounds` is
-    /// [`ReadBounds::parse`]'s output, so a reader cannot be built with an unchecked pair.
+    /// Opens a reader. `endpoint` is already validated - a caller reaches one only through
+    /// [`Endpoint::parse`], so a reader cannot be built pointed at a plaintext non-loopback host.
+    /// `property` is the deployment's; `token` is read from a settings-declared file at boot by the
+    /// composition root, never inline; `bounds` is [`ReadBounds::parse`]'s output, so a reader
+    /// cannot be built with an unchecked pair either.
     #[must_use]
-    pub fn new(endpoint: String, property: String, token: Secret, bounds: ReadBounds) -> Self {
+    pub fn new(endpoint: Endpoint, property: String, token: Secret, bounds: ReadBounds) -> Self {
         let agent = ureq::Agent::new_with_config(
             ureq::Agent::config_builder()
                 .http_status_as_error(false)
@@ -345,7 +436,7 @@ impl HttpAspectReader {
         // A generous, fixed count rather than a configured one: raising it does not change the
         // shape of the read, only how large a deployment can be before `MorePages` fires - and a
         // deployment past this needs a different reader (real paging), not a bigger number here.
-        let url = format!("{}/openapi/v3/entity/{entity}?{query}&count=1000", self.endpoint);
+        let url = format!("{}/openapi/v3/entity/{entity}?{query}&count=1000", self.endpoint.as_str());
         let mut response = self
             .agent
             .get(&url)
@@ -705,4 +796,73 @@ fn harvest_metric(entity: &Value, property: &str) -> Result<MetricAspect, HttpRe
     }
     serde_json::from_value(Value::Object(document))
         .map_err(|cause| HttpReaderError::NotTheCanonicalShape { entity: ENTITY, cause })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Endpoint, InvalidEndpoint};
+
+    /// **The reviewer's own probe shape, held as a cell rather than a scratch file.** A non-loopback
+    /// `http://` endpoint is refused HERE, at construction - `HttpAspectReader::new` cannot be
+    /// called with a `String` at all, so there is no later point where this endpoint could be
+    /// dialled with the bearer prepared.
+    #[test]
+    fn a_plaintext_endpoint_beyond_loopback_is_refused_by_name() {
+        assert_eq!(
+            Endpoint::parse("http://datahub.example.internal"),
+            Err(InvalidEndpoint::PlaintextBeyondLoopback {
+                host: String::from("datahub.example.internal")
+            })
+        );
+    }
+
+    /// A hostname that HAPPENS to be `localhost` is still refused - `host_is_loopback` parses an
+    /// `IpAddr` literal or nothing, the same rule `sutura_config::sources::transport` holds.
+    #[test]
+    fn localhost_by_name_is_not_a_loopback_literal() {
+        assert_eq!(
+            Endpoint::parse("http://localhost:8080"),
+            Err(InvalidEndpoint::PlaintextBeyondLoopback {
+                host: String::from("localhost")
+            })
+        );
+    }
+
+    #[test]
+    fn a_plaintext_endpoint_to_an_ip_loopback_literal_is_accepted() {
+        assert_eq!(
+            Endpoint::parse("http://127.0.0.1:1").map(|e| e.as_str().to_owned()),
+            Ok(String::from("http://127.0.0.1:1"))
+        );
+        assert_eq!(
+            Endpoint::parse("http://[::1]:9002").map(|e| e.as_str().to_owned()),
+            Ok(String::from("http://[::1]:9002"))
+        );
+    }
+
+    #[test]
+    fn an_https_endpoint_is_accepted_for_any_host() {
+        assert_eq!(
+            Endpoint::parse("https://datahub.example.internal").map(|e| e.as_str().to_owned()),
+            Ok(String::from("https://datahub.example.internal"))
+        );
+    }
+
+    #[test]
+    fn a_trailing_slash_is_normalised_away() {
+        assert_eq!(
+            Endpoint::parse("https://datahub.example/").map(|e| e.as_str().to_owned()),
+            Ok(String::from("https://datahub.example"))
+        );
+    }
+
+    #[test]
+    fn a_url_naming_neither_scheme_is_refused() {
+        assert_eq!(
+            Endpoint::parse("ftp://datahub.example"),
+            Err(InvalidEndpoint::NotAnHttpUrl {
+                given: String::from("ftp://datahub.example")
+            })
+        );
+    }
 }

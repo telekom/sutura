@@ -16,7 +16,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use sutura_catalog_datahub::http::{HttpAspectReader, HttpReaderError, ReadBounds};
+    use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, HttpReaderError, ReadBounds};
     use sutura_catalog_datahub::{AspectReader as _, DataHubCatalog, DataHubError};
     use sutura_domain::identity::Secret;
     use sutura_domain::model::SourceName;
@@ -263,7 +263,7 @@ mod tests {
 
     fn reader(server: &FakeServer, timeout_seconds: u64, cap: u64) -> HttpAspectReader {
         HttpAspectReader::new(
-            server.endpoint(),
+            Endpoint::parse(&server.endpoint()).expect("a loopback fake server's own endpoint is a usable one"),
             String::from(DEPLOYMENT_PROPERTY),
             token(),
             bounds(timeout_seconds, cap),
@@ -472,6 +472,101 @@ mod tests {
         let error = reader(&server, 10, GENEROUS_CAP)
             .read()
             .expect_err("a truncated page is refused");
+        drop(server.finish());
+        assert!(
+            matches!(http_cause(&error), HttpReaderError::MorePages { entity: "dataset" }),
+            "expected MorePages{{entity: \"dataset\"}}, got: {}",
+            http_cause(&error)
+        );
+    }
+
+    /// **A relationship declaring more than one column per side is refused BY NAME, not silently
+    /// narrowed to the first.** `docs/adr/0016`'s "Field by field" table names `DataHub` as WIDER
+    /// than this adapter here; `one_column` is supposed to hold the line, and this cell is the one
+    /// that actually asks it to - a review found the earlier suite proved only the one-column happy
+    /// path, so deleting `one_column`'s `columns.len() == 1` filter survived every existing test.
+    ///
+    /// RED/GREEN mutation: delete the `.filter(|columns| columns.len() == 1)` in `one_column` - the
+    /// first of the two columns would be taken silently and this assertion goes red.
+    #[test]
+    fn a_relationship_with_more_than_one_column_per_side_is_refused() {
+        let mut multi_column = relationship_page();
+        multi_column["entities"][0]["semanticModelRelationship"]["value"]["fromColumns"] = serde_json::json!(["a", "b"]);
+        // The dataset page is first in read order and must be well-formed so the read REACHES the
+        // relationship page this cell is actually about.
+        let server = FakeServer::start(vec![Scripted::ok(&dataset_page()), Scripted::ok(&multi_column)]);
+        let error = reader(&server, 10, GENEROUS_CAP)
+            .read()
+            .expect_err("a multi-column relationship side is refused");
+        drop(server.finish());
+        assert!(
+            matches!(
+                http_cause(&error),
+                HttpReaderError::UnexpectedShape {
+                    entity: "semanticModel",
+                    field: "fromColumns"
+                }
+            ),
+            "expected UnexpectedShape{{entity: \"semanticModel\", field: \"fromColumns\"}}, got: {}",
+            http_cause(&error)
+        );
+    }
+
+    /// **A dataset entity with no `schemaMetadata` aspect at all is refused BY NAME, not read as
+    /// zero columns.** The same review that found the multi-column gap above found this one too: no
+    /// existing cell constructed a wrong-shaped page, so a `.unwrap_or_default()` in place of the
+    /// `schemaMetadata.value.fields` refusal would have survived silently.
+    ///
+    /// RED/GREEN mutation: replace the `.ok_or(UnexpectedShape { field: "schemaMetadata.value.fields" })?`
+    /// in `harvest_dataset` with `.unwrap_or_default()` - a dataset missing the aspect would decode
+    /// with zero columns instead of refusing, and this assertion goes red.
+    #[test]
+    fn a_dataset_with_no_schema_metadata_aspect_is_refused() {
+        let mut missing_schema = dataset_page();
+        // `as_object_mut` rather than replacing the whole entity, so everything else about the
+        // entity - its `urn`, its `datasetProperties` - stays exactly as the happy path's, and only
+        // the aspect under test is absent.
+        drop(
+            missing_schema["entities"][0]
+                .as_object_mut()
+                .expect("a dataset entity is an object")
+                .remove("schemaMetadata"),
+        );
+        let server = FakeServer::start(vec![Scripted::ok(&missing_schema)]);
+        let error = reader(&server, 10, GENEROUS_CAP)
+            .read()
+            .expect_err("a dataset with no schemaMetadata aspect is refused");
+        drop(server.finish());
+        assert!(
+            matches!(
+                http_cause(&error),
+                HttpReaderError::UnexpectedShape {
+                    entity: "dataset",
+                    field: "schemaMetadata.value.fields"
+                }
+            ),
+            "expected UnexpectedShape{{entity: \"dataset\", field: \"schemaMetadata.value.fields\"}}, got: {}",
+            http_cause(&error)
+        );
+    }
+
+    /// **A `scrollId` alone - no `total` field at all - is refused, not just a `total` above the
+    /// returned count.** `page_signals_more` checks both tells; a review found the existing cell
+    /// exercises only the `total` arm (the PR's own "paging truncation" mutation hardcoded the
+    /// WHOLE function to `false`, which cannot tell the two arms apart), so this cell isolates the
+    /// `scrollId` arm on its own.
+    ///
+    /// RED/GREEN mutation: delete the `scrollId` check in `page_signals_more` (keep the `total`
+    /// arm) - this page carries no `total` at all, so only the `scrollId` arm can catch it, and
+    /// deleting it alone goes red.
+    #[test]
+    fn a_page_carrying_only_a_scroll_id_is_refused() {
+        let mut scrolling = dataset_page();
+        scrolling["scrollId"] = serde_json::json!("opaque-scroll-token");
+        let server = FakeServer::start(vec![Scripted::ok(&scrolling)]);
+        let error = reader(&server, 10, GENEROUS_CAP)
+            .read()
+            .expect_err("a page carrying a scrollId and no total is refused");
         drop(server.finish());
         assert!(
             matches!(http_cause(&error), HttpReaderError::MorePages { entity: "dataset" }),
