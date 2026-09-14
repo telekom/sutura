@@ -421,9 +421,8 @@ fn prices_dry_run_is_checked_against_this_adapters_own_dry_run_path() {
     let PreFlight::Accepted { estimated_bytes } = answered else {
         panic!("a fake told to price a dry run answers Accepted, got {answered:?}");
     };
-    assert_eq!(
-        estimated_bytes.is_some(),
-        <BigQueryWarehouse<Recording> as Warehouse>::PRICES_DRY_RUN,
+    assert!(
+        BigQueryWarehouse::<Recording>::dry_run_estimate_agrees_with_its_declaration(estimated_bytes),
         "PRICES_DRY_RUN declares true; a priced dry run must carry an estimate to agree with it"
     );
 }
