@@ -75,6 +75,7 @@ map" send a reader to three different places.
 - `NoPredicate` - A plan with no predicate at all.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture` - The broker presented a leg that does not agree with how this source was DECLARED.
+- `DeadlineExceeded` - The deadline ran out: found spent before a call, or `tokio::time::timeout` fired around the whole `rows` future - `Warehouse::deadline_exceeded` names only this variant. A `SpawnedTask` aborts on `Drop` (`datafusion-common-runtime-55.0.0/src/common.rs:108-111`), and `EnsureCooperative` (`datafusion-physical-plan-55.0.0/src/coop.rs:65-67`) yields every non-cooperative leaf.
 
 ### Implements
 

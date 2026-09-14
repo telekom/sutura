@@ -226,6 +226,12 @@ pub enum DataFusionError {
         #[source]
         cause: PresentedDisagreesWithPosture,
     },
+    /// The deadline ran out: found spent before a call, or `tokio::time::timeout` fired around the whole `rows` future -
+    /// [`Warehouse::deadline_exceeded`] names only this variant. A `SpawnedTask` aborts on `Drop`
+    /// (`datafusion-common-runtime-55.0.0/src/common.rs:108-111`), and `EnsureCooperative`
+    /// (`datafusion-physical-plan-55.0.0/src/coop.rs:65-67`) yields every non-cooperative leaf.
+    #[error("the deadline ran out with a budget of {budget:?}")]
+    DeadlineExceeded { budget: std::time::Duration },
 }
 
 /// A plan becomes expressions here. The half of this adapter that never reads a result.
@@ -272,8 +278,8 @@ pub struct DataFusionWarehouse {
     /// which answers one question and exits; it is a hard ceiling on a server, because every caller
     /// `block_on`s this same runtime and a single-threaded one runs their work one at a time.
     ///
-    /// Still no `enable_all` either way, so still no timer and no I/O driver - neither of which a
-    /// plan over a local file needs.
+    /// `enable_time()` on both constructors now, and still no `enable_all` - so still no I/O driver, which a plan over a
+    /// local file does not need. Disabled, `tokio::time::timeout` panics with "there is no timer running" - `docs/adr/0029`.
     ///
     /// *Not bounded here: this runtime has its own blocking pool, at `tokio`'s default of 512
     /// threads. Nothing in this crate sizes it, and the transport's admission bound does not reach
@@ -355,6 +361,7 @@ impl DataFusionWarehouse {
     /// not: a defaulted posture would be a claim about who a query runs as that nobody made.
     pub fn new(source: SourceName, posture: SourcePosture, working_set: WorkingSet) -> Result<Self, DataFusionError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
             .build()
             .map_err(|cause| DataFusionError::Runtime { cause })?;
         let (environment, pool) = pool::environment(working_set)?;
@@ -410,6 +417,7 @@ impl DataFusionWarehouse {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(workers.get())
             .thread_name("sutura-engine")
+            .enable_time()
             .build()
             .map_err(|cause| DataFusionError::Runtime { cause })?;
         let (environment, pool) = pool::environment(working_set)?;
@@ -739,8 +747,9 @@ impl Warehouse for DataFusionWarehouse {
     // during analysis, so a plan naming a table that was never attached is an error out of
     // `execute` before a single row comes back - which is what the pre-flight was for.
 
-    // Carried, not enforced here; see `docs/adr/0029` (a later slice behind `telekom/sutura#160`).
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    /// **Stopped, not merely bounded** - `tokio::time::timeout` on a runtime built with `enable_time()`;
+    /// [`DataFusionError::DeadlineExceeded`]'s doc has the mechanism, `docs/adr/0029` the limits.
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
         // What this leg runs as, matched exhaustively before anything is executed. There is exactly
         // one shape this adapter can honour, and the other two are a wiring defect rather than a
         // question anybody may retry - see `DataFusionError::NoPlaceForASubject`.
@@ -762,14 +771,23 @@ impl Warehouse for DataFusionWarehouse {
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| DataFusionError::PresentedDisagreesWithPosture { cause })?;
+        let budget = deadline.budget().duration();
+        let Some(remaining) = deadline.remaining_at(std::time::Instant::now()) else {
+            return Err(DataFusionError::DeadlineExceeded { budget });
+        };
         // **Both shapes, one path, and the match stays exhaustive.** It would read more simply as a
         // single call now that `rows` takes the `Executable` - and that is exactly what it must not
         // be: `Executable` is the port's whole vocabulary, and the arm is what makes a third plan
         // shape a compile error in this adapter rather than something it silently ran as one of
         // these two.
-        match executable {
-            Executable::Query(_) | Executable::Leg(_) => self.runtime()?.block_on(self.rows(executable)),
-        }
+        let rows = match executable {
+            Executable::Query(_) | Executable::Leg(_) => self.rows(executable),
+        };
+        // Built INSIDE this `async move`, not handed to `block_on` directly: a `Sleep` registers on
+        // CONSTRUCTION, before `block_on`'s own argument is even evaluated - measured as a panic.
+        self.runtime()?
+            .block_on(async move { tokio::time::timeout(remaining, rows).await })
+            .map_err(|_elapsed| DataFusionError::DeadlineExceeded { budget })?
     }
 
     /// Re-runs an anchor's plan, under this process's own identity.
@@ -806,6 +824,11 @@ impl Warehouse for DataFusionWarehouse {
     /// `503` this whole variant exists to get them off.
     fn working_set_exhausted(&self, error: &Self::Error) -> Option<u64> {
         pool::refused_a_reservation(error).then(|| u64::try_from(self.working_set.bytes()).unwrap_or(u64::MAX))
+    }
+
+    /// The fourth predicate: `execute`'s own [`DataFusionError::DeadlineExceeded`] and nothing else.
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(error, DataFusionError::DeadlineExceeded { .. })
     }
 
     // `result_did_not_fit` is deliberately NOT overridden, and this is the adapter the default was
