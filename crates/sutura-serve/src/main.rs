@@ -513,9 +513,11 @@ fn usage() {
     );
     println!();
     println!("It binds loopback by default and refuses to start in production without an");
-    println!("access token and rate limiting. That token authenticates the DEPLOYMENT and not");
-    println!("the caller: sutura has no per-caller identity, so every question is answered with");
-    println!("whatever access this process already had, whoever asked it.");
+    println!("access token or a `security.inbound` block naming who is asking, and without");
+    println!("rate limiting. A bare access token authenticates the DEPLOYMENT and not the");
+    println!("caller: with no inbound block, sutura has no per-caller identity, so every");
+    println!("question is answered with whatever access this process already had, whoever");
+    println!("asked it.");
 }
 
 fn environments() -> String {
